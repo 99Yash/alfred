@@ -418,9 +418,11 @@ export function placeProvenance(
 /**
  * The warnings statement (ADR-0117 decision 4), at most two entries, after the feed reads:
  *
- * 1. The place: the `fallback` entry of a default city, or `no_place` when a national feed could
- *    not be read for want of a district. `coverageGap` is that sentence. A fallback carries it in
- *    its reason, so the list stays inside two entries.
+ * 1. The place: the `fallback` entry of a default city, or else `no_place` when Alfred read only
+ *    GDACS for the user's place. `coverageGap` is that sentence. A fallback wins over the gap: the
+ *    default city is not the user's place, so its feed coverage says nothing about the user, and
+ *    the fallback already says that the briefing may miss warnings for the user's area. So each
+ *    entry is one statement, and no statement joins two sentences that could pass the bound.
  * 2. `read_failed` with `retry`, when a feed or a part of it could not be read. `failures` names
  *    each one.
  *
@@ -436,11 +438,7 @@ export function warningsProvenance(args: {
   const entries: GatherProvenance[] = [];
 
   if (fallback !== null) {
-    entries.push(
-      coverageGap === null
-        ? fallback
-        : { ...fallback, reason: provenanceText(`${fallback.reason} ${coverageGap}`) },
-    );
+    entries.push(fallback);
   } else if (coverageGap !== null) {
     entries.push({
       input: "warnings",
@@ -474,11 +472,26 @@ function noUserPlaceSentence(unplaced: StatedPlace | null): string {
 }
 
 /**
+ * Longest name that a provenance sentence holds (a place label). Each sentence that holds one name
+ * has fewer than `GATHER_PROVENANCE_TEXT_MAX - PROVENANCE_NAME_MAX` fixed characters, so the name
+ * is cut, and the sentence is not. The place reader keeps a fact inside `PLACE_TEXT_MAX` (100), so
+ * only a long `location` preference label meets this cut.
+ */
+const PROVENANCE_NAME_MAX = 100;
+
+/** A name for a provenance sentence, inside `PROVENANCE_NAME_MAX`. */
+export function provenanceName(name: string): string {
+  return clip(name, PROVENANCE_NAME_MAX);
+}
+
+/**
  * A sentence inside `GATHER_PROVENANCE_TEXT_MAX`, so a long name cannot fail the parse of the
  * stored gather. The place reader keeps a fact inside `PLACE_TEXT_MAX`, so the cut is a backstop.
  */
 function provenanceText(text: string): string {
-  return text.length <= GATHER_PROVENANCE_TEXT_MAX
-    ? text
-    : `${text.slice(0, GATHER_PROVENANCE_TEXT_MAX - 3)}...`;
+  return clip(text, GATHER_PROVENANCE_TEXT_MAX);
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 3)}...`;
 }

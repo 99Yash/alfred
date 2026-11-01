@@ -8,17 +8,23 @@ import {
   type GatherInput,
   type GatherProvenance,
   type IanaTimezone,
+  type OfficialWarning,
 } from "@alfred/contracts";
 import {
   BROKEN_CONNECTION_GUIDANCE,
   describeBrokenConnection,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
-import type { LocalDateKey } from "@alfred/assistant/time";
+import { inZone, type LocalDateKey, type ZoneClock } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
-import { buildBriefingTools, type BriefingToolName, type DumpedBriefing } from "./tools";
-import { provenanceAudience } from "../provenance";
+import {
+  buildBriefingTools,
+  officialWarningsRead,
+  type BriefingToolName,
+  type DumpedBriefing,
+} from "./tools";
+import { provenanceAudience, type FallbackProvenance } from "../provenance";
 import { describeOpenAskViolation, type OpenAskViolation } from "../open-ask-guard";
 
 /** Daily-briefing agent. Uses the AI SDK tool loop (`generateText` + `stopWhen`) in one workflow step. */
@@ -50,8 +56,9 @@ export interface RunBriefingAgentArgs {
    */
   calendar?: BriefingGather["calendar"] | undefined;
   /**
-   * The gather's official warnings, for `list_official_warnings`. `null`: the gather read no feed.
-   * Absent on a run from before this field.
+   * The gather's official warnings. Each warning is a seed fact (`officialWarningFacts`), and
+   * `list_official_warnings` gives the full details. `null`: the gather read no feed. Absent on a
+   * run from before this field.
    */
   warnings?: BriefingGather["warnings"];
   /**
@@ -118,13 +125,13 @@ interface ComposerRead {
 
 /**
  * The inputs that the composer reads through its tools, and so the inputs that get a composer
- * fact. Warnings reach it through `list_official_warnings`, so a warnings `fallback` (the default
- * city) is a fact, while the same weather `fallback` is a log line only: weather does not reach
- * the composer. The activity list reaches it only as a count:
- * `gatherBriefingWithSuppressionAudit` adds the fresh items to `activityCount`, which sets
- * `get_day_shape.activityVolume`. A stale item left the list before the count, so its statement
- * stays in the stored gather and the log. A failed deploy-status read can make that count low, and
- * the composer gets no fact for it.
+ * fact. Warnings reach it as seed facts (`officialWarningFacts`) and through
+ * `list_official_warnings`, so a warnings `fallback` (the default city) is a fact, while the same
+ * weather `fallback` is a log line only: weather does not reach the composer. The activity list
+ * reaches it only as a count: `gatherBriefingWithSuppressionAudit` adds the fresh items to
+ * `activityCount`, which sets `get_day_shape.activityVolume`. A stale item left the list before
+ * the count, so its statement stays in the stored gather and the log. A failed deploy-status read
+ * can make that count low, and the composer gets no fact for it.
  */
 const COMPOSER_READS = {
   email: { tool: "list_emails_since", hides: "your new email" },
@@ -144,8 +151,9 @@ type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cau
 /**
  * What a blind input costs this briefing, for each cause. A cause the user can repair names the
  * repair, because the read stays blind until the user does it. `no_place` reaches the composer
- * only for warnings: either no feed was read, or only GDACS was read for want of a district. So it
- * says "may be missing", which is true in both cases.
+ * only for warnings, in three cases: Alfred has no place, so it read no feed; Alfred does not know
+ * the country of the place; or the place is in India and has no NDMA Sachet district. In the last
+ * two cases, Alfred read only GDACS. So it says "may be missing", which is true in each case.
  */
 const BLIND_COST = {
   not_connected: "So this briefing cannot see",
@@ -210,6 +218,56 @@ function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
   );
 }
 
+/**
+ * Each selected official warning as a seed fact, so a warning leads the briefing whether or not
+ * the composer calls `list_official_warnings` (ADR-0117 decision 4: a selected warning ranks
+ * first). The tool gives the headline and the link. A run with no warning, or with no read, gets no
+ * line here: its provenance fact says what Alfred could not read, and a missing read is not a
+ * clear one.
+ *
+ * The place is the user's place, or the default city of the zone when the warnings `fallback`
+ * names it. The feed text is clipped and parsed at the gather (`buildWarning`).
+ */
+function officialWarningFacts(args: {
+  warnings: BriefingGather["warnings"];
+  provenance: readonly GatherProvenance[];
+  timezone: IanaTimezone;
+}): string {
+  const read = officialWarningsRead(args.warnings);
+
+  if (read.status !== "read" || read.items.length === 0) return "";
+
+  const fallback = args.provenance.find(
+    (entry): entry is FallbackProvenance =>
+      entry.input === "warnings" && entry.state === "fallback",
+  );
+
+  const place =
+    fallback === undefined
+      ? "the user's place"
+      : `${fallback.used}, the default city for the user's time zone. It is not a place that the user gave, so name ${fallback.used} with the warning`;
+
+  const zone = inZone(args.timezone);
+
+  return (
+    `\n\nThese official hazard warnings cover ${place}. ` +
+    `A geometry or district match selected each one, not a model. ` +
+    `They are something wrong or at risk, and they rank first: lead the body with them, most severe first, in this order. ` +
+    `For each one, name the issuer and what it warns of, and keep its severity word. ` +
+    `Do not add advice that the warning does not give, and do not soften or inflate its severity. ` +
+    `Call list_official_warnings only if you need a headline or a link.\n\n` +
+    read.items.map((warning) => warningFact(warning, zone)).join("\n")
+  );
+}
+
+/** One warning: issuer, event, severity word, area, and its window in the user's zone. */
+function warningFact(warning: OfficialWarning, zone: ZoneClock): string {
+  return (
+    `- ${warning.issuer}: ${warning.event}. Severity: ${warning.severity}. Area: ${warning.area}. ` +
+    `From ${zone.format(new Date(warning.onset))} to ${zone.format(new Date(warning.expires))}, in the user's time zone.`
+  );
+}
+
 /** Re-prompt text for keys the earlier draft wrote no notice for. */
 function connectionNoticeCorrection(missing: readonly string[]): string {
   if (missing.length === 0) return "";
@@ -248,8 +306,13 @@ export async function runBriefingAgent(
       role: "user",
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
-        `Start by reading list_prior_briefings, then list_official_warnings, list_emails_since, list_closed_loops, and list_loop_relevance. ` +
+        `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
+        officialWarningFacts({
+          warnings: args.warnings,
+          provenance: args.provenance ?? [],
+          timezone: args.timezone,
+        }) +
         brokenConnectionFacts(args.brokenConnections) +
         // No list is a gather from before this build. It states nothing, so it adds no fact.
         inputProvenanceFacts(args.provenance ?? []) +

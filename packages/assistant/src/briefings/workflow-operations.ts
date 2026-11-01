@@ -96,9 +96,9 @@ export const dailyBriefingStateSchema = z.object({
    */
   calendar: briefingGatherSchema.shape.calendar.optional(),
   /**
-   * The gathered official warnings (ADR-0117 decision 4). Compose gives them to
-   * `list_official_warnings`. `null`: the gather read no feed. Absent on a run persisted before
-   * this field; the tool then returns no item.
+   * The gathered official warnings (ADR-0117 decision 4). Compose puts each warning in the
+   * composer's seed and gives the list to `list_official_warnings`. `null`: the gather read no
+   * feed. Absent on a run persisted before this field; the tool then returns `not_recorded`.
    */
   warnings: briefingGatherSchema.shape.warnings,
   /**

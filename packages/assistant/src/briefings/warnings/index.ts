@@ -8,10 +8,10 @@ import {
 import { logger } from "@alfred/logging";
 import { addDays, inZone, type LocalDateKey } from "@alfred/assistant/time";
 import type { UserLocation } from "../../knowledge";
-import { placeProvenance, warningsProvenance, type Sourced } from "../provenance";
+import { placeProvenance, provenanceName, warningsProvenance, type Sourced } from "../provenance";
 import type { FeedRead, RankedWarning } from "./feed";
 import { readGdacs } from "./gdacs";
-import { readSachet, sachetCovers, sachetDistrict } from "./sachet";
+import { readSachet, sachetCovers, sachetDistrict, type SachetDistrict } from "./sachet";
 
 /**
  * One deadline for all feed reads of a gather. It starts after the place read. A cold Sachet read
@@ -32,7 +32,7 @@ const FEED_LABEL = {
 /**
  * The official warnings whose area contains the user's place on the briefing day (ADR-0117
  * decision 4). GDACS is read for every place. NDMA Sachet is read when the place is in India and
- * the geocode gave its district. The reader does not throw: a feed that fails is a `read_failed`
+ * its district has an LGD code. The reader does not throw: a feed that fails is a `read_failed`
  * statement, and the value holds the feeds that Alfred read.
  */
 export async function gatherWarningsContribution(args: {
@@ -91,7 +91,7 @@ export async function gatherWarningsContribution(args: {
 
   const provenance = warningsProvenance({
     fallback: statement,
-    coverageGap: coverageGap(place),
+    coverageGap: coverageGap(place, district),
     failures,
   });
 
@@ -118,17 +118,26 @@ export async function gatherWarningsContribution(args: {
 }
 
 /**
- * The sentence that says which feeds the place could not reach, or `null` when Alfred read each
- * feed that covers the place. Only India has a national feed today, so a place in another country
- * has no gap: GDACS is all that Alfred reads there.
+ * The sentence that says that Alfred read only GDACS for the place, or `null` when Alfred read
+ * each feed that covers the place. GDACS covers every place. Only India has a national feed today
+ * (NDMA Sachet), so a place in another known country has no gap: no feed could be read there.
+ *
+ * - No `area`: a `location` preference, or a geocode with no country. Alfred does not know the
+ *   country, so it cannot know whether a national feed covers the place.
+ * - A place in India with no Sachet district: the geocode gave no district, or LGD does not have
+ *   the district that it gave.
+ *
+ * Each sentence holds one name inside `provenanceName`, so it fits the provenance bound.
  */
-function coverageGap(place: Place): string | null {
+function coverageGap(place: Place, district: SachetDistrict | null): string | null {
+  const name = provenanceName(place.label);
+
   if (place.area === undefined) {
-    return `Alfred has no country or district for ${place.label}, so it did not read a national warning feed.`;
+    return `Alfred does not know the country of ${name}, so it read only the global GDACS feed and no national feed.`;
   }
 
-  if (sachetCovers(place.area) && place.area.district === undefined) {
-    return `Alfred has no district for ${place.label}, so it did not read NDMA Sachet.`;
+  if (sachetCovers(place.area) && district === null) {
+    return `Alfred has no NDMA Sachet district for ${name}, so it read only the global GDACS feed.`;
   }
 
   return null;

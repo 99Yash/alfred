@@ -77,9 +77,30 @@ interface BuildArgs {
   calendar?: BriefingGather["calendar"] | undefined;
   /**
    * The gather's official warnings (ADR-0117 decision 4). `null`: the gather read no feed, and its
-   * statement says why. Absent on a run that gathered before this field; the tool returns no item.
+   * statement says why. Absent on a run that gathered before this field. `officialWarningsRead`
+   * gives each of the three states its own tool result.
    */
   warnings?: BriefingGather["warnings"];
+}
+
+/**
+ * The `list_official_warnings` result: one status for each state of the gather's warnings field.
+ * Only `read` has items, so no other state can look like a read that found no warning.
+ *
+ * - `read`: Alfred read at least one feed. An empty list says that those feeds had no warning.
+ * - `not_read`: the gather read no feed (`null`). Its provenance statement says why.
+ * - `not_recorded`: the run gathered before Alfred read warnings (absent). Alfred does not know.
+ */
+export type OfficialWarningsRead =
+  | { readonly status: "read"; readonly items: readonly OfficialWarning[] }
+  | { readonly status: "not_read" | "not_recorded" };
+
+export function officialWarningsRead(warnings: BriefingGather["warnings"]): OfficialWarningsRead {
+  if (warnings === undefined) return { status: "not_recorded" };
+
+  if (warnings === null) return { status: "not_read" };
+
+  return { status: "read", items: warnings.items };
 }
 
 /** Day-shape window on the first run, when there is no watermark. */
@@ -234,9 +255,9 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_official_warnings: tool({
       description:
-        "List the official hazard warnings whose area contains the user's place today: a cyclone, flood, earthquake, volcano, or wildfire alert from GDACS, or a district warning from India's NDMA Sachet (IMD, CWC, or a state authority). Each item gives the issuer, event, severity, headline, area, onset, and expiry. A geometry or district match selected each one, not a model. An item here is something at risk: lead with it, name the issuer and what it warns of, and keep its severity word. Do not add advice that the warning does not give. An empty array means that the feeds Alfred read had no warning for the place, not that no hazard exists: do not mention it. When the briefing request says that warnings could not be read, or were checked for a default city, follow that fact.",
+        "The full details of the official hazard warnings that the briefing request lists: a cyclone, flood, earthquake, volcano, or wildfire alert from GDACS, or a district warning from India's NDMA Sachet (IMD, CWC, or a state authority). The briefing request already gives each warning's issuer, event, severity, area, and time, so call this tool only for a headline or a link. Returns { status, items }. status 'read': Alfred read at least one feed, and items holds each warning whose area contains the place that the briefing request names, most severe first. A geometry or district match selected each one, not a model. An empty items list means that the feeds Alfred read had no warning for the place, not that no hazard exists: do not mention it. status 'not_read': Alfred read no feed, and the briefing request says why. status 'not_recorded': this run has no record of a warnings read, so you do not know whether a warning exists: do not mention warnings. Neither status has items, and neither means that no warning exists.",
       inputSchema: z.object({}),
-      execute: async (): Promise<OfficialWarning[]> => args.warnings?.items ?? [],
+      execute: async (): Promise<OfficialWarningsRead> => officialWarningsRead(args.warnings),
     }),
 
     get_day_shape: tool({
