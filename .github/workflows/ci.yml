@@ -732,26 +732,35 @@ jobs:
   # each to transpile and evaluate the import graph again in every child
   # process. That is CPU-bound and splits cleanly, so more runners is the lever.
   #
-  # THREE shards, calibrated 2025 when a shard's setup cost ~45 s. Measured on
-  # run 41211342533 (2026-11-01) that setup is now 55-57 s — the containers
-  # alone are ~24 s — and the suite has grown to ~281 s of test time across
-  # the three legs (86/91/104 s), so the slowest leg holds the job near
-  # 157 s. FOUR shards: 281/4 ≈ 70 s of tests + ~56 s of setup lands a leg
-  # near 126 s, well under the longest other job. A FIFTH would save only
-  # ~14 more against a fifth ~56 s setup; revisit when the suite adds
-  # another ~110 s of test time, setup shrinks, or the legs drift far from even.
+  # THREE shards. Adding legs was measured and rejected twice on the same day
+  # (runs 41281464813, 41281851932, 2026-11-01): four legs put the wall at
+  # 176 s and five at 164 s. `--test-shard` round-robins over the sorted file
+  # list, so one leg keeps landing a ~110-126 s heavy tier (triage, chat,
+  # briefings/*, reply-drafting, knowledge/* — single files run 14-18 s) at
+  # every leg count, and an extra leg buys nothing but a sixth ~55 s setup
+  # (containers ~24 s, cache ~10, install ~8, node ~5, checkout 2,
+  # migrations 2-3). With three legs the total test time ~281 s puts each
+  # near 86-104 s and a shard lands near 135-157 s at the least runner
+  # overhead for that.
+  #
+  # A MEASURED file-to-shard manifest that knapsacks real per-file weights is
+  # the actual fix — three legs would then land near ~120 s — and it is
+  # deliberately deferred: durations for the other legs do not survive in the
+  # GitHub log (only one shard's spec summary carries the `✔ ./path` file
+  # lines) and a local run skips the DB-backed suites, so the manifest needs
+  # its own recording path first.
   #
   # `fail-fast: false` because a red shard must not cancel its siblings. With
   # the default, one failure hides the other two thirds of the suite and the
   # next push re-runs everything to find the rest.
   assistant-unit-tests-shard:
-    name: assistant-unit-tests-shard (${{ matrix.shard }}/5)
+    name: assistant-unit-tests-shard (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -833,7 +842,7 @@ jobs:
       # `--test-shard= requires an argument`.
       - name: Assistant tests
         env:
-          TEST_SHARD: ${{ matrix.shard }}/5
+          TEST_SHARD: ${{ matrix.shard }}/3
         run: corepack pnpm --filter @alfred/assistant test:shard
 
   # This job exists to publish ONE check named `assistant-unit-tests`, because
