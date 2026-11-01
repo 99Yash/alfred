@@ -38,7 +38,9 @@ export interface RankedWarning {
 
 /**
  * What one feed gave. `unread`: the items of the feed that Alfred could not read (an event area, or
- * one alert), out of `total`. A feed whose list read failed throws instead.
+ * one alert), out of `total`. An item counts when its request failed, when its body was not
+ * readable, when Alfred did not request it, or when the deadline stopped its read. A feed whose
+ * list read failed throws instead.
  */
 export interface FeedRead {
   readonly found: readonly RankedWarning[];

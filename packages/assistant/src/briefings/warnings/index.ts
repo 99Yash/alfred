@@ -15,7 +15,8 @@ import { readSachet, sachetDistrict } from "./sachet";
 
 /**
  * One deadline for all feed reads of a gather. It starts after the place read. A cold Sachet read
- * is about 100 CAP files at six at a time, so it can take most of this.
+ * is about 100 CAP files at six at a time, so it can take most of this. When the deadline stops a
+ * feed after its list read, the feed keeps what it read and counts the rest as unread.
  */
 const WARNINGS_DEADLINE_MS = 30_000;
 

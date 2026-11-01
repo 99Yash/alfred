@@ -21,12 +21,12 @@ const SACHET_CAP_PREFIX = "https://sachet.ndma.gov.in/cap_public_website/FetchXM
 const CAP_CONCURRENCY = 6;
 
 /**
- * Parsed CAP files by RSS guid. A CAP file does not change after it is published, so this
- * process reads each one time. `null`: the file has a shape that Alfred cannot read. A failed
- * request is not kept, so the next gather tries again. The RSS file has 100 items, so the bound
- * keeps several days of them.
+ * Parsed CAP alerts by RSS guid. A CAP file does not change after it is published, so this
+ * process reads each one time. Only a parsed alert is kept. A failed request or an unreadable
+ * body (for example a firewall page with status 200) is not kept, so the next gather tries again.
+ * The RSS file has 100 items, so the bound keeps several days of them.
  */
-const capCache = new Map<string, CapAlert | null>();
+const capCache = new Map<string, CapAlert>();
 
 const CAP_CACHE_MAX = 500;
 
@@ -128,6 +128,15 @@ type CapAlert = z.infer<typeof capSchema>["alert"];
 type CapArea = CapAlert["info"][number]["area"][number];
 
 /**
+ * The result of one CAP read. `off_sachet`: the item links outside Sachet, so Alfred did not read
+ * it. `unreadable`: the body does not have the CAP shape. A failed request throws instead.
+ */
+type CapRead =
+  | { readonly kind: "alert"; readonly alert: CapAlert }
+  | { readonly kind: "off_sachet" }
+  | { readonly kind: "unreadable" };
+
+/**
  * The user's district, as the Sachet match needs it. `name`: the geocode's spelling, to show.
  * `key` and `state`: the comparison keys of the district and the state. `code`: the LGD (Local
  * Government Directory) district code, when exactly one LGD district has the name in the user's
@@ -189,6 +198,8 @@ export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
  * The Sachet alerts that name the user's district and that are in force during the day: they
  * take effect before the day ends and expire after `now`. Only a `Severe` or `Extreme` alert of
  * `MIN_ALERT_MS` or more counts. An alert that a later alert updates or cancels does not count.
+ * Only a failed RSS read throws. When `signal` aborts, the CAP reads stop, the alerts already
+ * read stay, and the items that were not read count in `unread`.
  */
 export async function readSachet(args: {
   district: SachetDistrict;
@@ -200,22 +211,36 @@ export async function readSachet(args: {
   const items = rssSchema.parse(xml.parse(await res.text())).rss.channel.item;
   const alerts: { readonly item: RssItem; readonly alert: CapAlert }[] = [];
   let unread = 0;
+  let stopped = 0;
 
-  await mapConcurrent(
-    items,
-    CAP_CONCURRENCY,
-    async (item) => {
-      try {
-        const alert = await readCap(item, args.signal);
+  // `mapConcurrent` does not get the signal: an abort there throws and loses the alerts already
+  // read. After an abort, each item that is left fails at once in `fetchFeed` (or comes from the
+  // cache), so the loop ends without a new request.
+  await mapConcurrent(items, CAP_CONCURRENCY, async (item) => {
+    try {
+      const read = await readCap(item, args.signal);
 
-        if (alert) alerts.push({ item, alert });
-      } catch (err) {
-        unread += 1;
-        logger.warn({ err, guid: item.guid }, "[briefing.warnings] Sachet CAP read failed");
+      if (read.kind === "alert") alerts.push({ item, alert: read.alert });
+      else unread += 1;
+    } catch (err) {
+      if (args.signal.aborted) {
+        stopped += 1;
+
+        return;
       }
-    },
-    { signal: args.signal },
-  );
+
+      unread += 1;
+      logger.warn({ err, guid: item.guid }, "[briefing.warnings] Sachet CAP read failed");
+    }
+  });
+
+  if (stopped > 0) {
+    unread += stopped;
+    logger.warn(
+      { err: args.signal.reason, stopped, read: alerts.length, total: items.length },
+      "[briefing.warnings] Sachet CAP reads stopped by the abort; the alerts already read are kept",
+    );
+  }
 
   // An update or a cancel names the alerts that it replaces.
   const replaced = new Set(alerts.flatMap(({ alert }) => referencedIdentifiers(alert.references)));
@@ -268,10 +293,11 @@ export async function readSachet(args: {
   return { found, unread, total: items.length };
 }
 
-async function readCap(item: RssItem, signal: AbortSignal): Promise<CapAlert | null> {
+/** One CAP file. A request that fails (a status that is not 2xx, a timeout, an abort) throws. */
+async function readCap(item: RssItem, signal: AbortSignal): Promise<CapRead> {
   const cached = capCache.get(item.guid);
 
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) return { kind: "alert", alert: cached };
 
   if (!item.link.startsWith(SACHET_CAP_PREFIX)) {
     logger.warn(
@@ -279,7 +305,7 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapAlert | n
       "[briefing.warnings] Sachet item links outside Sachet; not read",
     );
 
-    return null;
+    return { kind: "off_sachet" };
   }
 
   const res = await fetchFeed(new URL(item.link), "ndma_sachet", signal);
@@ -290,9 +316,9 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapAlert | n
       { guid: item.guid, issues: parsed.error.issues.slice(0, 3) },
       "[briefing.warnings] Sachet CAP file has an unreadable shape",
     );
-  }
 
-  const alert = parsed.success ? parsed.data.alert : null;
+    return { kind: "unreadable" };
+  }
 
   if (capCache.size >= CAP_CACHE_MAX) {
     const oldest = capCache.keys().next();
@@ -300,9 +326,9 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapAlert | n
     if (!oldest.done) capCache.delete(oldest.value);
   }
 
-  capCache.set(item.guid, alert);
+  capCache.set(item.guid, parsed.data.alert);
 
-  return alert;
+  return { kind: "alert", alert: parsed.data.alert };
 }
 
 function matchAlert(
