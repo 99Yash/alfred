@@ -26,36 +26,30 @@ jobs:
   # three ways; the aggregate `static` job at the bottom publishes the single
   # check name the `main protection` ruleset requires.
   #
-  # Shares below use single-process local timings (warm pnpm, 2026-11-01),
-  # with each entry costing roughly 1.5-2x on the CI runner:
-  #   leg 1  script-paths 1.4, test-id-prefixes 2.0, architecture 1.2,
-  #          web-boundaries 2.6, exports 1.5, type-fixtures 5.5,
-  #          test-typecheck-baseline 13.2, imports 1.0   (~28 s)
-  #   leg 2  consolidation 2.7, test-tautology 0.8, doc-symbols 1.4,
-  #          prose-locators 1.4, plan-status 0.8, campaign-state 4.2,
-  #          merge-guard 0.9, schema-catalog 0.8, constraint-snapshot 1.8,
-  #          oxlint-config 5.9, oxlint-plugin 0.8, rules-catalog, smells
-  #                                                      (~23 s)
-  #   leg 3  knip 2.4, test-only-exports 3.6, lint 14.0, format:check 1.3,
-  #          plus `check-types` (~7 s warm, cold on a runner) and the PDF
-  #          smoke (~2 s)                                 (~30+ s)
-  # Re-weigh from GitHub's own step timings as the scripts drift; move a
-  # script between legs freely, but keep the multiset of scripts across the
-  # three `Static checks` steps equal to what `package.json` puts in
-  # `check:ci` — `check:static-shards` (shard 1) asserts exactly that, so a
-  # check added to the chain without a leg reddens `static` instead of
-  # silently going unrun.
+  # Runner-measured step weights (run 41280982346, 2026-11-01; single-process
+  # local timings in parentheses):
+  #   shard 1  "Static checks 1/3"  ~43 s  (28 s)  — script-paths … imports
+  #   shard 2  "Static checks 2/3"  ~36 s  (23 s)  — consolidation … smells
+  #   shard 3  "Static checks 3/3"  ~60 s  (21 s)  — knip, lint, format:check
+  #   shard 4  "Monorepo type check" ~100 s (cold) — check-types, PDF smoke
+  # `check-types` is cold every run (turbo has no remote cache), so it holds
+  # shard 4; the other shards land 35-60 s against the ~23 s setup. Re-weigh
+  # from GitHub's own step timings as the scripts drift; move a script
+  # between legs freely, but keep the multiset of scripts across the three
+  # `Static checks` steps equal to what `package.json` puts in `check:ci` —
+  # `check:static-shards` (shard 1) asserts exactly that, so a check added to
+  # the chain without a leg reddens `static` instead of silently going unrun.
   #
   # No leg carries `services:`, an `env:` block, or migrations: no check in
   # the chain touches Postgres or Redis.
   static-shard:
-    name: static-shard (${{ matrix.shard }}/3)
+    name: static-shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -99,7 +93,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: corepack pnpm check:pr-body "${{ github.event.pull_request.number }}"
 
+      # Steps run on EVERY leg by default, so each non-leg-specific step
+      # carries an `if: matrix.shard == N`. A step left unconditioned — which
+      # is what the first landed version did — runs four times and the matrix
+      # saves nothing.
       - name: Static checks 1/3
+        if: matrix.shard == 1
         run: |
           corepack pnpm check:script-paths
           corepack pnpm check:test-id-prefixes
@@ -111,6 +110,7 @@ jobs:
           corepack pnpm check:imports
 
       - name: Static checks 2/3
+        if: matrix.shard == 2
         run: |
           corepack pnpm check:consolidation
           corepack pnpm check:test-tautology
@@ -127,6 +127,7 @@ jobs:
           corepack pnpm check:smells
 
       - name: Static checks 3/3
+        if: matrix.shard == 3
         run: |
           corepack pnpm check:knip
           corepack pnpm check:test-only-exports
@@ -134,9 +135,11 @@ jobs:
           corepack pnpm format:check
 
       - name: Monorepo type check
+        if: matrix.shard == 4
         run: corepack pnpm check-types
 
       - name: Build and smoke-test the PDF extraction child
+        if: matrix.shard == 4
         run: |
           corepack pnpm --filter server build
           test -f apps/server/dist/extract-pdf-child.js
