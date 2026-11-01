@@ -5,7 +5,7 @@ import { z } from "zod";
 import { attentionBandSchema } from "./attention";
 import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
-import { isIntegrationSlug } from "./integrations";
+import { isIntegrationSlug, LIVE_PROVIDER_SLUGS } from "./integrations";
 import { deliveryAlertSchema, mcpConnectionAlertSchema } from "./integration-status";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
@@ -321,6 +321,114 @@ export const integrationActivityContributionSchema = z.object({
   items: z.array(integrationActivityItemSchema),
 });
 
+// ─── Input provenance (ADR-0117 decision 1) ──────────────────────────────
+
+/** Each input that the gather reads. A new input adds a member and states its blind state. */
+export const GATHER_INPUTS = [
+  "email",
+  "calendar",
+  "weather",
+  "integration_activity",
+  "github_merged",
+  "loop_relevance",
+] as const;
+
+export type GatherInput = (typeof GATHER_INPUTS)[number];
+
+export const gatherInputSchema = z.enum(GATHER_INPUTS);
+
+const connectRecoverySchema = z.object({
+  kind: z.literal("connect"),
+  integration: z.enum(LIVE_PROVIDER_SLUGS),
+});
+
+const retryRecoverySchema = z.object({ kind: z.literal("retry") });
+
+const noRecoverySchema = z.object({ kind: z.literal("none") });
+
+/** Bound on a provenance sentence. It is a fact for the composer and the log, not copy. */
+export const GATHER_PROVENANCE_TEXT_MAX = 300;
+
+const provenanceTextSchema = z.string().min(1).max(GATHER_PROVENANCE_TEXT_MAX);
+
+/**
+ * Why Alfred could not read an input. Each cause pins the recovery that it allows, so a wrong
+ * pair does not compile. Only `scope_missing` asks the user to act: the user connected the
+ * account but did not grant this input. `not_connected` is silent, because no credential row is
+ * also what a deliberate disconnect leaves (ADR-0100 amendment 2026-10-28, item 3).
+ */
+const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
+  z.object({
+    input: gatherInputSchema,
+    state: z.literal("unavailable"),
+    cause: z.literal("scope_missing"),
+    reason: provenanceTextSchema,
+    recovery: connectRecoverySchema,
+  }),
+  z.object({
+    input: gatherInputSchema,
+    state: z.literal("unavailable"),
+    cause: z.literal("read_failed"),
+    reason: provenanceTextSchema,
+    recovery: retryRecoverySchema,
+  }),
+  z.object({
+    input: gatherInputSchema,
+    state: z.literal("unavailable"),
+    cause: z.enum(["not_connected", "no_place"]),
+    reason: provenanceTextSchema,
+    recovery: noRecoverySchema,
+  }),
+]);
+
+/**
+ * The provenance of one gather input, or of one item in it (ADR-0117 decision 1).
+ *
+ * - `live`: Alfred read the real source for this user, in this window.
+ * - `fallback`: Alfred used a default in place of a user fact. `used` names the default. No
+ *   surface can set the replaced fact yet, so the recovery is `none` and the entry is a log line.
+ * - `stale`: one item is real but older than the window. The item leaves the news list.
+ * - `unavailable`: Alfred could not read the input. The cause pins the recovery.
+ */
+export const gatherProvenanceSchema = z.union([
+  z.object({ input: gatherInputSchema, state: z.literal("live") }),
+  z.object({
+    input: gatherInputSchema,
+    state: z.literal("fallback"),
+    used: provenanceTextSchema,
+    reason: provenanceTextSchema,
+    recovery: noRecoverySchema,
+  }),
+  z.object({
+    input: gatherInputSchema,
+    state: z.literal("stale"),
+    // The stale item is an activity item, so its title bound is the activity title's bound.
+    item: integrationActivityItemSchema.shape.title,
+    occurredAt: z.string().min(1),
+    recovery: noRecoverySchema,
+  }),
+  unavailableProvenanceSchema,
+]);
+
+export type GatherProvenance = z.infer<typeof gatherProvenanceSchema>;
+
+/** The block rule (ADR-0117 decision 2): an input the user can reconnect is a block row. */
+export type BlockingGatherProvenance = Extract<
+  GatherProvenance,
+  { state: "unavailable"; recovery: { kind: "connect" } }
+>;
+
+export function isBlockingProvenance(entry: GatherProvenance): entry is BlockingGatherProvenance {
+  return entry.state === "unavailable" && entry.recovery.kind === "connect";
+}
+
+/**
+ * Upper bound on stored entries: one per input (six), plus the stale items of the activity list.
+ * The verified pull returns a few failures per target, so 60 leaves room; a gather over the bound
+ * fails its parse and the run fails loudly, never with a cut list.
+ */
+export const GATHER_PROVENANCE_MAX = 60;
+
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
   calendar: calendarContributionSchema.nullable(),
@@ -337,6 +445,11 @@ export const briefingGatherSchema = z.object({
   broken_connections: z.array(deliveryAlertSchema).optional(),
   /** MCP connections the user must repair (item 4 of the same amendment). Optional for the same reason. */
   broken_mcp_connections: z.array(mcpConnectionAlertSchema).optional(),
+  /**
+   * The provenance of each input (ADR-0117 decision 1). Optional, so older gathers parse. Absent
+   * means the gather predates provenance, not that every input was live.
+   */
+  provenance: z.array(gatherProvenanceSchema).max(GATHER_PROVENANCE_MAX).optional(),
 });
 
 export const fullBriefingSectionSchema = z.object({

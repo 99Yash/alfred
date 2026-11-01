@@ -193,7 +193,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           slot: args.slot,
         });
 
-        return contribution?.events ?? [];
+        return contribution.value?.events ?? [];
       },
     }),
 

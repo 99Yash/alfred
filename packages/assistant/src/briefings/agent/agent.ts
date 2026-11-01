@@ -3,6 +3,8 @@ import type {
   BriefingClosedLoop,
   BriefingLoopRelevance,
   DayShape,
+  GatherInput,
+  GatherProvenance,
   IanaTimezone,
 } from "@alfred/contracts";
 import {
@@ -44,6 +46,11 @@ export interface RunBriefingAgentArgs {
    * renders each notice with its repair link below the body.
    */
   brokenConnections: readonly BrokenConnection[];
+  /**
+   * How the gather read each input (ADR-0117 decision 1). The composer gets a fact for each input
+   * that it reads and that was not `live`. Absent on a run from before provenance.
+   */
+  provenance?: readonly GatherProvenance[] | undefined;
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
   /** Only on a re-prompt: connection keys the earlier draft wrote no notice for. */
@@ -87,6 +94,47 @@ function brokenConnectionFacts(connections: readonly BrokenConnection[]): string
   );
 }
 
+/**
+ * The inputs that reach the composer through its tools. Weather and the activity list do not, so
+ * their `fallback` and `stale` statements stay in the stored gather and the log.
+ */
+const COMPOSER_READS = {
+  email: "the emails from list_emails_since",
+  calendar: "the events from list_calendar_events",
+  github_merged: "the merged work in get_day_shape.shipped",
+  loop_relevance: "the verdicts from list_loop_relevance",
+  weather: null,
+  integration_activity: null,
+} as const satisfies Record<GatherInput, string | null>;
+
+/**
+ * The inputs that the gather could not read (ADR-0117 decision 2). An empty result from such an
+ * input is not evidence, so the composer must not turn it into "nothing needs attention".
+ * `not_connected` is silent: a source the user does not connect is not a blind input. No input
+ * that the composer reads has a `fallback` or a `stale` state today: only weather has a default,
+ * and only the activity list has old items. A new one must add its own fact here.
+ */
+function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
+  const lines = provenance.flatMap((entry) => {
+    const reads = COMPOSER_READS[entry.input];
+
+    if (reads === null || entry.state !== "unavailable" || entry.cause === "not_connected") {
+      return [];
+    }
+
+    return [`- ${reads}: ${entry.reason}`];
+  });
+
+  if (lines.length === 0) return "";
+
+  return (
+    `\n\nAlfred could not read these inputs for this briefing. What their tools return is incomplete. ` +
+    `Do not say or imply that nothing needs attention, that the day was quiet, or that you saw everything, on the basis of these inputs. ` +
+    `Do not write a notice for them unless a connection key above names the same source.\n\n` +
+    lines.join("\n")
+  );
+}
+
 /** Re-prompt text for keys the earlier draft wrote no notice for. */
 function connectionNoticeCorrection(missing: readonly string[]): string {
   if (missing.length === 0) return "";
@@ -126,6 +174,7 @@ export async function runBriefingAgent(
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         brokenConnectionFacts(args.brokenConnections) +
+        inputProvenanceFacts(args.provenance ?? []) +
         openAskCorrection(args.openAskViolations ?? []) +
         connectionNoticeCorrection(args.missingConnectionNotices ?? []),
     },

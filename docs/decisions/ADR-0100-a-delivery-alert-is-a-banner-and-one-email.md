@@ -58,7 +58,7 @@ The fix is a **fourth alert condition**, not a change to the verdict: `unrepaira
 
 ## Amendment — 2026-10-28: a broken connection is a block in the briefing, and a missing row does not prove a disconnect
 
-**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slice 2 is built (item 4), with the revision **The model writes the words**. Slices 3 and 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**.
+**Status.** Accepted. Slice 1 is built (items 1 and 2): `gather.broken_connections`, `isQuietMorning`'s `brokenConnectionCount`, and the `BriefingBlockRow` block in the briefing template. Slice 2 is built (item 4), with the revision **The model writes the words**. Slices 3 and 4 are not built. Item 1 was revised on the same day after review; see **Revision to item 1**. ADR-0117 slice 2 is built (2026-11-01): a briefing input that is `unavailable` with recovery `connect` (a connected account without the grant for that input) is also a block row, with the kind `input`, and it also stops a quiet morning.
 
 ### What happened
 
