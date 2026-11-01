@@ -22,30 +22,55 @@ export const areaGeometrySchema = z.discriminatedUnion("type", [polygonSchema, m
 
 export type AreaGeometry = z.infer<typeof areaGeometrySchema>;
 
+/** A point on the earth, in degrees. */
+type GeoPoint = { readonly lat: number; readonly lng: number };
+
+/** The rings of one polygon: the shell first, then its holes. */
+type PolygonRings = z.infer<typeof polygonSchema>["coordinates"];
+
 /**
  * Whether the point is inside the area (ADR-0117 decision 4). The test is even-odd over every ring
  * of a polygon, so a hole (an inner ring) is outside. A point exactly on an edge can fall on
- * either side. The plane test is correct for an area that does not cross the antimeridian or a
- * pole, which holds for the feeds that the briefing reads today.
+ * either side.
+ *
+ * GDACS is a global feed, so a polygon can cross the antimeridian (a Pacific cyclone near Fiji).
+ * If an edge of a polygon spans more than 180 degrees of longitude, the polygon crosses it: the
+ * test adds 360 to each negative longitude of every ring, shell and holes alike, so that the
+ * polygon is one continuous range. A ring with longitudes past +180 or -180 needs no change. In
+ * both cases, the test checks the point at `lng`, `lng + 360`, and `lng - 360`. A ring that goes
+ * around a pole, or that is wider than 180 degrees of longitude, is out of scope and can give a
+ * wrong answer.
  */
-export function containsPoint(area: AreaGeometry, lng: number, lat: number): boolean {
+export function containsPoint(area: AreaGeometry, point: GeoPoint): boolean {
   switch (area.type) {
     case "Polygon":
-      return insideRings(area.coordinates, lng, lat);
+      return insidePolygon(area.coordinates, point);
     case "MultiPolygon":
-      return area.coordinates.some((rings) => insideRings(rings, lng, lat));
+      return area.coordinates.some((rings) => insidePolygon(rings, point));
     default:
       return assertNever(area, "area geometry");
   }
 }
 
-function insideRings(rings: readonly (readonly (readonly number[])[])[], x: number, y: number) {
+function insidePolygon(rings: PolygonRings, { lat, lng }: GeoPoint): boolean {
+  const crosses = rings.some((ring) =>
+    ring.some(([x = 0], i) => i > 0 && Math.abs(x - (ring[i - 1]?.[0] ?? x)) > 180),
+  );
+
+  const unwrap = crosses ? (x: number) => (x < 0 ? x + 360 : x) : (x: number) => x;
+
+  return [lng, lng + 360, lng - 360].some((x) => insideRings(rings, unwrap, x, lat));
+}
+
+function insideRings(rings: PolygonRings, unwrap: (lng: number) => number, x: number, y: number) {
   let inside = false;
 
   for (const ring of rings) {
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const [xi = 0, yi = 0] = ring[i] ?? [];
-      const [xj = 0, yj = 0] = ring[j] ?? [];
+      const [lngI = 0, yi = 0] = ring[i] ?? [];
+      const [lngJ = 0, yj = 0] = ring[j] ?? [];
+      const xi = unwrap(lngI);
+      const xj = unwrap(lngJ);
 
       if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
     }
@@ -55,10 +80,7 @@ function insideRings(rings: readonly (readonly (readonly number[])[])[], x: numb
 }
 
 /** Great-circle distance in kilometres. */
-export function distanceKm(
-  a: { readonly lat: number; readonly lng: number },
-  b: { readonly lat: number; readonly lng: number },
-): number {
+export function distanceKm(a: GeoPoint, b: GeoPoint): number {
   const rad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * rad;
   const dLng = (b.lng - a.lng) * rad;

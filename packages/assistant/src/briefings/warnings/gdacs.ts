@@ -242,7 +242,7 @@ async function matchEvent(
 
     const area = areaGeometrySchema.safeParse(parsed.data.geometry);
 
-    if (!area.success || !containsPoint(area.data, args.place.lng, args.place.lat)) continue;
+    if (!area.success || !containsPoint(area.data, args.place)) continue;
 
     inside = true;
     // A forecast polygon of a cyclone is later than the event's last observation.
