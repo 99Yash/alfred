@@ -128,35 +128,61 @@ type CapAlert = z.infer<typeof capSchema>["alert"];
 type CapArea = CapAlert["info"][number]["area"][number];
 
 /**
- * The user's district, as the Sachet match needs it. `code`: the LGD (Local Government Directory)
- * district code, when the geocode's names find exactly one district. `uniqueName`: no other state
- * has a district with this name, so a match on the name alone is safe.
+ * The user's district, as the Sachet match needs it. `name`: the geocode's spelling, to show.
+ * `key` and `state`: the comparison keys of the district and the state. `code`: the LGD (Local
+ * Government Directory) district code, when exactly one LGD district has the name in the user's
+ * state. `uniqueName`: LGD has exactly one district with this name and that district is the
+ * user's district, so a match on the name alone is safe.
  */
 export interface SachetDistrict {
   readonly name: string;
+  readonly key: string;
   readonly state: string | null;
   readonly code: number | null;
   readonly uniqueName: boolean;
 }
 
-/** The district of an Indian place, or `null` when the geocode gave no district. */
+/** The comparison keys of the LGD states. */
+const LGD_STATES = new Set(LGD_DISTRICTS.map(([state]) => normalizeName(state)));
+
+/**
+ * The district of an Indian place, or `null` when the geocode gave no district. When the geocode
+ * gives a state that LGD knows, only a district in that state can give the code. A district with
+ * the same name in another state is a different district: LGD has Aurangabad only in Bihar, and
+ * Maharashtra renamed its Aurangabad to Chhatrapati Sambhajinagar. When the state is not known,
+ * the name gives the code only if one LGD district has it.
+ */
 export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
   if (area.district === undefined) return null;
 
-  const name = normalizeName(area.district);
+  const key = normalizeName(area.district);
   const state = area.region === undefined ? null : normalizeName(area.region);
-  const sameName = LGD_DISTRICTS.filter(([, , district]) => normalizeName(district) === name);
-  const inState = sameName.filter(([lgdState]) => normalizeName(lgdState) === state);
-  const [only] = inState.length === 1 ? inState : sameName.length === 1 ? sameName : [];
+  const lgdState = state !== null && LGD_STATES.has(state) ? state : null;
+  const sameName = LGD_DISTRICTS.filter(([, , district]) => normalizeName(district) === key);
+  const inState = sameName.filter(([districtState]) => normalizeName(districtState) === lgdState);
+  const candidates = lgdState === null ? sameName : inState;
+  const [only] = candidates.length === 1 ? candidates : [];
 
   if (only === undefined) {
     logger.warn(
-      { district: area.district, region: area.region, candidates: sameName.length },
-      "[briefing.warnings] no single LGD district for the place; Sachet matches by name only",
+      {
+        district: area.district,
+        region: area.region,
+        stateKnown: lgdState !== null,
+        sameName: sameName.length,
+        inState: candidates.length,
+      },
+      "[briefing.warnings] no single LGD district for the place; Sachet needs the district and state names in the area text",
     );
   }
 
-  return { name, state, code: only?.[1] ?? null, uniqueName: sameName.length <= 1 };
+  return {
+    name: area.district,
+    key,
+    state,
+    code: only?.[1] ?? null,
+    uniqueName: only !== undefined && sameName.length === 1,
+  };
 }
 
 /**
@@ -326,8 +352,8 @@ function matchAlert(
 /**
  * When the district has an LGD code, an area with LGD codes matches only by code: the code is
  * exact, and a name can be in two states. Any other area (for example a CWC river gauge, which has
- * no code) matches when its text names the district and the state, or the district alone when no
- * other state has a district with that name.
+ * no code) matches when its text names the district and the state. The district name alone is
+ * enough only when `uniqueName` proves that no other LGD district has the name.
  */
 function areaHasDistrict(area: CapArea, district: SachetDistrict): boolean {
   const codes = (area.geocode ?? [])
@@ -338,7 +364,7 @@ function areaHasDistrict(area: CapArea, district: SachetDistrict): boolean {
 
   const words = ` ${normalizeName(area.areaDesc)} `;
 
-  if (!words.includes(` ${district.name} `)) return false;
+  if (!words.includes(` ${district.key} `)) return false;
 
   return district.uniqueName || (district.state !== null && words.includes(` ${district.state} `));
 }
