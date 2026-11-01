@@ -71,7 +71,7 @@ The ADR-0104 rule applies to every source. A thing that does not change after it
 | --- | --- |
 | `ingest` | Events arrive by push or by poll, and a reducer writes activity rows |
 | `live` | A Context Search source reads the provider at query time (ADR-0101, ADR-0104) |
-| `tools_only` | The tools work in chat. The record has no events from this source, and the integrations page says so. |
+| `tools_only` | The tools work in chat. The record has no events from this source. The coverage of decision 4 says so to each reader that asks about it. |
 
 A source can have more than one route. Calendar ingests past events and reads future events live.
 
@@ -84,7 +84,9 @@ A source can have more than one route. Calendar ingests past events and reads fu
 
 ### 4. Coverage is part of the record
 
-Each source keeps its route, the time of its last event, and the state of its connection. The reader states each source's coverage in the ADR-0117 vocabulary: `live`, `stale`, or `unavailable`, with a cause and an ADR-0100 recovery. A reader that gets no events from an `unavailable` source must not say "nothing happened". This applies ADR-0117 decision 1 to every reader of the record, not only the briefing gather.
+Each source keeps its route, the time of its last event, and the state of its connection. The reader states each source's coverage in the ADR-0117 vocabulary: `live`, `stale`, or `unavailable`, with a cause and an ADR-0100 recovery. A `tools_only` source is `unavailable` with the cause "no record". A reader that gets no events from an `unavailable` source must not say "nothing happened".
+
+The gap is stated where an answer depends on it, not on the integrations page. The page shows the `ingest` and `live` routes as capability chips and shows nothing for `tools_only`. A static "no record" card shows on most pages, asks for no action, and the user learns to ignore it. This applies ADR-0117 decision 1 to every reader of the record, not only the briefing gather.
 
 ### 5. A custom server declares its object kinds
 
@@ -158,7 +160,7 @@ The baseline uses GitHub only until another source records the user's actions. T
 
 ## Implementation slices
 
-1. The required route field on each `INTEGRATIONS` entry, set to what is built today, and an "Activity record" note on the integration page that reads it. No data changes. `SourceIdentity` waits for slice 2, because a type with no reader fails the `knip` gate.
+1. The required route field on each `INTEGRATIONS` entry, set to what is built today, and a capability chip on the integration page for each `ingest` or `live` route. A `tools_only` source gets no chip. No data changes. `SourceIdentity` waits for slice 2, because a type with no reader fails the `knip` gate.
 2. `SourceIdentity` and its parser in `@alfred/contracts`, and the GitHub activity reducer as its first writer, with replay and the coverage of decision 4. The replay reads `documents.raw` for history before 2026-10-28, and `event_receipts` after it. (Built: the replay reads `documents.raw` for all history. See the status line.) Proof: replay 2026-10-27. The read must report GitHub as `unavailable` from 2026-10-22, not as quiet. The old credential row is gone, so the coverage for that window comes from the time of the last event.
 3. `readActivity`, and the briefing reads "since the last briefing" from it. This slice ships with ADR-0117 slice 2, which adds the same provenance type to the gather.
 4. The rhythm view and the three results of decision 7, in the briefing and in chat.

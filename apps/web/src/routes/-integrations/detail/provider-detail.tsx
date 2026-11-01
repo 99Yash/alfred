@@ -1,6 +1,5 @@
 import { isBuiltInMCPProvider, isInboundEventSource, isLiveProviderSlug } from "@alfred/contracts";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
-import { ActivityRecord } from "./activity-record";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
 import { DesignOnlyNotice } from "./design-only-notice";
@@ -30,14 +29,10 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
           <TrustNotice provider={provider} />
           <RelatedSetup provider={provider} />
           <Capabilities provider={provider} />
-          <ActivityRecord slug={provider.slug} name={provider.name} />
           {isInboundEventSource(provider.slug) && <RawKinds slug={provider.slug} />}
         </>
       ) : isBuiltInMCPProvider(provider.slug) ? (
-        <>
-          <McpConnectionPanel provider={provider.slug} name={provider.name} />
-          <ActivityRecord slug={provider.slug} name={provider.name} />
-        </>
+        <McpConnectionPanel provider={provider.slug} name={provider.name} />
       ) : (
         <DesignOnlyNotice name={provider.name} />
       )}

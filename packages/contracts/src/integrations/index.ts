@@ -5,6 +5,7 @@ export {
   type PassthroughTransportKind,
   type SourceRoute,
   type SourceRoutes,
+  hasSourceRoute,
   INTEGRATIONS,
   type IntegrationSlug,
   INTEGRATION_SLUGS,

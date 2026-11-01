@@ -22,7 +22,7 @@ export interface InternalIntegrationEntry extends EntryBase {
 }
 
 /** A local ingest channel with no provider credential (iMessage). */
-export interface ChannelIntegrationEntry extends EntryBase {
+export interface ChannelIntegrationEntry extends SourceEntryBase {
   readonly kind: "channel";
 }
 
@@ -41,12 +41,21 @@ export type SourceRoutes =
   | readonly ["ingest", "live"]
   | readonly ["tools_only"];
 
-/** A provider that has a page and a brand but no wired credential store yet. */
-export interface PlannedIntegrationEntry extends EntryBase {
-  readonly kind: "provider";
-  readonly status: "planned";
+/** True when `routes` holds `route`. */
+export function hasSourceRoute(routes: SourceRoutes, route: SourceRoute): boolean {
+  return routes.some((held) => held === route);
+}
+
+/** An entry for a source of events. Internal entries are not sources, so they have no routes. */
+interface SourceEntryBase extends EntryBase {
   /** Set to what is built today, not to the plan. */
   readonly sourceRoutes: SourceRoutes;
+}
+
+/** A provider that has a page and a brand but no wired credential store yet. */
+export interface PlannedIntegrationEntry extends SourceEntryBase {
+  readonly kind: "provider";
+  readonly status: "planned";
   /** Web asset key for the icon and accent. */
   readonly brand: string;
   readonly actions: readonly [];
@@ -78,12 +87,10 @@ export type PassthroughTransportKind = "rest" | "graphql";
 /** `null`: no passthrough tier. */
 export type PassthroughSpec = { readonly transport: PassthroughTransportKind } | null;
 
-export interface LiveIntegrationEntry extends EntryBase {
+export interface LiveIntegrationEntry extends SourceEntryBase {
   readonly kind: "provider";
   readonly status: "live";
   readonly brand: string;
-  /** Set to what is built today, not to the plan. */
-  readonly sourceRoutes: SourceRoutes;
   readonly credential: CredentialSpec;
   readonly passthrough: PassthroughSpec;
   /** The model reads this in the connected summary (ADR-0053). */
@@ -361,7 +368,7 @@ export const INTEGRATIONS = {
     sourceRoutes: ["tools_only"],
     actions: [],
   },
-  imessage: { kind: "channel", displayName: "iMessage", actions: [] },
+  imessage: { kind: "channel", displayName: "iMessage", sourceRoutes: ["tools_only"], actions: [] },
 } as const satisfies Record<string, IntegrationEntry>;
 
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
