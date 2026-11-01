@@ -55,7 +55,10 @@ const SEVERITY_RANK = {
 /**
  * The shortest alert that the briefing selects. IMD issues most of its alerts as nowcasts of one
  * to three hours. The user reads the briefing later, so such an alert has often expired. A
- * cyclone, a flood, or a day warning lasts longer (owner decision, 2026-11-01).
+ * cyclone, a flood, or a day warning lasts longer (owner decision, 2026-11-01). The rule measures
+ * the hazard window that the briefing shows: from `onset` (or `effective`, then `sent`, when the
+ * alert has no `onset`) to `expires`. CAP has no end time for the hazard, so `expires`, the end of
+ * the message, is the end.
  */
 const MIN_ALERT_MS = 6 * 60 * 60 * 1000;
 
@@ -71,6 +74,16 @@ const xml = new XMLParser({
 });
 
 const text = z.string();
+
+/**
+ * A CAP time as epoch milliseconds. CAP 1.2 requires a zone offset ("2026-11-01T20:55:45+05:30").
+ * A time with no offset, or an empty value, fails the parse, so the alert is unreadable: `Date.parse`
+ * would read a time with no offset as server-local time.
+ */
+const capTime = z.iso
+  .datetime({ offset: true })
+  .transform((value) => Date.parse(value))
+  .pipe(z.number());
 
 const rssSchema = z.object({
   rss: z.object({
@@ -94,7 +107,7 @@ const capSchema = z.object({
   alert: z.object({
     identifier: text.min(1),
     sender: text,
-    sent: text,
+    sent: capTime,
     status: text,
     msgType: text,
     references: text.optional(),
@@ -106,9 +119,9 @@ const capSchema = z.object({
           severity: text,
           senderName: text.optional(),
           headline: text.optional(),
-          effective: text.optional(),
-          onset: text.optional(),
-          expires: text.optional(),
+          effective: capTime.optional(),
+          onset: capTime.optional(),
+          expires: capTime.optional(),
           area: z
             .array(
               z.object({
@@ -195,9 +208,10 @@ export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
 }
 
 /**
- * The Sachet alerts that name the user's district and that are in force during the day: they
- * take effect before the day ends and expire after `now`. Only a `Severe` or `Extreme` alert of
- * `MIN_ALERT_MS` or more counts. An alert that a later alert updates or cancels does not count.
+ * The Sachet alerts that name the user's district and that are in force during the day: the
+ * hazard starts (`onset`, else `effective`, else `sent`) before the day ends, and the alert
+ * expires after `now`. Only a `Severe` or `Extreme` alert of `MIN_ALERT_MS` or more counts. An
+ * alert that an `Actual` update or cancel names does not count.
  * Only a failed RSS read throws. When `signal` aborts, the CAP reads stop, the alerts already
  * read stay, and the items that were not read count in `unread`.
  */
@@ -242,8 +256,16 @@ export async function readSachet(args: {
     );
   }
 
-  // An update or a cancel names the alerts that it replaces.
-  const replaced = new Set(alerts.flatMap(({ alert }) => referencedIdentifiers(alert.references)));
+  // An update or a cancel names the alerts that it replaces. Only an `Actual` alert can replace
+  // one: a `Test` or `Exercise` update that names a real alert does not remove it.
+  const replaced = new Set(
+    alerts.flatMap(({ alert }) =>
+      alert.status === "Actual" && (alert.msgType === "Update" || alert.msgType === "Cancel")
+        ? referencedIdentifiers(alert.references)
+        : [],
+    ),
+  );
+
   const found: RankedWarning[] = [];
   const seen = new Set<string>();
   const offCap = new Set<string>();
@@ -343,13 +365,17 @@ function matchAlert(
   },
 ): RankedWarning | null {
   const { info, rank } = args;
-  const start = Date.parse(info.effective || info.onset || alert.sent);
-  const end = Date.parse(info.expires ?? "");
+  // CAP 1.2: `onset` is the expected start of the hazard, and `effective` is only when the message
+  // takes effect. A warning that takes effect today for a hazard tomorrow is tomorrow's warning.
+  const start = info.onset ?? info.effective ?? alert.sent;
+  const end = info.expires;
 
   // An alert with no expiry cannot say that it is still in force.
-  if (!(start < args.dayEnd.getTime()) || !(end > args.now.getTime())) return null;
+  if (end === undefined || start >= args.dayEnd.getTime() || end <= args.now.getTime()) {
+    return null;
+  }
 
-  if (!(end - start >= MIN_ALERT_MS)) return null;
+  if (end - start < MIN_ALERT_MS) return null;
 
   const area = info.area.find((candidate) => areaHasDistrict(candidate, args.district));
   const onset = isoInstant(start);
