@@ -136,6 +136,36 @@ export function blockingProvenance(
 }
 
 /**
+ * The activity entries that are `unavailable`: the sources whose acts the gather could not see for
+ * the window (ADR-0118 decision 4). Such a window is not quiet. A suppressed morning moves the
+ * watermark, so the next window starts after these acts, and they reach no briefing.
+ */
+function activityGaps(provenance: readonly GatherProvenance[]): GatherProvenance[] {
+  return provenance.filter(
+    (entry) => entry.input === "integration_activity" && entry.state === "unavailable",
+  );
+}
+
+/**
+ * The count of activity gaps, also the gaps that are block rows. For a send gate that does not
+ * read the connection block (the legacy `decideSend`).
+ */
+export function activityGapCount(provenance: readonly GatherProvenance[]): number {
+  return activityGaps(provenance).length;
+}
+
+/**
+ * The count of activity gaps that are not block rows: a past gap (`silent`), an incomplete record
+ * (`record_incomplete`), and the other gaps with no reconnect. For a send gate that also reads the
+ * connection block (`isQuietMorning`). A `not_delivered` gap is a block row, so that gate counts it
+ * one time, as a broken connection.
+ */
+export function activityGapCountWithoutRow(provenance: readonly GatherProvenance[]): number {
+  return activityGaps(provenance).filter((entry) => provenanceAudience(entry).blockRow === null)
+    .length;
+}
+
+/**
  * A Google credential that does not select. `scope_required`: the account is connected without
  * this input's grant. `connection_required`: no active row. The availability read tells the two
  * cases apart: a row that is not active (`needs_reauth`) is a repair, and no row is the state

@@ -16,6 +16,7 @@ describe("isQuietMorning", () => {
     activityCount: 0,
     meetingCount: 0,
     brokenConnectionCount: 0,
+    activityGapCount: 0,
     officialWarningCount: 0,
   };
 

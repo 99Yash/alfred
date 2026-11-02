@@ -55,7 +55,7 @@ import { renderBriefingEmail, type BriefingBlockRow } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { runBriefingAgent } from "./agent/agent";
-import { blockingProvenance } from "./provenance";
+import { activityGapCountWithoutRow, blockingProvenance } from "./provenance";
 import {
   auditComposedBriefing,
   describeOpenAskViolation,
@@ -281,13 +281,16 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, and no
-  // official warning for the user's place (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117).
-  // `shippedTotal` is the read's full merge count, and is absent when the read failed, so the gate
-  // then behaves as before. With no demand signal, fall back to the raw email count. A warning for
-  // the time-zone default city does not count, because a `fallback` does not send a morning.
+  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, no
+  // official warning for the user's place, and no activity source that the gather could not see
+  // (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117; ADR-0118). `shippedTotal` is the read's
+  // full merge count, and is absent when the read failed, so the gate then behaves as before. With
+  // no demand signal, fall back to the raw email count. A warning for the time-zone default city
+  // does not count, because a `fallback` does not send a morning.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
   const sendableOfficialWarnings = sendableOfficialWarningCount(gather);
+  const brokenConnectionCount = listGatheredBrokenConnections(gather).length;
+  const activityGapCount = activityGapCountWithoutRow(gather.provenance ?? []);
 
   const quietDay = isQuietMorning({
     demandingEmailCount,
@@ -295,7 +298,8 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     activityCount: counts.activity,
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
-    brokenConnectionCount: listGatheredBrokenConnections(gather).length,
+    brokenConnectionCount,
+    activityGapCount,
     officialWarningCount: sendableOfficialWarnings,
   });
 
@@ -304,7 +308,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `activity_since=${activityWindow.start.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {

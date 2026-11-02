@@ -457,9 +457,11 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * can repair is not quiet either: the block must reach the user each day the break lasts
  * (ADR-0100 amendment 2026-10-28). An official warning for the user's place ranks first under
  * "at risk", so it is not quiet either (ADR-0117 decision 4). A warning for the time-zone default
- * city does not count: `sendableOfficialWarningCount` gives the count. With no attention signal,
- * fall back to the raw email count: a false send is better than a silent suppression
- * (ADR-0048).
+ * city does not count: `sendableOfficialWarningCount` gives the count. An activity source that the
+ * gather could not see is not quiet either (ADR-0118 decision 4): a suppressed morning moves the
+ * watermark past its acts, and they reach no briefing. The briefing goes out and names the gap.
+ * With no attention signal, fall back to the raw email count: a false send is better than a silent
+ * suppression (ADR-0048).
  */
 export function isQuietMorning(args: {
   demandingEmailCount: number | undefined;
@@ -470,6 +472,11 @@ export function isQuietMorning(args: {
   meetingCount: number;
   /** Rows of the briefing's fixed broken-connection block. */
   brokenConnectionCount: number;
+  /**
+   * Activity sources that the gather could not see and that are not block rows:
+   * `activityGapCountWithoutRow`. A block row counts in `brokenConnectionCount`.
+   */
+  activityGapCount: number;
   /** Official warnings that may send a morning: `sendableOfficialWarningCount`. */
   officialWarningCount: number;
 }): boolean {
@@ -478,7 +485,8 @@ export function isQuietMorning(args: {
     args.activityCount > 0 ||
     args.meetingCount > 0 ||
     (args.githubMergedTotal ?? 0) > 0 ||
-    args.brokenConnectionCount > 0
+    args.brokenConnectionCount > 0 ||
+    args.activityGapCount > 0
   ) {
     return false;
   }
