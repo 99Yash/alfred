@@ -387,11 +387,16 @@ function coverageFailureProvenance(
         reason: provenanceText(failure.reason),
         recovery: { kind: "none" },
       };
-    // A gap to now has a reconnect, so it is a row. A past gap is not.
-    case "silent":
-      return failure.reachesPresent
-        ? notDelivered(failure.recovery.integration, provenanceText(failure.reason))
+    // A gap to now has a reconnect, so it is a row. A past gap is not. The same rule as the
+    // delivery alert names the reconnect, so the two rows merge.
+    case "silent": {
+      const integration = alertableIntegration(failure);
+
+      return integration
+        ? notDelivered(integration, provenanceText(failure.reason))
         : silent(provenanceText(failure.reason));
+    }
+
     // The delivery health pins the recovery to `connect`, but the `Omit` over its union does not
     // keep the pair, so the recovery is read again. A slug with no live provider has no row.
     case "never_connected":

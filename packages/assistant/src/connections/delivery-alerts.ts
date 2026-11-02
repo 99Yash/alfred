@@ -12,7 +12,7 @@ import {
 } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { eventDeliveryRows, readEventSourceHealth } from "./event-source-health";
-import type { EventDeliveryFailure } from "./ingress/descriptor";
+import type { EventDeliveryFailure, EventDeliveryRecovery } from "./ingress/descriptor";
 import { logger } from "@alfred/logging";
 
 /**
@@ -77,13 +77,19 @@ export async function readBrokenConnections(
 /**
  * The live integration that a person reconnects to repair `failure` on this instance, or `null`
  * when no reconnect here repairs it. This is the one rule for a reconnect row: the delivery alert
- * and the briefing's `not_delivered` row both use it, so the two rows always merge.
+ * and each briefing `not_delivered` row use it, so the two rows always merge.
+ *
+ * A `silent` failure is a delivery gap in the activity record (`readActivityCoverage`). Only a gap
+ * to now has a `connect` recovery: it is a break that the delivery health did not see.
  */
 export function alertableIntegration(
-  failure: Pick<EventDeliveryFailure, "cause" | "recovery">,
+  failure: {
+    readonly cause: EventDeliveryFailure["cause"] | "silent";
+    readonly recovery: EventDeliveryRecovery;
+  },
   unrepairable: ReadonlySet<LiveProviderSlug> = unrepairableHere(),
 ): LiveProviderSlug | null {
-  if (failure.cause !== "broken") return null;
+  if (failure.cause !== "broken" && failure.cause !== "silent") return null;
 
   if (failure.recovery.kind !== "connect") return null;
   const { integration } = failure.recovery;
