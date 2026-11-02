@@ -36,3 +36,4 @@ A copy compiles. `no-restricted-imports` already fences each `internal` door.
 ## Hits
 
 - #1347 packages/http/src/onboarding.ts: a direct `user_preferences` insert copied the owner; the owner now has `setIfUnset`.
+- #1662 apps/server/src/scripts/backfills/backfill-github-activity-committed.ts: the dry run copies the reducer's keepHead rule instead of calling the same policy.
