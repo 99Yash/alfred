@@ -18,7 +18,7 @@ import { logger } from "@alfred/logging";
 /**
  * Which delivery failures to show a person (ADR-0100). The banner, the sweep email, and the
  * briefing block all use this. A verdict must be `broken`, have a `connect` recovery to a live
- * integration, and be repairable on this instance ({@link unrepairableHere}). The banner and the
+ * integration, and be repairable on this instance ({@link alertableIntegration}). The banner and the
  * sweep also drop a duplicate of a reconnect nag ({@link nagsOwnCredential}).
  * Covers every `EventSource`, not only inbound ones: Gmail watch lapses are a real incident class.
  */ export interface DeliveryAlertVerdict {
@@ -65,27 +65,32 @@ export async function readBrokenConnections(
         ? [entry.health]
         : eventDeliveryRows(rows, entry.accounts).map(entry.healthOf);
 
-    return verdicts.flatMap((verdict) =>
-      verdict.healthy ? [] : alertable(source, verdict, unrepairable),
-    );
+    return verdicts.flatMap((verdict) => {
+      if (verdict.healthy) return [];
+      const integration = alertableIntegration(verdict, unrepairable);
+
+      return integration ? [{ source, integration, reason: verdict.reason }] : [];
+    });
   });
 }
 
-function alertable(
-  source: EventSource,
-  verdict: EventDeliveryFailure,
-  unrepairable: ReadonlySet<LiveProviderSlug>,
-): DeliveryAlertVerdict[] {
-  if (verdict.cause !== "broken") return [];
+/**
+ * The live integration that a person reconnects to repair `failure` on this instance, or `null`
+ * when no reconnect here repairs it. This is the one rule for a reconnect row: the delivery alert
+ * and the briefing's `not_delivered` row both use it, so the two rows always merge.
+ */
+export function alertableIntegration(
+  failure: Pick<EventDeliveryFailure, "cause" | "recovery">,
+  unrepairable: ReadonlySet<LiveProviderSlug> = unrepairableHere(),
+): LiveProviderSlug | null {
+  if (failure.cause !== "broken") return null;
 
-  if (verdict.recovery.kind !== "connect") return [];
-  const { integration } = verdict.recovery;
+  if (failure.recovery.kind !== "connect") return null;
+  const { integration } = failure.recovery;
 
-  if (!isLiveProviderSlug(integration)) return [];
+  if (!isLiveProviderSlug(integration)) return null;
 
-  if (unrepairable.has(integration)) return [];
-
-  return [{ source, integration, reason: verdict.reason }];
+  return unrepairable.has(integration) ? null : integration;
 }
 
 /**

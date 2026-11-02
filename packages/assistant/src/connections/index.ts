@@ -22,7 +22,12 @@ export {
   describeBrokenConnection,
 } from "./broken-connection-facts";
 
-export { readDeliveryAlerts, toDeliveryAlerts, type DeliveryAlertVerdict } from "./delivery-alerts";
+export {
+  alertableIntegration,
+  readDeliveryAlerts,
+  toDeliveryAlerts,
+  type DeliveryAlertVerdict,
+} from "./delivery-alerts";
 
 export {
   eventDeliveryRows,
@@ -101,6 +106,7 @@ export {
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubActivityDocument,
+  settleActivityCoverage,
   readGithubSelf,
   reduceGithubActivity,
   type ActivityCoverage,

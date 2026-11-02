@@ -29,13 +29,13 @@ export {
   type RailwayPullTarget,
 } from "./railway";
 
-export {
-  gatherGithubMergedPullRequests,
-  shippedFromGithubRead,
-  type GithubMergedPullRequest,
-  type GithubMergedRead,
-  type GithubMergedReadOutcome,
-} from "./github";
+export { gatherGithubMergedPullRequests, shippedFromGithubRead } from "./github";
+
+export type {
+  GithubMergedPullRequest,
+  GithubMergedRead,
+  GithubMergedReadOutcome,
+} from "./github-merged-read";
 
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
 

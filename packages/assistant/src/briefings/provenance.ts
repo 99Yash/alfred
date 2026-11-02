@@ -18,11 +18,11 @@ import {
 import { GoogleCredentialSelectionError, type GoogleCredential } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
 import {
-  ACTIVITY_DELIVERY_GRACE_MS,
+  alertableIntegration,
   readIntegrationAvailability,
+  settleActivityCoverage,
   type ActivityCoverage,
 } from "@alfred/assistant/connections";
-import type { EventDeliveryRecovery } from "@alfred/assistant/connections/ingress";
 import type {
   GithubMergedReadOutcome,
   VerifiedPullOutcome,
@@ -322,30 +322,34 @@ export function splitVerifiedPullActivity(
 
 type CoverageFailure = Extract<ActivityCoverage, { state: "unavailable" }>["failure"];
 
-type SilentCoverageFailure = Extract<CoverageFailure, { cause: "silent" }>;
-
 /**
  * What the activity record says about the activity input (ADR-0118 decision 4, in the ADR-0117
  * vocabulary). One entry for each source with a reducer, as of the gather.
  *
+ * `settleActivityCoverage` owns the verdict: a silence that the merged read settles, and the rows
+ * that this build cannot read. This function only gives each verdict its audience.
+ *
  * A source with no reducer (`no_record`: a `tools_only` or `live` source) is one log line for all
  * such sources, not a stored entry, so the list stays inside `GATHER_PROVENANCE_MAX`. The record
  * never held events from such a source, so the briefing does not lose a read that it had before.
- *
- * A silence is the one case that the record cannot settle by itself: GitHub may have had nothing
- * to send, or its deliveries may have stopped. `reconcileSilence` asks the GitHub merged read,
- * which does not depend on a delivery. The merged read covers the same window as the record.
  */
 export function activityRecordProvenance(args: {
   userId: string;
   coverage: readonly ActivityCoverage[];
+  /** The rows of the window that the reader could not parse (`readActivityEvents`). */
+  unreadable: number;
   githubMerged: GithubMergedReadOutcome;
-  /** The coverage's "now". A merge younger than the delivery grace can still be in the queue. */
-  now: Date;
 }): GatherProvenance[] {
-  const { userId, coverage, githubMerged, now } = args;
+  const { userId, githubMerged } = args;
   const noRecord: string[] = [];
   const entries: GatherProvenance[] = [];
+
+  const coverage = settleActivityCoverage({
+    userId,
+    coverage: args.coverage,
+    unreadable: args.unreadable,
+    evidence: { github: githubMerged },
+  });
 
   for (const entry of coverage) {
     if (entry.state === "live") {
@@ -360,7 +364,7 @@ export function activityRecordProvenance(args: {
       continue;
     }
 
-    entries.push(coverageFailureProvenance({ userId, source, failure, githubMerged, now }));
+    entries.push(coverageFailureProvenance(sourceName(source), failure));
   }
 
   if (noRecord.length > 0) {
@@ -373,56 +377,50 @@ export function activityRecordProvenance(args: {
   return entries;
 }
 
-function coverageFailureProvenance(args: {
-  userId: string;
-  source: SourceIdentity;
-  failure: Exclude<CoverageFailure, { cause: "no_record" }>;
-  githubMerged: GithubMergedReadOutcome;
-  now: Date;
-}): GatherProvenance {
-  const { userId, source, failure, githubMerged, now } = args;
-  const name = sourceName(source);
-
+function coverageFailureProvenance(
+  name: string,
+  failure: Exclude<CoverageFailure, { cause: "no_record" }>,
+): GatherProvenance {
   switch (failure.cause) {
     case "record_incomplete":
       return {
         input: "integration_activity",
         state: "unavailable",
         cause: "record_incomplete",
-        reason: provenanceText(
-          `${failure.acts} ${name} events reached Alfred, but the activity record does not hold them.`,
-        ),
+        reason: provenanceText(failure.reason),
         recovery: { kind: "none" },
       };
+    // A gap to now has a reconnect, so it is a row. A past gap is not.
     case "silent":
-      return reconcileSilence({
-        userId,
-        name,
-        failure,
-        integration: failure.integration,
-        githubMerged,
-        now,
-      });
-    // `Omit` over the delivery union does not keep the pairs, so the recovery is read again.
-    case "never_connected": {
-      const integration = connectSlug(failure.recovery);
-
-      return integration
-        ? notConnected("integration_activity", integration)
+      return failure.reachesPresent
+        ? notDelivered(failure.recovery.integration, provenanceText(failure.reason))
+        : silent(provenanceText(failure.reason));
+    // The delivery health pins the recovery to `connect`, but the `Omit` over its union does not
+    // keep the pair, so the recovery is read again. A slug with no live provider has no row.
+    case "never_connected":
+      return failure.recovery.kind === "connect" && isLiveProviderSlug(failure.recovery.integration)
+        ? notConnected("integration_activity", failure.recovery.integration)
         : silent(notReaching(name, failure.reason));
-    }
-
     case "broken": {
-      const integration = connectSlug(failure.recovery);
+      // The same rule as the delivery alert, so the two rows merge.
+      const integration = alertableIntegration(failure);
 
       if (integration) return notDelivered(integration, notReaching(name, failure.reason));
 
-      return failure.recovery.kind === "retry"
-        ? readFailed(
+      switch (failure.recovery.kind) {
+        case "retry":
+          return readFailed(
             "integration_activity",
             provenanceText(`Alfred could not check whether ${name} events reach it.`),
-          )
-        : silent(notReaching(name, failure.reason));
+          );
+        // No reconnect on this instance repairs the break, so the delivery alert shows no row
+        // either. The composer still must not call the window quiet.
+        case "connect":
+        case "none":
+          return silent(notReaching(name, failure.reason));
+        default:
+          return assertNever(failure.recovery, "delivery recovery");
+      }
     }
 
     case "unknown":
@@ -434,94 +432,8 @@ function coverageFailureProvenance(args: {
   }
 }
 
-/** The integration that the user can connect to repair a failure, when it is a live provider. */
-function connectSlug(recovery: EventDeliveryRecovery): LiveProviderSlug | null {
-  return recovery.kind === "connect" && isLiveProviderSlug(recovery.integration)
-    ? recovery.integration
-    : null;
-}
-
 function notReaching(name: string, reason: string): string {
   return provenanceText(`${name} events do not reach Alfred: ${reason}.`);
-}
-
-/**
- * A delivery gap longer than the source's bound. The merged read (`is:pr is:merged author:@me`)
- * is a provider call, so it sees a merge whose delivery never came. It covers the briefing window,
- * so the part of a gap before the window start is not checked: an act from then is not in the
- * window either. A merge younger than the delivery grace does not count, because its delivery
- * can still be in the queue.
- *
- * - The read holds a merge in the gap: GitHub had an event to send, and it did not arrive. When
- *   the gap reaches now, the user can reconnect, so the entry is a block row. A past gap cannot
- *   be repaired now, so the entry is `silent`.
- * - The read holds every merge of the window, and none is in the gap: the user did nothing that
- *   the read can see, for example on a weekend. The source counts as live, and the operator log
- *   keeps the gap.
- * - The read did not complete, or it holds only one page of the merges and none of them is in the
- *   gap: Alfred cannot tell the two cases apart, so the window is not quiet.
- *
- * The read sees only the user's own merges, so a silence with other acts but no merge reads as a
- * quiet window. That is the residual risk of ADR-0118 slice 3.
- *
- * `integration` is `"github"` because the merged read is a GitHub read. A second activity source
- * does not compile here until it has its own read.
- */
-function reconcileSilence(args: {
-  userId: string;
-  name: string;
-  failure: SilentCoverageFailure;
-  integration: "github";
-  githubMerged: GithubMergedReadOutcome;
-  now: Date;
-}): GatherProvenance {
-  const { userId, name, failure, integration, githubMerged, now } = args;
-  const { gap } = failure;
-  const reachesNow = failure.recovery.kind === "connect";
-
-  const noDelivery = reachesNow
-    ? gap.from
-      ? `No ${name} event has reached Alfred since ${gap.from.toISOString()}`
-      : `No ${name} event has reached Alfred in this window`
-    : gap.from
-      ? `No ${name} event reached Alfred from ${gap.from.toISOString()} to ${gap.to.toISOString()}`
-      : `No ${name} event reached Alfred before ${gap.to.toISOString()}`;
-
-  const unconfirmed = silent(
-    provenanceText(
-      `${noDelivery}, and Alfred could not confirm whether ${name} had anything to send.`,
-    ),
-  );
-
-  if (githubMerged.status !== "completed") return unconfirmed;
-
-  const { items, total } = githubMerged.read;
-  const settled = now.getTime() - ACTIVITY_DELIVERY_GRACE_MS;
-
-  const missed = items.filter((item) => {
-    const at = item.mergedAt.getTime();
-
-    return (gap.from === null || at > gap.from.getTime()) && at < gap.to.getTime() && at <= settled;
-  }).length;
-
-  if (missed === 0) {
-    if (items.length < total) return unconfirmed;
-
-    logger.info(
-      { userId, source: name, gapFrom: gap.from, gapTo: gap.to },
-      "[briefing.gather] activity silence reconciled as no events: the merged read found no merge",
-    );
-
-    return live("integration_activity");
-  }
-
-  const reason = provenanceText(
-    `${noDelivery}, but ${missed} of the user's pull requests merged in that time.`,
-  );
-
-  return reachesNow && isLiveProviderSlug(integration)
-    ? notDelivered(integration, reason)
-    : silent(reason);
 }
 
 function silent(reason: string): GatherProvenance {

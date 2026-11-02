@@ -796,8 +796,8 @@ export async function gatherBriefingWithSuppressionAudit(
       ...activityRecordProvenance({
         userId: args.userId,
         coverage: activity.coverage,
+        unreadable: activity.unreadable,
         githubMerged,
-        now: activityNow,
       }),
       ...verifiedPull.provenance,
     ]),

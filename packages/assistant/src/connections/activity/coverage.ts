@@ -1,4 +1,5 @@
 import {
+  assertNever,
   INTEGRATIONS,
   isCatalogSlug,
   sourceIdentitySchema,
@@ -10,13 +11,15 @@ import {
 } from "@alfred/contracts";
 import { db, rowsFromExecute } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
+import { logger } from "@alfred/logging";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { readIntegrationAvailability } from "../availability";
-import type { EventDeliveryFailure, EventDeliveryRecovery } from "../ingress/descriptor";
+import type { EventDeliveryFailure } from "../ingress/descriptor";
 import { readInboundTriggerHealth } from "../ingress/health";
 import { builtInProviderForEndpoint } from "../mcp/built-ins";
 import { listOwnedConnections } from "../mcp/persistence";
+import type { GithubMergedReadOutcome } from "../verified-pull/github-merged-read";
 import { readGithubActivityDocumentsBetween } from "./documents";
 import { githubActOf, isGithubActRecorded, type GithubFamilyHead } from "./github-activity";
 
@@ -46,8 +49,15 @@ import { githubActOf, isGithubActRecorded, type GithubFamilyHead } from "./githu
  *   receipt again. The check reduces each document of the window and looks for the act's family
  *   head. The replay repairs the record.
  *
+ * The checks run in this order, so a record that misses an act is never `live`: the connection
+ * state, a gap that reaches the present, the incomplete record, then a past gap.
+ *
  * Only a gap that reaches the present tells the user to connect. A past gap cannot be repaired
  * now, so its recovery is `none`: the reader still must not call the window quiet.
+ *
+ * The record alone cannot tell a silent source from a broken one. `settleActivityCoverage` gives
+ * the verdict after a provider read that does not depend on a delivery, so each reader of the
+ * record gets the same verdict.
  */
 
 /** How long each activity source can be silent before Alfred stops trusting a quiet window. */
@@ -57,13 +67,35 @@ const ACTIVITY_SOURCES = {
    * 14 h 41 min, except the 6-day outage from 2026-10-22. A day with no work at all can still read
    * as `unavailable`; that is the cost of not reading a dead source as a quiet one.
    */
-  github: { silenceBoundMs: 24 * 60 * 60 * 1000, countUnrecordedActs: countUnrecordedGithubActs },
+  github: {
+    silenceBoundMs: 24 * 60 * 60 * 1000,
+    countUnrecordedActs: countUnrecordedGithubActs,
+    gapProof: githubGapProof,
+  },
 } as const satisfies {
   readonly [S in ActivityObservationSource]: {
     silenceBoundMs: number;
     countUnrecordedActs: (args: UnrecordedActsArgs) => Promise<number>;
+    gapProof: (evidence: SilenceEvidence[S], gap: DeliveryGap) => GapProof;
   };
 };
+
+/**
+ * The provider read of each source with a reducer that settles a silence. The read must not depend
+ * on a delivery. A new activity source does not compile until it names its read here.
+ */
+interface SilenceEvidence {
+  readonly github: GithubMergedReadOutcome;
+}
+
+/** What a provider read proves about a delivery gap. `finding` is a clause for the reader. */
+type GapProof =
+  /** The read holds acts in the gap whose deliveries did not arrive. */
+  | { readonly kind: "missed"; readonly finding: string }
+  /** The read is complete, and it holds no act in the gap. */
+  | { readonly kind: "none"; readonly finding: string }
+  /** The read did not complete, or it holds only a part of its acts. */
+  | { readonly kind: "unknown" };
 
 /** The sources with an activity reducer. Each one is also the `documents.source` of its deliveries. */
 export const ACTIVITY_SOURCE_SLUGS = typedKeys(ACTIVITY_SOURCES);
@@ -87,22 +119,41 @@ export interface ActivityWindow {
   readonly end: Date;
 }
 
-/** A delivery gap longer than the source's bound. `from` is `null` when no delivery came before. */
-interface SilentFailure {
-  readonly cause: "silent";
-  /** The source that went silent. */
-  readonly integration: ActivityObservationSource;
-  readonly reason: string;
-  readonly gap: { readonly from: Date | null; readonly to: Date };
-  readonly recovery: EventDeliveryRecovery;
+/** Two arrival times. `from` is `null` when no delivery came before the gap. */
+interface DeliveryGap {
+  readonly from: Date | null;
+  readonly to: Date;
 }
 
-/** Deliveries arrived, but the record does not hold their acts. Only the replay repairs it. */
+/**
+ * A delivery gap longer than the source's bound. `reachesPresent` is true when no delivery came
+ * from `gap.from` to now. Only then can a reconnect repair the gap, so only then is the recovery
+ * `connect`.
+ */
+type SilentFailure = {
+  readonly cause: "silent";
+  /** One sentence for the reader. `settleActivityCoverage` adds what the provider read proves. */
+  readonly reason: string;
+  readonly gap: DeliveryGap;
+} & (
+  | {
+      readonly reachesPresent: true;
+      readonly recovery: {
+        readonly kind: "connect";
+        readonly integration: ActivityObservationSource;
+      };
+    }
+  | { readonly reachesPresent: false; readonly recovery: { readonly kind: "none" } }
+);
+
+/** The record of the window misses acts or holds rows that this build cannot read. */
 interface RecordIncompleteFailure {
   readonly cause: "record_incomplete";
   readonly reason: string;
-  /** The acts of the window's deliveries that the record does not hold. */
+  /** The acts of the window's deliveries that the record does not hold. Only the replay repairs them. */
   readonly acts: number;
+  /** The rows of the window whose payload this build cannot parse: a writer and this build disagree. */
+  readonly unreadable: number;
   readonly recovery: { readonly kind: "none" };
 }
 
@@ -252,9 +303,9 @@ async function recordedSourceCoverage(args: {
   readFamilyHeads: ReadFamilyHeads;
 }): Promise<ActivityCoverage> {
   const { userId, window, now, source, recorded, rows, readFamilyHeads } = args;
-  const reachesPresent = window.end.getTime() >= now.getTime();
+  const windowReachesPresent = window.end.getTime() >= now.getTime();
 
-  if (reachesPresent) {
+  if (windowReachesPresent) {
     const health = (await readInboundTriggerHealth(userId, rows))[recorded];
 
     if (!health.healthy) {
@@ -264,18 +315,22 @@ async function recordedSourceCoverage(args: {
     }
   }
 
+  // The reader puts an act in the window when its delivery arrived in `[start - G, end - G)`
+  // (`readActivityEvents`). The checks read the same arrivals, so each arrival is checked by one window.
+  const from = beforeGrace(window.start);
+
   // An open window is measured to now: the time after the last delivery is blind time too.
-  const until = reachesPresent ? now : window.end;
+  const until = windowReachesPresent ? now : beforeGrace(window.end);
 
   // A delivery inside the grace time can still be in the queue, so its act does not count yet.
-  const settled = new Date(Math.min(until.getTime(), now.getTime() - ACTIVITY_DELIVERY_GRACE_MS));
+  const settled = beforeGrace(windowReachesPresent ? now : window.end);
 
   const [gap, unrecorded] = await Promise.all([
-    longestDeliveryGap(userId, recorded, window.start, until),
-    settled.getTime() > window.start.getTime()
+    longestDeliveryGap(userId, recorded, from, until),
+    settled.getTime() > from.getTime()
       ? ACTIVITY_SOURCES[recorded].countUnrecordedActs({
           userId,
-          start: window.start,
+          start: from,
           end: settled,
           readFamilyHeads,
         })
@@ -283,43 +338,238 @@ async function recordedSourceCoverage(args: {
   ]);
 
   const neverDelivered = gap.from === null && gap.to.getTime() === until.getTime();
-  const gapMs = gap.to.getTime() - (gap.from ?? window.start).getTime();
+  const gapMs = gap.to.getTime() - (gap.from ?? from).getTime();
+  const isSilent = neverDelivered || gapMs > ACTIVITY_SOURCES[recorded].silenceBoundMs;
+  const reachesPresent = windowReachesPresent && gap.to.getTime() === until.getTime();
 
-  if (neverDelivered || gapMs > ACTIVITY_SOURCES[recorded].silenceBoundMs) {
-    const recovery: EventDeliveryRecovery =
-      reachesPresent && gap.to.getTime() === until.getTime()
-        ? { kind: "connect", integration: recorded }
-        : { kind: "none" };
-
-    return {
-      source,
-      state: "unavailable",
-      failure: {
-        cause: "silent",
-        integration: recorded,
-        reason: gap.from
-          ? `no ${recorded} delivery from ${gap.from.toISOString()} to ${gap.to.toISOString()}`
-          : `no ${recorded} delivery before ${gap.to.toISOString()}`,
-        gap,
-        recovery,
-      },
-    };
+  // A gap to now is not live after any proof, and its reconnect row matters most.
+  if (isSilent && reachesPresent) {
+    return silentCoverage(source, {
+      cause: "silent",
+      reason: `${gapSentence(recorded, gap, true)}.`,
+      gap,
+      reachesPresent: true,
+      recovery: { kind: "connect", integration: recorded },
+    });
   }
 
-  if (unrecorded > 0) {
-    return {
-      source,
-      state: "unavailable",
-      failure: {
-        cause: "record_incomplete",
-        reason: `the activity record does not hold ${unrecorded} ${recorded} acts of the window`,
-        acts: unrecorded,
-        recovery: { kind: "none" },
-      },
-    };
+  // Before a past gap: a provider read can prove that a past gap held no act, and that proof must
+  // not hide a known hole in the record.
+  if (unrecorded > 0) return recordIncomplete(source, recorded, unrecorded, 0);
+
+  if (isSilent) {
+    return silentCoverage(source, {
+      cause: "silent",
+      reason: `${gapSentence(recorded, gap, false)}.`,
+      gap,
+      reachesPresent: false,
+      recovery: { kind: "none" },
+    });
   }
 
   return { source, state: "live" };
+}
+
+/** The time `ACTIVITY_DELIVERY_GRACE_MS` before `at`. */
+function beforeGrace(at: Date): Date {
+  return new Date(at.getTime() - ACTIVITY_DELIVERY_GRACE_MS);
+}
+
+function silentCoverage(source: SourceIdentity, failure: SilentFailure): ActivityCoverage {
+  return { source, state: "unavailable", failure };
+}
+
+function recordIncomplete(
+  source: SourceIdentity,
+  recorded: ActivityObservationSource,
+  acts: number,
+  unreadable: number,
+): ActivityCoverage {
+  const name = INTEGRATIONS[recorded].displayName;
+
+  const sentences = [
+    acts > 0
+      ? `${acts} ${name} events reached Alfred, but the activity record does not hold them.`
+      : null,
+    unreadable > 0
+      ? `${unreadable} activity rows of this window do not match this build of Alfred, so it cannot read them.`
+      : null,
+  ].filter((sentence) => sentence !== null);
+
+  return {
+    source,
+    state: "unavailable",
+    failure: {
+      cause: "record_incomplete",
+      reason: sentences.join(" "),
+      acts,
+      unreadable,
+      recovery: { kind: "none" },
+    },
+  };
+}
+
+/** The one sentence about a delivery gap, without its full stop. */
+function gapSentence(
+  recorded: ActivityObservationSource,
+  gap: DeliveryGap,
+  reachesPresent: boolean,
+): string {
+  const name = INTEGRATIONS[recorded].displayName;
+
+  if (reachesPresent) {
+    return gap.from
+      ? `No ${name} event has reached Alfred since ${gap.from.toISOString()}`
+      : `No ${name} event has ever reached Alfred`;
+  }
+
+  return gap.from
+    ? `No ${name} event reached Alfred from ${gap.from.toISOString()} to ${gap.to.toISOString()}`
+    : `No ${name} event reached Alfred before ${gap.to.toISOString()}`;
+}
+
+/**
+ * The verdict of each coverage entry after the evidence that the record does not hold (ADR-0118
+ * decision 4). Each reader of the record calls this, so no reader keeps its own copy of the rule.
+ *
+ * - `unreadable`: the rows of the reader's window whose payload does not parse
+ *   (`readActivityEvents`). The reader cannot tell the source of such a row, so each source with a
+ *   reducer that is `live`, `record_incomplete`, or in a past gap becomes `record_incomplete`. A
+ *   connection failure or a gap to now stays: neither is `live`, and its own recovery comes first.
+ * - `evidence`: a provider read for each source with a reducer, which settles a silence.
+ *   - A gap to now stays `silent` with its `connect` recovery, whatever the read proves. The read
+ *     covers only some acts (the user's own merges for GitHub), so a dead source with other acts
+ *     must not read as quiet.
+ *   - A past gap where the read holds a missed act stays `silent`. No reconnect repairs it.
+ *   - A past gap where the complete read holds no act is a window with no events, for example a
+ *     weekend. The source is `live`, and the operator log keeps the gap.
+ *   - A past gap where the read did not complete, or holds only a part, stays `silent`.
+ */
+export function settleActivityCoverage(args: {
+  userId: string;
+  coverage: readonly ActivityCoverage[];
+  unreadable: number;
+  evidence: SilenceEvidence;
+}): ActivityCoverage[] {
+  const { userId, unreadable, evidence } = args;
+
+  return args.coverage.map((entry) => {
+    const { source } = entry;
+    const recorded = activitySourceOf(source);
+
+    if (recorded === null) return entry;
+
+    if (entry.state === "live") {
+      return unreadable > 0 ? recordIncomplete(source, recorded, 0, unreadable) : entry;
+    }
+
+    const { failure } = entry;
+
+    switch (failure.cause) {
+      case "record_incomplete":
+        return unreadable > 0
+          ? recordIncomplete(source, recorded, failure.acts, unreadable)
+          : entry;
+      case "silent":
+        return settleSilence({ userId, source, recorded, failure, unreadable, evidence });
+      // A connection failure is not `live`, and it has its own recovery.
+      case "never_connected":
+      case "broken":
+      case "unknown":
+      // A source with a reducer never has this cause.
+      case "no_record":
+        return entry;
+      default:
+        return assertNever(failure, "activity coverage failure");
+    }
+  });
+}
+
+function settleSilence(args: {
+  userId: string;
+  source: SourceIdentity;
+  recorded: ActivityObservationSource;
+  failure: SilentFailure;
+  unreadable: number;
+  evidence: SilenceEvidence;
+}): ActivityCoverage {
+  const { userId, source, recorded, failure, unreadable, evidence } = args;
+  const proof = ACTIVITY_SOURCES[recorded].gapProof(evidence[recorded], failure.gap);
+
+  if (failure.reachesPresent) {
+    return silentCoverage(source, {
+      ...failure,
+      reason: provedGapSentence(recorded, failure, proof),
+    });
+  }
+
+  if (unreadable > 0) return recordIncomplete(source, recorded, 0, unreadable);
+
+  if (proof.kind === "none") {
+    logger.info(
+      { userId, source: recorded, gapFrom: failure.gap.from, gapTo: failure.gap.to },
+      "[activity.coverage] past delivery gap settled as no events: the provider read found no act",
+    );
+
+    return { source, state: "live" };
+  }
+
+  return silentCoverage(source, {
+    ...failure,
+    reason: provedGapSentence(recorded, failure, proof),
+  });
+}
+
+function provedGapSentence(
+  recorded: ActivityObservationSource,
+  failure: SilentFailure,
+  proof: GapProof,
+): string {
+  const name = INTEGRATIONS[recorded].displayName;
+  const gap = gapSentence(recorded, failure.gap, failure.reachesPresent);
+
+  switch (proof.kind) {
+    case "missed":
+      return `${gap}, but ${proof.finding}.`;
+    // Only a gap to now keeps this proof: the read covers only some acts.
+    case "none":
+      return `${gap}, and ${proof.finding}, but other ${name} events can be missing.`;
+    case "unknown":
+      return `${gap}, and Alfred could not confirm whether ${name} had anything to send.`;
+    default:
+      return assertNever(proof, "gap proof");
+  }
+}
+
+/**
+ * What the merged read (`is:pr is:merged author:@me`) proves about a GitHub gap. The read is a
+ * provider call, so it sees a merge whose delivery never came. It covers the briefing window, so
+ * the part of a gap before the window start is not checked. The read returns one page, so "no
+ * merge" is proof only when the page holds every merge of the read.
+ */
+function githubGapProof(read: GithubMergedReadOutcome, gap: DeliveryGap): GapProof {
+  if (read.status !== "completed") return { kind: "unknown" };
+
+  const { items, total } = read.read;
+
+  // `mergedAt` is GitHub's time of the merge, and the gap bounds are arrival times. The delivery
+  // that ends a gap can be the merge itself, so only a merge more than the grace before `to` is
+  // missed. This also drops a merge whose delivery can still be in the queue.
+  const missedBefore = beforeGrace(gap.to).getTime();
+
+  const missed = items.filter((item) => {
+    const at = item.mergedAt.getTime();
+
+    return (gap.from === null || at > gap.from.getTime()) && at < missedBefore;
+  }).length;
+
+  if (missed > 0) {
+    return { kind: "missed", finding: `${missed} of the user's pull requests merged in that time` };
+  }
+
+  return items.length < total
+    ? { kind: "unknown" }
+    : { kind: "none", finding: "none of the user's pull requests merged in that time" };
 }
 
 /**

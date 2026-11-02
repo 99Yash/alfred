@@ -19,6 +19,11 @@ import {
   type GithubMergedPullReadEvent,
 } from "../object-state";
 import { z } from "zod";
+import type {
+  GithubMergedPullRequest,
+  GithubMergedRead,
+  GithubMergedReadOutcome,
+} from "./github-merged-read";
 
 /**
  * GitHub's half of the verified pull (ADR-0062 amendment 2026-10-27). Webhooks stay the only row
@@ -30,28 +35,6 @@ import { z } from "zod";
  * has no trigger. The read calls the connection manager directly, as Railway's reads do, so it
  * bypasses the broker and the `mcp_invocation` ledger; the amendment records that carve-out.
  */
-
-/** One merge the read proved. `url` is canonical. Derived from the event payload, so the fold input and the reducer cannot drift. */
-export type GithubMergedPullRequest = Omit<GithubMergedPullReadEvent["payload"], "externalId">;
-
-/** A read that completed. `total` is the provider's count, which can exceed `items`. */
-export interface GithubMergedRead {
-  items: GithubMergedPullRequest[];
-  total: number;
-}
-
-/**
- * Each state its own variant (review checklist): a miss and a fault are two values.
- * `no_connection` is the miss — GitHub is not connected, and the brief behaves as before.
- * `truncated`, `bad_shape`, and `failed` are faults — the bounds clipped the result, the result is
- * unreadable or partial, or the call threw. Only `completed` carries a read.
- */
-export type GithubMergedReadOutcome =
-  | { status: "no_connection" }
-  | { status: "truncated" }
-  | { status: "bad_shape"; detail: string }
-  | { status: "failed"; err: unknown }
-  | { status: "completed"; read: GithubMergedRead };
 
 /** Bounds prepare + call. The client's own request timeout (`MCP_DEFAULT_REQUEST_TIMEOUT_MS`) fires first for the call. */
 const GITHUB_MERGED_READ_TIMEOUT_MS = 60_000;

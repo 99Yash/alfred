@@ -4,6 +4,7 @@ export {
   ACTIVITY_DELIVERY_GRACE_MS,
   ACTIVITY_SOURCE_SLUGS,
   readActivityCoverage,
+  settleActivityCoverage,
   type ActivityCoverage,
   type ActivityWindow,
   type ReadFamilyHeads,
