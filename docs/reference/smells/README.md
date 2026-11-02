@@ -33,18 +33,18 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Choose `k?: T` or `k?: T \| undefined` for each optional field.](./optional-field-absence-choice.md) | Stays review | none | 0 |
 | [Put a shape in the file that mints or stores it.](./shape-in-minting-file.md) | Stays review | none | 0 |
 | [End a `switch` over a closed union of string literals with a `default` that calls `assertNever`, or that returns a real value when unparsed data can reach it.](./switch-literal-needs-default.md) | Gated by `alfred/switch-literal-needs-default` | ast | 4 |
-| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 2 |
+| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 3 |
 
 ## Constants and ownership
 
 | Smell | Status | Rung | PRs |
 | --- | --- | --- | --- |
-| [Centralize duplicated logic only when the copies change together.](./centralize-only-when-copies-change-together.md) | Stays review | none | 1 |
+| [Centralize duplicated logic only when the copies change together.](./centralize-only-when-copies-change-together.md) | Stays review | none | 2 |
 | [Put a constant at its narrowest stable owner.](./constant-at-narrowest-owner.md) | Stays review | none | 0 |
 | [Make a dedicated constants file only when its values couple.](./constants-file-only-when-coupled.md) | Stays review | none | 0 |
 | [Use an environment variable only for a deploy knob, a secret or an endpoint.](./env-var-only-for-deploy-knob.md) | Stays review | none | 0 |
 | [Name each re-export in a module barrel. Use `export *` only in a package root barrel.](./export-star-outside-root-barrel.md) | Gated by `export-star-outside-root-barrel` | regex | 5 |
-| [Name a threshold, cap, TTL, retry count, batch size or budget.](./name-policy-number.md) | Stays review | none | 1 |
+| [Name a threshold, cap, TTL, retry count, batch size or budget.](./name-policy-number.md) | Stays review | none | 2 |
 
 ## Backend
 
@@ -98,5 +98,5 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | --- | --- | --- | --- |
 | [Check the factual premise of an issue or plan against data before you write code.](./check-issue-premise.md) | Stays review | none | 1 |
 | [Do not let prose claim that the code is safer or more closed than it is.](./prose-not-safer-than-code.md) | Stays review | none | 6 |
-| [When you delete, rename or move a mechanism, search the comments and docs for the words that describe it.](./search-prose-after-rename.md) | Stays review | none | 3 |
+| [When you delete, rename or move a mechanism, search the comments and docs for the words that describe it.](./search-prose-after-rename.md) | Stays review | none | 4 |
 | [Keep the reason of a lint suppression, a disable directive or a `SAFETY:` note true. Delete one that no longer applies.](./suppression-reason-stays-true.md) | Stays review | none | 0 |
