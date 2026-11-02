@@ -143,21 +143,43 @@ export function blockingProvenance(
   });
 }
 
+type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
+
 /**
- * The activity entries that are `unavailable`: the sources whose acts the gather could not see for
- * the window (ADR-0118 decision 4). Such a window is not quiet. A suppressed morning moves the
- * watermark, so the next window starts after these acts, and they reach no briefing.
+ * Whether an `unavailable` activity entry of each cause stops a quiet morning. A suppressed morning
+ * moves the watermark, so the next window starts after the acts that the gather could not see, and
+ * they reach no briefing. A cause stops the morning only when such acts can exist.
  *
- * `no_record` and `window_clipped` are not gaps. A sent briefing would not show their acts either:
- * the record never held them, or the window cap left them out. So they do not stop a quiet morning.
+ * - `not_connected`: no credential row. A deliberate disconnect leaves the same state, and no act
+ *   arrives, so the morning stays quiet (ADR-0117, ADR-0100 amendment 2026-10-28, item 3).
+ * - `no_record` and `window_clipped`: a sent briefing would not show these acts either. The record
+ *   never held them, or the window cap left them out.
+ * - `scope_missing`, `needs_reauth`, and `no_place` are not activity causes. They count, so that a
+ *   new activity use of them fails closed.
+ */
+const ACTIVITY_CAUSE_STOPS_QUIET = {
+  scope_missing: true,
+  needs_reauth: true,
+  not_delivered: true,
+  read_failed: true,
+  silent: true,
+  record_incomplete: true,
+  no_place: true,
+  not_connected: false,
+  no_record: false,
+  window_clipped: false,
+} as const satisfies Record<UnavailableCause, boolean>;
+
+/**
+ * The activity entries that are `unavailable` and whose cause can hide acts: the sources whose acts
+ * the gather could not see for the window (ADR-0118 decision 4). Such a window is not quiet.
  */
 function activityGaps(provenance: readonly GatherProvenance[]): GatherProvenance[] {
   return provenance.filter(
     (entry) =>
       entry.input === "integration_activity" &&
       entry.state === "unavailable" &&
-      entry.cause !== "no_record" &&
-      entry.cause !== "window_clipped",
+      ACTIVITY_CAUSE_STOPS_QUIET[entry.cause],
   );
 }
 
