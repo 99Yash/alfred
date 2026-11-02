@@ -57,8 +57,8 @@ import {
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import {
+  countActivityActs,
   readActivity,
-  readActivityEvents,
   readUserLocation,
   standingInstructions,
   type ActiveStandingInstruction,
@@ -784,7 +784,7 @@ export async function gatherBriefingWithSuppressionAudit(
     windowStart: activityWindow.start,
     windowEnd: activityWindow.end,
     activityCount:
-      Math.max(activity.events.length, githubMergedRead?.total ?? 0) + verifiedPull.value.length,
+      Math.max(activity.acts, githubMergedRead?.total ?? 0) + verifiedPull.value.length,
     githubMerged: githubMergedRead,
   });
 
@@ -819,6 +819,7 @@ export async function gatherBriefingWithSuppressionAudit(
         userId: args.userId,
         coverage: activity.coverage,
         unreadable: activity.unreadable,
+        capped: activity.capped,
         githubMerged,
       }),
     ]),
@@ -881,12 +882,10 @@ export async function gatherDayShape(args: {
 }): Promise<DayShape> {
   const activityCount =
     args.activityCount ??
-    (
-      await readActivityEvents({
-        userId: args.userId,
-        window: { start: args.windowStart, end: args.windowEnd },
-      })
-    ).events.length;
+    (await countActivityActs({
+      userId: args.userId,
+      window: { start: args.windowStart, end: args.windowEnd },
+    }));
 
   const activityVolume: DayShape["activityVolume"] =
     activityCount === 0 ? "quiet" : activityCount >= DAY_SHAPE_BUSY_AT ? "busy" : "normal";

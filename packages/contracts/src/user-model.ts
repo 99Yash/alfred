@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { keyGuard } from "./guards";
+import { enumGuard, keyGuard } from "./guards";
 import { HOSTNAME } from "./hostname";
 import { sourceIdentitySchema } from "./source-identity";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
@@ -500,9 +500,8 @@ export const ACTIVITY_VERBS: readonly ActivityVerb[] = [
   ...new Set(OBSERVATION_SOURCES.flatMap(activityVerbsOf)),
 ];
 
-function isActivityVerb(value: string): value is ActivityVerb {
-  return ACTIVITY_VERBS.some((verb) => verb === value);
-}
+/** True when `value` is a declared verb of an activity source. */
+export const isActivityVerb = enumGuard(ACTIVITY_VERBS);
 
 /**
  * The payload of an `activity` row. The row points at the stored body and never copies it. The

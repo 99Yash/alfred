@@ -101,8 +101,8 @@ export {
 } from "./object-state";
 
 export {
-  ACTIVITY_DELIVERY_GRACE_MS,
   ACTIVITY_SOURCE_SLUGS,
+  arrivalWindowOf,
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubActivityDocument,

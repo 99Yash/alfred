@@ -90,8 +90,7 @@ export const observations = pgTable(
     uniqueIndex("observations_dedup_idx").on(t.userId, t.familyKey, t.evidenceHash),
     index("observations_source_time_idx").on(t.userId, t.source, t.occurredAt),
     // The activity reader finds the rows of each document that arrived in its window (ADR-0118).
-    // Not partial: Postgres keeps no statistics for a partial expression index, so it would not
-    // plan the probe.
+    // The reader's join uses the same expression, so Postgres can probe this index with it.
     index("observations_document_idx").on(t.userId, sql`(${t.payload} ->> 'documentId')`),
     // No (user_id, family_key) index: both unique indexes below start with it.
     index("observations_supersedes_idx").on(t.supersedesObservationId),

@@ -365,6 +365,8 @@ export function activityRecordProvenance(args: {
   coverage: readonly ActivityCoverage[];
   /** The rows of the window that the reader could not parse (`readActivityEvents`). */
   unreadable: number;
+  /** True when the reader stopped at its page cap (`readActivity`). */
+  capped: boolean;
   githubMerged: GithubMergedReadOutcome;
 }): GatherProvenance[] {
   const { userId, githubMerged } = args;
@@ -375,6 +377,7 @@ export function activityRecordProvenance(args: {
     userId,
     coverage: args.coverage,
     unreadable: args.unreadable,
+    capped: args.capped,
     evidence: { github: githubMerged },
   });
 

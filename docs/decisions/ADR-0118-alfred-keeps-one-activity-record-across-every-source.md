@@ -138,13 +138,13 @@ The code follows decisions 4 and 6 for the briefing, with these facts. Two items
 
 - **One reader.** `readActivity({ userId, window, clock })` (`knowledge/activity.ts`) gives the live family heads of the window and the coverage of decision 4 for the same window. `readActivityEvents` gives the events only, for a reader that already has the coverage.
 - **The row names a document.** The row keeps `payload.documentId`, not the `event_receipts` id of decision 1, and it does not copy the body. The reader joins that `documents` row for the title and the link.
-- **The arrival puts an act in one window.** An act is in the window `[start, end)` when its document's `authored_at` is in `[start − G, end − G)`. G is `ACTIVITY_DELIVERY_GRACE_MS` (15 minutes). The time of the act does not count.
+- **The arrival puts an act in one window.** An act is in the window `[start, end)` when its document's `authored_at` is in `[start − G, end − G)`. G is `ACTIVITY_DELIVERY_GRACE_MS` (15 minutes). `arrivalWindowOf` (`connections/activity/coverage.ts`) computes these bounds for the reader and for the coverage. The time of the act does not count.
   - Consecutive windows share their bounds, so each act reaches one briefing only.
   - The shift by G gives the queued writer time to write the row after the document commits.
   - A late delivery is in the window of its arrival.
   - A replay row names the document of the first delivery, so a replay does not put old acts in a new window.
 - **The read starts from the documents.** The query finds the documents of the window through `documents_user_source_idx`. Each document finds its rows through the new index `observations_document_idx` on `(user_id, (payload ->> 'documentId'))`. Migration `0161_steep_black_tarantula.sql` adds it. So the cost follows the window, not the history of the user.
-- **The read has a limit.** One read returns at most 500 rows (`ACTIVITY_READ_MAX`), the newest. The read counts each row whose payload does not parse (`unreadable`), and coverage uses that count.
+- **The read has a limit.** One page holds at most 500 rows (`ACTIVITY_READ_MAX`), the newest, and a `before` cursor. `readActivity` reads the pages to the end of the window, at most 20 pages (`ACTIVITY_READ_PAGE_CAP`). It counts each row whose payload does not parse (`unreadable`), and coverage uses that count. When the window holds more rows than the cap, each source with a reducer is `record_incomplete` (`capped`). The day shape uses the count of the whole window.
 - **No `subjects` or `sources` filter.** This differs from decision 6, which names these filters. No reader needs them yet. The first reader that needs one adds it.
 - **No standing instructions at read time.** This differs from decision 6, which applies the user's standing instructions when a reader reads. The instruction contract is about mail only. A target is an email sender, an effect is a mail effect, and the match is stored for each email. So no instruction can match an act today. Issue #1674 holds this work.
 
@@ -160,7 +160,7 @@ The code follows decisions 4 and 6 for the briefing, with these facts. Two items
 - **The briefing lines.** `activityItemsOf` (`briefings/activity-lines.ts`) makes the stored activity lines, at most 25. A run of pushes by one actor to one object is one line with a `rollup` count.
 - **The day shape counts the events of the window.** The old read stopped at 25 receipts, so a day with more acts now reads as `busy` sooner.
 - **The composer pages the record.** `list_activity` gives the counts by actor and verb for the whole window. It also gives one page of the newest acts that pass an actor and a verb filter.
-  - Postgres counts the whole window (`countActivityEvents`) and applies the filter before the limit.
+  - Postgres counts the whole window (`countActivityEvents`) and applies the filter before the limit. A row with no declared verb counts as `unreadable`.
   - A page holds at most 25 acts. The `before` cursor is an observation id, and it gets the next older page.
   - The tool says that an act is evidence, not state. So an act never closes a loop.
   - The seed does not hold the rows, and the composer decides which acts matter. A search over the embeddings for the important acts waits for a design (#1670).

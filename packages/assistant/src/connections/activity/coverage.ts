@@ -111,12 +111,21 @@ function activitySourceOf(source: SourceIdentity): ActivityObservationSource | n
  * with an exponential 5 s backoff, about 75 s in total. A reader that checks the record against a
  * provider read gives an act the same time to arrive.
  */
-export const ACTIVITY_DELIVERY_GRACE_MS = 15 * 60 * 1000;
+const ACTIVITY_DELIVERY_GRACE_MS = 15 * 60 * 1000;
 
 /** The window that the reader asks about: `start` inclusive, `end` exclusive. */
 export interface ActivityWindow {
   readonly start: Date;
   readonly end: Date;
+}
+
+/**
+ * The arrival times of the deliveries whose acts are in `window`: `[start - G, end - G)`, where G
+ * is `ACTIVITY_DELIVERY_GRACE_MS`. The reader of the record and the coverage both use this
+ * function, so they check the same arrivals.
+ */
+export function arrivalWindowOf(window: ActivityWindow): ActivityWindow {
+  return { start: beforeGrace(window.start), end: beforeGrace(window.end) };
 }
 
 /** Two arrival times. `from` is `null` when no delivery came before the gap. */
@@ -157,7 +166,10 @@ type SilentFailure = {
     }
 );
 
-/** The record of the window misses acts or holds rows that this build cannot read. */
+/**
+ * The record of the window misses acts, holds rows that this build cannot read, or holds more rows
+ * than the reader reads.
+ */
 interface RecordIncompleteFailure {
   readonly cause: "record_incomplete";
   readonly reason: string;
@@ -165,7 +177,16 @@ interface RecordIncompleteFailure {
   readonly acts: number;
   /** The rows of the window whose payload this build cannot parse: a writer and this build disagree. */
   readonly unreadable: number;
+  /** True when the reader stopped at its page cap, so it did not read the oldest rows of the window. */
+  readonly capped: boolean;
   readonly recovery: { readonly kind: "none" };
+}
+
+/** The acts that the record misses, and the rows of the record that the reader did not read. */
+interface ActivityReadShortfall {
+  readonly acts: number;
+  readonly unreadable: number;
+  readonly capped: boolean;
 }
 
 /** The source has no activity reducer, so the record has no events from it. */
@@ -360,17 +381,18 @@ async function recordedSourceCoverage(args: {
     }
   }
 
-  // The reader puts an act in the window when its delivery arrived in `[start - G, end - G)`
+  // The reader puts an act in the window when its delivery arrived in `arrivalWindowOf(window)`
   // (`readActivityEvents`). A past window checks the same arrivals, so one window checks each
   // arrival. A window that reaches the present measures the silence to now, so the arrivals in
   // `[now - G, now)` also close a gap here, and the next window checks them again.
-  const from = beforeGrace(window.start);
+  const arrivals = arrivalWindowOf(window);
+  const from = arrivals.start;
 
   // An open window is measured to now: the time after the last delivery is blind time too.
-  const until = windowReachesPresent ? now : beforeGrace(window.end);
+  const until = windowReachesPresent ? now : arrivals.end;
 
   // A delivery inside the grace time can still be in the queue, so its act does not count yet.
-  const settled = beforeGrace(windowReachesPresent ? now : window.end);
+  const settled = windowReachesPresent ? beforeGrace(now) : arrivals.end;
 
   const { silenceBoundMs } = ACTIVITY_SOURCES[recorded];
 
@@ -412,7 +434,9 @@ async function recordedSourceCoverage(args: {
 
   // Before a past gap: a provider read can prove that a past gap held no act, and that proof must
   // not hide a known hole in the record.
-  if (unrecorded > 0) return recordIncomplete(source, recorded, unrecorded, 0);
+  if (unrecorded > 0) {
+    return recordIncomplete(source, recorded, { acts: unrecorded, unreadable: 0, capped: false });
+  }
 
   const [first, ...rest] = gaps;
 
@@ -448,9 +472,9 @@ function silentCoverage(source: SourceIdentity, failure: SilentFailure): Activit
 function recordIncomplete(
   source: SourceIdentity,
   recorded: ActivityObservationSource,
-  acts: number,
-  unreadable: number,
+  shortfall: ActivityReadShortfall,
 ): ActivityCoverage {
+  const { acts, unreadable, capped } = shortfall;
   const name = INTEGRATIONS[recorded].displayName;
 
   const sentences = [
@@ -459,6 +483,9 @@ function recordIncomplete(
       : null,
     unreadable > 0
       ? `${unreadable} activity rows of this window do not match this build of Alfred, so it cannot read them.`
+      : null,
+    capped
+      ? "The activity record of this window holds more rows than one briefing reads, so Alfred read only the newest of them."
       : null,
   ].filter((sentence) => sentence !== null);
 
@@ -470,6 +497,7 @@ function recordIncomplete(
       reason: sentences.join(" "),
       acts,
       unreadable,
+      capped,
       recovery: { kind: "none" },
     },
   };
@@ -499,9 +527,11 @@ function gapSentence(
  * decision 4). Each reader of the record calls this, so no reader keeps its own copy of the rule.
  *
  * - `unreadable`: the rows of the reader's window whose payload does not parse
- *   (`readActivityEvents`). The reader cannot tell the source of such a row, so each source with a
- *   reducer that is `live`, `record_incomplete`, or in a past gap becomes `record_incomplete`. A
- *   connection failure or a gap to now stays: neither is `live`, and its own recovery comes first.
+ *   (`readActivityEvents`). `capped`: the reader stopped at its page cap (`readActivity`), so it did
+ *   not read the oldest rows of the window. The reader cannot tell the source of such a row, so
+ *   when either is true, each source with a reducer that is `live`, `record_incomplete`, or in a
+ *   past gap becomes `record_incomplete`. A connection failure or a gap to now stays: neither is
+ *   `live`, and its own recovery comes first.
  * - `evidence`: a provider read for each source with a reducer, which settles a silence.
  *   - A gap to now stays `silent` with its `connect` recovery, whatever the read proves. The read
  *     covers only some acts (the user's own merges for GitHub), so a dead source with other acts
@@ -516,9 +546,11 @@ export function settleActivityCoverage(args: {
   userId: string;
   coverage: readonly ActivityCoverage[];
   unreadable: number;
+  capped: boolean;
   evidence: SilenceEvidence;
 }): ActivityCoverage[] {
-  const { userId, unreadable, evidence } = args;
+  const { userId, unreadable, capped, evidence } = args;
+  const readShort = unreadable > 0 || capped;
 
   return args.coverage.map((entry) => {
     const { source } = entry;
@@ -527,18 +559,20 @@ export function settleActivityCoverage(args: {
     if (recorded === null) return entry;
 
     if (entry.state === "live") {
-      return unreadable > 0 ? recordIncomplete(source, recorded, 0, unreadable) : entry;
+      return readShort
+        ? recordIncomplete(source, recorded, { acts: 0, unreadable, capped })
+        : entry;
     }
 
     const { failure } = entry;
 
     switch (failure.cause) {
       case "record_incomplete":
-        return unreadable > 0
-          ? recordIncomplete(source, recorded, failure.acts, unreadable)
+        return readShort
+          ? recordIncomplete(source, recorded, { acts: failure.acts, unreadable, capped })
           : entry;
       case "silent":
-        return settleSilence({ userId, source, recorded, failure, unreadable, evidence });
+        return settleSilence({ userId, source, recorded, failure, unreadable, capped, evidence });
       // A connection failure is not `live`, and it has its own recovery.
       case "never_connected":
       case "broken":
@@ -558,9 +592,10 @@ function settleSilence(args: {
   recorded: ActivityObservationSource;
   failure: SilentFailure;
   unreadable: number;
+  capped: boolean;
   evidence: SilenceEvidence;
 }): ActivityCoverage {
-  const { userId, source, recorded, failure, unreadable, evidence } = args;
+  const { userId, source, recorded, failure, unreadable, capped, evidence } = args;
 
   const proofOf = (gap: DeliveryGap): GapProof =>
     ACTIVITY_SOURCES[recorded].gapProof(evidence[recorded], gap);
@@ -572,7 +607,9 @@ function settleSilence(args: {
     });
   }
 
-  if (unreadable > 0) return recordIncomplete(source, recorded, 0, unreadable);
+  if (unreadable > 0 || capped) {
+    return recordIncomplete(source, recorded, { acts: 0, unreadable, capped });
+  }
 
   const open = failure.gaps
     .map((gap) => ({ gap, proof: proofOf(gap) }))

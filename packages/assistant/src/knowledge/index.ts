@@ -111,12 +111,12 @@ export { readUserLocation, type StatedPlace, type UserLocation } from "./locatio
 
 // The activity record (ADR-0118 decision 6): events in time order and the coverage of each source.
 export {
+  countActivityActs,
   countActivityEvents,
   readActivity,
   readActivityEvents,
   type ActivityCounts,
   type ActivityEvent,
-  type ActivityRead,
 } from "./activity";
 
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.
