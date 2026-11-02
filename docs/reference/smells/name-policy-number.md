@@ -33,3 +33,4 @@ limit: z.number().int().min(1).max(CONTEXT_SEARCH_MAX_LIMIT).default(CONTEXT_SEA
 ## Hits
 
 - #1665 official-warnings/gdacs.ts MAX_AREA_READS and official-warnings/feed.ts REQUEST_TIMEOUT_MS had no reason for their values
+- #1672 knowledge/activity.ts copied the bare .max(300) of integrationActivityItemSchema.title into its own ACTIVITY_TITLE_MAX; name it once beside the schema

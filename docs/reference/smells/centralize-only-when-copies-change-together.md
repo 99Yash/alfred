@@ -37,3 +37,4 @@ import { parseEmailAddress } from "@alfred/contracts";
 ## Hits
 
 - #1665 official-warnings/sachet.ts and gdacs.ts built the same OfficialWarning with seven clipText calls, and two rank tables shared one scale by comment only
+- #1672 the actor label (you/login/someone), the tool window (since ?? until - DAY_MS), and the "events do not reach Alfred" sentence each had two or three copies that change together
