@@ -93,7 +93,27 @@ The cap in rule 4 limits the case that ADR-0115 names as its honest limit: a pro
 ### Read host functions that this ADR adds
 
 - `models.classify(items, schema)` calls `route("cheap")` one time for each batch and returns typed results. A program has a model-call cap, and each call is metered like a tool call (`packages/db/src/schema/metering.ts`). This is the "non-tool API" idea of the article.
-- `mcp.read(server, tool, args)` uses the `result: "structured"` option, so a program gets the whole `structuredContent`. This is a facade over the same broker read that `mcp.call` uses, with the same gate.
+- `mcp.read(ref, args)` uses the `result: "structured"` option, so a program gets the whole `structuredContent`. This is a facade over the same broker read that `mcp.call` uses, with the same gate. `ref` is the same `ExternalToolRef` that `mcp.call` takes, so a ref from `mcp.search` goes into `mcp.read` without a change.
+- **Catalog discovery inside the program** (owner decision of 2026-11-02). Without it, the boss must call `mcp.list_tools` and `mcp.inspect_tool` before `code.run`, and then copy each ref and schema into the source. Each hit and each descriptor (up to 128 KB) then goes into the transcript. Cloudflare's code mode gives the program `search()` and `describe()` in the sandbox, so only the return value of the program goes into the model context. Alfred adds three read host functions in the `mcp` group. Each one is a facade over the function that the chat tool already calls, with the user id of the run:
+
+  | Host function         | Facade over                                              | Returns                                                                     |
+  | --------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
+  | `mcp.servers()`       | `listOwnedConnections` (`connections/mcp/persistence.ts`) | One entry for each connection: `id`, `label`, `instanceKey`, `status`, `toolCount` |
+  | `mcp.search(input)`   | `searchMcpToolsLocal`, the `mcp.list_tools` read          | The same `McpToolDiscoveryPage`: hits with an exact `ref`, and `nextCursor` |
+  | `mcp.describe(ref)`   | `inspectMcpToolLocal`, the `mcp.inspect_tool` read        | The same `McpToolInspectionResult`, with the full input schema              |
+
+  - These are local reads of Alfred's stored catalog. They never call a live MCP client, and they have the same `#540` policy-gate waiver as the chat tools. They are on with `code.run` and need no capability.
+  - The host parses the guest input with `mcpToolSearchInputSchema` and `mcpToolInspectInputSchema`, because guest data is `unknown`. The page limit (50), the scan budget, and the cursor stay as they are. A program that pages through all catalogs pays one bridge request for each page, under the 256-request cap.
+  - In the apply pass, these reads come from the replay ledger, as other reads do. So the apply pass sees the same refs as the plan pass.
+  - A ref carries its `catalogRevision`. If the catalog changes between `mcp.search` and `mcp.read` in one pass, `mcp.read` fails with `catalog_stale` and the program gets a `RunError`, as the rule above for one prepared catalog says. The 5-minute TTL floor makes this rare.
+  - The `code.run` tool description names the four `mcp` host functions. This is a tool description, not a prompt patch.
+  - Example: the program finds a tool, reads its schema, and returns only the slice that the boss needs.
+
+    ```js
+    const { tools } = await mcp.search({ query: "deployment logs", namespace: "railway" });
+    const spec = await mcp.describe(tools[0].ref);
+    return { ref: tools[0].ref, required: spec.tool.inputSchema?.required ?? [] };
+    ```
 - **One prepared catalog for each server in a program** (owner decision of 2026-10-29). The first `mcp.read` on a connection prepares its catalog, and each later `mcp.read` on that connection in the same pass uses that prepared catalog. The broker read prepares the catalog before each call, and a server that sends `ttlMs: 0` made each call list the catalog again (GitHub: 9-17 s for each call). The 5-minute catalog TTL floor in `connections/mcp/protocol.ts` removes most of that cost, but a program must not pay it N times when the floor expires or a list-change event arrives. One catalog also gives one tool revision to the whole pass. If the server rejects a stale descriptor, the read fails with `descriptor_mismatch`, and the program gets a `RunError`. The program does not prepare the catalog again in the same pass.
 
 ### What this ADR does not adopt from the article
@@ -131,7 +151,7 @@ These start with the first slice, not after it:
 2. ADR-0115 slices 1 and 2: the contract, todo events, and authority enforcement.
 3. The plan pass and the apply pass, with no write capability on. The plan card shows the writes, and every apply is rejected. This proves the plan and the replay on real runs.
 4. `code.todos`, off by default, with the gate and the instrumentation.
-5. `models.classify` and `mcp.read`.
+5. `models.classify`, and the `mcp` group: `mcp.servers`, `mcp.search`, `mcp.describe`, and `mcp.read`. The three catalog reads have no dependency on ADR-0115, so they can ship in step 1 if a slice-1 program needs them.
 
 ## Alternatives
 
