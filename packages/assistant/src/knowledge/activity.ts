@@ -16,8 +16,8 @@ import {
   ACTIVITY_SOURCE_SLUGS,
   arrivalWindowOf,
   readActivityCoverage,
-  type ActivityCoverage,
   type ActivityWindow,
+  type UnsettledActivityCoverage,
 } from "@alfred/assistant/connections";
 import { liveObservationHeadJoin, readObservationFamilyHeads } from "./observations";
 
@@ -106,7 +106,8 @@ interface ActivityRead {
   readonly capped: boolean;
   /** The count of readable acts in the whole window, also when `capped`. */
   readonly acts: number;
-  readonly coverage: readonly ActivityCoverage[];
+  /** The verdicts before the provider evidence. A reader gives them to `settleActivityCoverage`. */
+  readonly coverage: UnsettledActivityCoverage;
 }
 
 /**

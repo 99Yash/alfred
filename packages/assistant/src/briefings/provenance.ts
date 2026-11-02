@@ -22,6 +22,8 @@ import {
   readIntegrationAvailability,
   settleActivityCoverage,
   type ActivityCoverage,
+  type SilenceEvidence,
+  type UnsettledActivityCoverage,
 } from "@alfred/assistant/connections";
 import type {
   GithubMergedReadOutcome,
@@ -362,14 +364,15 @@ type CoverageFailure = Extract<ActivityCoverage, { state: "unavailable" }>["fail
  */
 export function activityRecordProvenance(args: {
   userId: string;
-  coverage: readonly ActivityCoverage[];
+  coverage: UnsettledActivityCoverage;
   /** The rows of the window that the reader could not parse (`readActivityEvents`). */
   unreadable: number;
   /** True when the reader stopped at its page cap (`readActivity`). */
   capped: boolean;
-  githubMerged: GithubMergedReadOutcome;
+  /** The provider reads that settle a silence, each with the window that it covered. */
+  evidence: SilenceEvidence;
 }): GatherProvenance[] {
-  const { userId, githubMerged } = args;
+  const { userId, evidence } = args;
   const noRecord: string[] = [];
   const entries: GatherProvenance[] = [];
 
@@ -378,7 +381,7 @@ export function activityRecordProvenance(args: {
     coverage: args.coverage,
     unreadable: args.unreadable,
     capped: args.capped,
-    evidence: { github: githubMerged },
+    evidence,
   });
 
   for (const entry of coverage) {

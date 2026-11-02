@@ -7,7 +7,8 @@ export {
   settleActivityCoverage,
   type ActivityCoverage,
   type ActivityWindow,
-  type ReadFamilyHeads,
+  type SilenceEvidence,
+  type UnsettledActivityCoverage,
 } from "./coverage";
 
 export {
@@ -17,3 +18,5 @@ export {
 } from "./documents";
 
 export { reduceGithubActivity, type GithubFamilyHead } from "./github-activity";
+
+export type { ReadFamilyHeads } from "./github-coverage";

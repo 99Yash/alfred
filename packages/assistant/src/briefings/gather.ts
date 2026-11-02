@@ -819,7 +819,8 @@ export async function gatherBriefingWithSuppressionAudit(
         coverage: activity.coverage,
         unreadable: activity.unreadable,
         capped: activity.capped,
-        githubMerged,
+        // The digest read the merges over `activityWindow` (`gatherBriefingDigest`).
+        evidence: { github: { window: activityWindow, read: githubMerged } },
       }),
     ),
     deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),

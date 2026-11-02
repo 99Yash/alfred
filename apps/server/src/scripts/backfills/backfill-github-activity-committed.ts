@@ -146,7 +146,10 @@ async function report(dayText: string): Promise<void> {
 
     console.log(`# ${userId} ${day} (${timezone}) [${start.toISOString()}, ${end.toISOString()})`);
 
-    for (const entry of coverage) console.log(`  coverage ${JSON.stringify(entry)}`);
+    // The record alone, with no merged read, so these are not the briefing's final verdicts.
+    for (const entry of coverage.entries) {
+      console.log(`  unsettled coverage ${JSON.stringify(entry)}`);
+    }
 
     const record = await db()
       .select({

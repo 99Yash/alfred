@@ -113,6 +113,8 @@ export {
   type ActivityWindow,
   type GithubFamilyHead,
   type ReadFamilyHeads,
+  type SilenceEvidence,
+  type UnsettledActivityCoverage,
 } from "./activity";
 
 export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";
