@@ -97,6 +97,7 @@ export {
 
 export {
   ACTIVITY_DELIVERY_GRACE_MS,
+  ACTIVITY_SOURCE_SLUGS,
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubActivityDocument,

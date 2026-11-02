@@ -284,10 +284,10 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
         list_activity: tool({
           description: "The activity record of the connected tools. This scenario has none.",
           inputSchema: z.object({
-            actor: z.enum(["user", "others", "any"]).default("any"),
+            actor: z.enum(["user", "other", "any"]).default("any"),
             limit: z.number().int().min(1).max(25).default(10),
           }),
-          execute: async () => ({ counts: { user: {}, others: {} }, matched: 0, items: [] }),
+          execute: async () => ({ counts: { user: {}, other: {} }, matched: 0, items: [] }),
         }),
         list_action_items: tool({
           description: "Open action items. Not wired — returns [].",

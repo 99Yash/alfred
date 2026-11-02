@@ -128,7 +128,7 @@ const ACTIVITY_PAGE_MAX = 25;
 
 const listActivityInputSchema = z.object({
   actor: z
-    .enum(["user", "others", "any"])
+    .enum(["user", "other", "any"])
     .default("any")
     .describe("Whose acts to return: the user's, other people's, or both. Defaults to any."),
   verb: z.enum(ACTIVITY_VERBS).optional().describe("Return only acts with this verb."),
@@ -153,7 +153,7 @@ interface ActivityLine {
 /** The count of acts by actor and verb. */
 interface ActivityCounts {
   user: Partial<Record<ActivityVerb, number>>;
-  others: Partial<Record<ActivityVerb, number>>;
+  other: Partial<Record<ActivityVerb, number>>;
 }
 
 /**
@@ -171,17 +171,17 @@ function activityList(
   events: readonly ActivityEvent[],
   filter: z.infer<typeof listActivityInputSchema>,
 ): ActivityList {
-  const counts: ActivityCounts = { user: {}, others: {} };
+  const counts: ActivityCounts = { user: {}, other: {} };
 
   for (const event of events) {
-    const bucket = event.actor.kind === "user" ? counts.user : counts.others;
+    const bucket = counts[event.actor.kind];
 
     bucket[event.verb] = (bucket[event.verb] ?? 0) + 1;
   }
 
   const matching = events.filter(
     (event) =>
-      (filter.actor === "any" || (filter.actor === "user") === (event.actor.kind === "user")) &&
+      (filter.actor === "any" || filter.actor === event.actor.kind) &&
       (filter.verb === undefined || event.verb === filter.verb),
   );
 
@@ -381,10 +381,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     list_activity: tool({
       description:
-        "The activity record of the user's connected tools over the briefing window: what the user did and what other people did (GitHub today: opened, merged, closed, reopened, reviewed, pushed). Returns { counts, matched, items }. counts gives the number of acts by actor (user, others) and verb for the whole window, whatever the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.",
+        "The activity record of the user's connected tools over the briefing window: what the user did and what other people did (GitHub today: opened, merged, closed, reopened, reviewed, pushed). Returns { counts, matched, items }. counts gives the number of acts by actor (user, other) and verb for the whole window, whatever the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.",
       inputSchema: listActivityInputSchema,
       execute: async (filter): Promise<ActivityList> => {
-        const events = await readActivityEvents({ userId: args.userId, window: toolWindow(args) });
+        const { events } = await readActivityEvents({
+          userId: args.userId,
+          window: toolWindow(args),
+        });
 
         return activityList(events, filter);
       },

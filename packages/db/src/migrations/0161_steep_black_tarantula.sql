@@ -1,0 +1,1 @@
+CREATE INDEX "observations_document_idx" ON "observations" USING btree ("user_id",("payload" ->> 'documentId'));

@@ -65,7 +65,8 @@ const ACTIVITY_SOURCES = {
   };
 };
 
-const ACTIVITY_SOURCE_SLUGS = typedKeys(ACTIVITY_SOURCES);
+/** The sources with an activity reducer. Each one is also the `documents.source` of its deliveries. */
+export const ACTIVITY_SOURCE_SLUGS = typedKeys(ACTIVITY_SOURCES);
 
 function activitySourceOf(source: SourceIdentity): ActivityObservationSource | null {
   if (source.kind !== "integration") return null;

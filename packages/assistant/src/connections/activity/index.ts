@@ -2,6 +2,7 @@
 
 export {
   ACTIVITY_DELIVERY_GRACE_MS,
+  ACTIVITY_SOURCE_SLUGS,
   readActivityCoverage,
   type ActivityCoverage,
   type ActivityWindow,
