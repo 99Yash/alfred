@@ -111,8 +111,6 @@ export { readUserLocation, type StatedPlace, type UserLocation } from "./locatio
 
 // The activity record (ADR-0118 decision 6): events in time order and the coverage of each source.
 export {
-  activityActorLabel,
-  activityItemsOf,
   readActivity,
   readActivityEvents,
   type ActivityEvent,

@@ -25,7 +25,8 @@ import {
 import type { ActivityWindow } from "@alfred/assistant/connections";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
-import { activityActorLabel, readActivityEvents, type ActivityEvent } from "../../knowledge";
+import { readActivityEvents, type ActivityEvent } from "../../knowledge";
+import { activityActorLabel } from "../activity-lines";
 
 /**
  * Narrow toolset for the briefing agent. There is no send, draft, or web search tool:
@@ -60,6 +61,11 @@ interface BuildArgs {
   sinceIngestedAt: Date | null;
   /** Frozen "now". */
   untilIngestedAt: Date;
+  /**
+   * The gather's activity window (`readBriefingActivityWindow`), which `list_activity` and
+   * `get_day_shape` read. It is the window of the coverage facts in the briefing request.
+   */
+  activityWindow: ActivityWindow;
   /** Anchors the calendar window. */
   briefingDate: LocalDateKey;
   /** Local day boundaries for the calendar window. */
@@ -107,20 +113,6 @@ export function officialWarningsRead(
   if (warnings === null) return { status: "not_read" };
 
   return { status: "read", items: warnings.items };
-}
-
-/** The tool window on the first run, when there is no watermark. */
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * The window that `get_day_shape` and `list_activity` read: from the slot's last watermark to the
- * frozen "now", or the last day on the first run.
- */
-function toolWindow(args: BuildArgs): ActivityWindow {
-  return {
-    start: args.sinceIngestedAt ?? new Date(args.untilIngestedAt.getTime() - DAY_MS),
-    end: args.untilIngestedAt,
-  };
 }
 
 /** Most activity lines that one `list_activity` call returns. */
@@ -369,12 +361,10 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
           return dayShape;
         }
 
-        const window = toolWindow(args);
-
         return gatherDayShape({
           userId: args.userId,
-          windowStart: window.start,
-          windowEnd: window.end,
+          windowStart: args.activityWindow.start,
+          windowEnd: args.activityWindow.end,
         });
       },
     }),
@@ -386,7 +376,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
       execute: async (filter): Promise<ActivityList> => {
         const { events } = await readActivityEvents({
           userId: args.userId,
-          window: toolWindow(args),
+          window: args.activityWindow,
         });
 
         return activityList(events, filter);

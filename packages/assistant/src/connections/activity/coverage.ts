@@ -196,14 +196,40 @@ interface UnrecordedActsArgs {
   readonly readFamilyHeads: ReadFamilyHeads;
 }
 
-/** The coverage of every connected source for `window`, as of `now`. */
+/**
+ * How long after a window's end a read still counts as the present. One hour is much longer than
+ * the time from a run's frozen watermark to its gather, and much shorter than the time between two
+ * briefing slots.
+ */
+const WATERMARK_PRESENT_MS = 60 * 60 * 1000;
+
+/**
+ * The "now" of a coverage read. A run freezes its watermark a little before it reads, so a window
+ * that ends at the watermark must still read as one that reaches the present. If not, the coverage
+ * skips the delivery health and cannot ask the user to reconnect. A window that ends after the
+ * clock (the local end of the day) is measured to the clock. A window that ended more than
+ * `WATERMARK_PRESENT_MS` ago, for example a gather that ran again much later, is a past window:
+ * the connection state of today says nothing about it.
+ */
+function presentOf(window: ActivityWindow, clock: Date): Date {
+  const behind = clock.getTime() - window.end.getTime();
+
+  return behind >= 0 && behind <= WATERMARK_PRESENT_MS ? window.end : clock;
+}
+
+/**
+ * The coverage of every connected source for `window`. `clock` is the time of the read. A caller
+ * with a frozen watermark gives it as `window.end`, and this read decides if the window reaches the
+ * present (`presentOf`).
+ */
 export async function readActivityCoverage(args: {
   userId: string;
   window: ActivityWindow;
-  now: Date;
+  clock: Date;
   readFamilyHeads: ReadFamilyHeads;
 }): Promise<ActivityCoverage[]> {
-  const { userId, window } = args;
+  const { userId, window, readFamilyHeads } = args;
+  const now = presentOf(window, args.clock);
 
   const [availability, connections, recordedHistory] = await Promise.all([
     readIntegrationAvailability(userId),
@@ -242,7 +268,15 @@ export async function readActivityCoverage(args: {
       const recorded = activitySourceOf(source);
 
       return recorded
-        ? recordedSourceCoverage({ ...args, source, recorded, rows: availability.providers })
+        ? recordedSourceCoverage({
+            userId,
+            window,
+            now,
+            source,
+            recorded,
+            rows: availability.providers,
+            readFamilyHeads,
+          })
         : noRecordCoverage(source);
     }),
   );
@@ -543,9 +577,9 @@ function provedGapSentence(
 
 /**
  * What the merged read (`is:pr is:merged author:@me`) proves about a GitHub gap. The read is a
- * provider call, so it sees a merge whose delivery never came. It covers the briefing window, so
- * the part of a gap before the window start is not checked. The read returns one page, so "no
- * merge" is proof only when the page holds every merge of the read.
+ * provider call, so it sees a merge whose delivery never came. It covers the briefing's activity
+ * window, so the part of a gap before the window start is not checked. The read returns one page,
+ * so "no merge" is proof only when the page holds every merge of the read.
  */
 function githubGapProof(read: GithubMergedReadOutcome, gap: DeliveryGap): GapProof {
   if (read.status !== "completed") return { kind: "unknown" };

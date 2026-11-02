@@ -140,7 +140,7 @@ async function report(dayText: string): Promise<void> {
     const coverage = await readActivityCoverage({
       userId,
       window: { start, end },
-      now: new Date(),
+      clock: new Date(),
       readFamilyHeads: readObservationFamilyHeads,
     });
 

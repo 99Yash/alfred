@@ -11,6 +11,7 @@ import {
   fetchLatestWatermark,
   gatherCounts,
   isQuietMorning,
+  readBriefingActivityWindow,
   sendableOfficialWarningCount,
 } from "./read";
 import {
@@ -87,6 +88,12 @@ export const dailyBriefingStateSchema = z.object({
   recipientName: z.string().nullable().optional(),
   sinceIngestedAt: z.string().nullable().optional(),
   untilIngestedAt: z.string().optional(),
+  /**
+   * The start of the gather's activity window, which ends at `untilIngestedAt`. Compose gives the
+   * same window to the composer tools. Absent on a run persisted before this field; compose then
+   * reads the window again.
+   */
+  activitySince: z.string().optional(),
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
   closedLoops: z.array(briefingClosedLoopSchema).default([]),
@@ -237,6 +244,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
   const since = await fetchLatestWatermark({ userId: ctx.userId, slot: ctx.state.slot });
   const until = new Date();
+  const activityWindow = await readBriefingActivityWindow({ userId: ctx.userId, end: until });
 
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
@@ -254,6 +262,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       timezone,
       windowStart: since ?? undefined,
       windowEnd: until,
+      activityWindow,
     });
 
     gather = gathered.gather;
@@ -293,6 +302,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
+      `activity_since=${activityWindow.start.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
       `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
@@ -307,6 +317,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       recipientName,
       sinceIngestedAt: since ? since.toISOString() : null,
       untilIngestedAt: until.toISOString(),
+      activitySince: activityWindow.start.toISOString(),
       quietDay,
       closedLoops,
       loopRelevance,
@@ -364,6 +375,10 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   const since = ctx.state.sinceIngestedAt ? new Date(ctx.state.sinceIngestedAt) : null;
   const until = new Date(untilIngestedAt);
 
+  const activityWindow = ctx.state.activitySince
+    ? { start: new Date(ctx.state.activitySince), end: until }
+    : await readBriefingActivityWindow({ userId: ctx.userId, end: until });
+
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
@@ -385,6 +400,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         recipientFirstName: ctx.state.recipientName ?? null,
         sinceIngestedAt: since,
         untilIngestedAt: until,
+        activityWindow,
         briefingDate,
         timezone,
         runId: ctx.runId,

@@ -29,6 +29,7 @@ import {
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
+import type { ActivityWindow } from "@alfred/assistant/connections";
 import { officialWarningsFallback } from "./provenance";
 
 /**
@@ -751,26 +752,61 @@ export async function listPriorBriefings(
   }));
 }
 
-/** Null when this slot never reached a terminal state; gather then looks back 24h. */
+/**
+ * The window end of the last sent or suppressed briefing of `slot`, or of any slot when `slot` is
+ * absent. Null when no such briefing exists; the caller then looks back one day.
+ */
 export async function fetchLatestWatermark(args: {
   userId: string;
-  slot: BriefingSlot;
+  slot?: BriefingSlot;
 }): Promise<Date | null> {
+  const conditions = [
+    eq(briefings.userId, args.userId),
+    inArray(briefings.status, ["sent", "suppressed"]),
+    isNotNull(briefings.watermarkAt),
+  ];
+
+  if (args.slot) conditions.push(eq(briefings.slot, args.slot));
+
   const rows = await db()
     .select({ watermarkAt: briefings.watermarkAt })
     .from(briefings)
-    .where(
-      and(
-        eq(briefings.userId, args.userId),
-        eq(briefings.slot, args.slot),
-        inArray(briefings.status, ["sent", "suppressed"]),
-        isNotNull(briefings.watermarkAt),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(briefings.watermarkAt))
     .limit(1);
 
   return rows[0]?.watermarkAt ?? null;
+}
+
+/** The activity window of a first briefing, when no briefing of any slot has a watermark. */
+const FIRST_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The most time that one activity window holds. After a long stop of the briefings, the window
+ * starts this far back, not at the last watermark: an act older than one week is not news, and the
+ * coverage check reduces every delivery of the window.
+ */
+const MAX_ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The window of the activity record for a briefing that ends at `end`. It starts at the watermark
+ * of the last sent or suppressed briefing of any slot, so an act reaches one briefing only, the
+ * morning or the evening. The email window starts at the last briefing of the same slot
+ * (ADR-0048 decision A) and is not changed here.
+ *
+ * A missed slot does not move the watermark, so the next briefing reads back to the last briefing
+ * that the user got, but not more than `MAX_ACTIVITY_WINDOW_MS`. The gather computes this window
+ * one time and the run state keeps it, so the composer tools read the same window.
+ */
+export async function readBriefingActivityWindow(args: {
+  userId: string;
+  end: Date;
+}): Promise<ActivityWindow> {
+  const since = await fetchLatestWatermark({ userId: args.userId });
+  const end = args.end.getTime();
+  const start = since ? since.getTime() : end - FIRST_ACTIVITY_WINDOW_MS;
+
+  return { start: new Date(Math.max(start, end - MAX_ACTIVITY_WINDOW_MS)), end: args.end };
 }
 
 function priorBriefingBodyText(

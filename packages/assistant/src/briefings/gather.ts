@@ -39,6 +39,7 @@ import {
   proposeReconcileCandidates,
   readBriefingBrokenConnections,
   reconcileEvidence,
+  type ActivityWindow,
   type ObjectState,
   type ReconcileCandidates,
   type ReconcileResult,
@@ -56,7 +57,6 @@ import {
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import {
-  activityItemsOf,
   readActivity,
   readActivityEvents,
   readUserLocation,
@@ -83,7 +83,8 @@ import {
   type ApprovedLoopState,
   type LiveNativeStateReader,
 } from "./relevance";
-import { scorePriorityEmailDemand } from "./read";
+import { readBriefingActivityWindow, scorePriorityEmailDemand } from "./read";
+import { activityItemsOf } from "./activity-lines";
 import {
   activityRecordProvenance,
   boundProvenance,
@@ -228,6 +229,11 @@ export interface GatherBriefingDigestArgs {
   windowStart?: Date | undefined;
   /** Defaults to "now". */
   windowEnd?: Date;
+  /**
+   * The window of the GitHub merged read: the briefing's activity window
+   * (`readBriefingActivityWindow`). Defaults to the email window.
+   */
+  activityWindow?: ActivityWindow;
   /** Cap per bucket. */
   maxPerBucket?: number;
 }
@@ -240,8 +246,15 @@ export interface GatherBriefingArgs {
   briefingDate: LocalDateKey;
   slot?: BriefingSlot;
   timezone: IanaTimezone;
+  /** The email window. The start defaults to 24h before the end. */
   windowStart?: Date | undefined;
   windowEnd?: Date;
+  /**
+   * The window of the activity record and the GitHub merged read. The workflow computes it one
+   * time and gives the same window to the composer tools. Absent: the gather reads it with
+   * `readBriefingActivityWindow`, up to `windowEnd`.
+   */
+  activityWindow?: ActivityWindow;
 }
 
 export interface GatherBriefingWithSuppressionAuditResult {
@@ -424,12 +437,24 @@ export async function gatherBriefingDigest(
   // before reconciliation, so the stored target state is current when a failure mail reconciles.
   // Its verdicts go into activity, not into the email buckets. The GitHub read folds the window's
   // merges the same way, so a review-request mail for a merged PR reconciles closed. Neither throws.
+  // The merged read covers the activity window, not the email window: it is activity, and it is
+  // the silence evidence of that window. It reads merge times in `[start, end]`. The record reads
+  // the acts whose delivery arrived in `[start - G, end - G)` (`readActivityEvents`), and the gap
+  // proof compares each merge time with the gap bounds, so the read can prove a gap after `start`
+  // only. The email window can start earlier. A mail from that earlier time still reconciles: the
+  // webhook or an earlier briefing's read folded its merge into the store.
+  const mergedWindow = args.activityWindow ?? { start: windowStart, end: windowEnd };
+
   const [verifiedPull, githubMerged] = await Promise.all([
     gatherVerifiedPulls({
       userId: args.userId,
       digestItems: triggerItems,
     }),
-    gatherGithubMergedPullRequests({ userId: args.userId, windowStart, windowEnd }),
+    gatherGithubMergedPullRequests({
+      userId: args.userId,
+      windowStart: mergedWindow.start,
+      windowEnd: mergedWindow.end,
+    }),
   ]);
 
   // Approved MCP health reads run before reconciliation. They add candidates; they never close.
@@ -667,16 +692,15 @@ export async function gatherBriefingWithSuppressionAudit(
 ): Promise<GatherBriefingWithSuppressionAuditResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
-  // Activity uses the email window.
-  const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+
+  const activityWindow =
+    args.activityWindow ??
+    (await readBriefingActivityWindow({ userId: args.userId, end: windowEnd }));
 
   // One place read for weather and warnings. It does not throw: a fault is its `fault` basis.
   // This one deadline bounds the place read and the forecast read together. The warnings feeds
   // have their own deadline (`OFFICIAL_WARNINGS_DEADLINE_MS`), which starts after the place read.
   const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
-
-  // The activity coverage and the silence reconcile read the same "now".
-  const activityNow = activityAsOf(windowEnd, new Date());
 
   // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
   // the warnings feed reads, so they do not run on to their own deadline.
@@ -695,6 +719,7 @@ export async function gatherBriefingWithSuppressionAudit(
         userId: args.userId,
         windowStart: args.windowStart,
         windowEnd,
+        activityWindow,
       }),
       gatherCalendarContribution({
         userId: args.userId,
@@ -720,11 +745,7 @@ export async function gatherBriefingWithSuppressionAudit(
           signal: gatherCancel.signal,
         }),
       ),
-      readActivity({
-        userId: args.userId,
-        window: { start: activityStart, end: windowEnd },
-        now: activityNow,
-      }),
+      readActivity({ userId: args.userId, window: activityWindow, clock: new Date() }),
       readBriefingBrokenConnections(args.userId),
       emailProvenance(args.userId, () =>
         integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
@@ -750,7 +771,7 @@ export async function gatherBriefingWithSuppressionAudit(
   const { githubMerged } = digest;
 
   // A verified pull can report a failure from long ago. It is real, but it is not news.
-  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityStart);
+  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityWindow.start);
 
   // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
   const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
@@ -760,8 +781,8 @@ export async function gatherBriefingWithSuppressionAudit(
   // is in both counts.
   const dayShape = await gatherDayShape({
     userId: args.userId,
-    windowStart: activityStart,
-    windowEnd,
+    windowStart: activityWindow.start,
+    windowEnd: activityWindow.end,
     activityCount:
       Math.max(activity.events.length, githubMergedRead?.total ?? 0) + verifiedPull.value.length,
     githubMerged: githubMergedRead,
@@ -889,26 +910,6 @@ export async function gatherDayShape(args: {
     .map((o) => ({ title: o.title, ...(o.url ? { url: o.url } : {}) }));
 
   return { activityVolume, shipped };
-}
-
-/**
- * How long after its watermark a run still counts as the present. The watermark is frozen at run
- * start, a little before the gather reads.
- */
-const WATERMARK_PRESENT_MS = 60 * 60 * 1000;
-
-/**
- * The "now" of the activity coverage. The run's watermark is its "now", and it is a little before
- * the clock. A window that ends at the watermark must still read as one that reaches the present,
- * or the coverage skips the delivery health and cannot ask the user to reconnect. A window that
- * ends later (the local end of the day) is measured to the clock. A window that ended more than
- * `WATERMARK_PRESENT_MS` ago, for example a gather that ran again much later, is a past window:
- * today's connection state says nothing about it.
- */
-function activityAsOf(windowEnd: Date, clock: Date): Date {
-  const behind = clock.getTime() - windowEnd.getTime();
-
-  return behind >= 0 && behind <= WATERMARK_PRESENT_MS ? windowEnd : clock;
 }
 
 /** The activity lines that one gather stores. A run of pushes is one line (`activityItemsOf`). */

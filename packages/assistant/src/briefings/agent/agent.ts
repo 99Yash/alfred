@@ -12,6 +12,7 @@ import {
 import {
   BROKEN_CONNECTION_GUIDANCE,
   describeBrokenConnection,
+  type ActivityWindow,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
@@ -37,6 +38,8 @@ export interface RunBriefingAgentArgs {
   sinceIngestedAt: Date | null;
   /** Frozen at run start. */
   untilIngestedAt: Date;
+  /** The gather's activity window. `list_activity` and `get_day_shape` read it. */
+  activityWindow: ActivityWindow;
   /** Anchors the calendar tool's window. */
   briefingDate: LocalDateKey;
   /** Local day boundaries for the calendar tool. */
@@ -291,6 +294,7 @@ export async function runBriefingAgent(
     slot: args.slot,
     sinceIngestedAt: args.sinceIngestedAt,
     untilIngestedAt: args.untilIngestedAt,
+    activityWindow: args.activityWindow,
     briefingDate: args.briefingDate,
     timezone: args.timezone,
     closedLoops: args.closedLoops,
