@@ -797,6 +797,17 @@ const FIRST_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
  */
 const MAX_ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** The activity window of a briefing, and the watermark that the window cap moved past. */
+export interface BriefingActivityWindow extends ActivityWindow {
+  /**
+   * The watermark of the last briefing when it is older than `MAX_ACTIVITY_WINDOW_MS`, so the
+   * window starts later than it. Alfred does not read the acts before `start`. `null` when the
+   * window starts at the watermark, or when no briefing has a watermark (a first briefing reads one
+   * day by design).
+   */
+  readonly clippedFrom: Date | null;
+}
+
 /**
  * The window of the activity record for a briefing that ends at `end`. It starts at the watermark
  * of the last sent or suppressed briefing of any slot, so an act reaches one briefing only, the
@@ -804,18 +815,25 @@ const MAX_ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
  * (ADR-0048 decision A) and is not changed here.
  *
  * A missed slot does not move the watermark, so the next briefing reads back to the last briefing
- * that the user got, but not more than `MAX_ACTIVITY_WINDOW_MS`. The gather computes this window
- * one time and the run state keeps it, so the composer tools read the same window.
+ * that the user got, but not more than `MAX_ACTIVITY_WINDOW_MS`. `clippedFrom` records that cut,
+ * and the gather states it to the composer (`activityWindowProvenance`). The gather computes this
+ * window one time and the run state keeps its start, so the composer tools read the same window.
  */
 export async function readBriefingActivityWindow(args: {
   userId: string;
   end: Date;
-}): Promise<ActivityWindow> {
+}): Promise<BriefingActivityWindow> {
   const since = await fetchLatestWatermark({ userId: args.userId, slot: "any" });
   const end = args.end.getTime();
-  const start = since ? since.getTime() : end - FIRST_ACTIVITY_WINDOW_MS;
+  const earliest = end - MAX_ACTIVITY_WINDOW_MS;
 
-  return { start: new Date(Math.max(start, end - MAX_ACTIVITY_WINDOW_MS)), end: args.end };
+  if (since === null) {
+    return { start: new Date(end - FIRST_ACTIVITY_WINDOW_MS), end: args.end, clippedFrom: null };
+  }
+
+  return since.getTime() < earliest
+    ? { start: new Date(earliest), end: args.end, clippedFrom: since }
+    : { start: since, end: args.end, clippedFrom: null };
 }
 
 function priorBriefingBodyText(

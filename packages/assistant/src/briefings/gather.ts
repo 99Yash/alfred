@@ -83,10 +83,15 @@ import {
   type ApprovedLoopState,
   type LiveNativeStateReader,
 } from "./relevance";
-import { readBriefingActivityWindow, scorePriorityEmailDemand } from "./read";
+import {
+  readBriefingActivityWindow,
+  scorePriorityEmailDemand,
+  type BriefingActivityWindow,
+} from "./read";
 import { activityItemsOf } from "./activity-lines";
 import {
   activityRecordProvenance,
+  activityWindowProvenance,
   boundProvenance,
   emailProvenance,
   githubMergedProvenance,
@@ -252,9 +257,10 @@ export interface GatherBriefingArgs {
   /**
    * The window of the activity record and the GitHub merged read. The workflow computes it one
    * time and gives the same window to the composer tools. Absent: the gather reads it with
-   * `readBriefingActivityWindow`, up to `windowEnd`.
+   * `readBriefingActivityWindow`, up to `windowEnd`. Its `clippedFrom` becomes a composer fact
+   * (`activityWindowProvenance`) in the stored provenance, so a retried compose step reads it too.
    */
-  activityWindow?: ActivityWindow;
+  activityWindow?: BriefingActivityWindow;
 }
 
 export interface GatherBriefingWithSuppressionAuditResult {
@@ -812,9 +818,8 @@ export async function gatherBriefingWithSuppressionAudit(
     calendar: calendar.provenance,
     weather: weather.provenance,
     official_warnings: officialWarnings.provenance,
-    integration_activity: mergeInputProvenance(
-      "integration_activity",
-      activityRecordProvenance({
+    integration_activity: mergeInputProvenance("integration_activity", [
+      ...activityRecordProvenance({
         userId: args.userId,
         coverage: activity.coverage,
         unreadable: activity.unreadable,
@@ -822,7 +827,8 @@ export async function gatherBriefingWithSuppressionAudit(
         // The digest read the merges over `activityWindow` (`gatherBriefingDigest`).
         evidence: { github: { window: activityWindow, read: githubMerged } },
       }),
-    ),
+      ...activityWindowProvenance(activityWindow),
+    ]),
     deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,

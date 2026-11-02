@@ -30,6 +30,7 @@ import type {
   VerifiedPullOutcome,
 } from "@alfred/assistant/connections/verified-pull";
 import type { StatedPlace, UserLocation } from "../knowledge";
+import type { BriefingActivityWindow } from "./read";
 
 /** At least one statement. A producer cannot return an empty list for an input. */
 export type StatedProvenance = readonly [GatherProvenance, ...GatherProvenance[]];
@@ -117,6 +118,11 @@ export function provenanceAudience(entry: GatherProvenance): ProvenanceAudience 
         case "silent":
         case "record_incomplete":
           return FACT_AND_LOG;
+        // The record holds nothing from these sources, or the window starts after the last
+        // briefing. No reconnect repairs either, and `activityGaps` does not count them.
+        case "no_record":
+        case "window_clipped":
+          return FACT_AND_LOG;
         default:
           return assertNever(entry, "unavailable provenance cause");
       }
@@ -141,10 +147,17 @@ export function blockingProvenance(
  * The activity entries that are `unavailable`: the sources whose acts the gather could not see for
  * the window (ADR-0118 decision 4). Such a window is not quiet. A suppressed morning moves the
  * watermark, so the next window starts after these acts, and they reach no briefing.
+ *
+ * `no_record` and `window_clipped` are not gaps. A sent briefing would not show their acts either:
+ * the record never held them, or the window cap left them out. So they do not stop a quiet morning.
  */
 function activityGaps(provenance: readonly GatherProvenance[]): GatherProvenance[] {
   return provenance.filter(
-    (entry) => entry.input === "integration_activity" && entry.state === "unavailable",
+    (entry) =>
+      entry.input === "integration_activity" &&
+      entry.state === "unavailable" &&
+      entry.cause !== "no_record" &&
+      entry.cause !== "window_clipped",
   );
 }
 
@@ -358,9 +371,10 @@ type CoverageFailure = Extract<ActivityCoverage, { state: "unavailable" }>["fail
  * `settleActivityCoverage` owns the verdict: a silence that the merged read settles, and the rows
  * that this build cannot read. This function only gives each verdict its audience.
  *
- * A source with no reducer (`no_record`: a `tools_only` or `live` source) is one log line for all
- * such sources, not a stored entry, so the list stays inside `GATHER_PROVENANCE_MAX`. The record
- * never held events from such a source, so the briefing does not lose a read that it had before.
+ * The sources with no reducer (`no_record`: a `tools_only` or `live` source) share one entry, so
+ * the list stays inside `GATHER_PROVENANCE_MAX`. The composer gets it as a fact, so it does not call
+ * the day of these sources quiet. It is not a gap (`activityGaps`): the record never held events
+ * from such a source, so a sent briefing would not show them either.
  */
 export function activityRecordProvenance(args: {
   userId: string;
@@ -400,14 +414,75 @@ export function activityRecordProvenance(args: {
     entries.push(coverageFailureProvenance(sourceName(source), failure));
   }
 
-  if (noRecord.length > 0) {
-    logger.info(
-      { userId, sources: noRecord },
-      "[briefing.gather] activity record holds no events from these sources",
-    );
-  }
+  if (noRecord.length > 0) entries.push(noRecordProvenance(noRecord));
 
   return entries;
+}
+
+const NO_RECORD_OPENING = "The activity record holds no events from ";
+
+const NO_RECORD_CLOSING = ".";
+
+/** Room for the `, and N more` end of a name list. */
+const MORE_NAMES_ROOM = ", and 999 more".length;
+
+/** One entry for all sources that have no activity reducer. */
+function noRecordProvenance(names: readonly string[]): GatherProvenance {
+  const budget = GATHER_PROVENANCE_TEXT_MAX - NO_RECORD_OPENING.length - NO_RECORD_CLOSING.length;
+
+  return {
+    input: "integration_activity",
+    state: "unavailable",
+    cause: "no_record",
+    reason: provenanceText(`${NO_RECORD_OPENING}${nameList(names, budget)}${NO_RECORD_CLOSING}`),
+    recovery: { kind: "none" },
+  };
+}
+
+/**
+ * The names, inside `budget` characters. When a name does not fit, the list stops and ends with
+ * the count of the names that it leaves out, so a long list does not cut a name.
+ */
+function nameList(names: readonly string[], budget: number): string {
+  const kept: string[] = [];
+
+  for (const name of names.map(provenanceName)) {
+    const joined = [...kept, name].join(", ");
+    const more = kept.length + 1 < names.length ? MORE_NAMES_ROOM : 0;
+
+    if (joined.length + more > budget) break;
+
+    kept.push(name);
+  }
+
+  const left = names.length - kept.length;
+
+  if (left === 0) return kept.join(", ");
+
+  return kept.length === 0 ? `${left} sources` : `${kept.join(", ")}, and ${left} more`;
+}
+
+/**
+ * The statement of the window cap (`readBriefingActivityWindow`). After a long stop, the activity
+ * window starts later than the last briefing, and Alfred does not read the acts before its start.
+ * The composer gets this as a fact, so it does not say that it saw everything since the last
+ * briefing. It is not a gap (`activityGaps`): a sent briefing would not show those acts either. A
+ * first briefing reads one day by design, so it states nothing here.
+ */
+export function activityWindowProvenance(window: BriefingActivityWindow): GatherProvenance[] {
+  if (window.clippedFrom === null) return [];
+
+  return [
+    {
+      input: "integration_activity",
+      state: "unavailable",
+      cause: "window_clipped",
+      reason: provenanceText(
+        `The activity read starts at ${window.start.toISOString()}, later than the end of the last briefing at ${window.clippedFrom.toISOString()}. Alfred did not read the acts between these two times.`,
+      ),
+      recovery: { kind: "none" },
+    },
+  ];
 }
 
 function coverageFailureProvenance(

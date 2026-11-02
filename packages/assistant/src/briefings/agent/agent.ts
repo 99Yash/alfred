@@ -178,6 +178,8 @@ const BLIND_COST = {
   no_place: "So this briefing may be missing",
   silent: "So this briefing may be missing",
   record_incomplete: "So this briefing may be missing",
+  no_record: "So for these sources, this briefing cannot see",
+  window_clipped: "So this briefing does not show the older part of",
 } as const satisfies Record<UnavailableCause, string>;
 
 /**

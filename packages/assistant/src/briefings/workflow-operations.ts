@@ -92,7 +92,8 @@ export const dailyBriefingStateSchema = z.object({
    * The start of the gather's activity window, which ends at `untilIngestedAt`. Compose gives the
    * same window to the composer tools. Absent on a run persisted before this field; compose then
    * reads the window again. Gather writes it with `toISOString`, so the parse rejects a value
-   * that is not a UTC ISO time, and SQL never gets an invalid date.
+   * that is not a UTC ISO time, and SQL never gets an invalid date. When the window cap moved the
+   * start, the `window_clipped` entry in `provenance` states it, so compose needs no other field.
    */
   activitySince: z.iso.datetime().optional(),
   briefingId: z.string().optional(),

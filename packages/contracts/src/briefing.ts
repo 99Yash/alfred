@@ -369,7 +369,11 @@ const provenanceTextSchema = z.string().min(1).max(GATHER_PROVENANCE_TEXT_MAX);
  * credential row is also what a deliberate disconnect leaves (ADR-0100 amendment 2026-10-28,
  * item 3). Two activity-record causes have recovery `none`: `silent` (no delivery for longer than
  * the source's bound, and Alfred could not confirm that the source had nothing to send) and
- * `record_incomplete` (a delivery arrived, but the record does not hold its act).
+ * `record_incomplete` (a delivery arrived, but the record does not hold its act). Two more activity
+ * causes have recovery `none` and do not stop a quiet morning, because they lose no act that a sent
+ * briefing would show: `no_record` (connected sources that the record holds no events from, in one
+ * entry) and `window_clipped` (the activity window starts later than the last briefing, so Alfred
+ * does not read the acts before its start).
  */
 const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
   z.object({
@@ -389,7 +393,14 @@ const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
   z.object({
     input: gatherInputSchema,
     state: z.literal("unavailable"),
-    cause: z.enum(["not_connected", "no_place", "silent", "record_incomplete"]),
+    cause: z.enum([
+      "not_connected",
+      "no_place",
+      "silent",
+      "record_incomplete",
+      "no_record",
+      "window_clipped",
+    ]),
     reason: provenanceTextSchema,
     recovery: noRecoverySchema,
   }),
@@ -449,18 +460,27 @@ export const GATHER_STALE_PROVENANCE_MAX = 10;
 const GATHER_INPUT_PROVENANCE_MAX = 2;
 
 /**
+ * The `integration_activity` entries that are not about one source with a reducer: one `no_record`
+ * entry for all sources without a reducer, and one `window_clipped` entry.
+ */
+const ACTIVITY_WINDOW_PROVENANCE_MAX = 2;
+
+/**
  * Upper bound on stored entries. Each input other than `integration_activity` states at most
  * `GATHER_INPUT_PROVENANCE_MAX` entries. `integration_activity` states one entry for each source
- * with an activity reducer (`ACTIVITY_OBSERVATION_SOURCES`), or one `live` entry. Its share is
- * never less than `GATHER_INPUT_PROVENANCE_MAX`, so a list stored under the old bound still parses.
- * Then add the
+ * with an activity reducer (`ACTIVITY_OBSERVATION_SOURCES`), or one `live` entry, and then at most
+ * `ACTIVITY_WINDOW_PROVENANCE_MAX` entries. Its share is never less than
+ * `GATHER_INPUT_PROVENANCE_MAX`, so a list stored under an older bound still parses. Then add the
  * stale entries (`GATHER_STALE_PROVENANCE_MAX`). The verified pull reads at most 5 targets for each
  * of its 2 providers, so 10 stale entries is also the most it can produce. The producer clips the
  * list to this bound, so a stored list never fails its parse on length.
  */
 export const GATHER_PROVENANCE_MAX =
   (GATHER_INPUTS.length - 1) * GATHER_INPUT_PROVENANCE_MAX +
-  Math.max(GATHER_INPUT_PROVENANCE_MAX, ACTIVITY_OBSERVATION_SOURCES.length) +
+  Math.max(
+    GATHER_INPUT_PROVENANCE_MAX,
+    ACTIVITY_OBSERVATION_SOURCES.length + ACTIVITY_WINDOW_PROVENANCE_MAX,
+  ) +
   GATHER_STALE_PROVENANCE_MAX;
 
 // ─── Official warnings (ADR-0117 decision 4) ─────────────────────────────
