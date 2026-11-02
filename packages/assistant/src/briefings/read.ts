@@ -810,8 +810,8 @@ export interface BriefingActivityWindow extends ActivityWindow {
 
 /**
  * The window of the activity record for a briefing that ends at `end`. It starts at the watermark
- * of the last sent or suppressed briefing of any slot, so an act reaches one briefing only, the
- * morning or the evening. The email window starts at the last briefing of the same slot
+ * of the last sent or suppressed briefing of any slot, so no act is in two windows: an act is in
+ * the morning or the evening window, not both. The email window starts at the last briefing of the same slot
  * (ADR-0048 decision A) and is not changed here.
  *
  * A missed slot does not move the watermark, so the next briefing reads back to the last briefing

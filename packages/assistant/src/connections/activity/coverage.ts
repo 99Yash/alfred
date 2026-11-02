@@ -68,8 +68,11 @@ import {
 const ACTIVITY_SOURCES = {
   /**
    * 24 hours. From 2026-10-10 to 2026-11-01 the longest gap between two GitHub deliveries was
-   * 14 h 41 min, except the 6-day outage from 2026-10-22. A day with no work at all can still read
-   * as `unavailable`; that is the cost of not reading a dead source as a quiet one.
+   * 14 h 41 min, except the 6-day outage from 2026-10-22. A past gap longer than this becomes
+   * `live` only when the merged read proves it empty (`settleActivityCoverage`). A gap to now longer
+   * than this stays `unavailable` with a `connect` recovery, also after a day with no work at all,
+   * because no proof makes a gap to now `live`. That is the cost of not reading a dead source as a
+   * quiet one.
    */
   github: {
     silenceBoundMs: 24 * 60 * 60 * 1000,
