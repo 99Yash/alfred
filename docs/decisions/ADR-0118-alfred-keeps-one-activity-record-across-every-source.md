@@ -1,6 +1,6 @@
 # ADR-0118 — Alfred keeps one activity record across every source, and one typed identity names each source
 
-**Status.** Proposed; slice 1 built (#1660): the `sourceRoutes` field on each provider entry, named so because "route" already means an HTTP path and a model route. Slice 2 built: `SourceIdentity`, the GitHub activity reducer, the replay, and the coverage of decision 4. The replay reads `documents.raw` for all history, not `event_receipts`, because the receipt reaper keeps a body only when its document keeps it. Slice 2 writes action rows only. These wait for a later slice: state-change rows, the `commented` verb (an `issue_comment` body has no pull request id, and no comment delivery arrived after 2026-10-28), and the `mcp_server_id` column on `observations`, which the first custom-server writer adds. Until then the source is in `payload.source`, and the insert schema refuses `custom_mcp`. A GitHub App sender (`type` "Bot") is not an actor, so it gives no row. One merge is one row: the merged pull request and the push that GitHub made for it share the family of the merge commit, and the merge stays the head in either order. Only the push where GitHub made the commit and pushed it in the same moment joins that family. Every other push is its own act. Coverage gives an entry to each connected source, and to each source with a reducer whose documents reach into the window, so a deleted credential does not hide its history. A source with no reducer is `unavailable` with the cause `no_record`. A GitHub window is `unavailable` with the cause `record_incomplete` when the record does not hold the act of one of its deliveries. The receipt status is not the evidence: a receipt from before the writer is `completed` and never runs again. Decision 8 waits for the slice that adds the comment and state-change rows. Until then, the `workflow_job` list in `receipt-corpus-policy.ts` (#1661) is the embedding policy, because the predicate without comments would remove the embeddings of comments. Amends ADR-0067 (what the observation log records), ADR-0097 (each inbound source declares a route), ADR-0101 (who reads by default), and ADR-0062 (object kinds for a custom MCP server). Generalizes the ADR-0104 rule from Drive to every source, and the ADR-0117 provenance rule from the briefing to every reader of the record. The claims plan ([shared-context-memory-v1](../plans/shared-context-memory-v1.md), ADR-0111) builds on the same log.
+**Status.** Proposed; slice 1 built (#1660): the `sourceRoutes` field on each provider entry, named so because "route" already means an HTTP path and a model route. Slice 2 built: `SourceIdentity`, the GitHub activity reducer, the replay, and the coverage of decision 4. The replay reads `documents.raw` for all history, not `event_receipts`, because the receipt reaper keeps a body only when its document keeps it. Slice 2 writes action rows only. These wait for a later slice: state-change rows, the `commented` verb (an `issue_comment` body has no pull request id, and no comment delivery arrived after 2026-10-28), and the `mcp_server_id` column on `observations`, which the first custom-server writer adds. Until then the source is in `payload.source`, and the insert schema refuses `custom_mcp`. A GitHub App sender (`type` "Bot") is not an actor, so it gives no row. One merge is one row: the merged pull request and the push that GitHub made for it share the family of the merge commit, and the merge stays the head in either order. Only the push where GitHub made the commit and pushed it in the same moment joins that family. Every other push is its own act. Coverage gives an entry to each connected source, and to each source with a reducer whose documents reach into the window, so a deleted credential does not hide its history. A source with no reducer is `unavailable` with the cause `no_record`. A GitHub window is `unavailable` with the cause `record_incomplete` when the record does not hold the act of one of its deliveries. The receipt status is not the evidence: a receipt from before the writer is `completed` and never runs again. Decision 8 waits for the slice that adds the comment and state-change rows. Until then, the `workflow_job` list in `receipt-corpus-policy.ts` (#1661) is the embedding policy, because the predicate without comments would remove the embeddings of comments. Slice 3 built (2026-11-02): the briefing reads the record and its coverage. See **Built: slice 3**. Amends ADR-0067 (what the observation log records), ADR-0097 (each inbound source declares a route), ADR-0101 (who reads by default), and ADR-0062 (object kinds for a custom MCP server). Generalizes the ADR-0104 rule from Drive to every source, and the ADR-0117 provenance rule from the briefing to every reader of the record. The claims plan ([shared-context-memory-v1](../plans/shared-context-memory-v1.md), ADR-0111) builds on the same log.
 
 **Decision.** The observation log becomes the one record of **what happened when** across every connected source, built-in or added by the user. Each source declares a route: ingest, live, or tools only. One typed identity, `SourceIdentity`, names a source in every layer: the record, object state, documents, and Context Search. A known MCP server resolves to its registry slug, and a custom server is named by its stable server id, never by a string match. Each reader gets the coverage of each source with the events, so "no events" and "no source" are different results. The first consumers are the briefing and a rhythm view that tells a routine hour from an unusual one.
 
@@ -31,14 +31,14 @@ ADR-0067 records relationship evidence. This ADR adds a second kind of row: **ac
 
 Each activity row has these fields. Each field uses an existing column of `observations` or a typed payload in `@alfred/contracts`:
 
-| Field | Meaning |
-| --- | --- |
-| `occurredAt` | The provider's time for the event, not the arrival time |
-| source | A `SourceIdentity` (decision 2) |
-| actor | A person identity, or `{ kind: "user" }` when the user did it |
-| verb | A closed vocabulary for each source kind, for example `opened`, `merged`, `commented`, `state_changed` |
-| object | The thing's identity, the same key that `integration_objects` uses |
-| receipt | The `event_receipts` id that carries the body. The row does not copy the body. |
+| Field        | Meaning                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| `occurredAt` | The provider's time for the event, not the arrival time                                                |
+| source       | A `SourceIdentity` (decision 2)                                                                        |
+| actor        | A person identity, or `{ kind: "user" }` when the user did it                                          |
+| verb         | A closed vocabulary for each source kind, for example `opened`, `merged`, `commented`, `state_changed` |
+| object       | The thing's identity, the same key that `integration_objects` uses                                     |
+| receipt      | The `event_receipts` id that carries the body. The row does not copy the body.                         |
 
 A reducer for each source writes these rows, with the ADR-0067 dedup (`family_key`, `evidence_hash`) and supersession. A replay from stored receipts rebuilds them.
 
@@ -67,10 +67,10 @@ type SourceIdentity =
 
 The ADR-0104 rule applies to every source. A thing that does not change after it occurs is ingested. A thing that the owner edits is read live, because a stored copy becomes stale and a revoked share must stop being evidence at once.
 
-| Route | Meaning |
-| --- | --- |
-| `ingest` | Events arrive by push or by poll, and a reducer writes activity rows |
-| `live` | A Context Search source reads the provider at query time (ADR-0101, ADR-0104) |
+| Route        | Meaning                                                                                                                                  |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingest`     | Events arrive by push or by poll, and a reducer writes activity rows                                                                     |
+| `live`       | A Context Search source reads the provider at query time (ADR-0101, ADR-0104)                                                            |
 | `tools_only` | The tools work in chat. The record has no events from this source. The coverage of decision 4 says so to each reader that asks about it. |
 
 A source can have more than one route. Calendar ingests past events and reads future events live.
@@ -92,10 +92,10 @@ The gap is stated where an answer depends on it, not on the integrations page. T
 
 The reviewed mapping declares a kind name and one lifecycle preset for each kind it maps. A preset is a complete `ObjectKindDef` (ADR-0062: `closesAskOn`, `closesAskFrom`, `absorbing`, `todoIdentity`). The first presets:
 
-| Preset | Example | Shape |
-| --- | --- | --- |
-| Work item | A ticket, a task | Closes on `resolved` or `abandoned`; `resolved` is absorbing; one identity is one piece of work |
-| Run on a target | A build, a deploy | Closes by a successor on the same target; nothing is absorbing; not a todo identity |
+| Preset          | Example           | Shape                                                                                           |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
+| Work item       | A ticket, a task  | Closes on `resolved` or `abandoned`; `resolved` is absorbing; one identity is one piece of work |
+| Run on a target | A build, a deploy | Closes by a successor on the same target; nothing is absorbing; not a todo identity             |
 
 The kind is scoped by the server, so two custom servers can each have a kind named `task`. The current `connection_health` rows migrate to the server id and the "run on a target" preset. A custom row still cannot override a built-in provider's verdict.
 
@@ -110,11 +110,11 @@ The kind is scoped by the server, so two custom servers can each have a kind nam
 
 The first projection over the record is the user's own actions for each local hour and weekday, over a trailing window. The zone comes from `settings({ userId }).timezone()`. For each user action in a reader's window, the view marks it `routine` or `unusual` against that baseline. It also lists any travel evidence: calendar events in another zone, and the location evidence of ADR-0117 decision 3.
 
-| What Alfred knows | What Alfred does |
-| --- | --- |
-| The hour is routine, or an instruction says so ("I work late") | It says nothing about the hour |
-| Travel evidence exists | It asks whether the user is in that place and offers to change the time zone. It never changes the setting without approval. |
-| No explanation exists | It addresses the hour in context, for example "You merged 12 PRs between 1 and 3 a.m." |
+| What Alfred knows                                              | What Alfred does                                                                                                             |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| The hour is routine, or an instruction says so ("I work late") | It says nothing about the hour                                                                                               |
+| Travel evidence exists                                         | It asks whether the user is in that place and offers to change the time zone. It never changes the setting without approval. |
+| No explanation exists                                          | It addresses the hour in context, for example "You merged 12 PRs between 1 and 3 a.m."                                       |
 
 Code supplies the baseline, the mark, and the evidence. The model writes the words. With too little history, the view marks nothing.
 
@@ -129,6 +129,21 @@ The baseline uses GitHub only until another source records the user's actions. T
 ### 8. The text index follows the record
 
 `documents` and `chunks` stay the text projection for search. A receipt that does not pass decision 1 gets no embedding. The documents that the daily cap blocked are admitted again only if they pass decision 1.
+
+## Built: slice 3 (2026-11-02)
+
+The code follows decision 6 and slice 3, with these facts.
+
+- **One reader.** `readActivity` (`knowledge/activity.ts`) gives the live family heads of the window in time order, and the coverage of decision 4 for the same window. `readActivityEvents` gives the events only, for a reader that already has the coverage. The row does not copy the body, so the reader joins the `documents` row of `payload.documentId` for the title and the link.
+- **A late act is in the window where it arrived.** An event is in the window when it happened in the window, or when it happened before the window and its delivery arrived in the window. Without the second arm, an act that arrives after the watermark but happened before it is in no briefing. The arrival is the document's `authored_at` (the receipt's `deliveredAt`), the same clock that the coverage reads. A replay does not use the arrival arm: its row joins the document of the first delivery, which arrived long before the replay. So a replay cannot flood one briefing with old acts, and the rule needs no new column. The arrival arm reads the window's document ids through `documents_user_source_idx` (`= any(array(...))`). A filter on the joined document made Postgres hash every document of the user.
+- **No `subjects` or `sources` filter.** Decision 6 names these filters. No reader needs them yet, and an unused parameter fails the `knip` gate. The first reader that needs one adds it.
+- **The briefing reads the record.** The gather reads `readActivity` in place of the raw `event_receipts` rows. The window is per slot: the morning window starts at the last morning briefing, not at the last briefing of any slot. The email window works the same way. A run of pushes by one actor to one object is one line with a `rollup` count. The day shape counts the events of the window. The old read stopped at 25 receipts, so a day with more acts now reads as `busy` sooner.
+- **The composer reads the record through a tool.** `list_activity` gives the counts by actor and verb for the whole window, and a page of the newest acts that pass an actor and a verb filter. The seed does not hold the rows. The composer decides which acts matter. A search over the embeddings that finds dangerous or load-bearing acts waits for a design (#1670). The prompt still forbids a list of pull requests.
+- **The coverage becomes ADR-0117 provenance** (`activityRecordProvenance`, `briefings/provenance.ts`). Three causes are new: `not_delivered` (recovery `connect`, a block row that merges with the delivery alert of the same integration), `silent`, and `record_incomplete` (recovery `none`, a composer fact). A delivery-health `broken` with a `connect` recovery is `not_delivered`. A `retry` recovery is `read_failed`. A `never_connected` with a `connect` recovery to a live provider is `not_connected`. Any other health failure is `silent`.
+- **A source with no reducer is one log line.** A `no_record` source (Linear, Notion, Slack, Calendar, Drive, and the others) is not a stored entry, so the stored list stays inside `GATHER_PROVENANCE_MAX`. The record never held events from these sources, so the briefing loses no read that it had before.
+- **The gather settles a silence.** The record cannot tell a silent source from a broken one. The gather asks the GitHub merged read, which is a provider call and does not depend on a delivery. The read covers the briefing window, so the part of a gap before the window start is not checked: an act from then is not in the window either. A merge younger than the delivery grace (15 minutes) does not count, because its delivery can still be in the queue. A merge in a gap that reaches now is `not_delivered`. A merge in a past gap is `silent`, because no reconnect repairs a past gap. No merge in the gap is a window with no events, for example a weekend: the source is `live`, and the log keeps the gap. The read returns one page of 8 merges, so "no merge" is proof only when the page holds every merge of the window. A read that did not complete, or a partial page with no merge in the gap, is `silent`. The read sees only the user's own merges. A silence with other acts but no merge reads as quiet. A stronger check reads the App's webhook deliveries (#1671); it needs an App JWT client.
+- **The watermark is the "now" of the coverage.** The run freezes its watermark before the gather reads, so a window that ends at the watermark ends a little before the clock. The coverage would read it as a past window and skip the delivery health. The gather uses the watermark as "now" when it is less than one hour old (`activityAsOf`).
+- **A `stale` entry is a log line.** Before this slice, the composer did not read the activity input, so a stale entry never reached it. `list_activity` reads only the window, so it never returns the old item, and the audience keeps the entry out of the composer facts.
 
 ## Rejected alternatives
 

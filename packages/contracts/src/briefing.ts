@@ -302,13 +302,16 @@ export const integrationActivityRollupSchema = z.object({
   suppressedEventIds: z.array(z.string().min(1)).optional(),
 });
 
+/** The activity line title bound. Every producer of an activity line clips to this value. */
+export const INTEGRATION_ACTIVITY_TITLE_MAX = 300;
+
 export const integrationActivityItemSchema = z.object({
   id: z.string().min(1),
   provider: integrationSlugSchema,
   source: integrationActivitySourceSchema,
   activityCategory: integrationActivityCategorySchema,
   providerKind: z.string().min(1).max(120),
-  title: z.string().min(1).max(300),
+  title: z.string().min(1).max(INTEGRATION_ACTIVITY_TITLE_MAX),
   status: integrationActivityStatusSchema.optional(),
   severity: integrationActivitySeveritySchema.optional(),
   occurredAt: z.string().min(1),
@@ -354,17 +357,20 @@ const provenanceTextSchema = z.string().min(1).max(GATHER_PROVENANCE_TEXT_MAX);
 
 /**
  * Why Alfred could not read an input. Each cause pins the recovery that it allows, so a wrong
- * pair does not compile. Two causes ask the user to act, with recovery `connect`:
- * `scope_missing` (the account is connected without the grant for this input) and `needs_reauth`
- * (a credential row exists, but no row is active). `not_connected` has recovery `none`, because no
+ * pair does not compile. Three causes ask the user to act, with recovery `connect`:
+ * `scope_missing` (the account is connected without the grant for this input), `needs_reauth`
+ * (a credential row exists, but no row is active), and `not_delivered` (the provider's events do
+ * not reach Alfred, ADR-0118 decision 4). `not_connected` has recovery `none`, because no
  * credential row is also what a deliberate disconnect leaves (ADR-0100 amendment 2026-10-28,
- * item 3).
+ * item 3). Two activity-record causes have recovery `none`: `silent` (no delivery for longer than
+ * the source's bound, and Alfred could not confirm that the source had nothing to send) and
+ * `record_incomplete` (a delivery arrived, but the record does not hold its act).
  */
 const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
   z.object({
     input: gatherInputSchema,
     state: z.literal("unavailable"),
-    cause: z.enum(["scope_missing", "needs_reauth"]),
+    cause: z.enum(["scope_missing", "needs_reauth", "not_delivered"]),
     reason: provenanceTextSchema,
     recovery: connectRecoverySchema,
   }),
@@ -378,7 +384,7 @@ const unavailableProvenanceSchema = z.discriminatedUnion("cause", [
   z.object({
     input: gatherInputSchema,
     state: z.literal("unavailable"),
-    cause: z.enum(["not_connected", "no_place"]),
+    cause: z.enum(["not_connected", "no_place", "silent", "record_incomplete"]),
     reason: provenanceTextSchema,
     recovery: noRecoverySchema,
   }),

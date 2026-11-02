@@ -96,6 +96,7 @@ export {
 } from "./object-state";
 
 export {
+  ACTIVITY_DELIVERY_GRACE_MS,
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubActivityDocument,

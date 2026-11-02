@@ -75,9 +75,10 @@ function activitySourceOf(source: SourceIdentity): ActivityObservationSource | n
 
 /**
  * A delivery younger than this can still be in the queue: `ingress.deliver` makes five attempts
- * with an exponential 5 s backoff, about 75 s in total.
+ * with an exponential 5 s backoff, about 75 s in total. A reader that checks the record against a
+ * provider read gives an act the same time to arrive.
  */
-const DELIVERY_GRACE_MS = 15 * 60 * 1000;
+export const ACTIVITY_DELIVERY_GRACE_MS = 15 * 60 * 1000;
 
 /** The window that the reader asks about: `start` inclusive, `end` exclusive. */
 export interface ActivityWindow {
@@ -88,6 +89,8 @@ export interface ActivityWindow {
 /** A delivery gap longer than the source's bound. `from` is `null` when no delivery came before. */
 interface SilentFailure {
   readonly cause: "silent";
+  /** The source that went silent. */
+  readonly integration: ActivityObservationSource;
   readonly reason: string;
   readonly gap: { readonly from: Date | null; readonly to: Date };
   readonly recovery: EventDeliveryRecovery;
@@ -264,7 +267,7 @@ async function recordedSourceCoverage(args: {
   const until = reachesPresent ? now : window.end;
 
   // A delivery inside the grace time can still be in the queue, so its act does not count yet.
-  const settled = new Date(Math.min(until.getTime(), now.getTime() - DELIVERY_GRACE_MS));
+  const settled = new Date(Math.min(until.getTime(), now.getTime() - ACTIVITY_DELIVERY_GRACE_MS));
 
   const [gap, unrecorded] = await Promise.all([
     longestDeliveryGap(userId, recorded, window.start, until),
@@ -292,6 +295,7 @@ async function recordedSourceCoverage(args: {
       state: "unavailable",
       failure: {
         cause: "silent",
+        integration: recorded,
         reason: gap.from
           ? `no ${recorded} delivery from ${gap.from.toISOString()} to ${gap.to.toISOString()}`
           : `no ${recorded} delivery before ${gap.to.toISOString()}`,

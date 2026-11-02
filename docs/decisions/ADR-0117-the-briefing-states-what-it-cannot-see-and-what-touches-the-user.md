@@ -121,6 +121,10 @@ The code follows decision 4, with these changes. Seven changes do not do what de
 - **A warning for the user's place stops a quiet morning.** `isQuietMorning` takes `officialWarningCount` from `sendableOfficialWarningCount`. The legacy morning workflow runs the same gather, and its `decideSend` reads the same count. Its composer prompt gets the warnings with a rule that a warning leads. Its text without the model lists each warning first, and does not say that nothing stood out when a warning exists.
 - **The web reads a bad list as absent.** The synced briefing schema reads `official_warnings` with `.catch(undefined)`, the same as `provenance`. The web does not show warnings.
 
+## Note: the activity input reads the record (ADR-0118 slice 3, 2026-11-02)
+
+The activity input now states the coverage of the ADR-0118 activity record. This adds three causes to the `unavailable` union. `not_delivered` has recovery `connect` and is a block row: the provider's events do not reach Alfred. `silent` and `record_incomplete` have recovery `none` and are composer facts: Alfred cannot say that the window was quiet. The composer reads the activity input through `list_activity`, so the activity input is now in `COMPOSER_READS`. A `stale` entry is now a log line only, because that tool never returns the old item. ADR-0118 **Built: slice 3** has the details.
+
 ## Rejected alternatives
 
 - **A list of cases in the prompt.** The owner cannot list them, and a prompt does not make the model apply a rule (ADR-0110 measured a cheap model that ignored a matched instruction for a month).

@@ -499,6 +499,11 @@ function isActivityVerb(value: string): value is ActivityVerb {
   return OBSERVATION_SOURCES.some((source) => activityVerbsOf(source).includes(value));
 }
 
+/** Every declared verb of every activity source, once each. */
+export const ACTIVITY_VERBS: readonly ActivityVerb[] = [
+  ...new Set(OBSERVATION_SOURCES.flatMap(activityVerbsOf).filter(isActivityVerb)),
+];
+
 /**
  * The payload of an `activity` row. The row points at the stored body and never copies it. The
  * actor is the row's subject; the verb comes from the source's closed list.

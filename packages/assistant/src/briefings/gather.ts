@@ -6,7 +6,6 @@ import type {
   CalendarContribution,
   DayShape,
   IanaTimezone,
-  IntegrationActivityItem,
   LoopClosingStateCategory,
   ObjectStateProvider,
   StateCategory,
@@ -21,12 +20,10 @@ import {
   isNotificationSender,
   mailboxLabel,
   OBJECT_STATE_PROVIDERS,
-  parseEventTypeName,
   parseGmailDocumentMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { INBOUND_SOURCES, parseGithubEvent } from "@alfred/assistant/connections/ingress";
-import { documents, emailTriage, typedEventReceipts } from "@alfred/db/schemas";
+import { documents, emailTriage } from "@alfred/db/schemas";
 import { integrations } from "@alfred/integrations";
 import {
   type CalendarEvent,
@@ -59,6 +56,9 @@ import {
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import {
+  activityItemsOf,
+  readActivity,
+  readActivityEvents,
   readUserLocation,
   standingInstructions,
   type ActiveStandingInstruction,
@@ -85,12 +85,14 @@ import {
 } from "./relevance";
 import { scorePriorityEmailDemand } from "./read";
 import {
+  activityRecordProvenance,
   boundProvenance,
   emailProvenance,
   githubMergedProvenance,
   googleSelectionProvenance,
   live,
   logProvenance,
+  mergeInputProvenance,
   readFailed,
   splitVerifiedPullActivity,
   placeProvenance,
@@ -673,6 +675,9 @@ export async function gatherBriefingWithSuppressionAudit(
   // have their own deadline (`OFFICIAL_WARNINGS_DEADLINE_MS`), which starts after the place read.
   const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
 
+  // The activity coverage and the silence reconcile read the same "now".
+  const activityNow = activityAsOf(windowEnd, new Date());
+
   // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
   // the warnings feed reads, so they do not run on to their own deadline.
   const gatherCancel = new AbortController();
@@ -684,57 +689,50 @@ export async function gatherBriefingWithSuppressionAudit(
     signal: weatherDeadline,
   });
 
-  const [
-    digest,
-    calendar,
-    weather,
-    officialWarnings,
-    integrationActivity,
-    brokenConnections,
-    email,
-  ] = await Promise.all([
-    gatherBriefingDigest({
-      userId: args.userId,
-      windowStart: args.windowStart,
-      windowEnd,
-    }),
-    gatherCalendarContribution({
-      userId: args.userId,
-      briefingDate: args.briefingDate,
-      timezone: args.timezone,
-      slot,
-    }),
-    placeRead.then((place) =>
-      gatherWeatherContribution({
-        located: place,
-        deadline: weatherDeadline,
-        briefingDate: args.briefingDate,
-        timezone: args.timezone,
-      }),
-    ),
-    placeRead.then((place) =>
-      gatherOfficialWarnings({
+  const [digest, calendar, weather, officialWarnings, activity, brokenConnections, email] =
+    await Promise.all([
+      gatherBriefingDigest({
         userId: args.userId,
-        located: place,
-        timezone: args.timezone,
-        briefingDate: args.briefingDate,
-        now: new Date(),
-        signal: gatherCancel.signal,
+        windowStart: args.windowStart,
+        windowEnd,
       }),
-    ),
-    gatherIntegrationActivity({
-      userId: args.userId,
-      windowStart: activityStart,
-      windowEnd,
-    }),
-    readBriefingBrokenConnections(args.userId),
-    emailProvenance(args.userId, () =>
-      integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
-    ),
-  ]).catch((err: unknown) => {
-    gatherCancel.abort(err);
-    throw err;
-  });
+      gatherCalendarContribution({
+        userId: args.userId,
+        briefingDate: args.briefingDate,
+        timezone: args.timezone,
+        slot,
+      }),
+      placeRead.then((place) =>
+        gatherWeatherContribution({
+          located: place,
+          deadline: weatherDeadline,
+          briefingDate: args.briefingDate,
+          timezone: args.timezone,
+        }),
+      ),
+      placeRead.then((place) =>
+        gatherOfficialWarnings({
+          userId: args.userId,
+          located: place,
+          timezone: args.timezone,
+          briefingDate: args.briefingDate,
+          now: new Date(),
+          signal: gatherCancel.signal,
+        }),
+      ),
+      readActivity({
+        userId: args.userId,
+        window: { start: activityStart, end: windowEnd },
+        now: activityNow,
+      }),
+      readBriefingBrokenConnections(args.userId),
+      emailProvenance(args.userId, () =>
+        integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
+      ),
+    ]).catch((err: unknown) => {
+      gatherCancel.abort(err);
+      throw err;
+    });
 
   const categories: BriefingGather["email"]["categories"] = {};
 
@@ -765,8 +763,7 @@ export async function gatherBriefingWithSuppressionAudit(
     windowStart: activityStart,
     windowEnd,
     activityCount:
-      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) +
-      verifiedPull.value.length,
+      Math.max(activity.events.length, githubMergedRead?.total ?? 0) + verifiedPull.value.length,
     githubMerged: githubMergedRead,
   });
 
@@ -785,8 +782,9 @@ export async function gatherBriefingWithSuppressionAudit(
     ),
   );
 
-  // `gatherIntegrationActivity` reads only the window's receipts, so only the verified pull can
-  // hold an old item.
+  // The activity record reads only the window's events and the late events that arrived in it, so
+  // only the verified pull can hold an old item. The record states the coverage of each source,
+  // and the merged read settles a silence (`activityRecordProvenance`).
   // A total table of non-empty lists, so a new member of `GATHER_INPUTS` does not compile until
   // it states at least one entry.
   const provenanceByInput = {
@@ -794,7 +792,15 @@ export async function gatherBriefingWithSuppressionAudit(
     calendar: calendar.provenance,
     weather: weather.provenance,
     official_warnings: officialWarnings.provenance,
-    integration_activity: verifiedPull.provenance,
+    integration_activity: mergeInputProvenance("integration_activity", [
+      ...activityRecordProvenance({
+        userId: args.userId,
+        coverage: activity.coverage,
+        githubMerged,
+        now: activityNow,
+      }),
+      ...verifiedPull.provenance,
+    ]),
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
   } satisfies Record<GatherInput, StatedProvenance>;
@@ -809,7 +815,9 @@ export async function gatherBriefingWithSuppressionAudit(
         categories,
       },
       calendar: calendar.value,
-      integration_activity: { items: [...integrationActivity, ...verifiedPull.value] },
+      integration_activity: {
+        items: [...activityItemsOf(activity.events, MAX_ACTIVITY_ITEMS), ...verifiedPull.value],
+      },
       weather: weather.value,
       official_warnings: officialWarnings.value,
       day_of_week: dayContribution(args.briefingDate),
@@ -852,10 +860,9 @@ export async function gatherDayShape(args: {
   const activityCount =
     args.activityCount ??
     (
-      await gatherIntegrationActivity({
+      await readActivityEvents({
         userId: args.userId,
-        windowStart: args.windowStart,
-        windowEnd: args.windowEnd,
+        window: { start: args.windowStart, end: args.windowEnd },
       })
     ).length;
 
@@ -884,79 +891,28 @@ export async function gatherDayShape(args: {
   return { activityVolume, shipped };
 }
 
-const MAX_ACTIVITY_ITEMS = 25;
+/**
+ * How long after its watermark a run still counts as the present. The watermark is frozen at run
+ * start, a little before the gather reads.
+ */
+const WATERMARK_PRESENT_MS = 60 * 60 * 1000;
 
-/** GitHub activity from `event_receipts` (ADR-0052, ADR-0097). Empty, not an error, when none. */
-async function gatherIntegrationActivity(args: {
-  userId: string;
-  windowStart: Date;
-  windowEnd: Date;
-}): Promise<IntegrationActivityItem[]> {
-  const rows = await db()
-    .select({
-      id: typedEventReceipts.id,
-      eventType: typedEventReceipts.eventType,
-      payload: typedEventReceipts.payload,
-      deliveredAt: typedEventReceipts.deliveredAt,
-    })
-    .from(typedEventReceipts)
-    .where(
-      and(
-        eq(typedEventReceipts.userId, args.userId),
-        eq(typedEventReceipts.provider, "github"),
-        gte(typedEventReceipts.deliveredAt, args.windowStart),
-        lte(typedEventReceipts.deliveredAt, args.windowEnd),
-      ),
-    )
-    .orderBy(desc(typedEventReceipts.deliveredAt))
-    .limit(MAX_ACTIVITY_ITEMS);
+/**
+ * The "now" of the activity coverage. The run's watermark is its "now", and it is a little before
+ * the clock. A window that ends at the watermark must still read as one that reaches the present,
+ * or the coverage skips the delivery health and cannot ask the user to reconnect. A window that
+ * ends later (the local end of the day) is measured to the clock. A window that ended more than
+ * `WATERMARK_PRESENT_MS` ago, for example a gather that ran again much later, is a past window:
+ * today's connection state says nothing about it.
+ */
+function activityAsOf(windowEnd: Date, clock: Date): Date {
+  const behind = clock.getTime() - windowEnd.getTime();
 
-  // One deployment relays several receipts (`pending`, `ready`, `promoted`).
-  // Keep only the newest per deployment, or one relay counts several times
-  // toward `DAY_SHAPE_BUSY_AT` (#1167).
-  const seenDeployments = new Set<string>();
-
-  return rows.flatMap((row) => {
-    // A name the github entry does not declare was already marked `failed` by the deliver job.
-    const eventType = parseEventTypeName("github", row.eventType);
-
-    if (!eventType) return [];
-
-    // `null` only for a body that is not an object. A NULL (pruned) body reads as `{}`, so it
-    // still gets the event line; only an array or scalar body gets the generic line.
-    const event = parseGithubEvent(eventType, row.payload);
-
-    if (event?.eventType === "repository_dispatch") {
-      const deploymentId = event.payload.client_payload?.id;
-
-      if (deploymentId) {
-        if (seenDeployments.has(deploymentId)) return [];
-
-        seenDeployments.add(deploymentId);
-      }
-    }
-
-    const action = event?.payload.action;
-    const repo = event?.payload.repository?.full_name;
-    const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
-
-    return [
-      {
-        id: row.id,
-        provider: "github",
-        source: "direct_api",
-        activityCategory: "work",
-        providerKind: action ? `github.${eventType}.${action}` : `github.${eventType}`,
-        title,
-        status,
-        severity: "info",
-        occurredAt: row.deliveredAt.toISOString(),
-        url,
-        relatedRepo: repo ?? undefined,
-      } satisfies IntegrationActivityItem,
-    ];
-  });
+  return behind >= 0 && behind <= WATERMARK_PRESENT_MS ? windowEnd : clock;
 }
+
+/** The activity lines that one gather stores. A run of pushes is one line (`activityItemsOf`). */
+const MAX_ACTIVITY_ITEMS = 25;
 
 export interface GatherCalendarArgs {
   userId: string;
