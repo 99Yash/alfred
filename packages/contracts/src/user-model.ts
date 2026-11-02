@@ -489,20 +489,20 @@ export type ActivityObservationSource = {
 export type ActivityVerb<S extends ActivityObservationSource = ActivityObservationSource> =
   (typeof OBSERVATION_REDUCERS)[S]["activityVerbs"][number];
 
-function activityVerbsOf(source: ObservationSource): readonly string[] {
+function activityVerbsOf(source: ObservationSource): readonly ActivityVerb[] {
   const entry = OBSERVATION_REDUCERS[source];
 
   return "activityVerbs" in entry ? entry.activityVerbs : [];
 }
 
-function isActivityVerb(value: string): value is ActivityVerb {
-  return OBSERVATION_SOURCES.some((source) => activityVerbsOf(source).includes(value));
-}
-
 /** Every declared verb of every activity source, once each. */
 export const ACTIVITY_VERBS: readonly ActivityVerb[] = [
-  ...new Set(OBSERVATION_SOURCES.flatMap(activityVerbsOf).filter(isActivityVerb)),
+  ...new Set(OBSERVATION_SOURCES.flatMap(activityVerbsOf)),
 ];
+
+function isActivityVerb(value: string): value is ActivityVerb {
+  return ACTIVITY_VERBS.some((verb) => verb === value);
+}
 
 /**
  * The payload of an `activity` row. The row points at the stored body and never copies it. The
@@ -619,7 +619,7 @@ export const observationInsertSchema = z
         });
       }
 
-      if (!activityVerbsOf(source).includes(verb)) {
+      if (!activityVerbsOf(source).some((declared) => declared === verb)) {
         ctx.addIssue({
           code: "custom",
           path: ["payload", "verb"],

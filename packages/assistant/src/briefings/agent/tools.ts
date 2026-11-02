@@ -25,7 +25,7 @@ import {
 import type { ActivityWindow } from "@alfred/assistant/connections";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
-import { readActivityEvents, type ActivityEvent } from "../../knowledge";
+import { countActivityEvents, readActivityEvents, type ActivityCounts } from "../../knowledge";
 import { activityActorLabel } from "../activity-lines";
 
 /**
@@ -118,7 +118,10 @@ export function officialWarningsRead(
 /** Most activity lines that one `list_activity` call returns. */
 const ACTIVITY_PAGE_MAX = 25;
 
-const listActivityInputSchema = z.object({
+/** The activity lines that one `list_activity` call returns when it names no limit. */
+const ACTIVITY_PAGE_DEFAULT = 10;
+
+export const listActivityInputSchema = z.object({
   actor: z
     .enum(["user", "other", "any"])
     .default("any")
@@ -129,8 +132,17 @@ const listActivityInputSchema = z.object({
     .int()
     .min(1)
     .max(ACTIVITY_PAGE_MAX)
-    .default(10)
-    .describe(`Max acts to return, newest first. Defaults to 10, at most ${ACTIVITY_PAGE_MAX}.`),
+    .default(ACTIVITY_PAGE_DEFAULT)
+    .describe(
+      `Max acts to return, newest first. Defaults to ${ACTIVITY_PAGE_DEFAULT}, at most ${ACTIVITY_PAGE_MAX}.`,
+    ),
+  before: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The before value of the previous result. Send it with the same actor and verb to get the next older acts. Omit it to get the newest acts.",
+    ),
 });
 
 /** One act in the `list_activity` page. `actor` is `you` for the user, else the provider login. */
@@ -142,55 +154,63 @@ interface ActivityLine {
   readonly occurredAt: string;
 }
 
-/** The count of acts by actor and verb. */
-interface ActivityCounts {
-  user: Partial<Record<ActivityVerb, number>>;
-  other: Partial<Record<ActivityVerb, number>>;
-}
-
 /**
- * The `list_activity` result. `counts` covers the whole window, whatever the filter, so the
- * composer can see the size of the record before it pages through it. `matched` is the count of
- * acts that pass the filter; `items` holds the newest of them.
+ * The `list_activity` result. `counts` covers the whole window, for all filters, so the composer
+ * can see the size of the record before it pages through it. `matched` is the count of acts that
+ * pass the filter. `items` holds one page of them, newest first, and `before` gets the next page.
  */
-interface ActivityList {
+export interface ActivityList {
   readonly counts: ActivityCounts;
   readonly matched: number;
   readonly items: readonly ActivityLine[];
+  /** The cursor of the next older page, or null when `items` holds the oldest matched act. */
+  readonly before: string | null;
 }
 
-function activityList(
-  events: readonly ActivityEvent[],
+/** The acts that pass the filter, from the counts of the whole window. */
+function matchedCount(
+  counts: ActivityCounts,
   filter: z.infer<typeof listActivityInputSchema>,
-): ActivityList {
-  const counts: ActivityCounts = { user: {}, other: {} };
+): number {
+  const buckets = filter.actor === "any" ? [counts.user, counts.other] : [counts[filter.actor]];
 
-  for (const event of events) {
-    const bucket = counts[event.actor.kind];
+  return buckets
+    .flatMap((bucket) => Object.entries(bucket))
+    .filter(([verb]) => filter.verb === undefined || verb === filter.verb)
+    .reduce((sum, [, acts]) => sum + acts, 0);
+}
 
-    bucket[event.verb] = (bucket[event.verb] ?? 0) + 1;
-  }
+async function listActivity(
+  args: Pick<BuildArgs, "userId" | "activityWindow">,
+  filter: z.infer<typeof listActivityInputSchema>,
+): Promise<ActivityList> {
+  const window = args.activityWindow;
 
-  const matching = events.filter(
-    (event) =>
-      (filter.actor === "any" || filter.actor === event.actor.kind) &&
-      (filter.verb === undefined || event.verb === filter.verb),
+  const [counts, page] = await Promise.all([
+    countActivityEvents({ userId: args.userId, window }),
+    readActivityEvents({
+      userId: args.userId,
+      window,
+      page: {
+        actor: filter.actor === "any" ? undefined : filter.actor,
+        verb: filter.verb,
+        before: filter.before,
+        limit: filter.limit,
+      },
+    }),
+  ]);
+
+  const items = page.events.toReversed().map(
+    (event): ActivityLine => ({
+      verb: event.verb,
+      actor: activityActorLabel(event.actor),
+      title: event.title ?? event.object,
+      url: event.url,
+      occurredAt: event.occurredAt.toISOString(),
+    }),
   );
 
-  const items = matching
-    .slice(-filter.limit)
-    .reverse()
-    .map(
-      (event): ActivityLine => ({
-        verb: event.verb,
-        actor: activityActorLabel(event.actor),
-        title: event.title ?? event.object,
-        url: event.url,
-        occurredAt: event.occurredAt.toISOString(),
-      }),
-    );
-
-  return { counts, matched: matching.length, items };
+  return { counts, matched: matchedCount(counts, filter), items, before: page.before };
 }
 
 const dumpInputSchema = z
@@ -370,17 +390,9 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
     }),
 
     list_activity: tool({
-      description:
-        "The activity record of the user's connected tools over the briefing window: what the user did and what other people did (GitHub today: opened, merged, closed, reopened, reviewed, pushed). Returns { counts, matched, items }. counts gives the number of acts by actor (user, other) and verb for the whole window, whatever the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.",
+      description: `The activity record of the user's connected tools over the briefing window: what the user did and what other people did. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { counts, matched, items, before }. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only list_closed_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
       inputSchema: listActivityInputSchema,
-      execute: async (filter): Promise<ActivityList> => {
-        const { events } = await readActivityEvents({
-          userId: args.userId,
-          window: args.activityWindow,
-        });
-
-        return activityList(events, filter);
-      },
+      execute: async (filter): Promise<ActivityList> => listActivity(args, filter),
     }),
 
     list_closed_loops: tool({

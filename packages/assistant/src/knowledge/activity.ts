@@ -1,9 +1,15 @@
-import { activityPayloadSchema, type ActivityVerb, type SourceIdentity } from "@alfred/contracts";
+import {
+  ACTIVITY_VERBS,
+  activityPayloadSchema,
+  type ActivityVerb,
+  type SourceIdentity,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, observationFamilyHeads, observations } from "@alfred/db/schemas";
 import type { Document, Observation } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, lt, ne, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   ACTIVITY_DELIVERY_GRACE_MS,
   ACTIVITY_SOURCE_SLUGS,
@@ -42,11 +48,23 @@ export type ActivityEvent = Pick<Observation, "id" | "occurredAt"> &
   };
 
 /**
- * The most rows that one read returns. A window with more rows gives the newest of them and
- * `truncated`. The briefing keeps 25 lines and calls a day of 8 acts busy, so the newest rows are
- * enough for it.
+ * The most rows that one read returns. A window with more rows gives the newest of them and a
+ * `before` cursor. The briefing keeps 25 lines and calls a day of 8 acts busy, so the newest rows
+ * are enough for the gather. A reader that must see older rows pages with `ActivityPageQuery`.
  */
 const ACTIVITY_READ_MAX = 500;
+
+/** One page of the window, newest first. Postgres applies the filter before the limit. */
+interface ActivityPageQuery {
+  /** Only the acts of this actor kind. Absent: the acts of all actors. */
+  readonly actor?: ActivityActor["kind"] | undefined;
+  /** Only the acts with this verb. Absent: all verbs. */
+  readonly verb?: ActivityVerb | undefined;
+  /** The `before` of the previous page. The page then holds only older acts. */
+  readonly before?: string | undefined;
+  /** The most rows of the page, at most `ACTIVITY_READ_MAX`. */
+  readonly limit: number;
+}
 
 interface ActivityEvents {
   /** Oldest first, by `occurredAt`, then `id`. A late event can sort before the window's start. */
@@ -56,8 +74,18 @@ interface ActivityEvents {
    * above zero is drift between a writer and this build: the record of the window is not complete.
    */
   readonly unreadable: number;
-  /** True when the window holds more than `ACTIVITY_READ_MAX` rows. `events` then holds the newest. */
-  readonly truncated: boolean;
+  /**
+   * The cursor of the next older page, or null when this read holds the oldest row. It is the id
+   * of the oldest row that the read got, also when that row does not parse. The next read compares
+   * against the stored time of that row, so the cursor loses no microseconds of `occurred_at`.
+   */
+  readonly before: string | null;
+}
+
+/** The count of acts in a window, by actor kind and verb. */
+export interface ActivityCounts {
+  readonly user: Partial<Record<ActivityVerb, number>>;
+  readonly other: Partial<Record<ActivityVerb, number>>;
 }
 
 export interface ActivityRead extends ActivityEvents {
@@ -99,9 +127,11 @@ export async function readActivity(args: {
 export async function readActivityEvents(args: {
   userId: string;
   window: ActivityWindow;
+  /** Absent: the newest `ACTIVITY_READ_MAX` rows of the window, with no filter. */
+  page?: ActivityPageQuery;
 }): Promise<ActivityEvents> {
-  const arrivedFrom = new Date(args.window.start.getTime() - ACTIVITY_DELIVERY_GRACE_MS);
-  const arrivedBefore = new Date(args.window.end.getTime() - ACTIVITY_DELIVERY_GRACE_MS);
+  const page = args.page;
+  const limit = Math.min(page?.limit ?? ACTIVITY_READ_MAX, ACTIVITY_READ_MAX);
 
   // The documents of the window come from `documents_user_source_idx`, and each one finds its rows
   // through `observations_document_idx`. So the cost follows the window, not the user's history.
@@ -116,71 +146,147 @@ export async function readActivityEvents(args: {
       url: documents.url,
     })
     .from(documents)
-    .innerJoin(
-      observations,
-      and(
-        eq(observations.userId, documents.userId),
-        eq(observations.kind, "activity"),
-        eq(documentIdOf(), documents.id),
-      ),
-    )
+    .innerJoin(observations, activityRowOfDocument())
     .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
     .where(
       and(
-        eq(documents.userId, args.userId),
-        inArray(documents.source, [...ACTIVITY_SOURCE_SLUGS]),
-        gte(documents.authoredAt, arrivedFrom),
-        lt(documents.authoredAt, arrivedBefore),
+        inActivityWindow(args),
+        page?.actor === undefined
+          ? undefined
+          : page.actor === "user"
+            ? eq(actorKindOf(), "user")
+            : ne(actorKindOf(), "user"),
+        page?.verb === undefined ? undefined : eq(verbOf(), page.verb),
+        page?.before === undefined ? undefined : olderThan(args.userId, page.before),
       ),
     )
     // Newest first, so a cut keeps the newest rows. The result is reversed below.
     .orderBy(desc(observations.occurredAt), desc(observations.id))
-    .limit(ACTIVITY_READ_MAX + 1);
+    .limit(limit + 1);
 
-  const truncated = rows.length > ACTIVITY_READ_MAX;
+  const kept = rows.slice(0, limit);
+  const before = rows.length > limit ? (kept.at(-1)?.id ?? null) : null;
   let unreadable = 0;
 
-  const events = rows
-    .slice(0, ACTIVITY_READ_MAX)
-    .reverse()
-    .flatMap((row): ActivityEvent[] => {
-      const payload = activityPayloadSchema.safeParse(row.payload);
+  const events = kept.toReversed().flatMap((row): ActivityEvent[] => {
+    const payload = activityPayloadSchema.safeParse(row.payload);
 
-      if (!payload.success) {
-        unreadable += 1;
+    if (!payload.success) {
+      unreadable += 1;
 
-        return [];
-      }
+      return [];
+    }
 
-      return [
-        {
-          id: row.id,
-          occurredAt: row.occurredAt,
-          source: payload.data.source,
-          actor:
-            row.actor.kind === "user"
-              ? { kind: "user" }
-              : { kind: "other", login: payload.data.actorLogin },
-          verb: payload.data.verb,
-          object: row.object?.value ?? null,
-          title: row.title,
-          url: row.url,
-        },
-      ];
-    });
+    return [
+      {
+        id: row.id,
+        occurredAt: row.occurredAt,
+        source: payload.data.source,
+        actor:
+          row.actor.kind === "user"
+            ? { kind: "user" }
+            : { kind: "other", login: payload.data.actorLogin },
+        verb: payload.data.verb,
+        object: row.object?.value ?? null,
+        title: row.title,
+        url: row.url,
+      },
+    ];
+  });
 
   if (unreadable > 0) {
     logger.warn({ userId: args.userId, unreadable }, "[activity] unreadable activity rows skipped");
   }
 
-  if (truncated) {
+  if (before !== null && page === undefined) {
     logger.warn(
       { userId: args.userId, max: ACTIVITY_READ_MAX },
       "[activity] window holds more rows than one read returns",
     );
   }
 
-  return { events, unreadable, truncated };
+  return { events, unreadable, before };
+}
+
+/**
+ * The count of acts in `window`, by actor kind and verb, for all rows of the window. Postgres
+ * counts them, so the count is true when a read of the same window stops at its limit. The count
+ * reads only the verb of each row. A row with an unknown verb is not counted.
+ */
+export async function countActivityEvents(args: {
+  userId: string;
+  window: ActivityWindow;
+}): Promise<ActivityCounts> {
+  const actorKind = actorKindOf();
+  const verb = verbOf();
+
+  const rows = await db()
+    .select({ actorKind, verb, acts: count() })
+    .from(documents)
+    .innerJoin(observations, activityRowOfDocument())
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
+    .where(inActivityWindow(args))
+    .groupBy(actorKind, verb);
+
+  const counts: ActivityCounts = { user: {}, other: {} };
+
+  for (const row of rows) {
+    const known = ACTIVITY_VERBS.find((candidate) => candidate === row.verb);
+
+    if (known === undefined) continue;
+    const bucket = counts[row.actorKind === "user" ? "user" : "other"];
+
+    bucket[known] = (bucket[known] ?? 0) + row.acts;
+  }
+
+  return counts;
+}
+
+/** The activity rows of one document. */
+function activityRowOfDocument(): SQL | undefined {
+  return and(
+    eq(observations.userId, documents.userId),
+    eq(observations.kind, "activity"),
+    eq(documentIdOf(), documents.id),
+  );
+}
+
+/** The documents of the window, by arrival (`readActivityEvents`). */
+function inActivityWindow(args: { userId: string; window: ActivityWindow }): SQL | undefined {
+  const arrivedFrom = new Date(args.window.start.getTime() - ACTIVITY_DELIVERY_GRACE_MS);
+  const arrivedBefore = new Date(args.window.end.getTime() - ACTIVITY_DELIVERY_GRACE_MS);
+
+  return and(
+    eq(documents.userId, args.userId),
+    inArray(documents.source, [...ACTIVITY_SOURCE_SLUGS]),
+    gte(documents.authoredAt, arrivedFrom),
+    lt(documents.authoredAt, arrivedBefore),
+  );
+}
+
+/**
+ * The rows that sort after the cursor row in the read order. Postgres reads the time of the cursor
+ * row, so the compare is exact. A cursor that names no row of the user gives no rows.
+ */
+function olderThan(userId: string, before: string): SQL {
+  const cursor = alias(observations, "activity_cursor");
+
+  const cursorRow = db()
+    .select({ occurredAt: cursor.occurredAt, id: cursor.id })
+    .from(cursor)
+    .where(and(eq(cursor.id, before), eq(cursor.userId, userId)));
+
+  return sql`(${observations.occurredAt}, ${observations.id}) < ${cursorRow}`;
+}
+
+/** `user` when the user did the act, else the kind of the actor's identity. */
+function actorKindOf(): SQL<string> {
+  return sql<string>`(${observations.subjectIdentity} ->> 'kind')`;
+}
+
+/** The verb of the act (`activityPayloadSchema`). */
+function verbOf(): SQL<string> {
+  return sql<string>`(${observations.payload} ->> 'verb')`;
 }
 
 /**

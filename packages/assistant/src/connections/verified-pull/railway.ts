@@ -1,5 +1,6 @@
 import {
   canonicalizeRailwayTargetId,
+  INTEGRATION_ACTIVITY_TITLE_MAX,
   type DeploymentStatus,
   isNotificationSender,
 } from "@alfred/contracts";
@@ -410,7 +411,7 @@ export const railwayVerifiedPullProvider: VerifiedPullProvider<
       source: "mcp",
       activityCategory: "deploy",
       providerKind: "railway.deployment_status",
-      title: `Railway deployment ${word}: ${where}`,
+      title: `Railway deployment ${word}: ${where}`.slice(0, INTEGRATION_ACTIVITY_TITLE_MAX),
       ...verdict,
     };
   },

@@ -302,7 +302,10 @@ export const integrationActivityRollupSchema = z.object({
   suppressedEventIds: z.array(z.string().min(1)).optional(),
 });
 
-/** The activity line title bound. Every producer of an activity line clips to this value. */
+/**
+ * The activity line title bound. Every producer of an activity line clips to this value: the
+ * activity record lines (`activityItemsOf`) and each verified-pull source (`toActivityItem`).
+ */
 export const INTEGRATION_ACTIVITY_TITLE_MAX = 300;
 
 export const integrationActivityItemSchema = z.object({

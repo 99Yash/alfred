@@ -1,12 +1,17 @@
 import path from "node:path";
 import { route, probeRoute, googleLeg, type LanguageModel } from "@alfred/ai";
-import type { EmailListItem, PriorBriefingSummary } from "@alfred/assistant/briefings";
+import {
+  buildSystemPrompt,
+  listActivityInputSchema,
+  type ActivityList,
+  type EmailListItem,
+  type PriorBriefingSummary,
+} from "@alfred/assistant/briefings";
 import type { DayShape } from "@alfred/contracts";
 import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
-import { buildSystemPrompt } from "@alfred/assistant/briefings";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { assertNever } from "@alfred/contracts";
 
@@ -283,11 +288,13 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
         }),
         list_activity: tool({
           description: "The activity record of the connected tools. This scenario has none.",
-          inputSchema: z.object({
-            actor: z.enum(["user", "other", "any"]).default("any"),
-            limit: z.number().int().min(1).max(25).default(10),
+          inputSchema: listActivityInputSchema,
+          execute: async (): Promise<ActivityList> => ({
+            counts: { user: {}, other: {} },
+            matched: 0,
+            items: [],
+            before: null,
           }),
-          execute: async () => ({ counts: { user: {}, other: {} }, matched: 0, items: [] }),
         }),
         list_action_items: tool({
           description: "Open action items. Not wired — returns [].",

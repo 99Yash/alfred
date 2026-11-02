@@ -131,9 +131,11 @@ interface ComposerRead {
  * fact. Warnings reach it as seed facts (`officialWarningFacts`) and through
  * `list_official_warnings`, so a warnings `fallback` (the default city) is a fact, while the same
  * weather `fallback` is a log line only: weather does not reach the composer. The activity record
- * reaches it through `list_activity` (ADR-0118 slice 3), so a gap in the record or a failed
- * deploy-status read is a fact. A stale item left the list in the gather, and `list_activity`
- * reads only the window, so a `stale` entry stays a log line (`provenanceAudience`).
+ * reaches it through `list_activity` (ADR-0118 slice 3), so a gap in the record is a fact. A failed
+ * deploy-status read is a fact too, under the same input, but no composer tool returns a
+ * verified-pull item: `list_activity` reads only the record, and `get_day_shape` puts those items
+ * in its volume only. A stale item left the list in the gather, and `list_activity` reads only the
+ * window, so a `stale` entry stays a log line (`provenanceAudience`).
  */
 const COMPOSER_READS = {
   email: { tool: "list_emails_since", hides: "your new email" },

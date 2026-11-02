@@ -1,5 +1,6 @@
 import {
   canonicalizeVercelTargetId,
+  INTEGRATION_ACTIVITY_TITLE_MAX,
   type DeploymentStatus,
   parseGitBranchRef,
 } from "@alfred/contracts";
@@ -409,7 +410,7 @@ export const vercelVerifiedPullProvider: VerifiedPullProvider<
       source: "direct_api",
       activityCategory: "deploy",
       providerKind: "vercel.deployment_status",
-      title: `Vercel deployment ${word}: ${where}`,
+      title: `Vercel deployment ${word}: ${where}`.slice(0, INTEGRATION_ACTIVITY_TITLE_MAX),
       ...verdict,
     };
   },
