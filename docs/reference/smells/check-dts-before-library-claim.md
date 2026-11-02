@@ -28,3 +28,5 @@ unknown keys. The parser uses it, and the merge goes away.
 Not a fact in the code.
 
 ## Hits
+
+- #1672 ADR-0118 said an unused parameter fails the knip gate; knip does not report an unused property of an args object

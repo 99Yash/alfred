@@ -1,9 +1,8 @@
 ---
 id: no-query-in-loop
 section: Backend
-status: review
-rung: ast
-feasibility: medium
+status: stays-review
+rung: none
 ---
 
 # Do not query in a loop. Paginate every list endpoint.
@@ -41,8 +40,9 @@ const statesByObjectId = await store.getStates(args.userId, [...refByKey.values(
 
 ## Mechanism
 
-AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`.
+AST: a query on a `db()` or transaction handle awaited inside a loop body or an async `.map`. It stays review. That rule also flags the Good example above, which awaits one batch query for each key group in a `for` loop. The #1672 hit was a correlated SQL subquery, and only a query plan shows that shape.
 
 ## Hits
 
 - #1126 packages/assistant/src/connections/object-state/reconcile.ts: two queries for each candidate key in `reconcileEvidence`; fixed with one `inArray` query for each key group.
+- #1672 knowledge/activity.ts correlated an array subquery on observations.source, so Postgres ran it once per row, with no time floor and no limit

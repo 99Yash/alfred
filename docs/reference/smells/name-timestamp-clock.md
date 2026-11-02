@@ -1,9 +1,8 @@
 ---
 id: name-timestamp-clock
 section: Backend
-status: review
-rung: compiler
-feasibility: low
+status: stays-review
+rung: none
 ---
 
 # Name the clock of each timestamp. Compare only timestamps of one clock.
@@ -32,8 +31,9 @@ async (job) => handleTick(scheduledFireTime(job));
 
 ## Mechanism
 
-Compiler: a brand for each clock. A wide migration for a rare bug.
+Compiler: a brand for each clock. It stays review. A brand needs a migration of every `Date` field that crosses a module, and the bug is rare. The two hits are in different fields: a queue job time and a provider merge time.
 
 ## Hits
 
 - #1358 packages/assistant/src/briefings/queue.ts: the briefing tick matched on `job.timestamp`, the creation clock, not the fire time.
+- #1672 briefings/provenance.ts compared the provider mergedAt with gap bounds that are delivery arrival times, with no comment

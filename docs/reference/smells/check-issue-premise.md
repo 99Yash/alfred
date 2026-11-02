@@ -33,3 +33,4 @@ Not a fact in the code.
 ## Hits
 
 - #1357 issue body: "No vercel.com mail reaches Alfred's mailbox"; a production query found 3 matching mails.
+- #1672 the PR body stated a 2026-10-22 to 10-28 delivery gap, that most receipts are CI noise, and 12.7 ms against 1.3 ms with no query behind them

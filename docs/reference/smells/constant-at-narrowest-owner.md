@@ -36,3 +36,5 @@ export const CONTEXT_SEARCH_MAX_LIMIT = 50;
 Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code.
 
 ## Hits
+
+- #1672 ACTIVITY_DELIVERY_GRACE_MS crossed two barrels from connections/activity/coverage.ts to its one caller in briefings/provenance.ts
