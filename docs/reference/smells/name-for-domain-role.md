@@ -36,3 +36,4 @@ A substring ban cannot tell a credential `shape` field from `DayShape` (#1149).
 ## Hits
 
 - #1149 `packages/contracts/src/integrations/registry.ts`: the credential field is named `shape`; its role is the credential kind.
+- #1665 warnings/gdacs.ts: AreaFeature held properties, near held every event, centroidOf read a reported point, p named the properties

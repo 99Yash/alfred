@@ -38,3 +38,5 @@ Behavior, not shape.
 A check cannot know which states an async source can reach, or which branch of the JSX shows each state.
 
 ## Hits
+
+- #1665 legacy-morning-briefing.ts: a warning sent the cron morning, but the legacy composer and its fallback text did not show warnings

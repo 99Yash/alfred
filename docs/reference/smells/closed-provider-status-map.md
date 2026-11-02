@@ -43,3 +43,4 @@ The compiler holds a map after someone writes it. To decide that one is necessar
 ## Hits
 
 - #1364 packages/assistant/src/connections/verified-pull/vercel.ts: a `switch` default sent an unknown state to `null`, which read as `absent`.
+- #1665 warnings/gdacs.ts: an unreadable area, a missing intensity and a bad date became a silent miss, so a format change reported full coverage
