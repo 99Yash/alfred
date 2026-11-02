@@ -218,13 +218,14 @@ export const syncedFactSchema = z.object({
 export type SyncedFact = z.infer<typeof syncedFactSchema>;
 
 /**
- * The gather as the web reads it. The web does not render `provenance`, and its closed enums and
- * bounds must not drop the whole briefing row: a stale tab or a rolled-back server can meet a
- * member that its build does not know. So an unreadable list reads as absent. The contract schema
- * stays strict for the server write path.
+ * The gather as the web reads it. The web does not render `provenance` or `official_warnings`, and their
+ * closed enums and bounds must not drop the whole briefing row: a stale tab or a rolled-back server
+ * can meet a member that its build does not know. So an unreadable field reads as absent. The
+ * contract schema stays strict for the server write path.
  */
 const syncedBriefingGatherSchema = briefingGatherSchema.extend({
   provenance: briefingGatherSchema.shape.provenance.catch(undefined),
+  official_warnings: briefingGatherSchema.shape.official_warnings.catch(undefined),
 });
 
 export const syncedBriefingSchema = z.object({

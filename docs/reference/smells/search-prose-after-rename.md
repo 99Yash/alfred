@@ -37,3 +37,4 @@ const rail = (
 
 - #1483 `apps/web/src/routes/-chat/tool-call-group.tsx`: a comment still gave the removed bottom pin as the reason for no capped height.
 - #1458 `packages/db/src/redis.ts`: a comment still named the old owner of the subscription recovery.
+- #1665 ADR-0117: the quiet-morning line still said only the ADR-0100 input changes the rule after warnings joined the gate

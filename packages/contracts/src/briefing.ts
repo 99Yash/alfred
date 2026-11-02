@@ -331,6 +331,7 @@ export const GATHER_INPUTS = [
   "integration_activity",
   "github_merged",
   "loop_relevance",
+  "official_warnings",
 ] as const;
 
 export type GatherInput = (typeof GATHER_INPUTS)[number];
@@ -431,18 +432,78 @@ export const GATHER_STALE_PROVENANCE_MAX = 10;
 
 /**
  * Upper bound on stored entries. Today a gather states at most two entries for each input (weather:
- * a failed read and its fallback), which is 12 for six inputs, plus the stale entries above (10).
+ * a failed read and its fallback; warnings: a place entry and a failed read), which is 14 for
+ * seven inputs, plus the stale entries above (10).
  * The verified pull reads at most 5 targets for each of its 2 providers, so 10 stale entries is
  * also the most it can produce. The producer clips the list to this bound, so a stored list never
  * fails its parse on length.
  */
 export const GATHER_PROVENANCE_MAX = GATHER_INPUTS.length * 2 + GATHER_STALE_PROVENANCE_MAX;
 
+// ─── Official warnings (ADR-0117 decision 4) ─────────────────────────────
+
+/** The official feeds that the gather reads. GDACS is global; NDMA Sachet is India's CAP feed. */
+export const OFFICIAL_WARNING_SOURCES = ["gdacs", "ndma_sachet"] as const;
+
+export type OfficialWarningSource = (typeof OFFICIAL_WARNING_SOURCES)[number];
+
+/** Most warnings that one gather stores. The producer keeps the most severe ones. */
+export const OFFICIAL_WARNINGS_MAX = 8;
+
+/**
+ * Text bounds of one warning. The producer clips each field to its bound and parses the warning
+ * before it stores it, so a feed value cannot fail the parse of the stored gather.
+ */
+export const OFFICIAL_WARNING_TEXT_MAX = {
+  issuer: 120,
+  event: 200,
+  severity: 40,
+  headline: 500,
+  area: 300,
+} as const;
+
+/**
+ * One official warning whose area contains the user's place on the briefing day. A geometry or
+ * district match selects it, not a model. `severity` is the feed's own word: a CAP severity
+ * ("Severe") or a GDACS alert level ("Red alert"). `onset` and `expires` are UTC instants in the
+ * `Date.prototype.toISOString` form ("2026-11-01T00:00:00.000Z"), so their text order is their time
+ * order.
+ */
+export const officialWarningSchema = z.object({
+  source: z.enum(OFFICIAL_WARNING_SOURCES),
+  issuer: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.issuer),
+  event: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.event),
+  severity: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.severity),
+  headline: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.headline),
+  area: z.string().min(1).max(OFFICIAL_WARNING_TEXT_MAX.area),
+  onset: z.iso.datetime({ precision: 3 }),
+  expires: z.iso.datetime({ precision: 3 }),
+  url: z.url().optional(),
+});
+
+export type OfficialWarning = z.infer<typeof officialWarningSchema>;
+
+/**
+ * The warnings for one place, from at least one feed that Alfred read. An empty `items` list says
+ * that those feeds had no warning, not that no hazard exists. The provenance names the feeds that
+ * Alfred could not read.
+ */
+export const officialWarningsContributionSchema = z.object({
+  items: z.array(officialWarningSchema).max(OFFICIAL_WARNINGS_MAX),
+});
+
+export type OfficialWarningsContribution = z.infer<typeof officialWarningsContributionSchema>;
+
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
   calendar: calendarContributionSchema.nullable(),
   integration_activity: integrationActivityContributionSchema,
   weather: weatherContributionSchema.nullable(),
+  /**
+   * Official warnings at the user's place (ADR-0117 decision 4). `null`: no feed was read, and the
+   * provenance says why. Optional, so a gather from before this field parses.
+   */
+  official_warnings: officialWarningsContributionSchema.nullable().optional(),
   day_of_week: dayOfWeekContributionSchema,
   /** Optional, so older gathers parse. Absence is not an error. */
   day_shape: dayShapeSchema.optional(),

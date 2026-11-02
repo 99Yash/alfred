@@ -27,24 +27,24 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Use `isRecord` and `getPath` only on a value that is `unknown` at a true parse boundary.](./guards-only-on-unknown.md) | Gated by `check-types` | compiler | 7 |
 | [Write `import type { X }` when every name of an import is a type.](./import-type-side-effects.md) | Gated by `typescript/no-import-type-side-effects` | ast | 5 |
 | [Keep a literal type only when it is a different concept, and say why in one comment.](./literal-type-only-for-new-concept.md) | Stays review | none | 0 |
-| [Name a symbol for its domain role, not its structure.](./name-for-domain-role.md) | Stays review | none | 1 |
+| [Name a symbol for its domain role, not its structure.](./name-for-domain-role.md) | Stays review | none | 2 |
 | [Do not return or print the `never` binding of an exhaustive `default`. Throw with `assertNever`, or return a real value of the return type.](./never-sentinel-escape.md) | Gated by `alfred/no-never-sentinel-binding` | ast | 5 |
 | [Give a shape that two packages share one owning schema.](./one-owning-schema-per-shared-shape.md) | Stays review | none | 0 |
 | [Choose `k?: T` or `k?: T \| undefined` for each optional field.](./optional-field-absence-choice.md) | Stays review | none | 0 |
 | [Put a shape in the file that mints or stores it.](./shape-in-minting-file.md) | Stays review | none | 0 |
 | [End a `switch` over a closed union of string literals with a `default` that calls `assertNever`, or that returns a real value when unparsed data can reach it.](./switch-literal-needs-default.md) | Gated by `alfred/switch-literal-needs-default` | ast | 4 |
-| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 0 |
+| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 1 |
 
 ## Constants and ownership
 
 | Smell | Status | Rung | PRs |
 | --- | --- | --- | --- |
-| [Centralize duplicated logic only when the copies change together.](./centralize-only-when-copies-change-together.md) | Stays review | none | 0 |
+| [Centralize duplicated logic only when the copies change together.](./centralize-only-when-copies-change-together.md) | Stays review | none | 1 |
 | [Put a constant at its narrowest stable owner.](./constant-at-narrowest-owner.md) | Stays review | none | 0 |
 | [Make a dedicated constants file only when its values couple.](./constants-file-only-when-coupled.md) | Stays review | none | 0 |
 | [Use an environment variable only for a deploy knob, a secret or an endpoint.](./env-var-only-for-deploy-knob.md) | Stays review | none | 0 |
 | [Name each re-export in a module barrel. Use `export *` only in a package root barrel.](./export-star-outside-root-barrel.md) | Gated by `export-star-outside-root-barrel` | regex | 5 |
-| [Name a threshold, cap, TTL, retry count, batch size or budget.](./name-policy-number.md) | Stays review | none | 0 |
+| [Name a threshold, cap, TTL, retry count, batch size or budget.](./name-policy-number.md) | Stays review | none | 1 |
 
 ## Backend
 
@@ -52,9 +52,9 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | --- | --- | --- | --- |
 | [Wrap a multi-step write that must be atomic in one transaction.](./atomic-multi-step-write.md) | Stays review | none | 0 |
 | [Bind the credential, not the token.](./bind-credential-not-token.md) | Review, medium | compiler | 1 |
-| [Map every provider status in a closed table. Make an unknown status a fault, not a default.](./closed-provider-status-map.md) | Stays review | none | 1 |
+| [Map every provider status in a closed table. Make an unknown status a fault, not a default.](./closed-provider-status-map.md) | Stays review | none | 2 |
 | [Give a new endpoint the auth and rate limit of its group.](./endpoint-auth-and-migrations.md) | Stays review | none | 0 |
-| [Give every external call that is not a model call a deadline and the signal of its caller.](./external-call-deadline-and-sibling-cancel.md) | Stays review | none | 4 |
+| [Give every external call that is not a model call a deadline and the signal of its caller.](./external-call-deadline-and-sibling-cancel.md) | Stays review | none | 5 |
 | [Give every AI SDK generate or stream call an `abortSignal`.](./external-call-timeout-and-abort.md) | Gated by `alfred/ai-call-needs-abort-signal` | ast | 0 |
 | [Make work that BullMQ or a webhook retries idempotent.](./idempotent-retried-work.md) | Stays review | none | 1 |
 | [Log a caught error only under the `err` key of a `logger` call. Put only safe fields beside it, and mask PII.](./log-caught-error-under-err.md) | Gated by `alfred/log-caught-error-under-err` | ast | 4 |
@@ -64,7 +64,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Do not give a `.catch(…)` handler a body that drops the error and returns a constant.](./no-swallowed-catch.md) | Gated by `alfred/no-swallowed-catch` | ast | 2 |
 | [Do not let a `catch` clause with statements drop the error.](./no-swallowed-try-catch.md) | Review, low | ast | 1 |
 | [Do not use `updatedAt` or another `$onUpdate` column as a queue or schedule key.](./no-updated-at-queue-key.md) | Review, medium | ast | 1 |
-| [Give each state its own return value.](./one-return-value-per-state.md) | Stays review | none | 1 |
+| [Give each state its own return value.](./one-return-value-per-state.md) | Stays review | none | 2 |
 | [Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.](./required-executor-param.md) | Gated by `alfred/required-executor-param` | ast | 4 |
 | [Make a script, dry run or backfill call the live owner.](./scripts-call-live-owner.md) | Stays review | none | 1 |
 | [Verify a webhook signature with a timing-safe compare on the raw body.](./webhook-signature-raw-body.md) | Review, medium | compiler | 0 |
@@ -79,7 +79,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Do not pass a same-property Tailwind utility through `className` to a primitive that carries a delta class.](./delta-class-across-component.md) | Stays review | none | 0 |
 | [Clean up each subscription and timer in an effect. Do not set state after unmount.](./effect-cleanup.md) | Stays review | none | 0 |
 | [Do not find an item by its position (`.at(-1)`, index 0, the queue head) when items run in parallel or change order.](./find-item-by-id.md) | Stays review | none | 2 |
-| [Render the loading, error, empty and populated states.](./render-every-state.md) | Stays review | none | 0 |
+| [Render the loading, error, empty and populated states.](./render-every-state.md) | Stays review | none | 1 |
 | [Show an error to the user.](./show-error-to-user.md) | Stays review | none | 0 |
 | [Guard browser-only APIs for SSR. Sanitize HTML before you inject it.](./ssr-guard-and-sanitize-html.md) | Stays review | none | 0 |
 
@@ -97,6 +97,6 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | Smell | Status | Rung | PRs |
 | --- | --- | --- | --- |
 | [Check the factual premise of an issue or plan against data before you write code.](./check-issue-premise.md) | Stays review | none | 1 |
-| [Do not let prose claim that the code is safer or more closed than it is.](./prose-not-safer-than-code.md) | Stays review | none | 5 |
-| [When you delete, rename or move a mechanism, search the comments and docs for the words that describe it.](./search-prose-after-rename.md) | Stays review | none | 2 |
+| [Do not let prose claim that the code is safer or more closed than it is.](./prose-not-safer-than-code.md) | Stays review | none | 6 |
+| [When you delete, rename or move a mechanism, search the comments and docs for the words that describe it.](./search-prose-after-rename.md) | Stays review | none | 3 |
 | [Keep the reason of a lint suppression, a disable directive or a `SAFETY:` note true. Delete one that no longer applies.](./suppression-reason-stays-true.md) | Stays review | none | 0 |

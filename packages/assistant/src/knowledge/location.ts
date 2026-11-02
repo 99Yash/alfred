@@ -7,6 +7,7 @@ import {
   type IanaTimezone,
   type MemorySource,
   type Place,
+  type PlaceArea,
 } from "@alfred/contracts";
 import type { UserSettings } from "@alfred/assistant/settings";
 import { logger } from "@alfred/logging";
@@ -198,6 +199,7 @@ const geocodeResponseSchema = z.object({
         country: z.string().optional(),
         country_code: z.string().optional(),
         admin1: z.string().optional(),
+        admin2: z.string().optional(),
       }),
     )
     .optional(),
@@ -320,13 +322,7 @@ async function geocode(
     const { results = [] } = geocodeResponseSchema.parse(await res.json());
     const match = results.find((candidate) => matchesQuery(candidate, query));
 
-    const place = match
-      ? {
-          lat: match.latitude,
-          lng: match.longitude,
-          label: match.country ? `${match.name}, ${match.country}` : match.name,
-        }
-      : null;
+    const place = match ? placeOf(match) : null;
 
     // Keep a miss too: the same fact gives the same miss until the fact changes.
     geocoded.set(key, place);
@@ -347,6 +343,27 @@ async function geocode(
 
     return { kind: "fault" };
   }
+}
+
+/**
+ * The candidate as a place. The administrative areas go with it, so a national warning feed can
+ * match the place by its district (ADR-0117 decision 4).
+ */
+function placeOf(match: GeocodeCandidate): Place {
+  const area: PlaceArea | undefined = match.country_code
+    ? {
+        countryCode: match.country_code.toUpperCase(),
+        ...(match.admin1 ? { region: match.admin1 } : {}),
+        ...(match.admin2 ? { district: match.admin2 } : {}),
+      }
+    : undefined;
+
+  return {
+    lat: match.latitude,
+    lng: match.longitude,
+    label: match.country ? `${match.name}, ${match.country}` : match.name,
+    ...(area ? { area } : {}),
+  };
 }
 
 /**

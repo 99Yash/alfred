@@ -13,10 +13,12 @@ import {
   briefingConnectionNoticeSchema,
   type BriefingConnectionNotice,
   type BriefingClosedLoop,
+  type BriefingGather,
   type BriefingLoopRelevance,
   type CalendarContribution,
   type DayShape,
   type IanaTimezone,
+  type OfficialWarning,
 } from "@alfred/contracts";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
@@ -72,7 +74,35 @@ interface BuildArgs {
    * from one read. `null`: the gather could not read the calendar, and its statement says why.
    * Absent on a run that gathered before this field existed; the tool then reads the calendar again.
    */
-  calendar?: CalendarContribution | null | undefined;
+  calendar?: BriefingGather["calendar"] | undefined;
+  /**
+   * The gather's official warnings (ADR-0117 decision 4). `null`: the gather read no feed, and its
+   * statement says why. Absent on a run that gathered before this field. `officialWarningsRead`
+   * gives each of the three states its own tool result.
+   */
+  officialWarnings?: BriefingGather["official_warnings"];
+}
+
+/**
+ * The `list_official_warnings` result: one status for each state of the gather's warnings field.
+ * Only `read` has items, so no other state can look like a read that found no warning.
+ *
+ * - `read`: Alfred read at least one feed. An empty list says that those feeds had no warning.
+ * - `not_read`: the gather read no feed (`null`). Its provenance statement says why.
+ * - `not_recorded`: the run gathered before Alfred read warnings (absent). Alfred does not know.
+ */
+export type OfficialWarningsRead =
+  | { readonly status: "read"; readonly items: readonly OfficialWarning[] }
+  | { readonly status: "not_read" | "not_recorded" };
+
+export function officialWarningsRead(
+  warnings: BriefingGather["official_warnings"],
+): OfficialWarningsRead {
+  if (warnings === undefined) return { status: "not_recorded" };
+
+  if (warnings === null) return { status: "not_read" };
+
+  return { status: "read", items: warnings.items };
 }
 
 /** Day-shape window on the first run, when there is no watermark. */
@@ -132,6 +162,7 @@ export type BriefingToolName =
   | "read_email"
   | "list_prior_briefings"
   | "list_calendar_events"
+  | "list_official_warnings"
   | "get_day_shape"
   | "list_closed_loops"
   | "list_loop_relevance"
@@ -222,6 +253,14 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
         return contribution.value?.events ?? [];
       },
+    }),
+
+    list_official_warnings: tool({
+      description:
+        "The full details of the official hazard warnings that the briefing request lists: a cyclone, flood, earthquake, volcano, or wildfire alert from GDACS, or a district warning from India's NDMA Sachet (IMD, CWC, or a state authority). The briefing request already gives each warning's issuer, event, severity, area, and time, so call this tool only for a headline or a link. Returns { status, items }. status 'read': Alfred read at least one feed, and items holds each warning whose area contains the place that the briefing request names, most severe first. A geometry or district match selected each one, not a model. An empty items list means that the feeds Alfred read had no warning for the place, not that no hazard exists: do not mention it. status 'not_read': Alfred read no feed, and the briefing request says why. status 'not_recorded': this run has no record of a warnings read, so you do not know whether a warning exists: do not mention warnings. Neither status has items, and neither means that no warning exists.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<OfficialWarningsRead> =>
+        officialWarningsRead(args.officialWarnings),
     }),
 
     get_day_shape: tool({

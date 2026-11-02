@@ -19,14 +19,16 @@ import type { ComposedEmail } from "@alfred/assistant/delivery";
 
 import { composeAgentInstructions, sanitizeVoice } from "@alfred/ai/voice";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
-import type { LocalDateKey } from "@alfred/assistant/time";
+import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import type { BriefingDigest, BriefingItem, PriorityCategory } from "./gather";
 import {
   EMAIL_LINK_STYLE as LINK_STYLE,
   EMAIL_P_STYLE as P_STYLE,
   EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
 } from "./email-styles";
+import { officialWarningsFallback } from "./provenance";
 import { buildBriefingSourcePanels } from "./references";
+import { describeWarning } from "./official-warnings";
 
 /**
  * Composers for the legacy `morning-briefing` workflow: `composeBriefing` (boss model,
@@ -69,6 +71,15 @@ const BRIEFING_COMPOSER_SYSTEM_PROMPT = composeAgentInstructions({
       "- Prefer concrete operational outcomes over event noise.",
       "- If an issue failed and then resolved without user action, mention it only when the rollup shows notable pain.",
       "- Section `why` fields explain the inclusion in one sentence — not model reasoning.",
+    ].join("\n"),
+    [
+      "Official warnings:",
+      "- `officialWarnings.items` lists each official hazard warning that a geometry or district match selected for today, most severe first. Times are in the user's time zone.",
+      "- Each one is something at risk, and it ranks first: lead the breakingSummary with it, and give it the first section, in the listed order.",
+      "- Name the issuer, what it warns of, and its severity word. Do not add advice that the warning does not give, and do not soften or inflate its severity.",
+      "- When `officialWarnings.defaultCity` is set, the warnings are for that city, the default for the user's time zone, not a place that the user gave. Name the city with the warning.",
+      "- Use source `day_of_week` for a warning section, because no gather source names warnings.",
+      "- With no `officialWarnings`, say nothing about warnings. A missing warning does not prove that no hazard exists.",
     ].join("\n"),
     [
       "Citations:",
@@ -132,7 +143,7 @@ export async function composeBriefing(args: ComposeBriefingArgs): Promise<Compos
         schema: briefingComposerSchema,
         schemaName: "briefing_composer",
         schemaDescription:
-          "Composes a concise daily briefing from gathered email, calendar, integration activity, weather, and day context.",
+          "Composes a concise daily briefing from gathered email, calendar, integration activity, official warnings, weather, and day context.",
         instructions: `${BRIEFING_COMPOSER_SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`,
         prompt: buildComposerPrompt(args),
         temperature: 0.2,
@@ -185,6 +196,7 @@ function buildComposerPrompt(args: ComposeBriefingArgs): string {
       slot: args.slot,
       timezone: args.timezone,
       gather: composerSafeGather(args.gather),
+      officialWarnings: officialWarningLines(args.gather, args.timezone) ?? undefined,
       availableReferences: listBriefingReferenceOptions(args.gather),
       outputRules: {
         breakingSummary: "One short paragraph suitable for the email top summary.",
@@ -232,21 +244,26 @@ function deterministicFallback(args: ComposeBriefingArgs, err: unknown): Compose
   const emailCount = countEmailItems(args.gather);
   const activityCount = args.gather.integration_activity.items.length;
   const meetingCount = args.gather.calendar?.events.length ?? 0;
+  const warnings = officialWarningLines(args.gather, args.timezone);
 
+  const counted = [
+    emailCount ? `${emailCount} priority email${emailCount === 1 ? "" : "s"}` : null,
+    meetingCount ? `${meetingCount} calendar event${meetingCount === 1 ? "" : "s"}` : null,
+    activityCount
+      ? `${activityCount} integration activit${activityCount === 1 ? "y" : "ies"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  // A warning leads, as it does in a composed briefing. "Nothing stood out" is true only with no
+  // warning and no counted item.
   const lead =
-    emailCount === 0 && activityCount === 0 && meetingCount === 0
-      ? "No priority email, meetings, or integration activity stood out for today."
-      : [
-          emailCount ? `${emailCount} priority email${emailCount === 1 ? "" : "s"}` : null,
-          meetingCount ? `${meetingCount} calendar event${meetingCount === 1 ? "" : "s"}` : null,
-          activityCount
-            ? `${activityCount} integration activit${activityCount === 1 ? "y" : "ies"}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(", ");
+    warnings === null
+      ? counted || "No priority email, meetings, or integration activity stood out for today."
+      : [warningLead(warnings), counted ? `Also: ${counted}.` : null].filter(Boolean).join(" ");
 
-  const sections = fallbackSections(args.gather);
+  const sections = fallbackSections(args.gather, warnings);
 
   const fullBriefing = fullBriefingSchema.parse({
     headline: "Daily briefing",
@@ -263,9 +280,29 @@ function deterministicFallback(args: ComposeBriefingArgs, err: unknown): Compose
   };
 }
 
-function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
+function fallbackSections(
+  gather: BriefingGather,
+  warnings: OfficialWarningLines | null,
+): FullBriefing["sections"] {
   const sections: FullBriefing["sections"] = [];
   const emailCount = countEmailItems(gather);
+
+  // One section for each warning, first, because a warning ranks first. The gather stores at most
+  // `OFFICIAL_WARNINGS_MAX` (8), so with the four sections below the list stays inside its bound
+  // (12). No gather source names warnings, so a warning section has the source of the day.
+  const defaultCity = warnings?.defaultCity ?? null;
+
+  for (const line of warnings?.items ?? []) {
+    sections.push({
+      source: "day_of_week",
+      label: "Official warning",
+      body:
+        defaultCity === null
+          ? `${line}.`
+          : `${line}. Alfred checked ${defaultCity}, the default city for your time zone.`,
+      why: "A geometry or district match selected this official warning for today.",
+    });
+  }
 
   if (emailCount > 0) {
     const references = Object.values(gather.email.categories)
@@ -329,6 +366,44 @@ function fallbackSections(gather: BriefingGather): FullBriefing["sections"] {
   }
 
   return sections;
+}
+
+/**
+ * The gather's official warnings as text, most severe first, with each window in the user's zone.
+ * `defaultCity`: the warnings are for the default city of the time zone (a warnings `fallback`),
+ * not for a place that the user gave. `null`: no warning, or no feed read.
+ */
+interface OfficialWarningLines {
+  defaultCity: string | null;
+  items: string[];
+}
+
+function officialWarningLines(
+  gather: BriefingGather,
+  timezone: IanaTimezone,
+): OfficialWarningLines | null {
+  const items = gather.official_warnings?.items ?? [];
+
+  if (items.length === 0) return null;
+
+  const zone = inZone(timezone);
+
+  return {
+    defaultCity: officialWarningsFallback(gather.provenance)?.used ?? null,
+    items: items.map((warning) => describeWarning(warning, zone)),
+  };
+}
+
+/** The deterministic lead for the warnings: the place, then each warning. */
+function warningLead(warnings: OfficialWarningLines): string {
+  const noun = warnings.items.length === 1 ? "Official warning" : "Official warnings";
+
+  const place =
+    warnings.defaultCity === null
+      ? ""
+      : ` for ${warnings.defaultCity}, the default city for your time zone`;
+
+  return `${noun}${place}. ${warnings.items.map((line) => `${line}.`).join(" ")}`;
 }
 
 function countEmailItems(gather: BriefingGather): number {

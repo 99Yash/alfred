@@ -29,6 +29,7 @@ import {
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
+import { officialWarningsFallback } from "./provenance";
 
 /**
  * Read helpers for the daily briefing.
@@ -453,7 +454,9 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * `githubMergedTotal` counts merges the live GitHub read proved that no webhook delivered,
  * so a merge day is not quiet (ADR-0062 amendment 2026-10-27). A broken connection the user
  * can repair is not quiet either: the block must reach the user each day the break lasts
- * (ADR-0100 amendment 2026-10-28). With no attention signal,
+ * (ADR-0100 amendment 2026-10-28). An official warning for the user's place ranks first under
+ * "at risk", so it is not quiet either (ADR-0117 decision 4). A warning for the time-zone default
+ * city does not count: `sendableOfficialWarningCount` gives the count. With no attention signal,
  * fall back to the raw email count: a false send is better than a silent suppression
  * (ADR-0048).
  */
@@ -466,8 +469,11 @@ export function isQuietMorning(args: {
   meetingCount: number;
   /** Rows of the briefing's fixed broken-connection block. */
   brokenConnectionCount: number;
+  /** Official warnings that may send a morning: `sendableOfficialWarningCount`. */
+  officialWarningCount: number;
 }): boolean {
   if (
+    args.officialWarningCount > 0 ||
     args.activityCount > 0 ||
     args.meetingCount > 0 ||
     (args.githubMergedTotal ?? 0) > 0 ||
@@ -486,6 +492,11 @@ export interface GatheredCounts {
   email: number;
   activity: number;
   meetings: number;
+  /**
+   * Official warnings that the gather selected, for the place that it read. The gather logs read
+   * it. The send gates read `sendableOfficialWarningCount`, because a default-city warning does not send.
+   */
+  officialWarnings: number;
 }
 
 export function gatherCounts(gather: BriefingGather): GatheredCounts {
@@ -493,7 +504,22 @@ export function gatherCounts(gather: BriefingGather): GatheredCounts {
     email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
+    officialWarnings: gather.official_warnings?.items.length ?? 0,
   };
+}
+
+/**
+ * How many official warnings may send a quiet morning. Both send gates read it: `isQuietMorning`
+ * and the legacy `decideSend`. A warning for the time-zone default city (a warnings `fallback`)
+ * counts 0, because a `fallback` does not send a morning (ADR-0117). The briefing still shows it
+ * when the morning sends for another reason. A warning for the user's place counts.
+ */
+export function sendableOfficialWarningCount(
+  gather: Pick<BriefingGather, "official_warnings" | "provenance">,
+): number {
+  if (officialWarningsFallback(gather.provenance) !== undefined) return 0;
+
+  return gather.official_warnings?.items.length ?? 0;
 }
 
 export interface SurfacedKeys {

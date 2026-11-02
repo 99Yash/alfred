@@ -39,3 +39,5 @@ export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>;
 A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid.
 
 ## Hits
+
+- #1665 official-warnings/geometry.ts: the polygon ring type was written by hand beside polygonSchema

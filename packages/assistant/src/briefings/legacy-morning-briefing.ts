@@ -17,7 +17,7 @@ import {
   instructionSuppressionLogPart,
   type BriefingInstructionSuppression,
 } from "./gather";
-import { gatherCounts } from "./read";
+import { gatherCounts, sendableOfficialWarningCount } from "./read";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
 import { renderBriefingEmailHtml } from "./references";
@@ -208,7 +208,7 @@ export const morningBriefingWorkflow: Workflow<
 
         const counts = gatherCounts(gather);
         await ctx.log(
-          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+          `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings}${instructionSuppressionLogPart(suppressedByInstruction)}`,
         );
 
         return {
@@ -471,17 +471,20 @@ function decideSend(
   }
 
   const counts = gatherCounts(state.gather);
+  // A warning for the time-zone default city does not send a morning (ADR-0117).
+  const officialWarnings = sendableOfficialWarningCount(state.gather);
 
-  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0) {
+  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0 || officialWarnings > 0) {
     return {
       decision: "sent",
-      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings}`,
+      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} official_warnings=${officialWarnings}`,
     };
   }
 
   return {
     decision: "suppressed",
-    reason: "quiet morning: no priority email, integration activity, or calendar events",
+    reason:
+      "quiet morning: no priority email, integration activity, calendar events, or official warnings for the user's place",
   };
 }
 

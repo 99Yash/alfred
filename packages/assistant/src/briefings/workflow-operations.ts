@@ -7,7 +7,12 @@ import {
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
-import { fetchLatestWatermark, gatherCounts, isQuietMorning } from "./read";
+import {
+  fetchLatestWatermark,
+  gatherCounts,
+  isQuietMorning,
+  sendableOfficialWarningCount,
+} from "./read";
 import {
   beginBriefing,
   markBriefingComposed,
@@ -95,6 +100,12 @@ export const dailyBriefingStateSchema = z.object({
    * calendar. Absent on a run persisted before this field; the tool then reads the calendar again.
    */
   calendar: briefingGatherSchema.shape.calendar.optional(),
+  /**
+   * The gathered official warnings (ADR-0117 decision 4). Compose puts each warning in the
+   * composer's seed and gives the list to `list_official_warnings`. `null`: the gather read no
+   * feed. Absent on a run persisted before this field; the tool then returns `not_recorded`.
+   */
+  officialWarnings: briefingGatherSchema.shape.official_warnings,
   /**
    * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders one row for
    * each below the prose. Absent on a run persisted before this field; send then renders none.
@@ -261,11 +272,13 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Quiet means no `demanding` email, no activity, no meetings, and no read-proven merges
-  // (ADR-0064; ADR-0062 amendment 2026-10-27). `shippedTotal` is the read's full merge count,
-  // and is absent when the read failed, so the gate then behaves as before.
-  // With no demand signal, fall back to the raw email count.
+  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, and no
+  // official warning for the user's place (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117).
+  // `shippedTotal` is the read's full merge count, and is absent when the read failed, so the gate
+  // then behaves as before. With no demand signal, fall back to the raw email count. A warning for
+  // the time-zone default city does not count, because a `fallback` does not send a morning.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
+  const sendableOfficialWarnings = sendableOfficialWarningCount(gather);
 
   const quietDay = isQuietMorning({
     demandingEmailCount,
@@ -274,13 +287,14 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
     brokenConnectionCount: listGatheredBrokenConnections(gather).length,
+    officialWarningCount: sendableOfficialWarnings,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -298,6 +312,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       loopRelevance,
       dayShape: gather.day_shape,
       calendar: gather.calendar,
+      officialWarnings: gather.official_warnings,
       brokenConnections: gather.broken_connections ?? [],
       brokenMcpConnections: gather.broken_mcp_connections ?? [],
       provenance: gather.provenance ?? [],
@@ -378,6 +393,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         loopRelevance: ctx.state.loopRelevance,
         dayShape: ctx.state.dayShape,
         calendar: ctx.state.calendar,
+        officialWarnings: ctx.state.officialWarnings,
         brokenConnections,
         provenance: ctx.state.provenance,
         openAskViolations,

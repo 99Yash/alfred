@@ -31,3 +31,5 @@ limit: z.number().int().min(1).max(CONTEXT_SEARCH_MAX_LIMIT).default(CONTEXT_SEA
 `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic.
 
 ## Hits
+
+- #1665 official-warnings/gdacs.ts MAX_AREA_READS and official-warnings/feed.ts REQUEST_TIMEOUT_MS had no reason for their values
