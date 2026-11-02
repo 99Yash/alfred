@@ -6,7 +6,6 @@ import type {
   CalendarContribution,
   DayShape,
   IanaTimezone,
-  IntegrationActivityItem,
   LoopClosingStateCategory,
   ObjectStateProvider,
   StateCategory,
@@ -21,12 +20,10 @@ import {
   isNotificationSender,
   mailboxLabel,
   OBJECT_STATE_PROVIDERS,
-  parseEventTypeName,
   parseGmailDocumentMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { INBOUND_SOURCES, parseGithubEvent } from "@alfred/assistant/connections/ingress";
-import { documents, emailTriage, typedEventReceipts } from "@alfred/db/schemas";
+import { documents, emailTriage } from "@alfred/db/schemas";
 import { integrations } from "@alfred/integrations";
 import {
   type CalendarEvent,
@@ -42,6 +39,7 @@ import {
   proposeReconcileCandidates,
   readBriefingBrokenConnections,
   reconcileEvidence,
+  type ActivityWindow,
   type ObjectState,
   type ReconcileCandidates,
   type ReconcileResult,
@@ -59,6 +57,8 @@ import {
 import { type UserSettings, userIdentity } from "@alfred/assistant/settings";
 import { getMcpExecutionBroker } from "@alfred/assistant/tool-runtime/mcp";
 import {
+  countActivityActs,
+  readActivity,
   readUserLocation,
   standingInstructions,
   type ActiveStandingInstruction,
@@ -83,14 +83,22 @@ import {
   type ApprovedLoopState,
   type LiveNativeStateReader,
 } from "./relevance";
-import { scorePriorityEmailDemand } from "./read";
 import {
+  readBriefingActivityWindow,
+  scorePriorityEmailDemand,
+  type BriefingActivityWindow,
+} from "./read";
+import { activityItemsOf } from "./activity-lines";
+import {
+  activityRecordProvenance,
+  activityWindowProvenance,
   boundProvenance,
   emailProvenance,
   githubMergedProvenance,
   googleSelectionProvenance,
   live,
   logProvenance,
+  mergeInputProvenance,
   readFailed,
   splitVerifiedPullActivity,
   placeProvenance,
@@ -226,6 +234,11 @@ export interface GatherBriefingDigestArgs {
   windowStart?: Date | undefined;
   /** Defaults to "now". */
   windowEnd?: Date;
+  /**
+   * The window of the GitHub merged read: the briefing's activity window
+   * (`readBriefingActivityWindow`). It is not the email window.
+   */
+  activityWindow: ActivityWindow;
   /** Cap per bucket. */
   maxPerBucket?: number;
 }
@@ -238,8 +251,16 @@ export interface GatherBriefingArgs {
   briefingDate: LocalDateKey;
   slot?: BriefingSlot;
   timezone: IanaTimezone;
+  /** The email window. The start defaults to 24h before the end. */
   windowStart?: Date | undefined;
   windowEnd?: Date;
+  /**
+   * The window of the activity record and the GitHub merged read. The workflow computes it one
+   * time and gives the same window to the composer tools. Absent: the gather reads it with
+   * `readBriefingActivityWindow`, up to `windowEnd`. Its `clippedFrom` becomes a composer fact
+   * (`activityWindowProvenance`) in the stored provenance, so a retried compose step reads it too.
+   */
+  activityWindow?: BriefingActivityWindow;
 }
 
 export interface GatherBriefingWithSuppressionAuditResult {
@@ -422,12 +443,22 @@ export async function gatherBriefingDigest(
   // before reconciliation, so the stored target state is current when a failure mail reconciles.
   // Its verdicts go into activity, not into the email buckets. The GitHub read folds the window's
   // merges the same way, so a review-request mail for a merged PR reconciles closed. Neither throws.
+  // The merged read covers the activity window, not the email window: it is activity, and it is
+  // the silence evidence of that window. It reads merge times in `[start, end]`. The record reads
+  // the acts whose delivery arrived in `[start - G, end - G)` (`readActivityEvents`), and the gap
+  // proof compares each merge time with the gap bounds, so the read can prove a gap after `start`
+  // only. The email window can start earlier. A mail from that earlier time still reconciles: the
+  // webhook or an earlier briefing's read folded its merge into the store.
   const [verifiedPull, githubMerged] = await Promise.all([
     gatherVerifiedPulls({
       userId: args.userId,
       digestItems: triggerItems,
     }),
-    gatherGithubMergedPullRequests({ userId: args.userId, windowStart, windowEnd }),
+    gatherGithubMergedPullRequests({
+      userId: args.userId,
+      windowStart: args.activityWindow.start,
+      windowEnd: args.activityWindow.end,
+    }),
   ]);
 
   // Approved MCP health reads run before reconciliation. They add candidates; they never close.
@@ -665,8 +696,10 @@ export async function gatherBriefingWithSuppressionAudit(
 ): Promise<GatherBriefingWithSuppressionAuditResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
-  // Activity uses the email window.
-  const activityStart = args.windowStart ?? new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
+
+  const activityWindow =
+    args.activityWindow ??
+    (await readBriefingActivityWindow({ userId: args.userId, end: windowEnd }));
 
   // One place read for weather and warnings. It does not throw: a fault is its `fault` basis.
   // This one deadline bounds the place read and the forecast read together. The warnings feeds
@@ -684,57 +717,47 @@ export async function gatherBriefingWithSuppressionAudit(
     signal: weatherDeadline,
   });
 
-  const [
-    digest,
-    calendar,
-    weather,
-    officialWarnings,
-    integrationActivity,
-    brokenConnections,
-    email,
-  ] = await Promise.all([
-    gatherBriefingDigest({
-      userId: args.userId,
-      windowStart: args.windowStart,
-      windowEnd,
-    }),
-    gatherCalendarContribution({
-      userId: args.userId,
-      briefingDate: args.briefingDate,
-      timezone: args.timezone,
-      slot,
-    }),
-    placeRead.then((place) =>
-      gatherWeatherContribution({
-        located: place,
-        deadline: weatherDeadline,
-        briefingDate: args.briefingDate,
-        timezone: args.timezone,
-      }),
-    ),
-    placeRead.then((place) =>
-      gatherOfficialWarnings({
+  const [digest, calendar, weather, officialWarnings, activity, brokenConnections, email] =
+    await Promise.all([
+      gatherBriefingDigest({
         userId: args.userId,
-        located: place,
-        timezone: args.timezone,
-        briefingDate: args.briefingDate,
-        now: new Date(),
-        signal: gatherCancel.signal,
+        windowStart: args.windowStart,
+        windowEnd,
+        activityWindow,
       }),
-    ),
-    gatherIntegrationActivity({
-      userId: args.userId,
-      windowStart: activityStart,
-      windowEnd,
-    }),
-    readBriefingBrokenConnections(args.userId),
-    emailProvenance(args.userId, () =>
-      integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
-    ),
-  ]).catch((err: unknown) => {
-    gatherCancel.abort(err);
-    throw err;
-  });
+      gatherCalendarContribution({
+        userId: args.userId,
+        briefingDate: args.briefingDate,
+        timezone: args.timezone,
+        slot,
+      }),
+      placeRead.then((place) =>
+        gatherWeatherContribution({
+          located: place,
+          deadline: weatherDeadline,
+          briefingDate: args.briefingDate,
+          timezone: args.timezone,
+        }),
+      ),
+      placeRead.then((place) =>
+        gatherOfficialWarnings({
+          userId: args.userId,
+          located: place,
+          timezone: args.timezone,
+          briefingDate: args.briefingDate,
+          now: new Date(),
+          signal: gatherCancel.signal,
+        }),
+      ),
+      readActivity({ userId: args.userId, window: activityWindow, clock: new Date() }),
+      readBriefingBrokenConnections(args.userId),
+      emailProvenance(args.userId, () =>
+        integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
+      ),
+    ]).catch((err: unknown) => {
+      gatherCancel.abort(err);
+      throw err;
+    });
 
   const categories: BriefingGather["email"]["categories"] = {};
 
@@ -752,7 +775,7 @@ export async function gatherBriefingWithSuppressionAudit(
   const { githubMerged } = digest;
 
   // A verified pull can report a failure from long ago. It is real, but it is not news.
-  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityStart);
+  const verifiedPull = splitVerifiedPullActivity(digest.verifiedPull, activityWindow.start);
 
   // Only `completed` carries a read; every fault and the miss fall back to the stored rows.
   const githubMergedRead = githubMerged.status === "completed" ? githubMerged.read : null;
@@ -762,11 +785,10 @@ export async function gatherBriefingWithSuppressionAudit(
   // is in both counts.
   const dayShape = await gatherDayShape({
     userId: args.userId,
-    windowStart: activityStart,
-    windowEnd,
+    windowStart: activityWindow.start,
+    windowEnd: activityWindow.end,
     activityCount:
-      Math.max(integrationActivity.length, githubMergedRead?.total ?? 0) +
-      verifiedPull.value.length,
+      Math.max(activity.acts, githubMergedRead?.total ?? 0) + verifiedPull.value.length,
     githubMerged: githubMergedRead,
   });
 
@@ -785,8 +807,10 @@ export async function gatherBriefingWithSuppressionAudit(
     ),
   );
 
-  // `gatherIntegrationActivity` reads only the window's receipts, so only the verified pull can
-  // hold an old item.
+  // The activity record reads only the acts whose delivery arrived in the window
+  // (`readActivityEvents`), so only the verified pull (`deploy_status`) can hold an old item. The
+  // coverage owns the verdict of each source (`settleActivityCoverage`), and
+  // `activityRecordProvenance` gives each verdict its audience.
   // A total table of non-empty lists, so a new member of `GATHER_INPUTS` does not compile until
   // it states at least one entry.
   const provenanceByInput = {
@@ -794,7 +818,18 @@ export async function gatherBriefingWithSuppressionAudit(
     calendar: calendar.provenance,
     weather: weather.provenance,
     official_warnings: officialWarnings.provenance,
-    integration_activity: verifiedPull.provenance,
+    integration_activity: mergeInputProvenance("integration_activity", [
+      ...activityRecordProvenance({
+        userId: args.userId,
+        coverage: activity.coverage,
+        unreadable: activity.unreadable,
+        capped: activity.capped,
+        // The digest read the merges over `activityWindow` (`gatherBriefingDigest`).
+        evidence: { github: { window: activityWindow, read: githubMerged } },
+      }),
+      ...activityWindowProvenance(activityWindow),
+    ]),
+    deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
   } satisfies Record<GatherInput, StatedProvenance>;
@@ -809,7 +844,9 @@ export async function gatherBriefingWithSuppressionAudit(
         categories,
       },
       calendar: calendar.value,
-      integration_activity: { items: [...integrationActivity, ...verifiedPull.value] },
+      integration_activity: {
+        items: [...activityItemsOf(activity.events, MAX_ACTIVITY_ITEMS), ...verifiedPull.value],
+      },
       weather: weather.value,
       official_warnings: officialWarnings.value,
       day_of_week: dayContribution(args.briefingDate),
@@ -851,13 +888,10 @@ export async function gatherDayShape(args: {
 }): Promise<DayShape> {
   const activityCount =
     args.activityCount ??
-    (
-      await gatherIntegrationActivity({
-        userId: args.userId,
-        windowStart: args.windowStart,
-        windowEnd: args.windowEnd,
-      })
-    ).length;
+    (await countActivityActs({
+      userId: args.userId,
+      window: { start: args.windowStart, end: args.windowEnd },
+    }));
 
   const activityVolume: DayShape["activityVolume"] =
     activityCount === 0 ? "quiet" : activityCount >= DAY_SHAPE_BUSY_AT ? "busy" : "normal";
@@ -884,79 +918,8 @@ export async function gatherDayShape(args: {
   return { activityVolume, shipped };
 }
 
+/** The activity lines that one gather stores. A push group is one line (`activityItemsOf`). */
 const MAX_ACTIVITY_ITEMS = 25;
-
-/** GitHub activity from `event_receipts` (ADR-0052, ADR-0097). Empty, not an error, when none. */
-async function gatherIntegrationActivity(args: {
-  userId: string;
-  windowStart: Date;
-  windowEnd: Date;
-}): Promise<IntegrationActivityItem[]> {
-  const rows = await db()
-    .select({
-      id: typedEventReceipts.id,
-      eventType: typedEventReceipts.eventType,
-      payload: typedEventReceipts.payload,
-      deliveredAt: typedEventReceipts.deliveredAt,
-    })
-    .from(typedEventReceipts)
-    .where(
-      and(
-        eq(typedEventReceipts.userId, args.userId),
-        eq(typedEventReceipts.provider, "github"),
-        gte(typedEventReceipts.deliveredAt, args.windowStart),
-        lte(typedEventReceipts.deliveredAt, args.windowEnd),
-      ),
-    )
-    .orderBy(desc(typedEventReceipts.deliveredAt))
-    .limit(MAX_ACTIVITY_ITEMS);
-
-  // One deployment relays several receipts (`pending`, `ready`, `promoted`).
-  // Keep only the newest per deployment, or one relay counts several times
-  // toward `DAY_SHAPE_BUSY_AT` (#1167).
-  const seenDeployments = new Set<string>();
-
-  return rows.flatMap((row) => {
-    // A name the github entry does not declare was already marked `failed` by the deliver job.
-    const eventType = parseEventTypeName("github", row.eventType);
-
-    if (!eventType) return [];
-
-    // `null` only for a body that is not an object. A NULL (pruned) body reads as `{}`, so it
-    // still gets the event line; only an array or scalar body gets the generic line.
-    const event = parseGithubEvent(eventType, row.payload);
-
-    if (event?.eventType === "repository_dispatch") {
-      const deploymentId = event.payload.client_payload?.id;
-
-      if (deploymentId) {
-        if (seenDeployments.has(deploymentId)) return [];
-
-        seenDeployments.add(deploymentId);
-      }
-    }
-
-    const action = event?.payload.action;
-    const repo = event?.payload.repository?.full_name;
-    const { title, status, url } = INBOUND_SOURCES.github.describe(eventType, row.payload);
-
-    return [
-      {
-        id: row.id,
-        provider: "github",
-        source: "direct_api",
-        activityCategory: "work",
-        providerKind: action ? `github.${eventType}.${action}` : `github.${eventType}`,
-        title,
-        status,
-        severity: "info",
-        occurredAt: row.deliveredAt.toISOString(),
-        url,
-        relatedRepo: repo ?? undefined,
-      } satisfies IntegrationActivityItem,
-    ];
-  });
-}
 
 export interface GatherCalendarArgs {
   userId: string;

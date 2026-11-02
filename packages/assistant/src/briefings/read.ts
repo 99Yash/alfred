@@ -29,6 +29,7 @@ import {
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
+import type { ActivityWindow } from "@alfred/assistant/connections";
 import { officialWarningsFallback } from "./provenance";
 
 /**
@@ -456,9 +457,11 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * can repair is not quiet either: the block must reach the user each day the break lasts
  * (ADR-0100 amendment 2026-10-28). An official warning for the user's place ranks first under
  * "at risk", so it is not quiet either (ADR-0117 decision 4). A warning for the time-zone default
- * city does not count: `sendableOfficialWarningCount` gives the count. With no attention signal,
- * fall back to the raw email count: a false send is better than a silent suppression
- * (ADR-0048).
+ * city does not count: `sendableOfficialWarningCount` gives the count. An activity source that the
+ * gather could not see is not quiet either (ADR-0118 decision 4): a suppressed morning moves the
+ * watermark past its acts, and they reach no briefing. The briefing goes out and names the gap.
+ * With no attention signal, fall back to the raw email count: a false send is better than a silent
+ * suppression (ADR-0048).
  */
 export function isQuietMorning(args: {
   demandingEmailCount: number | undefined;
@@ -469,6 +472,11 @@ export function isQuietMorning(args: {
   meetingCount: number;
   /** Rows of the briefing's fixed broken-connection block. */
   brokenConnectionCount: number;
+  /**
+   * Activity sources that the gather could not see and that are not block rows:
+   * `activityGapCountWithoutRow`. A block row counts in `brokenConnectionCount`.
+   */
+  activityGapCount: number;
   /** Official warnings that may send a morning: `sendableOfficialWarningCount`. */
   officialWarningCount: number;
 }): boolean {
@@ -477,7 +485,8 @@ export function isQuietMorning(args: {
     args.activityCount > 0 ||
     args.meetingCount > 0 ||
     (args.githubMergedTotal ?? 0) > 0 ||
-    args.brokenConnectionCount > 0
+    args.brokenConnectionCount > 0 ||
+    args.activityGapCount > 0
   ) {
     return false;
   }
@@ -751,26 +760,80 @@ export async function listPriorBriefings(
   }));
 }
 
-/** Null when this slot never reached a terminal state; gather then looks back 24h. */
+/**
+ * The window end of the last sent or suppressed briefing of `slot`. `any` reads the last briefing
+ * of all slots (the activity window). Null when no such briefing exists; the caller then looks back
+ * one day.
+ */
 export async function fetchLatestWatermark(args: {
   userId: string;
-  slot: BriefingSlot;
+  slot: BriefingSlot | "any";
 }): Promise<Date | null> {
+  const conditions = [
+    eq(briefings.userId, args.userId),
+    inArray(briefings.status, ["sent", "suppressed"]),
+    isNotNull(briefings.watermarkAt),
+  ];
+
+  if (args.slot !== "any") conditions.push(eq(briefings.slot, args.slot));
+
   const rows = await db()
     .select({ watermarkAt: briefings.watermarkAt })
     .from(briefings)
-    .where(
-      and(
-        eq(briefings.userId, args.userId),
-        eq(briefings.slot, args.slot),
-        inArray(briefings.status, ["sent", "suppressed"]),
-        isNotNull(briefings.watermarkAt),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(briefings.watermarkAt))
     .limit(1);
 
   return rows[0]?.watermarkAt ?? null;
+}
+
+/** The activity window of a first briefing, when no briefing of any slot has a watermark. */
+const FIRST_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The most time that one activity window holds. After a long stop of the briefings, the window
+ * starts this far back, not at the last watermark: an act older than one week is not news, and the
+ * coverage check reduces every delivery of the window.
+ */
+const MAX_ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The activity window of a briefing, and the watermark that the window cap moved past. */
+export interface BriefingActivityWindow extends ActivityWindow {
+  /**
+   * The watermark of the last briefing when it is older than `MAX_ACTIVITY_WINDOW_MS`, so the
+   * window starts later than it. Alfred does not read the acts before `start`. `null` when the
+   * window starts at the watermark, or when no briefing has a watermark (a first briefing reads one
+   * day by design).
+   */
+  readonly clippedFrom: Date | null;
+}
+
+/**
+ * The window of the activity record for a briefing that ends at `end`. It starts at the watermark
+ * of the last sent or suppressed briefing of any slot, so no act is in two windows: an act is in
+ * the morning or the evening window, not both. The email window starts at the last briefing of the same slot
+ * (ADR-0048 decision A) and is not changed here.
+ *
+ * A missed slot does not move the watermark, so the next briefing reads back to the last briefing
+ * that the user got, but not more than `MAX_ACTIVITY_WINDOW_MS`. `clippedFrom` records that cut,
+ * and the gather states it to the composer (`activityWindowProvenance`). The gather computes this
+ * window one time and the run state keeps its start, so the composer tools read the same window.
+ */
+export async function readBriefingActivityWindow(args: {
+  userId: string;
+  end: Date;
+}): Promise<BriefingActivityWindow> {
+  const since = await fetchLatestWatermark({ userId: args.userId, slot: "any" });
+  const end = args.end.getTime();
+  const earliest = end - MAX_ACTIVITY_WINDOW_MS;
+
+  if (since === null) {
+    return { start: new Date(end - FIRST_ACTIVITY_WINDOW_MS), end: args.end, clippedFrom: null };
+  }
+
+  return since.getTime() < earliest
+    ? { start: new Date(earliest), end: args.end, clippedFrom: since }
+    : { start: since, end: args.end, clippedFrom: null };
 }
 
 function priorBriefingBodyText(

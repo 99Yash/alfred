@@ -11,6 +11,7 @@ import {
   fetchLatestWatermark,
   gatherCounts,
   isQuietMorning,
+  readBriefingActivityWindow,
   sendableOfficialWarningCount,
 } from "./read";
 import {
@@ -54,7 +55,7 @@ import { renderBriefingEmail, type BriefingBlockRow } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { runBriefingAgent } from "./agent/agent";
-import { blockingProvenance } from "./provenance";
+import { activityGapCountWithoutRow, blockingProvenance } from "./provenance";
 import {
   auditComposedBriefing,
   describeOpenAskViolation,
@@ -87,6 +88,14 @@ export const dailyBriefingStateSchema = z.object({
   recipientName: z.string().nullable().optional(),
   sinceIngestedAt: z.string().nullable().optional(),
   untilIngestedAt: z.string().optional(),
+  /**
+   * The start of the gather's activity window, which ends at `untilIngestedAt`. Compose gives the
+   * same window to the composer tools. Absent on a run persisted before this field; compose then
+   * reads the window again. Gather writes it with `toISOString`, so the parse rejects a value
+   * that is not a UTC ISO time, and SQL never gets an invalid date. When the window cap moved the
+   * start, the `window_clipped` entry in `provenance` states it, so compose needs no other field.
+   */
+  activitySince: z.iso.datetime().optional(),
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
   closedLoops: z.array(briefingClosedLoopSchema).default([]),
@@ -237,6 +246,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
 
   const since = await fetchLatestWatermark({ userId: ctx.userId, slot: ctx.state.slot });
   const until = new Date();
+  const activityWindow = await readBriefingActivityWindow({ userId: ctx.userId, end: until });
 
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
@@ -254,6 +264,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       timezone,
       windowStart: since ?? undefined,
       windowEnd: until,
+      activityWindow,
     });
 
     gather = gathered.gather;
@@ -272,13 +283,16 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   }
 
   const counts = gatherCounts(gather);
-  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, and no
-  // official warning for the user's place (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117).
-  // `shippedTotal` is the read's full merge count, and is absent when the read failed, so the gate
-  // then behaves as before. With no demand signal, fall back to the raw email count. A warning for
-  // the time-zone default city does not count, because a `fallback` does not send a morning.
+  // Quiet means no `demanding` email, no activity, no meetings, no read-proven merges, no
+  // official warning for the user's place, and no activity source that the gather could not see
+  // (ADR-0064; ADR-0062 amendment 2026-10-27; ADR-0117; ADR-0118). `shippedTotal` is the read's
+  // full merge count, and is absent when the read failed, so the gate then behaves as before. With
+  // no demand signal, fall back to the raw email count. A warning for the time-zone default city
+  // does not count, because a `fallback` does not send a morning.
   const demandingEmailCount = gather.day_shape?.demandingEmailCount;
   const sendableOfficialWarnings = sendableOfficialWarningCount(gather);
+  const brokenConnectionCount = listGatheredBrokenConnections(gather).length;
+  const activityGapCount = activityGapCountWithoutRow(gather.provenance ?? []);
 
   const quietDay = isQuietMorning({
     demandingEmailCount,
@@ -286,15 +300,17 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     activityCount: counts.activity,
     githubMergedTotal: gather.day_shape?.shippedTotal,
     meetingCount: counts.meetings,
-    brokenConnectionCount: listGatheredBrokenConnections(gather).length,
+    brokenConnectionCount,
+    activityGapCount,
     officialWarningCount: sendableOfficialWarnings,
   });
 
   await ctx.log(
     `gather: id=${begun.row.id} action=${begun.action} tz=${timezone} date=${briefingDate} ` +
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
+      `activity_since=${activityWindow.start.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${listGatheredBrokenConnections(gather).length} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
   );
 
   return {
@@ -307,6 +323,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       recipientName,
       sinceIngestedAt: since ? since.toISOString() : null,
       untilIngestedAt: until.toISOString(),
+      activitySince: activityWindow.start.toISOString(),
       quietDay,
       closedLoops,
       loopRelevance,
@@ -364,6 +381,10 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   const since = ctx.state.sinceIngestedAt ? new Date(ctx.state.sinceIngestedAt) : null;
   const until = new Date(untilIngestedAt);
 
+  const activityWindow = ctx.state.activitySince
+    ? { start: new Date(ctx.state.activitySince), end: until }
+    : await readBriefingActivityWindow({ userId: ctx.userId, end: until });
+
   await markBriefingComposing(briefingId);
 
   let result: Awaited<ReturnType<typeof runBriefingAgent>>;
@@ -385,6 +406,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         recipientFirstName: ctx.state.recipientName ?? null,
         sinceIngestedAt: since,
         untilIngestedAt: until,
+        activityWindow,
         briefingDate,
         timezone,
         runId: ctx.runId,

@@ -12,6 +12,7 @@ import {
 import {
   BROKEN_CONNECTION_GUIDANCE,
   describeBrokenConnection,
+  type ActivityWindow,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
@@ -37,6 +38,8 @@ export interface RunBriefingAgentArgs {
   sinceIngestedAt: Date | null;
   /** Frozen at run start. */
   untilIngestedAt: Date;
+  /** The gather's activity window. `list_activity` and `get_day_shape` read it. */
+  activityWindow: ActivityWindow;
   /** Anchors the calendar tool's window. */
   briefingDate: LocalDateKey;
   /** Local day boundaries for the calendar tool. */
@@ -127,11 +130,12 @@ interface ComposerRead {
  * The inputs that the composer reads through its tools, and so the inputs that get a composer
  * fact. Warnings reach it as seed facts (`officialWarningFacts`) and through
  * `list_official_warnings`, so a warnings `fallback` (the default city) is a fact, while the same
- * weather `fallback` is a log line only: weather does not reach the composer. The activity list
- * reaches it only as a count: `gatherBriefingWithSuppressionAudit` adds the fresh items to
- * `activityCount`, which sets `get_day_shape.activityVolume`. A stale item left the list before
- * the count, so its statement stays in the stored gather and the log. A failed deploy-status read
- * can make that count low, and the composer gets no fact for it.
+ * weather `fallback` is a log line only: weather does not reach the composer. The activity record
+ * reaches it through `list_activity` (ADR-0118 slice 3), so a gap in the record is a fact. The
+ * verified pull is a separate input, `deploy_status`: `list_activity` never returns its items, and
+ * `get_day_shape` counts them in `activityVolume`. So a failed pull names `get_day_shape`, whose
+ * volume can then be too low. A stale item left the list in the gather, and no tool returns it,
+ * so a `stale` entry stays a log line (`provenanceAudience`).
  */
 const COMPOSER_READS = {
   email: { tool: "list_emails_since", hides: "your new email" },
@@ -145,8 +149,15 @@ const COMPOSER_READS = {
     tool: "list_official_warnings",
     hides: "official hazard warnings for your area",
   },
+  integration_activity: {
+    tool: "list_activity",
+    hides: "what happened in your connected tools",
+  },
+  deploy_status: {
+    tool: "get_day_shape",
+    hides: "the status of your deploys, and how active the day was",
+  },
   weather: null,
-  integration_activity: null,
 } as const satisfies Record<GatherInput, ComposerRead | null>;
 
 type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
@@ -162,14 +173,18 @@ const BLIND_COST = {
   not_connected: "So this briefing cannot see",
   needs_reauth: "Until the user signs in again, this briefing cannot see",
   scope_missing: "Until the user grants that permission, this briefing cannot see",
+  not_delivered: "Until the user reconnects, this briefing cannot see",
   read_failed: "So this briefing may be missing",
   no_place: "So this briefing may be missing",
+  silent: "So this briefing may be missing",
+  record_incomplete: "So this briefing may be missing",
+  no_record: "So for these sources, this briefing cannot see",
+  window_clipped: "So this briefing does not show the older part of",
 } as const satisfies Record<UnavailableCause, string>;
 
 /**
  * One composer fact: the tool, what Alfred knows about the read, and what it costs. Of the inputs
- * in `COMPOSER_READS`, only warnings states `fallback`, and none states `stale` today; that arm
- * keeps the switch total.
+ * in `COMPOSER_READS`, only warnings states `fallback`.
  */
 function composerFact(entry: GatherProvenance, read: ComposerRead): string | null {
   switch (entry.state) {
@@ -178,8 +193,9 @@ function composerFact(entry: GatherProvenance, read: ComposerRead): string | nul
       return null;
     case "fallback":
       return `- ${read.tool}: ${entry.reason} Alfred used a default: ${entry.used}. So this briefing may be missing ${read.hides}.`;
+    // `provenanceAudience` keeps a stale entry out: the tool never returns the old item.
     case "stale":
-      return `- ${read.tool}: "${entry.title}" is from ${entry.occurredAt}. It is old, so it is not news.`;
+      return null;
     case "unavailable":
       return `- ${read.tool}: ${entry.reason} ${BLIND_COST[entry.cause]} ${read.hides}.`;
     default:
@@ -286,6 +302,7 @@ export async function runBriefingAgent(
     slot: args.slot,
     sinceIngestedAt: args.sinceIngestedAt,
     untilIngestedAt: args.untilIngestedAt,
+    activityWindow: args.activityWindow,
     briefingDate: args.briefingDate,
     timezone: args.timezone,
     closedLoops: args.closedLoops,

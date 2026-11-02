@@ -18,6 +18,7 @@ import {
   type BriefingInstructionSuppression,
 } from "./gather";
 import { gatherCounts, sendableOfficialWarningCount } from "./read";
+import { activityGapCount } from "./provenance";
 import { settings } from "@alfred/assistant/settings";
 import { resolveBriefingPreferences } from "./preferences";
 import { renderBriefingEmailHtml } from "./references";
@@ -473,18 +474,27 @@ function decideSend(
   const counts = gatherCounts(state.gather);
   // A warning for the time-zone default city does not send a morning (ADR-0117).
   const officialWarnings = sendableOfficialWarningCount(state.gather);
+  // An activity source that the gather could not see sends the morning (ADR-0118). This gate does
+  // not read the connection block, so a `not_delivered` gap counts here too.
+  const activityGaps = activityGapCount(state.gather.provenance ?? []);
 
-  if (counts.email > 0 || counts.activity > 0 || counts.meetings > 0 || officialWarnings > 0) {
+  if (
+    counts.email > 0 ||
+    counts.activity > 0 ||
+    counts.meetings > 0 ||
+    officialWarnings > 0 ||
+    activityGaps > 0
+  ) {
     return {
       decision: "sent",
-      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} official_warnings=${officialWarnings}`,
+      reason: `live signals: email=${counts.email} activity=${counts.activity} meetings=${counts.meetings} official_warnings=${officialWarnings} activity_gaps=${activityGaps}`,
     };
   }
 
   return {
     decision: "suppressed",
     reason:
-      "quiet morning: no priority email, integration activity, calendar events, or official warnings for the user's place",
+      "quiet morning: no priority email, integration activity, calendar events, official warnings for the user's place, or activity gaps",
   };
 }
 

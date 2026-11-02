@@ -17,9 +17,9 @@ import { logger } from "@alfred/logging";
 
 /**
  * How long a receipt keeps its body. A chosen tradeoff: debug visibility and object-state rebuild
- * coverage against table size. The briefing watermark has no age bound, so no window fully protects
- * `gatherIntegrationActivity`. The release predicate, not this constant, protects the backfill and
- * redelivery readers.
+ * coverage against table size. The briefing does not read the body: it reads the activity record,
+ * and the activity reducer and its replay read `documents.raw` (ADR-0118). The release predicate,
+ * not this constant, protects the backfill and redelivery readers.
  */
 export const RECEIPT_PAYLOAD_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 

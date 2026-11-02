@@ -91,6 +91,8 @@ export { scheduleRepeatableBriefingJobs } from "./repeatable";
 
 export { buildSystemPrompt } from "./agent/prompt";
 
+export { listActivityInputSchema, type ActivityList } from "./agent/tools";
+
 export {
   auditComposedBriefing,
   describeOpenAskViolation,

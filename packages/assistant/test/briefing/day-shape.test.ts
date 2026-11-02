@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { eventTypeName } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
-import { unsealedTestSecret } from "../support/unsealed-secret";
-import { eventReceipts, integrationCredentials, user } from "@alfred/db/schemas";
+import { user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
@@ -78,55 +76,6 @@ async function mergePr(userId: string, number: number, deliveredAt: Date): Promi
   await foldPr(userId, "closed", prPayload(number, { merged: true }), deliveredAt);
 }
 
-/** Every receipt needs a credential (ADR-0097). */
-const githubCredentialByUser = new Map<string, string>();
-
-async function githubCredentialFor(userId: string): Promise<string> {
-  const existing = githubCredentialByUser.get(userId);
-
-  if (existing) return existing;
-
-  const [row] = await db()
-    .insert(integrationCredentials)
-    .values({
-      userId,
-      provider: "github",
-      accountId: `${userId}-gh`,
-      // Unsealed on purpose: nothing here opens the token.
-      accessToken: unsealedTestSecret("test-token"),
-      installationId: "1",
-      status: "active",
-    })
-    .returning({ id: integrationCredentials.id });
-
-  if (!row) throw new Error("credential insert returned no row");
-  githubCredentialByUser.set(userId, row.id);
-
-  return row.id;
-}
-
-/** Seed a `github.push` receipt as the ingress route stores it. */
-async function seedGithubReceipt(userId: string, deliveredAt: Date): Promise<void> {
-  await db()
-    .insert(eventReceipts)
-    .values({
-      provider: "github",
-      providerDeliveryId: randomUUID(),
-      credentialId: await githubCredentialFor(userId),
-      userId,
-      eventType: eventTypeName("github", "push"),
-      verificationResult: "signature_valid",
-      payload: {
-        ref: "refs/heads/main",
-        commits: [{}],
-        compare: "https://github.com/o/r/compare",
-        repository: { full_name: "o/r", html_url: "https://github.com/o/r" },
-      },
-      processingStatus: "completed",
-      deliveredAt,
-    });
-}
-
 describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     await db()
@@ -166,27 +115,6 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
     assert.equal((await shapeFor(userId, 7)).activityVolume, "normal");
     assert.equal((await shapeFor(userId, 8)).activityVolume, "busy");
     assert.equal((await shapeFor(userId, 99)).activityVolume, "busy");
-  });
-
-  test("an omitted activityCount falls back to a fresh windowed receipt query", async () => {
-    const userId = await seedUser();
-    assert.equal((await shapeFor(userId)).activityVolume, "quiet");
-
-    await seedGithubReceipt(userId, IN_WINDOW);
-    await seedGithubReceipt(userId, BEFORE_WINDOW);
-    await seedGithubReceipt(userId, AFTER_WINDOW);
-
-    // Only the in-window delivery counts.
-    assert.equal((await shapeFor(userId)).activityVolume, "normal");
-  });
-
-  test("a supplied activityCount wins over what the receipt log actually holds", async () => {
-    const userId = await seedUser();
-
-    for (let i = 0; i < 9; i++) await seedGithubReceipt(userId, IN_WINDOW);
-
-    // A passed-in count is trusted as is.
-    assert.equal((await shapeFor(userId, 0)).activityVolume, "quiet");
   });
 
   test("shipped lists GitHub objects resolved inside the window, with title and url", async () => {
@@ -238,7 +166,6 @@ describe("gatherDayShape (DB-backed)", { skip: SKIP }, () => {
     const mine = await seedUser();
     const theirs = await seedUser();
     await mergePr(theirs, 61, IN_WINDOW);
-    await seedGithubReceipt(theirs, IN_WINDOW);
 
     const shape = await shapeFor(mine);
     assert.equal(shape.activityVolume, "quiet");

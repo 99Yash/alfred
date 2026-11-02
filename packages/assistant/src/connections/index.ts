@@ -22,7 +22,12 @@ export {
   describeBrokenConnection,
 } from "./broken-connection-facts";
 
-export { readDeliveryAlerts, toDeliveryAlerts, type DeliveryAlertVerdict } from "./delivery-alerts";
+export {
+  alertableIntegration,
+  readDeliveryAlerts,
+  toDeliveryAlerts,
+  type DeliveryAlertVerdict,
+} from "./delivery-alerts";
 
 export {
   eventDeliveryRows,
@@ -96,15 +101,20 @@ export {
 } from "./object-state";
 
 export {
+  ACTIVITY_SOURCE_SLUGS,
+  arrivalWindowOf,
   pageGithubActivityDocuments,
   readActivityCoverage,
   readGithubActivityDocument,
+  settleActivityCoverage,
   readGithubSelf,
   reduceGithubActivity,
   type ActivityCoverage,
   type ActivityWindow,
   type GithubFamilyHead,
   type ReadFamilyHeads,
+  type SilenceEvidence,
+  type UnsettledActivityCoverage,
 } from "./activity";
 
 export { oauthHandshake, type OAuthHandshake, type OAuthHandshakeState } from "./oauth-state";

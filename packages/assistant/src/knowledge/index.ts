@@ -109,6 +109,18 @@ export { readUserContext, type UserContext } from "./user-context";
 
 export { readUserLocation, type StatedPlace, type UserLocation } from "./location";
 
+// The activity record (ADR-0118 decision 6): events in time order and the coverage of each source.
+export {
+  activityCursorExists,
+  activityCursorSchema,
+  countActivityActs,
+  countActivityEvents,
+  readActivity,
+  readActivityEvents,
+  type ActivityCounts,
+  type ActivityEvent,
+} from "./activity";
+
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.
 export { valueSignature } from "./signature";
 

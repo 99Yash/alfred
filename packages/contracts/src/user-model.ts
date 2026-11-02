@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { keyGuard } from "./guards";
+import { enumGuard, keyGuard } from "./guards";
 import { HOSTNAME } from "./hostname";
 import { sourceIdentitySchema } from "./source-identity";
 import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliation";
@@ -489,15 +489,25 @@ export type ActivityObservationSource = {
 export type ActivityVerb<S extends ActivityObservationSource = ActivityObservationSource> =
   (typeof OBSERVATION_REDUCERS)[S]["activityVerbs"][number];
 
-function activityVerbsOf(source: ObservationSource): readonly string[] {
+function activityVerbsOf(source: ObservationSource): readonly ActivityVerb[] {
   const entry = OBSERVATION_REDUCERS[source];
 
   return "activityVerbs" in entry ? entry.activityVerbs : [];
 }
 
-function isActivityVerb(value: string): value is ActivityVerb {
-  return OBSERVATION_SOURCES.some((source) => activityVerbsOf(source).includes(value));
-}
+/** Every declared verb of every activity source, once each. */
+export const ACTIVITY_VERBS: readonly ActivityVerb[] = [
+  ...new Set(OBSERVATION_SOURCES.flatMap(activityVerbsOf)),
+];
+
+/** True when `value` is a declared verb of an activity source. */
+export const isActivityVerb = enumGuard(ACTIVITY_VERBS);
+
+/** Every source whose reducer declares `activityVerbs` (`ActivityObservationSource`). */
+export const ACTIVITY_OBSERVATION_SOURCES: readonly ActivityObservationSource[] =
+  OBSERVATION_SOURCES.filter(
+    (source): source is ActivityObservationSource => activityVerbsOf(source).length > 0,
+  );
 
 /**
  * The payload of an `activity` row. The row points at the stored body and never copies it. The
@@ -614,7 +624,7 @@ export const observationInsertSchema = z
         });
       }
 
-      if (!activityVerbsOf(source).includes(verb)) {
+      if (!activityVerbsOf(source).some((declared) => declared === verb)) {
         ctx.addIssue({
           code: "custom",
           path: ["payload", "verb"],

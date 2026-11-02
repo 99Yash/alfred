@@ -4,6 +4,7 @@ import {
   GATHER_PROVENANCE_TEXT_MAX,
   GATHER_STALE_PROVENANCE_MAX,
   INTEGRATIONS,
+  isLiveProviderSlug,
   type BlockingGatherProvenance,
   type GatherInput,
   type GatherProvenance,
@@ -12,15 +13,24 @@ import {
   type IntegrationHealth,
   type LiveProviderSlug,
   type Place,
+  type SourceIdentity,
 } from "@alfred/contracts";
 import { GoogleCredentialSelectionError, type GoogleCredential } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
-import { readIntegrationAvailability } from "@alfred/assistant/connections";
+import {
+  alertableIntegration,
+  readIntegrationAvailability,
+  settleActivityCoverage,
+  type ActivityCoverage,
+  type SilenceEvidence,
+  type UnsettledActivityCoverage,
+} from "@alfred/assistant/connections";
 import type {
   GithubMergedReadOutcome,
   VerifiedPullOutcome,
 } from "@alfred/assistant/connections/verified-pull";
 import type { StatedPlace, UserLocation } from "../knowledge";
+import type { BriefingActivityWindow } from "./read";
 
 /** At least one statement. A producer cannot return an empty list for an input. */
 export type StatedProvenance = readonly [GatherProvenance, ...GatherProvenance[]];
@@ -74,19 +84,27 @@ const NO_AUDIENCE: ProvenanceAudience = { blockRow: null, composerFact: false, l
 /** A statement that the composer and the operator read, but that is not a block row. */
 const FACT_AND_LOG: ProvenanceAudience = { blockRow: null, composerFact: true, log: true };
 
+/** A statement for the operator only. */
+const LOG_ONLY: ProvenanceAudience = { blockRow: null, composerFact: false, log: true };
+
 export function provenanceAudience(entry: GatherProvenance): ProvenanceAudience {
   switch (entry.state) {
     case "live":
       return NO_AUDIENCE;
-    // No surface can set the replaced fact, and an old item is not news, so neither is a row.
+    // No surface can set the replaced fact, so it is not a row.
     case "fallback":
-    case "stale":
       return FACT_AND_LOG;
+    // An old item is not news. Only the verified pull states `stale` (`deploy_status`), and no
+    // composer tool returns its old item. So the entry is a log line.
+    case "stale":
+      return LOG_ONLY;
     case "unavailable":
       switch (entry.cause) {
-        // The user can reconnect, so the entry is a row.
+        // The user can reconnect, so the entry is a row. A `not_delivered` row merges with the
+        // delivery alert of the same integration (`listBrokenConnections`).
         case "scope_missing":
         case "needs_reauth":
+        case "not_delivered":
           return { blockRow: entry, composerFact: true, log: true };
         case "read_failed":
           return FACT_AND_LOG;
@@ -95,6 +113,15 @@ export function provenanceAudience(entry: GatherProvenance): ProvenanceAudience 
         case "not_connected":
           return FACT_AND_LOG;
         case "no_place":
+          return FACT_AND_LOG;
+        // A past gap or a hole in the record: no reconnect repairs it, but the window is not quiet.
+        case "silent":
+        case "record_incomplete":
+          return FACT_AND_LOG;
+        // The record holds nothing from these sources, or the window starts after the last
+        // briefing. No reconnect repairs either, and `activityGaps` does not count them.
+        case "no_record":
+        case "window_clipped":
           return FACT_AND_LOG;
         default:
           return assertNever(entry, "unavailable provenance cause");
@@ -114,6 +141,65 @@ export function blockingProvenance(
 
     return blockRow ? [blockRow] : [];
   });
+}
+
+type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
+
+/**
+ * Whether an `unavailable` activity entry of each cause stops a quiet morning. A suppressed morning
+ * moves the watermark, so the next window starts after the acts that the gather could not see, and
+ * they reach no briefing. A cause stops the morning only when such acts can exist.
+ *
+ * - `not_connected`: no credential row. A deliberate disconnect leaves the same state, and no act
+ *   arrives, so the morning stays quiet (ADR-0117, ADR-0100 amendment 2026-10-28, item 3).
+ * - `no_record` and `window_clipped`: a sent briefing would not show these acts either. The record
+ *   never held them, or the window cap left them out.
+ * - `scope_missing`, `needs_reauth`, and `no_place` are not activity causes. They count, so that a
+ *   new activity use of them fails closed.
+ */
+const ACTIVITY_CAUSE_STOPS_QUIET = {
+  scope_missing: true,
+  needs_reauth: true,
+  not_delivered: true,
+  read_failed: true,
+  silent: true,
+  record_incomplete: true,
+  no_place: true,
+  not_connected: false,
+  no_record: false,
+  window_clipped: false,
+} as const satisfies Record<UnavailableCause, boolean>;
+
+/**
+ * The activity entries that are `unavailable` and whose cause can hide acts: the sources whose acts
+ * the gather could not see for the window (ADR-0118 decision 4). Such a window is not quiet.
+ */
+function activityGaps(provenance: readonly GatherProvenance[]): GatherProvenance[] {
+  return provenance.filter(
+    (entry) =>
+      entry.input === "integration_activity" &&
+      entry.state === "unavailable" &&
+      ACTIVITY_CAUSE_STOPS_QUIET[entry.cause],
+  );
+}
+
+/**
+ * The count of activity gaps, also the gaps that are block rows. For a send gate that does not
+ * read the connection block (the legacy `decideSend`).
+ */
+export function activityGapCount(provenance: readonly GatherProvenance[]): number {
+  return activityGaps(provenance).length;
+}
+
+/**
+ * The count of activity gaps that are not block rows: a past gap (`silent`), an incomplete record
+ * (`record_incomplete`), and the other gaps with no reconnect. For a send gate that also reads the
+ * connection block (`isQuietMorning`). A `not_delivered` gap is a block row, so that gate counts it
+ * one time, as a broken connection.
+ */
+export function activityGapCountWithoutRow(provenance: readonly GatherProvenance[]): number {
+  return activityGaps(provenance).filter((entry) => provenanceAudience(entry).blockRow === null)
+    .length;
 }
 
 /**
@@ -281,7 +367,7 @@ export function splitVerifiedPullActivity(
       }
 
       stale.push({
-        input: "integration_activity",
+        input: "deploy_status",
         state: "stale",
         title: item.title,
         occurredAt: item.occurredAt,
@@ -292,13 +378,237 @@ export function splitVerifiedPullActivity(
 
   const read: GatherProvenance =
     failed.length === 0
-      ? live("integration_activity")
-      : readFailed(
-          "integration_activity",
-          `The live deploy status read failed for ${failed.join(", ")}.`,
-        );
+      ? live("deploy_status")
+      : readFailed("deploy_status", `The live deploy status read failed for ${failed.join(", ")}.`);
 
   return { value: fresh, provenance: [read, ...stale] };
+}
+
+type CoverageFailure = Extract<ActivityCoverage, { state: "unavailable" }>["failure"];
+
+/**
+ * What the activity record says about the activity input (ADR-0118 decision 4, in the ADR-0117
+ * vocabulary). One entry for each source with a reducer, as of the gather.
+ *
+ * `settleActivityCoverage` owns the verdict: a silence that the merged read settles, and the rows
+ * that this build cannot read. This function only gives each verdict its audience.
+ *
+ * The sources with no reducer (`no_record`: a `tools_only` or `live` source) share one entry, so
+ * the list stays inside `GATHER_PROVENANCE_MAX`. The composer gets it as a fact, so it does not call
+ * the day of these sources quiet. It is not a gap (`activityGaps`): the record never held events
+ * from such a source, so a sent briefing would not show them either.
+ */
+export function activityRecordProvenance(args: {
+  userId: string;
+  coverage: UnsettledActivityCoverage;
+  /** The rows of the window that the reader could not parse (`readActivityEvents`). */
+  unreadable: number;
+  /** True when the reader stopped at its page cap (`readActivity`). */
+  capped: boolean;
+  /** The provider reads that settle a silence, each with the window that it covered. */
+  evidence: SilenceEvidence;
+}): GatherProvenance[] {
+  const { userId, evidence } = args;
+  const noRecord: string[] = [];
+  const entries: GatherProvenance[] = [];
+
+  const coverage = settleActivityCoverage({
+    userId,
+    coverage: args.coverage,
+    unreadable: args.unreadable,
+    capped: args.capped,
+    evidence,
+  });
+
+  for (const entry of coverage) {
+    if (entry.state === "live") {
+      entries.push(live("integration_activity"));
+      continue;
+    }
+
+    const { source, failure } = entry;
+
+    if (failure.cause === "no_record") {
+      noRecord.push(sourceName(source));
+      continue;
+    }
+
+    entries.push(coverageFailureProvenance(sourceName(source), failure));
+  }
+
+  if (noRecord.length > 0) entries.push(noRecordProvenance(noRecord));
+
+  return entries;
+}
+
+const NO_RECORD_OPENING = "The activity record holds no events from ";
+
+const NO_RECORD_CLOSING = ".";
+
+/** Room for the `, and N more` end of a name list. */
+const MORE_NAMES_ROOM = ", and 999 more".length;
+
+/** One entry for all sources that have no activity reducer. */
+function noRecordProvenance(names: readonly string[]): GatherProvenance {
+  const budget = GATHER_PROVENANCE_TEXT_MAX - NO_RECORD_OPENING.length - NO_RECORD_CLOSING.length;
+
+  return {
+    input: "integration_activity",
+    state: "unavailable",
+    cause: "no_record",
+    reason: provenanceText(`${NO_RECORD_OPENING}${nameList(names, budget)}${NO_RECORD_CLOSING}`),
+    recovery: { kind: "none" },
+  };
+}
+
+/**
+ * The names, inside `budget` characters. When a name does not fit, the list stops and ends with
+ * the count of the names that it leaves out, so a long list does not cut a name.
+ */
+function nameList(names: readonly string[], budget: number): string {
+  const kept: string[] = [];
+
+  for (const name of names.map(provenanceName)) {
+    const joined = [...kept, name].join(", ");
+    const more = kept.length + 1 < names.length ? MORE_NAMES_ROOM : 0;
+
+    if (joined.length + more > budget) break;
+
+    kept.push(name);
+  }
+
+  const left = names.length - kept.length;
+
+  if (left === 0) return kept.join(", ");
+
+  return kept.length === 0 ? `${left} sources` : `${kept.join(", ")}, and ${left} more`;
+}
+
+/**
+ * The statement of the window cap (`readBriefingActivityWindow`). After a long stop, the activity
+ * window starts later than the last briefing, and Alfred does not read the acts before its start.
+ * The composer gets this as a fact, so it does not say that it saw everything since the last
+ * briefing. It is not a gap (`activityGaps`): a sent briefing would not show those acts either. A
+ * first briefing reads one day by design, so it states nothing here.
+ */
+export function activityWindowProvenance(window: BriefingActivityWindow): GatherProvenance[] {
+  if (window.clippedFrom === null) return [];
+
+  return [
+    {
+      input: "integration_activity",
+      state: "unavailable",
+      cause: "window_clipped",
+      reason: provenanceText(
+        `The activity read starts at ${window.start.toISOString()}, later than the end of the last briefing at ${window.clippedFrom.toISOString()}. Alfred did not read the acts between these two times.`,
+      ),
+      recovery: { kind: "none" },
+    },
+  ];
+}
+
+function coverageFailureProvenance(
+  name: string,
+  failure: Exclude<CoverageFailure, { cause: "no_record" }>,
+): GatherProvenance {
+  switch (failure.cause) {
+    case "record_incomplete":
+      return {
+        input: "integration_activity",
+        state: "unavailable",
+        cause: "record_incomplete",
+        reason: provenanceText(failure.reason),
+        recovery: { kind: "none" },
+      };
+    // A gap to now has a reconnect, so it is a row. A past gap is not. The same rule as the
+    // delivery alert names the reconnect, so the two rows merge.
+    case "silent": {
+      const integration = alertableIntegration(failure);
+
+      return integration
+        ? notDelivered(integration, provenanceText(failure.reason))
+        : silent(provenanceText(failure.reason));
+    }
+
+    // The delivery health pins the recovery to `connect`, but the `Omit` over its union does not
+    // keep the pair, so the recovery is read again. A slug with no live provider has no row.
+    case "never_connected":
+      return failure.recovery.kind === "connect" && isLiveProviderSlug(failure.recovery.integration)
+        ? notConnected("integration_activity", failure.recovery.integration)
+        : silent(notReaching(name, failure.reason));
+    case "broken": {
+      // The same rule as the delivery alert, so the two rows merge.
+      const integration = alertableIntegration(failure);
+
+      if (integration) return notDelivered(integration, notReaching(name, failure.reason));
+
+      switch (failure.recovery.kind) {
+        case "retry":
+          return readFailed(
+            "integration_activity",
+            provenanceText(`Alfred could not check whether ${name} events reach it.`),
+          );
+        // No reconnect on this instance repairs the break, so the delivery alert shows no row
+        // either. The composer still must not call the window quiet.
+        case "connect":
+        case "none":
+          return silent(notReaching(name, failure.reason));
+        default:
+          return assertNever(failure.recovery, "delivery recovery");
+      }
+    }
+
+    case "unknown":
+      return silent(
+        provenanceText(`Alfred cannot tell whether ${name} events reach it: ${failure.reason}.`),
+      );
+    default:
+      return assertNever(failure, "activity coverage failure");
+  }
+}
+
+function notReaching(name: string, reason: string): string {
+  return provenanceText(`${name} events do not reach Alfred: ${reason}.`);
+}
+
+function silent(reason: string): GatherProvenance {
+  return {
+    input: "integration_activity",
+    state: "unavailable",
+    cause: "silent",
+    reason,
+    recovery: { kind: "none" },
+  };
+}
+
+function notDelivered(integration: LiveProviderSlug, reason: string): GatherProvenance {
+  return {
+    input: "integration_activity",
+    state: "unavailable",
+    cause: "not_delivered",
+    reason,
+    recovery: { kind: "connect", integration },
+  };
+}
+
+function sourceName(source: SourceIdentity): string {
+  return source.kind === "integration"
+    ? INTEGRATIONS[source.slug].displayName
+    : `the custom MCP server ${source.serverId}`;
+}
+
+/**
+ * One input's statement from several producers. A `live` entry says only that its producer read
+ * the source, so it drops when another producer states a gap: the gap is what the readers act on.
+ * When every producer read its source, one `live` entry stays.
+ */
+export function mergeInputProvenance(
+  input: GatherInput,
+  entries: readonly GatherProvenance[],
+): StatedProvenance {
+  const [first, ...rest] = entries.filter((entry) => entry.state !== "live");
+
+  return first === undefined ? [live(input)] : [first, ...rest];
 }
 
 /**

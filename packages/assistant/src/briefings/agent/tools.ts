@@ -10,7 +10,9 @@ import {
 import { sanitizeVoice } from "@alfred/ai/voice";
 import { tool, type ToolSet } from "@alfred/ai";
 import {
+  ACTIVITY_VERBS,
   briefingConnectionNoticeSchema,
+  type ActivityVerb,
   type BriefingConnectionNotice,
   type BriefingClosedLoop,
   type BriefingGather,
@@ -20,8 +22,17 @@ import {
   type IanaTimezone,
   type OfficialWarning,
 } from "@alfred/contracts";
+import type { ActivityWindow } from "@alfred/assistant/connections";
 import type { LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
+import {
+  activityCursorExists,
+  activityCursorSchema,
+  countActivityEvents,
+  readActivityEvents,
+  type ActivityCounts,
+} from "../../knowledge";
+import { activityActorLabel } from "../activity-lines";
 
 /**
  * Narrow toolset for the briefing agent. There is no send, draft, or web search tool:
@@ -56,6 +67,11 @@ interface BuildArgs {
   sinceIngestedAt: Date | null;
   /** Frozen "now". */
   untilIngestedAt: Date;
+  /**
+   * The gather's activity window (`readBriefingActivityWindow`), which `list_activity` and
+   * `get_day_shape` read. It is the window of the coverage facts in the briefing request.
+   */
+  activityWindow: ActivityWindow;
   /** Anchors the calendar window. */
   briefingDate: LocalDateKey;
   /** Local day boundaries for the calendar window. */
@@ -105,8 +121,125 @@ export function officialWarningsRead(
   return { status: "read", items: warnings.items };
 }
 
-/** Day-shape window on the first run, when there is no watermark. */
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** Most activity lines that one `list_activity` call returns. */
+const ACTIVITY_PAGE_MAX = 25;
+
+/** The activity lines that one `list_activity` call returns when it names no limit. */
+const ACTIVITY_PAGE_DEFAULT = 10;
+
+export const listActivityInputSchema = z.object({
+  actor: z
+    .enum(["user", "other", "any"])
+    .default("any")
+    .describe("Whose acts to return: the user's, other people's, or both. Defaults to any."),
+  verb: z.enum(ACTIVITY_VERBS).optional().describe("Return only acts with this verb."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(ACTIVITY_PAGE_MAX)
+    .default(ACTIVITY_PAGE_DEFAULT)
+    .describe(
+      `Max acts to return, newest first. Defaults to ${ACTIVITY_PAGE_DEFAULT}, at most ${ACTIVITY_PAGE_MAX}.`,
+    ),
+  before: activityCursorSchema
+    .optional()
+    .describe(
+      "The before value of the previous result. Send it with the same actor and verb to get the next older acts. Omit it to get the newest acts.",
+    ),
+});
+
+/** One act in the `list_activity` page. `actor` is `you` for the user, else the provider login. */
+interface ActivityLine {
+  readonly verb: ActivityVerb;
+  readonly actor: string;
+  readonly title: string | null;
+  readonly url: string | null;
+  readonly occurredAt: string;
+}
+
+/**
+ * The `list_activity` result. One status for each state, so an unknown cursor cannot look like
+ * the end of the list.
+ *
+ * - `listed`: `counts` covers the whole window, for all filters, so the composer can see the size
+ *   of the record before it pages through it. `matched` is the count of acts that pass the filter.
+ *   `items` holds one page of them, newest first, and `before` gets the next page.
+ * - `unknown_cursor`: the `before` of the call names no activity row. Alfred read no page.
+ */
+export type ActivityList =
+  | {
+      readonly status: "listed";
+      readonly counts: ActivityCounts;
+      readonly matched: number;
+      readonly items: readonly ActivityLine[];
+      /** The cursor of the next older page, or null when `items` holds the oldest matched act. */
+      readonly before: string | null;
+    }
+  | { readonly status: "unknown_cursor"; readonly message: string };
+
+/** The acts that pass the filter, from the counts of the whole window. */
+function matchedCount(
+  counts: ActivityCounts,
+  filter: z.infer<typeof listActivityInputSchema>,
+): number {
+  const buckets = filter.actor === "any" ? [counts.user, counts.other] : [counts[filter.actor]];
+
+  return buckets
+    .flatMap((bucket) => Object.entries(bucket))
+    .filter(([verb]) => filter.verb === undefined || verb === filter.verb)
+    .reduce((sum, [, acts]) => sum + acts, 0);
+}
+
+async function listActivity(
+  args: Pick<BuildArgs, "userId" | "activityWindow">,
+  filter: z.infer<typeof listActivityInputSchema>,
+): Promise<ActivityList> {
+  const window = args.activityWindow;
+
+  if (
+    filter.before !== undefined &&
+    !(await activityCursorExists({ userId: args.userId, before: filter.before }))
+  ) {
+    return {
+      status: "unknown_cursor",
+      message:
+        "The before value names no act. Send the before value of the previous result, or omit it to get the newest acts.",
+    };
+  }
+
+  const [counts, page] = await Promise.all([
+    countActivityEvents({ userId: args.userId, window }),
+    readActivityEvents({
+      userId: args.userId,
+      window,
+      page: {
+        actor: filter.actor === "any" ? undefined : filter.actor,
+        verb: filter.verb,
+        before: filter.before,
+        limit: filter.limit,
+      },
+    }),
+  ]);
+
+  const items = page.events.toReversed().map(
+    (event): ActivityLine => ({
+      verb: event.verb,
+      actor: activityActorLabel(event.actor),
+      title: event.title ?? event.object,
+      url: event.url,
+      occurredAt: event.occurredAt.toISOString(),
+    }),
+  );
+
+  return {
+    status: "listed",
+    counts,
+    matched: matchedCount(counts, filter),
+    items,
+    before: page.before,
+  };
+}
 
 const dumpInputSchema = z
   .object({
@@ -164,6 +297,7 @@ export type BriefingToolName =
   | "list_calendar_events"
   | "list_official_warnings"
   | "get_day_shape"
+  | "list_activity"
   | "list_closed_loops"
   | "list_loop_relevance"
   | "list_action_items"
@@ -277,10 +411,16 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
         return gatherDayShape({
           userId: args.userId,
-          windowStart: args.sinceIngestedAt ?? new Date(args.untilIngestedAt.getTime() - DAY_MS),
-          windowEnd: args.untilIngestedAt,
+          windowStart: args.activityWindow.start,
+          windowEnd: args.activityWindow.end,
         });
       },
+    }),
+
+    list_activity: tool({
+      description: `The activity record of the user's connected tools over the briefing window: what the user did and what other people did. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { status: 'listed', counts, matched, items, before }, or { status: 'unknown_cursor', message } when before names no act: then fix before, because Alfred read no page. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. counts.unreadable is the number of rows of the window that Alfred cannot read; when it is above zero, the record is not complete. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only list_closed_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
+      inputSchema: listActivityInputSchema,
+      execute: async (filter): Promise<ActivityList> => listActivity(args, filter),
     }),
 
     list_closed_loops: tool({
