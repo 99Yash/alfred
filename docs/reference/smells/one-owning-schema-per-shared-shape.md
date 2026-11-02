@@ -37,3 +37,5 @@ export async function readIntegrationStatus(userId: string): Promise<Integration
 A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid.
 
 ## Hits
+
+- #1672 the briefing eval copied the list_activity input enum, the 25 cap, and the result shape by hand, and lost the verb field

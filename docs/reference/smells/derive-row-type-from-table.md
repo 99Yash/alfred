@@ -41,3 +41,5 @@ export type FactRow = Omit<UserFact, "status" | "source"> & {
 A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid.
 
 ## Hits
+
+- #1672 knowledge/activity.ts ActivityEvent declared id, occurredAt, title, and url again by hand beside the observations and documents tables
