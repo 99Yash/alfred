@@ -40,4 +40,5 @@ A correct derive depends on column traps and on intentional reshapes such as `Sy
 
 ## Hits
 
+- #1662 packages/contracts/src/source-identity.ts:27: SourceIdentity repeats the parser variants; an added union arm compiles without a parser arm. Derive the type from the schema.
 - #1665 official-warnings/geometry.ts: the polygon ring type was written by hand beside polygonSchema

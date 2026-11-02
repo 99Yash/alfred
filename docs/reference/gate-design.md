@@ -146,13 +146,13 @@ Each row is a smell that review owns, from [smells/](./smells/README.md), with t
 | [`find-item-by-id`](./smells/find-item-by-id.md) (Frontend) | `.at(-1)` and index 0 are correct on a list that keeps its order. A check cannot tell that list from a list that changes order. | Stays review | 2 |
 | [`name-for-domain-role`](./smells/name-for-domain-role.md) (Types) | A substring ban cannot tell a credential `shape` field from `DayShape` (#1149). | Stays review | 2 |
 | [`one-return-value-per-state`](./smells/one-return-value-per-state.md) (Backend) | The compiler holds a map after someone writes it. To decide that one is necessary is design. | Stays review | 2 |
+| [`scripts-call-live-owner`](./smells/scripts-call-live-owner.md) (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door. | Stays review | 2 |
+| [`zod-infer-not-parallel-interface`](./smells/zod-infer-not-parallel-interface.md) (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid. | Stays review | 2 |
 | [`centralize-only-when-copies-change-together`](./smells/centralize-only-when-copies-change-together.md) (Constants and ownership) | `check:duplicates` finds copies. Whether they change together is judgment. | Stays review | 1 |
 | [`check-issue-premise`](./smells/check-issue-premise.md) (Process) | Not a fact in the code. | Stays review | 1 |
 | [`idempotent-retried-work`](./smells/idempotent-retried-work.md) (Backend) | Each needs knowledge of intent that the code does not state. | Stays review | 1 |
 | [`name-policy-number`](./smells/name-policy-number.md) (Constants and ownership) | `42` and `EMPTY_COMPLETION_MAX_RETRIES = 42` depend on context. A literal ban fires on simple arithmetic. | Stays review | 1 |
 | [`render-every-state`](./smells/render-every-state.md) (Frontend) | Behavior, not shape. | Stays review | 1 |
-| [`scripts-call-live-owner`](./smells/scripts-call-live-owner.md) (Backend) | A copy compiles. `no-restricted-imports` already fences each `internal` door. | Stays review | 1 |
-| [`zod-infer-not-parallel-interface`](./smells/zod-infer-not-parallel-interface.md) (Types) | A correct derive depends on column traps and on intentional reshapes such as `Synced*`. A checker cannot separate a reshape from drift. `pnpm schemas:dupes` stays a discovery aid. | Stays review | 1 |
 | [`atomic-multi-step-write`](./smells/atomic-multi-step-write.md) (Backend) | Each needs knowledge of intent that the code does not state. | Stays review | 0 |
 | [`check-dts-before-library-claim`](./smells/check-dts-before-library-claim.md) (Types) | Not a fact in the code. | Stays review | 0 |
 | [`choose-open-dictionary-type`](./smells/choose-open-dictionary-type.md) (Types) | `anti-slop/no-unsafe-dictionary-type` already rejects `Record<string, unknown>`. Which of the four forms fits is a design choice. | Stays review | 0 |

@@ -33,7 +33,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Choose `k?: T` or `k?: T \| undefined` for each optional field.](./optional-field-absence-choice.md) | Stays review | none | 0 |
 | [Put a shape in the file that mints or stores it.](./shape-in-minting-file.md) | Stays review | none | 0 |
 | [End a `switch` over a closed union of string literals with a `default` that calls `assertNever`, or that returns a real value when unparsed data can reach it.](./switch-literal-needs-default.md) | Gated by `alfred/switch-literal-needs-default` | ast | 4 |
-| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 1 |
+| [Give a zod-validated value the type `z.infer<typeof schema>`.](./zod-infer-not-parallel-interface.md) | Stays review | none | 2 |
 
 ## Constants and ownership
 
@@ -66,7 +66,7 @@ A `gated` smell stays here for its examples and its ledger. [review-checklist.md
 | [Do not use `updatedAt` or another `$onUpdate` column as a queue or schedule key.](./no-updated-at-queue-key.md) | Review, medium | ast | 1 |
 | [Give each state its own return value.](./one-return-value-per-state.md) | Stays review | none | 2 |
 | [Do not make a transaction parameter optional. Make the caller choose between its transaction and a new one.](./required-executor-param.md) | Gated by `alfred/required-executor-param` | ast | 4 |
-| [Make a script, dry run or backfill call the live owner.](./scripts-call-live-owner.md) | Stays review | none | 1 |
+| [Make a script, dry run or backfill call the live owner.](./scripts-call-live-owner.md) | Stays review | none | 2 |
 | [Verify a webhook signature with a timing-safe compare on the raw body.](./webhook-signature-raw-body.md) | Review, medium | compiler | 0 |
 
 ## Frontend
