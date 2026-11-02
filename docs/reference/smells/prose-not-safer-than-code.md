@@ -39,4 +39,4 @@ A check cannot compare a claim with the sequences that the code permits. The cam
 - #1528 PR body: "a failed read-only MCP call now also fires the honesty note"; the call logs `succeeded` and fires no note.
 - #1575 Preserved behavior: "each writer already validates before the write"; `commitStepSuccess` sanitizes after the check.
 - #1539 `LenientLeaf` doc: "`check-types` catches a strict leaf"; `.refine` and a transform arm pass `check-types`.
-- #1665 warnings/geometry.ts: the comment said no feed area crosses the antimeridian, but GDACS is global and a Fiji ring matched a place in the Indian Ocean
+- #1665 official-warnings/geometry.ts: the comment said no feed area crosses the antimeridian, but GDACS is global and a Fiji ring matched a place in the Indian Ocean

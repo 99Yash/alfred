@@ -9,7 +9,7 @@ import {
 import { logger } from "@alfred/logging";
 
 /**
- * One request to a feed. It is a third of the gather deadline (`WARNINGS_DEADLINE_MS`, 30 s, in
+ * One request to a feed. It is a third of the gather deadline (`OFFICIAL_WARNINGS_DEADLINE_MS`, 30 s, in
  * `index.ts`), so one slow request leaves time for the reads after it, such as the GDACS area reads
  * after the event list. The gather's deadline and the caller's cancel also stop it.
  */
@@ -116,7 +116,7 @@ export function buildWarning(fields: WarningFields): WarningBuild {
   if (!parsed.success) {
     logger.warn(
       { source: fields.source, issues: parsed.error.issues.slice(0, 3) },
-      "[briefing.warnings] warning failed the contract parse; not kept",
+      "[briefing.official-warnings] warning failed the contract parse; not kept",
     );
 
     return { kind: "rejected" };

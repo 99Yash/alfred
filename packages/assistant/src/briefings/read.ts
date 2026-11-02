@@ -29,7 +29,7 @@ import {
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
-import { warningsFallback } from "./provenance";
+import { officialWarningsFallback } from "./provenance";
 
 /**
  * Read helpers for the daily briefing.
@@ -456,7 +456,7 @@ function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
  * can repair is not quiet either: the block must reach the user each day the break lasts
  * (ADR-0100 amendment 2026-10-28). An official warning for the user's place ranks first under
  * "at risk", so it is not quiet either (ADR-0117 decision 4). A warning for the time-zone default
- * city does not count: `sendableWarningCount` gives the count. With no attention signal,
+ * city does not count: `sendableOfficialWarningCount` gives the count. With no attention signal,
  * fall back to the raw email count: a false send is better than a silent suppression
  * (ADR-0048).
  */
@@ -469,11 +469,11 @@ export function isQuietMorning(args: {
   meetingCount: number;
   /** Rows of the briefing's fixed broken-connection block. */
   brokenConnectionCount: number;
-  /** Official warnings that may send a morning: `sendableWarningCount`. */
-  warningCount: number;
+  /** Official warnings that may send a morning: `sendableOfficialWarningCount`. */
+  officialWarningCount: number;
 }): boolean {
   if (
-    args.warningCount > 0 ||
+    args.officialWarningCount > 0 ||
     args.activityCount > 0 ||
     args.meetingCount > 0 ||
     (args.githubMergedTotal ?? 0) > 0 ||
@@ -494,9 +494,9 @@ export interface GatheredCounts {
   meetings: number;
   /**
    * Official warnings that the gather selected, for the place that it read. The gather logs read
-   * it. The send gates read `sendableWarningCount`, because a default-city warning does not send.
+   * it. The send gates read `sendableOfficialWarningCount`, because a default-city warning does not send.
    */
-  warnings: number;
+  officialWarnings: number;
 }
 
 export function gatherCounts(gather: BriefingGather): GatheredCounts {
@@ -504,7 +504,7 @@ export function gatherCounts(gather: BriefingGather): GatheredCounts {
     email: Object.values(gather.email.categories).reduce((sum, items) => sum + items.length, 0),
     activity: gather.integration_activity.items.length,
     meetings: gather.calendar?.events.length ?? 0,
-    warnings: gather.warnings?.items.length ?? 0,
+    officialWarnings: gather.official_warnings?.items.length ?? 0,
   };
 }
 
@@ -514,12 +514,12 @@ export function gatherCounts(gather: BriefingGather): GatheredCounts {
  * counts 0, because a `fallback` does not send a morning (ADR-0117). The briefing still shows it
  * when the morning sends for another reason. A warning for the user's place counts.
  */
-export function sendableWarningCount(
-  gather: Pick<BriefingGather, "warnings" | "provenance">,
+export function sendableOfficialWarningCount(
+  gather: Pick<BriefingGather, "official_warnings" | "provenance">,
 ): number {
-  if (warningsFallback(gather.provenance) !== undefined) return 0;
+  if (officialWarningsFallback(gather.provenance) !== undefined) return 0;
 
-  return gather.warnings?.items.length ?? 0;
+  return gather.official_warnings?.items.length ?? 0;
 }
 
 export interface SurfacedKeys {

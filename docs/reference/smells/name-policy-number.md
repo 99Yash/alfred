@@ -32,4 +32,4 @@ limit: z.number().int().min(1).max(CONTEXT_SEARCH_MAX_LIMIT).default(CONTEXT_SEA
 
 ## Hits
 
-- #1665 warnings/gdacs.ts MAX_AREA_READS and warnings/feed.ts REQUEST_TIMEOUT_MS had no reason for their values
+- #1665 official-warnings/gdacs.ts MAX_AREA_READS and official-warnings/feed.ts REQUEST_TIMEOUT_MS had no reason for their values

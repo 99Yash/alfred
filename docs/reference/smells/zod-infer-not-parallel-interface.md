@@ -40,4 +40,4 @@ A correct derive depends on column traps and on intentional reshapes such as `Sy
 
 ## Hits
 
-- #1665 warnings/geometry.ts: the polygon ring type was written by hand beside polygonSchema
+- #1665 official-warnings/geometry.ts: the polygon ring type was written by hand beside polygonSchema

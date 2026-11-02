@@ -208,7 +208,7 @@ export function sachetDistrict(area: PlaceArea): SachetDistrict | null {
         sameName: sameName.length,
         inState: candidates.length,
       },
-      "[briefing.warnings] no single LGD district for the place; Sachet needs the district and state names in the area text",
+      "[briefing.official-warnings] no single LGD district for the place; Sachet needs the district and state names in the area text",
     );
   }
 
@@ -258,7 +258,7 @@ export async function readSachet(args: {
       }
 
       unread += 1;
-      logger.warn({ err, guid: item.guid }, "[briefing.warnings] Sachet CAP read failed");
+      logger.warn({ err, guid: item.guid }, "[briefing.official-warnings] Sachet CAP read failed");
     }
   });
 
@@ -266,7 +266,7 @@ export async function readSachet(args: {
     unread += stopped;
     logger.warn(
       { err: args.signal.reason, stopped, read: alerts.length, total: items.length },
-      "[briefing.warnings] Sachet CAP reads stopped by the abort; the alerts already read are kept",
+      "[briefing.official-warnings] Sachet CAP reads stopped by the abort; the alerts already read are kept",
     );
   }
 
@@ -329,7 +329,7 @@ export async function readSachet(args: {
   if (offCapAlerts > 0) {
     logger.warn(
       { alerts: offCapAlerts, severities: [...offCap].slice(0, 5) },
-      "[briefing.warnings] Sachet alerts with a severity outside CAP 1.2; not selected",
+      "[briefing.official-warnings] Sachet alerts with a severity outside CAP 1.2; not selected",
     );
   }
 
@@ -345,7 +345,7 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapRead> {
   if (!item.link.startsWith(SACHET_CAP_PREFIX)) {
     logger.warn(
       { guid: item.guid },
-      "[briefing.warnings] Sachet item links outside Sachet; not read",
+      "[briefing.official-warnings] Sachet item links outside Sachet; not read",
     );
 
     return { kind: "off_sachet" };
@@ -357,7 +357,7 @@ async function readCap(item: RssItem, signal: AbortSignal): Promise<CapRead> {
   if (!parsed.success) {
     logger.warn(
       { guid: item.guid, issues: parsed.error.issues.slice(0, 3) },
-      "[briefing.warnings] Sachet CAP file has an unreadable shape",
+      "[briefing.official-warnings] Sachet CAP file has an unreadable shape",
     );
 
     return { kind: "unreadable" };

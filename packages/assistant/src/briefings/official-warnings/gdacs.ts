@@ -234,7 +234,7 @@ export async function readGdacs(args: {
   if (notRead > 0) {
     logger.warn(
       { events: byDistance.length, read: MAX_AREA_READS },
-      "[briefing.warnings] GDACS events over the read bound; the farthest are not read",
+      "[briefing.official-warnings] GDACS events over the read bound; the farthest are not read",
     );
   }
 
@@ -261,7 +261,7 @@ export async function readGdacs(args: {
 
       logger.warn(
         { err, eventId: event.properties.eventid },
-        "[briefing.warnings] GDACS event area read failed",
+        "[briefing.official-warnings] GDACS event area read failed",
       );
     }
   });
@@ -269,7 +269,7 @@ export async function readGdacs(args: {
   if (stopped > 0) {
     logger.warn(
       { err: args.signal.reason, stopped, read: toRead.length - stopped },
-      "[briefing.warnings] GDACS area reads stopped by the abort; the areas already read are kept",
+      "[briefing.official-warnings] GDACS area reads stopped by the abort; the areas already read are kept",
     );
   }
 
@@ -323,7 +323,7 @@ async function listEvents(args: {
       total += 1;
       logger.warn(
         { pages: MAX_PAGES },
-        "[briefing.warnings] GDACS event list over its page bound; the rest counts as unread",
+        "[briefing.official-warnings] GDACS event list over its page bound; the rest counts as unread",
       );
     }
   }
@@ -331,7 +331,7 @@ async function listEvents(args: {
   if (unread > 0) {
     logger.warn(
       { unread },
-      "[briefing.warnings] GDACS events with an unreadable shape, type, level, or date",
+      "[briefing.official-warnings] GDACS events with an unreadable shape, type, level, or date",
     );
   }
 

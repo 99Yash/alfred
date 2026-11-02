@@ -23,8 +23,8 @@ import {
   type BriefingToolName,
   type DumpedBriefing,
 } from "./tools";
-import { provenanceAudience, warningsFallback } from "../provenance";
-import { describeWarning } from "../warnings";
+import { provenanceAudience, officialWarningsFallback } from "../provenance";
+import { describeWarning } from "../official-warnings";
 import { describeOpenAskViolation, type OpenAskViolation } from "../open-ask-guard";
 
 /** Daily-briefing agent. Uses the AI SDK tool loop (`generateText` + `stopWhen`) in one workflow step. */
@@ -60,7 +60,7 @@ export interface RunBriefingAgentArgs {
    * `list_official_warnings` gives the full details. `null`: the gather read no feed. Absent on a
    * run from before this field.
    */
-  warnings?: BriefingGather["warnings"];
+  officialWarnings?: BriefingGather["official_warnings"];
   /**
    * Connections the user must repair. The composer writes one notice per connection; the email
    * renders each notice with its repair link below the body.
@@ -141,7 +141,10 @@ const COMPOSER_READS = {
     tool: "list_loop_relevance",
     hides: "whether your open threads still need you",
   },
-  warnings: { tool: "list_official_warnings", hides: "official hazard warnings for your area" },
+  official_warnings: {
+    tool: "list_official_warnings",
+    hides: "official hazard warnings for your area",
+  },
   weather: null,
   integration_activity: null,
 } as const satisfies Record<GatherInput, ComposerRead | null>;
@@ -229,15 +232,15 @@ function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
  * names it. The feed text is clipped and parsed at the gather (`buildWarning`).
  */
 function officialWarningFacts(args: {
-  warnings: BriefingGather["warnings"];
+  officialWarnings: BriefingGather["official_warnings"];
   provenance: readonly GatherProvenance[];
   timezone: IanaTimezone;
 }): string {
-  const read = officialWarningsRead(args.warnings);
+  const read = officialWarningsRead(args.officialWarnings);
 
   if (read.status !== "read" || read.items.length === 0) return "";
 
-  const fallback = warningsFallback(args.provenance);
+  const fallback = officialWarningsFallback(args.provenance);
 
   const place =
     fallback === undefined
@@ -289,7 +292,7 @@ export async function runBriefingAgent(
     loopRelevance: args.loopRelevance,
     dayShape: args.dayShape,
     calendar: args.calendar,
-    warnings: args.warnings,
+    officialWarnings: args.officialWarnings,
   });
 
   const seed: ModelMessage[] = [
@@ -300,7 +303,7 @@ export async function runBriefingAgent(
         `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         officialWarningFacts({
-          warnings: args.warnings,
+          officialWarnings: args.officialWarnings,
           provenance: args.provenance ?? [],
           timezone: args.timezone,
         }) +

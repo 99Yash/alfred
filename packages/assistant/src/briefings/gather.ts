@@ -97,7 +97,7 @@ import {
   type Sourced,
   type StatedProvenance,
 } from "./provenance";
-import { gatherWarningsContribution } from "./warnings";
+import { gatherOfficialWarnings } from "./official-warnings";
 import { logger } from "@alfred/logging";
 
 /**
@@ -670,7 +670,7 @@ export async function gatherBriefingWithSuppressionAudit(
 
   // One place read for weather and warnings. It does not throw: a fault is its `fault` basis.
   // This one deadline bounds the place read and the forecast read together. The warnings feeds
-  // have their own deadline (`WARNINGS_DEADLINE_MS`), which starts after the place read.
+  // have their own deadline (`OFFICIAL_WARNINGS_DEADLINE_MS`), which starts after the place read.
   const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
 
   // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
@@ -684,50 +684,57 @@ export async function gatherBriefingWithSuppressionAudit(
     signal: weatherDeadline,
   });
 
-  const [digest, calendar, weather, warnings, integrationActivity, brokenConnections, email] =
-    await Promise.all([
-      gatherBriefingDigest({
-        userId: args.userId,
-        windowStart: args.windowStart,
-        windowEnd,
-      }),
-      gatherCalendarContribution({
-        userId: args.userId,
+  const [
+    digest,
+    calendar,
+    weather,
+    officialWarnings,
+    integrationActivity,
+    brokenConnections,
+    email,
+  ] = await Promise.all([
+    gatherBriefingDigest({
+      userId: args.userId,
+      windowStart: args.windowStart,
+      windowEnd,
+    }),
+    gatherCalendarContribution({
+      userId: args.userId,
+      briefingDate: args.briefingDate,
+      timezone: args.timezone,
+      slot,
+    }),
+    placeRead.then((place) =>
+      gatherWeatherContribution({
+        located: place,
+        deadline: weatherDeadline,
         briefingDate: args.briefingDate,
         timezone: args.timezone,
-        slot,
       }),
-      placeRead.then((place) =>
-        gatherWeatherContribution({
-          located: place,
-          deadline: weatherDeadline,
-          briefingDate: args.briefingDate,
-          timezone: args.timezone,
-        }),
-      ),
-      placeRead.then((place) =>
-        gatherWarningsContribution({
-          userId: args.userId,
-          located: place,
-          timezone: args.timezone,
-          briefingDate: args.briefingDate,
-          now: new Date(),
-          signal: gatherCancel.signal,
-        }),
-      ),
-      gatherIntegrationActivity({
+    ),
+    placeRead.then((place) =>
+      gatherOfficialWarnings({
         userId: args.userId,
-        windowStart: activityStart,
-        windowEnd,
+        located: place,
+        timezone: args.timezone,
+        briefingDate: args.briefingDate,
+        now: new Date(),
+        signal: gatherCancel.signal,
       }),
-      readBriefingBrokenConnections(args.userId),
-      emailProvenance(args.userId, () =>
-        integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
-      ),
-    ]).catch((err: unknown) => {
-      gatherCancel.abort(err);
-      throw err;
-    });
+    ),
+    gatherIntegrationActivity({
+      userId: args.userId,
+      windowStart: activityStart,
+      windowEnd,
+    }),
+    readBriefingBrokenConnections(args.userId),
+    emailProvenance(args.userId, () =>
+      integrations({ userId: args.userId, retry: "none" }).google.gmail.readCredential(),
+    ),
+  ]).catch((err: unknown) => {
+    gatherCancel.abort(err);
+    throw err;
+  });
 
   const categories: BriefingGather["email"]["categories"] = {};
 
@@ -786,7 +793,7 @@ export async function gatherBriefingWithSuppressionAudit(
     email: [email],
     calendar: calendar.provenance,
     weather: weather.provenance,
-    warnings: warnings.provenance,
+    official_warnings: officialWarnings.provenance,
     integration_activity: verifiedPull.provenance,
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
@@ -804,7 +811,7 @@ export async function gatherBriefingWithSuppressionAudit(
       calendar: calendar.value,
       integration_activity: { items: [...integrationActivity, ...verifiedPull.value] },
       weather: weather.value,
-      warnings: warnings.value,
+      official_warnings: officialWarnings.value,
       day_of_week: dayContribution(args.briefingDate),
       day_shape: {
         ...dayShape,

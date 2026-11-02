@@ -26,9 +26,9 @@ import {
   EMAIL_P_STYLE as P_STYLE,
   EMAIL_WRAPPER_STYLE as WRAPPER_STYLE,
 } from "./email-styles";
-import { warningsFallback } from "./provenance";
+import { officialWarningsFallback } from "./provenance";
 import { buildBriefingSourcePanels } from "./references";
-import { describeWarning } from "./warnings";
+import { describeWarning } from "./official-warnings";
 
 /**
  * Composers for the legacy `morning-briefing` workflow: `composeBriefing` (boss model,
@@ -382,14 +382,14 @@ function officialWarningLines(
   gather: BriefingGather,
   timezone: IanaTimezone,
 ): OfficialWarningLines | null {
-  const items = gather.warnings?.items ?? [];
+  const items = gather.official_warnings?.items ?? [];
 
   if (items.length === 0) return null;
 
   const zone = inZone(timezone);
 
   return {
-    defaultCity: warningsFallback(gather.provenance)?.used ?? null,
+    defaultCity: officialWarningsFallback(gather.provenance)?.used ?? null,
     items: items.map((warning) => describeWarning(warning, zone)),
   };
 }

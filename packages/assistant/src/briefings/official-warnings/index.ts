@@ -4,12 +4,17 @@ import {
   type OfficialWarning,
   type OfficialWarningSource,
   type Place,
-  type WarningsContribution,
+  type OfficialWarningsContribution,
 } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { addDays, inZone, type LocalDateKey, type ZoneClock } from "@alfred/assistant/time";
 import type { UserLocation } from "../../knowledge";
-import { placeProvenance, provenanceName, warningsProvenance, type Sourced } from "../provenance";
+import {
+  placeProvenance,
+  provenanceName,
+  officialWarningsProvenance,
+  type Sourced,
+} from "../provenance";
 import type { FeedRead, RankedWarning } from "./feed";
 import { readGdacs } from "./gdacs";
 import { readSachet, sachetCovers, sachetDistrict, type SachetDistrict } from "./sachet";
@@ -20,7 +25,7 @@ import { readSachet, sachetCovers, sachetDistrict, type SachetDistrict } from ".
  * caller's `signal` stops a feed after its list read, the feed keeps what it read and counts the
  * rest as unread.
  */
-const WARNINGS_DEADLINE_MS = 30_000;
+const OFFICIAL_WARNINGS_DEADLINE_MS = 30_000;
 
 /**
  * How a provenance reason names each feed. `name`: the feed. `unit`: what a partial read could not
@@ -36,21 +41,21 @@ const FEED_LABEL = {
  * decision 4). GDACS is read for every place. NDMA Sachet is read when the place is in India and
  * its district has an LGD code. The reader does not throw: a feed that fails is a `read_failed`
  * statement, and the value holds the feeds that Alfred read. `signal` is the caller's cancel; the
- * reads stop on it or on `WARNINGS_DEADLINE_MS`, whichever comes first.
+ * reads stop on it or on `OFFICIAL_WARNINGS_DEADLINE_MS`, whichever comes first.
  */
-export async function gatherWarningsContribution(args: {
+export async function gatherOfficialWarnings(args: {
   userId: string;
   located: UserLocation;
   timezone: IanaTimezone;
   briefingDate: LocalDateKey;
   now: Date;
   signal: AbortSignal;
-}): Promise<Sourced<WarningsContribution | null>> {
-  const { place, statement } = placeProvenance("warnings", args.located, args.timezone);
+}): Promise<Sourced<OfficialWarningsContribution | null>> {
+  const { place, statement } = placeProvenance("official_warnings", args.located, args.timezone);
 
   if (place === null) return { value: null, provenance: [statement] };
 
-  const signal = AbortSignal.any([args.signal, AbortSignal.timeout(WARNINGS_DEADLINE_MS)]);
+  const signal = AbortSignal.any([args.signal, AbortSignal.timeout(OFFICIAL_WARNINGS_DEADLINE_MS)]);
   const zone = inZone(args.timezone);
   const dayStart = zone.startOf(args.briefingDate);
   const dayEnd = zone.startOf(addDays(args.briefingDate, 1));
@@ -76,7 +81,7 @@ export async function gatherWarningsContribution(args: {
     if (result.status === "rejected") {
       logger.warn(
         { err: result.reason, userId: args.userId, source },
-        "[briefing.warnings] feed read failed",
+        "[briefing.official-warnings] feed read failed",
       );
       failures.push(`The ${FEED_LABEL[source].name} read failed.`);
       continue;
@@ -93,7 +98,7 @@ export async function gatherWarningsContribution(args: {
     }
   }
 
-  const provenance = warningsProvenance({
+  const provenance = officialWarningsProvenance({
     fallback: statement,
     coverageGap: coverageGap(place, district),
     failures,
@@ -109,7 +114,7 @@ export async function gatherWarningsContribution(args: {
   if (ranked.length > OFFICIAL_WARNINGS_MAX) {
     logger.warn(
       { userId: args.userId, found: ranked.length, kept: OFFICIAL_WARNINGS_MAX },
-      "[briefing.warnings] warnings over the stored bound; the least severe are dropped",
+      "[briefing.official-warnings] warnings over the stored bound; the least severe are dropped",
     );
   }
 

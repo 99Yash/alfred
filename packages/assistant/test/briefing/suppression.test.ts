@@ -16,7 +16,7 @@ describe("isQuietMorning", () => {
     activityCount: 0,
     meetingCount: 0,
     brokenConnectionCount: 0,
-    warningCount: 0,
+    officialWarningCount: 0,
   };
 
   test("no demanding email + no activity + no meetings ⇒ quiet (suppress)", () => {

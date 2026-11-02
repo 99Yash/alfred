@@ -347,22 +347,22 @@ export type FallbackProvenance = Extract<GatherProvenance, { state: "fallback" }
  * `boundProvenance` drops only `stale` entries. A gather from before the provenance field has no
  * list, so it has no entry.
  */
-export function warningsFallback(
+export function officialWarningsFallback(
   provenance: readonly GatherProvenance[] | undefined,
 ): FallbackProvenance | undefined {
   return provenance?.find(
     (entry): entry is FallbackProvenance =>
-      entry.input === "warnings" && entry.state === "fallback",
+      entry.input === "official_warnings" && entry.state === "fallback",
   );
 }
 
 /** The inputs that read the user's place. */
-export type PlaceInput = Extract<GatherInput, "weather" | "warnings">;
+export type PlaceInput = Extract<GatherInput, "weather" | "official_warnings">;
 
 /** How the fallback statement opens, for each input that reads the place. */
 const FALLBACK_SUBJECT = {
   weather: "The weather is for",
-  warnings: "Official warnings were checked for",
+  official_warnings: "Official warnings were checked for",
 } as const satisfies Record<PlaceInput, string>;
 
 /**
@@ -445,7 +445,7 @@ export function placeProvenance(
  * With neither, the input is `live`. A place `fault` or `none` reads no feed, so its statement
  * comes from `placeProvenance` alone and does not pass here.
  */
-export function warningsProvenance(args: {
+export function officialWarningsProvenance(args: {
   fallback: FallbackProvenance | null;
   coverageGap: string | null;
   failures: readonly string[];
@@ -457,7 +457,7 @@ export function warningsProvenance(args: {
     entries.push(fallback);
   } else if (coverageGap !== null) {
     entries.push({
-      input: "warnings",
+      input: "official_warnings",
       state: "unavailable",
       cause: "no_place",
       reason: provenanceText(coverageGap),
@@ -465,11 +465,12 @@ export function warningsProvenance(args: {
     });
   }
 
-  if (failures.length > 0) entries.push(readFailed("warnings", provenanceText(failures.join(" "))));
+  if (failures.length > 0)
+    entries.push(readFailed("official_warnings", provenanceText(failures.join(" "))));
 
   const [first, ...rest] = entries;
 
-  return first === undefined ? [live("warnings")] : [first, ...rest];
+  return first === undefined ? [live("official_warnings")] : [first, ...rest];
 }
 
 const STATED_PLACE_NAME = {

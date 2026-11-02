@@ -331,7 +331,7 @@ export const GATHER_INPUTS = [
   "integration_activity",
   "github_merged",
   "loop_relevance",
-  "warnings",
+  "official_warnings",
 ] as const;
 
 export type GatherInput = (typeof GATHER_INPUTS)[number];
@@ -488,11 +488,11 @@ export type OfficialWarning = z.infer<typeof officialWarningSchema>;
  * that those feeds had no warning, not that no hazard exists. The provenance names the feeds that
  * Alfred could not read.
  */
-export const warningsContributionSchema = z.object({
+export const officialWarningsContributionSchema = z.object({
   items: z.array(officialWarningSchema).max(OFFICIAL_WARNINGS_MAX),
 });
 
-export type WarningsContribution = z.infer<typeof warningsContributionSchema>;
+export type OfficialWarningsContribution = z.infer<typeof officialWarningsContributionSchema>;
 
 export const briefingGatherSchema = z.object({
   email: emailContributionSchema,
@@ -503,7 +503,7 @@ export const briefingGatherSchema = z.object({
    * Official warnings at the user's place (ADR-0117 decision 4). `null`: no feed was read, and the
    * provenance says why. Optional, so a gather from before this field parses.
    */
-  warnings: warningsContributionSchema.nullable().optional(),
+  official_warnings: officialWarningsContributionSchema.nullable().optional(),
   day_of_week: dayOfWeekContributionSchema,
   /** Optional, so older gathers parse. Absence is not an error. */
   day_shape: dayShapeSchema.optional(),

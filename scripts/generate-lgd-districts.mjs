@@ -20,7 +20,7 @@
 //      field of `gh release view lgd-latest -R ramSeraph/opendata --json assets`
 //      also gives it.
 //   3. Extract the CSV, and run this script with the two files.
-//   4. Run `git diff --exit-code packages/assistant/src/briefings/warnings/lgd-districts.ts`.
+//   4. Run `git diff --exit-code packages/assistant/src/briefings/official-warnings/lgd-districts.ts`.
 //      No diff means that the table and its header come from that input.
 // The release keeps only the newest dated asset. When a newer date replaces the
 // asset, the old input is not on the release, and the header SHA-256 is the only
@@ -32,7 +32,7 @@ import { basename, resolve } from "node:path";
 
 const OUT = resolve(
   import.meta.dirname,
-  "../packages/assistant/src/briefings/warnings/lgd-districts.ts",
+  "../packages/assistant/src/briefings/official-warnings/lgd-districts.ts",
 );
 
 const STATE_NAME = "State Name (In English)";
