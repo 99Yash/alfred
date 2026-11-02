@@ -1,10 +1,9 @@
-import { ListChecks, X } from "lucide-react";
+import { CalendarClock, ListChecks, Mail, X } from "lucide-react";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { WeatherVideoSurface } from "~/components/weather-video-surface";
 import { AppSegmented } from "~/components/ui/v2";
 import { useWeather } from "~/hooks/use-weather";
 import { authClient } from "~/lib/auth/auth-client";
-import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { firstName, greeting } from "~/lib/user-display";
 import { cn } from "~/lib/utils";
 import type { RailTab } from "./models";
@@ -18,13 +17,10 @@ import { WeatherHero } from "./weather-hero";
 
 const RAIL_TABS: ReadonlyArray<{ value: RailTab; label: string; icon: ReactNode }> = [
   { value: "todo", label: "To do", icon: <ListChecks size={12} /> },
-  // Brand glyphs show which integration each tab reads.
-  { value: "inbox", label: "Inbox", icon: <IntegrationGlyph brand="gmail" size={12} /> },
-  {
-    value: "meetings",
-    label: "Up next",
-    icon: <IntegrationGlyph brand="google_calendar" size={12} />,
-  },
+  // One-color line glyphs take the tab's text color. Brand colors on the glass track break the
+  // white-on-video palette, and the Calendar glyph turns into a solid block if it loses its colors.
+  { value: "inbox", label: "Inbox", icon: <Mail size={12} /> },
+  { value: "meetings", label: "Up next", icon: <CalendarClock size={12} /> },
 ];
 
 export function RailContent({
@@ -95,6 +91,7 @@ export function RailContent({
             items={RAIL_TABS}
             label="Today filter"
             variant="glass"
+            layout="fill"
           />
         </div>
 
