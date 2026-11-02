@@ -503,6 +503,12 @@ export const ACTIVITY_VERBS: readonly ActivityVerb[] = [
 /** True when `value` is a declared verb of an activity source. */
 export const isActivityVerb = enumGuard(ACTIVITY_VERBS);
 
+/** Every source whose reducer declares `activityVerbs` (`ActivityObservationSource`). */
+export const ACTIVITY_OBSERVATION_SOURCES: readonly ActivityObservationSource[] =
+  OBSERVATION_SOURCES.filter(
+    (source): source is ActivityObservationSource => activityVerbsOf(source).length > 0,
+  );
+
 /**
  * The payload of an `activity` row. The row points at the stored body and never copies it. The
  * actor is the row's subject; the verb comes from the source's closed list.

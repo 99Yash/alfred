@@ -7,6 +7,7 @@ import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, LIVE_PROVIDER_SLUGS } from "./integrations";
 import { deliveryAlertSchema, mcpConnectionAlertSchema } from "./integration-status";
+import { ACTIVITY_OBSERVATION_SOURCES } from "./user-model";
 
 // ─── Sources + reference kinds ────────────────────────────────────────────
 
@@ -441,14 +442,26 @@ export type BlockingGatherProvenance = Extract<
 export const GATHER_STALE_PROVENANCE_MAX = 10;
 
 /**
- * Upper bound on stored entries. Today a gather states at most two entries for each input (weather:
- * a failed read and its fallback; warnings: a place entry and a failed read), which is 16 for
- * eight inputs, plus the stale entries above (10).
- * The verified pull reads at most 5 targets for each of its 2 providers, so 10 stale entries is
- * also the most it can produce. The producer clips the list to this bound, so a stored list never
- * fails its parse on length.
+ * The most entries that one input other than `integration_activity` states, except the stale
+ * entries. Weather states a failed read and its fallback. Warnings state a place entry and a
+ * failed read.
  */
-export const GATHER_PROVENANCE_MAX = GATHER_INPUTS.length * 2 + GATHER_STALE_PROVENANCE_MAX;
+const GATHER_INPUT_PROVENANCE_MAX = 2;
+
+/**
+ * Upper bound on stored entries. Each input other than `integration_activity` states at most
+ * `GATHER_INPUT_PROVENANCE_MAX` entries. `integration_activity` states one entry for each source
+ * with an activity reducer (`ACTIVITY_OBSERVATION_SOURCES`), or one `live` entry. Its share is
+ * never less than `GATHER_INPUT_PROVENANCE_MAX`, so a list stored under the old bound still parses.
+ * Then add the
+ * stale entries (`GATHER_STALE_PROVENANCE_MAX`). The verified pull reads at most 5 targets for each
+ * of its 2 providers, so 10 stale entries is also the most it can produce. The producer clips the
+ * list to this bound, so a stored list never fails its parse on length.
+ */
+export const GATHER_PROVENANCE_MAX =
+  (GATHER_INPUTS.length - 1) * GATHER_INPUT_PROVENANCE_MAX +
+  Math.max(GATHER_INPUT_PROVENANCE_MAX, ACTIVITY_OBSERVATION_SOURCES.length) +
+  GATHER_STALE_PROVENANCE_MAX;
 
 // ─── Official warnings (ADR-0117 decision 4) ─────────────────────────────
 

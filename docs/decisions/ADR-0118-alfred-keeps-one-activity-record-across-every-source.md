@@ -157,7 +157,7 @@ The code follows decisions 4 and 6 for the briefing, with these facts. Two items
 
 ### The gather and the composer
 
-- **The briefing lines.** `activityItemsOf` (`briefings/activity-lines.ts`) makes the stored activity lines, at most 25. A run of pushes by one actor to one object is one line with a `rollup` count.
+- **The briefing lines.** `activityItemsOf` (`briefings/activity-lines.ts`) makes the stored activity lines, at most `MAX_ACTIVITY_ITEMS`. All the pushes of one actor to one object in the window are one push group: one line with a `rollup` count.
 - **The day shape counts the events of the window.** The old read stopped at 25 receipts, so a day with more acts now reads as `busy` sooner.
 - **The composer pages the record.** `list_activity` gives the counts by actor and verb for the whole window. It also gives one page of the newest acts that pass an actor and a verb filter.
   - Postgres counts the whole window (`countActivityEvents`) and applies the filter before the limit. A row with no declared verb counts as `unreadable`.

@@ -2,6 +2,7 @@ import {
   activityPayloadSchema,
   isActivityVerb,
   type ActivityVerb,
+  type IdentityRef,
   type SourceIdentity,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -10,6 +11,7 @@ import type { Document, Observation } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
 import { and, count, desc, eq, gte, inArray, lt, ne, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { z } from "zod";
 import {
   ACTIVITY_SOURCE_SLUGS,
   arrivalWindowOf,
@@ -29,10 +31,14 @@ import { liveObservationHeadJoin, readObservationFamilyHeads } from "./observati
  * for the title and the link.
  */
 
-/** Who did the act. `user` is the user; any other actor is named by the provider's login. */
+/**
+ * Who did the act. `user` is the user. Any other actor has the stable `identity` of the row's
+ * subject, which keys the actor, and the provider's `login`, which names the actor. Two actors
+ * with no login have different identities.
+ */
 type ActivityActor =
   | { readonly kind: "user" }
-  | { readonly kind: "other"; readonly login: string | null };
+  | { readonly kind: "other"; readonly identity: IdentityRef; readonly login: string | null };
 
 /**
  * One act. `id` is the observation id. `occurredAt` is the provider's time of the act, not the
@@ -51,9 +57,10 @@ export type ActivityEvent = Pick<Observation, "id" | "occurredAt"> &
 const ACTIVITY_READ_MAX = 500;
 
 /**
- * The most pages that `readActivity` reads for one window, so one read gets at most 10,000 rows.
- * A window with more rows makes each source with a reducer `record_incomplete` (`capped`), so the
- * briefing does not call the window complete.
+ * The most pages that `readActivity` reads for one window, so one read gets at most
+ * `ACTIVITY_READ_PAGE_CAP` times `ACTIVITY_READ_MAX` rows. A window with more rows makes each
+ * source with a reducer `record_incomplete` (`capped`), so the briefing does not call the window
+ * complete.
  */
 const ACTIVITY_READ_PAGE_CAP = 20;
 
@@ -73,6 +80,14 @@ interface ActivityPage {
    */
   readonly before: string | null;
 }
+
+/**
+ * The shape of a `before` cursor. A cursor is the id of an observation row, which
+ * `createId("obs")` makes: the prefix, `_`, then 12 of `[0-9a-z]`.
+ */
+export const activityCursorSchema = z
+  .string()
+  .regex(/^obs_[0-9a-z]{12}$/, { error: "not an activity cursor" });
 
 /** The count of acts in a window, by actor kind and verb. */
 export interface ActivityCounts {
@@ -248,7 +263,7 @@ export async function readActivityEvents(args: {
         actor:
           row.actor.kind === "user"
             ? { kind: "user" }
-            : { kind: "other", login: payload.data.actorLogin },
+            : { kind: "other", identity: row.actor, login: payload.data.actorLogin },
         verb: payload.data.verb,
         object: row.object?.value ?? null,
         title: row.title,
@@ -352,6 +367,30 @@ function olderThan(userId: string, before: string): SQL {
     .where(and(eq(cursor.id, before), eq(cursor.userId, userId)));
 
   return sql`(${observations.occurredAt}, ${observations.id}) < ${cursorRow}`;
+}
+
+/**
+ * True when `before` names an activity row of the user. `olderThan` gives no rows for a cursor
+ * that names no row, so a reader checks the cursor first. An unknown cursor is then not the end
+ * of the list.
+ */
+export async function activityCursorExists(args: {
+  userId: string;
+  before: string;
+}): Promise<boolean> {
+  const rows = await db()
+    .select({ id: observations.id })
+    .from(observations)
+    .where(
+      and(
+        eq(observations.id, args.before),
+        eq(observations.userId, args.userId),
+        eq(observations.kind, "activity"),
+      ),
+    )
+    .limit(1);
+
+  return rows.length > 0;
 }
 
 /**

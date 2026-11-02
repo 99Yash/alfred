@@ -12,34 +12,45 @@ export function activityActorLabel(actor: ActivityEvent["actor"]): string {
 }
 
 /**
- * The briefing activity line of one event, or of one run of pushes. A run of pushes by one actor
- * to one object is one line with a `rollup` count, so a day of pushes does not fill the list.
+ * The key of the actor of one act. It uses the stable identity of the actor, not the label, so two
+ * actors with no login do not share a key.
+ */
+function activityActorKey(actor: ActivityEvent["actor"]): string {
+  return actor.kind === "user" ? "user" : `${actor.identity.kind}:${actor.identity.value}`;
+}
+
+/**
+ * The briefing activity lines of `events`, newest first, at most `max`. All the pushes of one actor
+ * to one object in the window are one push group: one line, at the newest push, with a `rollup`
+ * count. Other acts can come between two pushes of a group. So a day of pushes does not fill the
+ * list.
  */
 export function activityItemsOf(
   events: readonly ActivityEvent[],
   max: number,
 ): IntegrationActivityItem[] {
-  const newest = [...events].reverse();
-  const pushRuns = new Map<string, { item: IntegrationActivityItem; count: number }>();
+  const pushGroups = new Map<string, { item: IntegrationActivityItem; count: number }>();
   const items: IntegrationActivityItem[] = [];
 
-  for (const event of newest) {
+  for (const event of events.toReversed()) {
     if (event.source.kind !== "integration") continue;
-    const actor = activityActorLabel(event.actor);
 
-    if (event.verb === "pushed" && event.object) {
-      const key = `${actor}\u001f${event.object}`;
-      const run = pushRuns.get(key);
+    const pushGroupKey =
+      event.verb === "pushed" && event.object
+        ? `${activityActorKey(event.actor)}\u001f${event.object}`
+        : null;
 
-      if (run) {
-        run.count += 1;
-        run.item.rollup = { eventCount: run.count };
-        continue;
-      }
+    const group = pushGroupKey === null ? undefined : pushGroups.get(pushGroupKey);
+
+    if (group) {
+      group.count += 1;
+      group.item.rollup = { eventCount: group.count };
+      continue;
     }
 
     if (items.length >= max) continue;
     const objectLabel = event.title ?? event.object ?? event.source.slug;
+    const actor = activityActorLabel(event.actor);
 
     const item: IntegrationActivityItem = {
       id: event.id,
@@ -55,9 +66,7 @@ export function activityItemsOf(
 
     items.push(item);
 
-    if (event.verb === "pushed" && event.object) {
-      pushRuns.set(`${actor}\u001f${event.object}`, { item, count: 1 });
-    }
+    if (pushGroupKey !== null) pushGroups.set(pushGroupKey, { item, count: 1 });
   }
 
   return items;

@@ -761,12 +761,13 @@ export async function listPriorBriefings(
 }
 
 /**
- * The window end of the last sent or suppressed briefing of `slot`, or of any slot when `slot` is
- * absent. Null when no such briefing exists; the caller then looks back one day.
+ * The window end of the last sent or suppressed briefing of `slot`. `any` reads the last briefing
+ * of all slots (the activity window). Null when no such briefing exists; the caller then looks back
+ * one day.
  */
 export async function fetchLatestWatermark(args: {
   userId: string;
-  slot?: BriefingSlot;
+  slot: BriefingSlot | "any";
 }): Promise<Date | null> {
   const conditions = [
     eq(briefings.userId, args.userId),
@@ -774,7 +775,7 @@ export async function fetchLatestWatermark(args: {
     isNotNull(briefings.watermarkAt),
   ];
 
-  if (args.slot) conditions.push(eq(briefings.slot, args.slot));
+  if (args.slot !== "any") conditions.push(eq(briefings.slot, args.slot));
 
   const rows = await db()
     .select({ watermarkAt: briefings.watermarkAt })
@@ -810,7 +811,7 @@ export async function readBriefingActivityWindow(args: {
   userId: string;
   end: Date;
 }): Promise<ActivityWindow> {
-  const since = await fetchLatestWatermark({ userId: args.userId });
+  const since = await fetchLatestWatermark({ userId: args.userId, slot: "any" });
   const end = args.end.getTime();
   const start = since ? since.getTime() : end - FIRST_ACTIVITY_WINDOW_MS;
 

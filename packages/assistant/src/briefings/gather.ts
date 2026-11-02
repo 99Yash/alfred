@@ -231,9 +231,9 @@ export interface GatherBriefingDigestArgs {
   windowEnd?: Date;
   /**
    * The window of the GitHub merged read: the briefing's activity window
-   * (`readBriefingActivityWindow`). Defaults to the email window.
+   * (`readBriefingActivityWindow`). It is not the email window.
    */
-  activityWindow?: ActivityWindow;
+  activityWindow: ActivityWindow;
   /** Cap per bucket. */
   maxPerBucket?: number;
 }
@@ -443,8 +443,6 @@ export async function gatherBriefingDigest(
   // proof compares each merge time with the gap bounds, so the read can prove a gap after `start`
   // only. The email window can start earlier. A mail from that earlier time still reconciles: the
   // webhook or an earlier briefing's read folded its merge into the store.
-  const mergedWindow = args.activityWindow ?? { start: windowStart, end: windowEnd };
-
   const [verifiedPull, githubMerged] = await Promise.all([
     gatherVerifiedPulls({
       userId: args.userId,
@@ -452,8 +450,8 @@ export async function gatherBriefingDigest(
     }),
     gatherGithubMergedPullRequests({
       userId: args.userId,
-      windowStart: mergedWindow.start,
-      windowEnd: mergedWindow.end,
+      windowStart: args.activityWindow.start,
+      windowEnd: args.activityWindow.end,
     }),
   ]);
 
@@ -814,15 +812,16 @@ export async function gatherBriefingWithSuppressionAudit(
     calendar: calendar.provenance,
     weather: weather.provenance,
     official_warnings: officialWarnings.provenance,
-    integration_activity: mergeInputProvenance("integration_activity", [
-      ...activityRecordProvenance({
+    integration_activity: mergeInputProvenance(
+      "integration_activity",
+      activityRecordProvenance({
         userId: args.userId,
         coverage: activity.coverage,
         unreadable: activity.unreadable,
         capped: activity.capped,
         githubMerged,
       }),
-    ]),
+    ),
     deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
@@ -912,7 +911,7 @@ export async function gatherDayShape(args: {
   return { activityVolume, shipped };
 }
 
-/** The activity lines that one gather stores. A run of pushes is one line (`activityItemsOf`). */
+/** The activity lines that one gather stores. A push group is one line (`activityItemsOf`). */
 const MAX_ACTIVITY_ITEMS = 25;
 
 export interface GatherCalendarArgs {

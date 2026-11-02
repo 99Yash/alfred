@@ -1,8 +1,10 @@
 import type { GithubMergedPullReadEvent } from "../object-state";
 
 /**
- * The result types of the GitHub merged read (`./github`). They are in their own file so that a
- * reader of the result, for example the activity coverage, does not load the MCP client.
+ * The result types of the GitHub merged read (`./github`). They are in their own file for the
+ * module graph gate (`pnpm check:architecture`), which also follows a type import. The activity
+ * coverage reads these types, and the connections barrel reaches the coverage. An import of
+ * `./github` would let the barrel reach the MCP client in that graph, and the gate fails.
  */
 
 /** One merge the read proved. `url` is canonical. Derived from the event payload, so the fold input and the reducer cannot drift. */

@@ -290,6 +290,7 @@ async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOutput> {
           description: "The activity record of the connected tools. This scenario has none.",
           inputSchema: listActivityInputSchema,
           execute: async (): Promise<ActivityList> => ({
+            status: "listed",
             counts: { user: {}, other: {}, unreadable: 0 },
             matched: 0,
             items: [],
