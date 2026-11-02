@@ -91,8 +91,8 @@ export function provenanceAudience(entry: GatherProvenance): ProvenanceAudience 
     // No surface can set the replaced fact, so it is not a row.
     case "fallback":
       return FACT_AND_LOG;
-    // An old item is not news. Only the activity input states `stale`, and the composer reads that
-    // input through `list_activity`, which never returns the old item. So the entry is a log line.
+    // An old item is not news. Only the verified pull states `stale` (`deploy_status`), and no
+    // composer tool returns its old item. So the entry is a log line.
     case "stale":
       return LOG_ONLY;
     case "unavailable":
@@ -300,7 +300,7 @@ export function splitVerifiedPullActivity(
       }
 
       stale.push({
-        input: "integration_activity",
+        input: "deploy_status",
         state: "stale",
         title: item.title,
         occurredAt: item.occurredAt,
@@ -311,11 +311,8 @@ export function splitVerifiedPullActivity(
 
   const read: GatherProvenance =
     failed.length === 0
-      ? live("integration_activity")
-      : readFailed(
-          "integration_activity",
-          `The live deploy status read failed for ${failed.join(", ")}.`,
-        );
+      ? live("deploy_status")
+      : readFailed("deploy_status", `The live deploy status read failed for ${failed.join(", ")}.`);
 
   return { value: fresh, provenance: [read, ...stale] };
 }

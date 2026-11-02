@@ -335,6 +335,7 @@ export const GATHER_INPUTS = [
   "calendar",
   "weather",
   "integration_activity",
+  "deploy_status",
   "github_merged",
   "loop_relevance",
   "official_warnings",
@@ -441,8 +442,8 @@ export const GATHER_STALE_PROVENANCE_MAX = 10;
 
 /**
  * Upper bound on stored entries. Today a gather states at most two entries for each input (weather:
- * a failed read and its fallback; warnings: a place entry and a failed read), which is 14 for
- * seven inputs, plus the stale entries above (10).
+ * a failed read and its fallback; warnings: a place entry and a failed read), which is 16 for
+ * eight inputs, plus the stale entries above (10).
  * The verified pull reads at most 5 targets for each of its 2 providers, so 10 stale entries is
  * also the most it can produce. The producer clips the list to this bound, so a stored list never
  * fails its parse on length.

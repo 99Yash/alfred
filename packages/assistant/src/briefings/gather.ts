@@ -820,8 +820,8 @@ export async function gatherBriefingWithSuppressionAudit(
         unreadable: activity.unreadable,
         githubMerged,
       }),
-      ...verifiedPull.provenance,
     ]),
+    deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),
     github_merged: [githubMergedProvenance(githubMerged)],
     loop_relevance: digest.loopRelevanceProvenance,
   } satisfies Record<GatherInput, StatedProvenance>;
