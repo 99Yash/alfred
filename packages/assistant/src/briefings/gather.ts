@@ -804,8 +804,9 @@ export async function gatherBriefingWithSuppressionAudit(
   );
 
   // The activity record reads only the acts whose delivery arrived in the window
-  // (`readActivityEvents`), so only the verified pull can hold an old item. The record states the coverage of each source,
-  // and the merged read settles a silence (`activityRecordProvenance`).
+  // (`readActivityEvents`), so only the verified pull (`deploy_status`) can hold an old item. The
+  // coverage owns the verdict of each source (`settleActivityCoverage`), and
+  // `activityRecordProvenance` gives each verdict its audience.
   // A total table of non-empty lists, so a new member of `GATHER_INPUTS` does not compile until
   // it states at least one entry.
   const provenanceByInput = {
