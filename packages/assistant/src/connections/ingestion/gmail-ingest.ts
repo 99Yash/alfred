@@ -35,6 +35,9 @@ import {
 } from "./gmail-media";
 import { observeDocumentAskCarrier } from "../document-asks";
 import { logger } from "@alfred/logging";
+import type { JobInput } from "@alfred/assistant/queue-jobs";
+import type { GmailPollHistoryReason } from "./gmail-delivery-policy";
+import type { ingestionQueue } from "./queue";
 
 /**
  * Gmail ingestion: writes `documents` and `ingestion_state` and indexes the corpus. The provider
@@ -45,11 +48,9 @@ import { logger } from "@alfred/logging";
  * Schedules one `gmail.media_ingest` job per message (ADR-0091 amendment). Poll paths never parse
  * attachments inline: that could hold the poll for minutes.
  */
-type ScheduleGmailMediaIngest = (args: {
-  credentialId: string;
-  messageId: string;
-  documentId: string;
-}) => Promise<void>;
+type ScheduleGmailMediaIngest = (
+  args: JobInput<typeof ingestionQueue, "gmail.media_ingest">,
+) => Promise<void>;
 
 export interface IngestRecentArgs {
   credentialId: string;
@@ -648,12 +649,6 @@ export async function installGmailWatchAndSeedCursor(args: {
 // ---------------------------------------------------------------------------
 // Delta sync via users.history.list
 // ---------------------------------------------------------------------------
-
-/**
- * Why a `gmail.poll_history` job ran. Gmail pushes every mailbox change, so a message that only the
- * `poll-fallback` sweep found is a missed push (#998).
- */
-export type GmailPollHistoryReason = "webhook" | "poll-fallback";
 
 export interface PollHistoryArgs {
   credentialId: string;

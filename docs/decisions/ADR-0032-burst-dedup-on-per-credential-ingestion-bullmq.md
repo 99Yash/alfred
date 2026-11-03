@@ -1,5 +1,7 @@
 # ADR-0032 — Burst dedup on per-credential ingestion: BullMQ `deduplication: { id, ttl }`, never a static `jobId`
 
+**Status.** Accepted. Amended by [ADR-0119](./ADR-0119-a-bullmq-queue-is-declared-once-and-each-job-kind-owns-its-rules.md): the dedup rule is on the catalog entry of the job kind, not at each call site. The webhook now enqueues `gmail.poll_recent`, and the sweep enqueues `gmail.poll_history` with `keepLastIfActive`. The code sketch below shows the original call sites.
+
 **Decision.** Both call sites that enqueue `gmail.poll_history` (the webhook handler and the 5-min sweep) collapse simultaneous enqueues for the same credential via BullMQ's `deduplication: { id, ttl }` option — never via the legacy `jobId` option as a dedup key. The dedup id is `gmail.poll_history.{credentialId}` and the TTL is 30 seconds. The webhook and sweep share the same dedup id so a webhook arriving inside the same 30s window as a sweep enqueue collapses into a single poll, not two redundant ones.
 
 **Why this is its own ADR.** The static-`jobId`-as-dedup pattern is the obvious-looking choice and it almost works. It bit prod twice in one session before we understood the failure mode and switched. The choice deserves the same surface area as a real ADR so future contributors don't reach for the same gun.

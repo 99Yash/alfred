@@ -46,7 +46,7 @@ import { authMacro } from "./middleware/auth";
 import { requireOnboarded } from "./middleware/onboarding";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { resolveBriefingPreferences } from "@alfred/assistant/briefings/preferences";
-import { enqueueBriefingRun } from "@alfred/assistant/briefings/queue";
+import { enqueueBriefingRun } from "@alfred/assistant/briefings/run";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
 import { settings, userIdentity } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";

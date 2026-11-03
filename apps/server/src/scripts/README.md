@@ -39,4 +39,4 @@ Scripts that initialize Redis-backed queues should call `closeScriptResources`
 from `script-runtime.ts` in `finally`, passing queue or worker closers in
 dependency order. It preserves best-effort cleanup while ensuring Redis and the
 database close last—for example,
-`closeScriptResources(closeAgentQueue, closeBriefingQueue)`.
+`closeScriptResources(closeAgentQueue, briefingWorker.close)`.

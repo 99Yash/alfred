@@ -204,7 +204,9 @@ flowchart LR
 
 | File | Owns |
 | --- | --- |
-| `briefings/queue.ts` + `repeatable.ts` | The hourly `briefing.tick` scheduler (`briefing-cron`) |
+| `briefings/queue.ts` | The `briefingQueue` contract: the `briefing.tick` kind |
+| `briefings/worker.ts` | The `briefingWorker` consumer and the hourly `briefing.tick` scheduler |
+| `briefings/run.ts` | `enqueueBriefingRun`: starts a briefing run (not a queue job) |
 | `briefings/daily-briefing.ts` | `gather` → `compose` → `send` orchestration |
 | `briefings/gather.ts` | Source collection; the object-state closure decision before the model runs |
 | `briefings/compose.ts` | Briefing composition |
@@ -313,9 +315,9 @@ Behavior in [`triage.md`](./triage.md); located in the triage diagram above (lef
 | Home | Owns |
 | --- | --- |
 | `packages/http/src/connections/gmail-webhook.ts` | Pub/Sub push endpoint: OIDC verify, `event_receipts` dedup, enqueue poll |
-| `connections/ingestion/queue.ts` | The `ingestion-runs` worker: `poll_recent`, `poll_history`, `poll_sweep`, watch renew, per-message `media_ingest`, embed sweep |
+| `connections/ingestion/queue.ts` | The `ingestionQueue` catalog: each job kind with its schema and its dedup, job id, and delay rule |
+| `connections/ingestion/worker.ts` | The `ingestionWorker` consumer: one handler per kind (`poll_recent`, `poll_history`, `poll_sweep`, watch renew, `media_ingest`, embed sweep, and more) and the repeating schedules |
 | `connections/ingestion/gmail-ingest.ts` | `persistMessage` → `documents`; sent/inbound partition; attachment ingest |
-| `connections/ingestion/repeatable.ts` | The 5-minute schedules |
 
 Tables: `documents`, `chunks`, `ingestion_state`, `event_receipts`,
 `sender_priors`. Queue: `ingestion-runs`.

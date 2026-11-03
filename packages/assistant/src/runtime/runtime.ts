@@ -12,22 +12,13 @@ import {
   startWorkflowsWorker,
   stopWorkflowsWorker,
 } from "@alfred/assistant/automation";
+import { briefingWorker } from "@alfred/assistant/briefings";
 import {
-  closeBriefingQueue,
-  getBriefingQueue,
-  scheduleRepeatableBriefingJobs,
-  startBriefingWorker,
-  stopBriefingWorker,
-} from "@alfred/assistant/briefings";
-import {
-  closeIngestionQueue,
-  getIngestionQueue,
-  scheduleRepeatableIngestionJobs,
-  startIngestionWorker,
+  ingestionWorker,
   startReceiptPayloadReaper,
-  stopIngestionWorker,
   stopReceiptPayloadReaper,
 } from "@alfred/assistant/connections/ingestion";
+import { clearJobSchedulers, type BackgroundWorker } from "@alfred/assistant/queue-jobs";
 import {
   startDocumentAskReconciler,
   stopDocumentAskReconciler,
@@ -85,7 +76,6 @@ import {
 import { reconcileInflightInvocations } from "@alfred/assistant/tool-runtime/mcp";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
-import type { Queue } from "bullmq";
 import { registerRuntimeAdapters, unregisterRuntimeAdapters } from "./adapters/runtime-adapters";
 import { logger } from "@alfred/logging";
 
@@ -124,21 +114,6 @@ export async function runShutdownStep(label: string, step: () => Promise<void>):
   }
 }
 
-/** A BullMQ module: one worker, the queue it consumes, and the crons it schedules on that queue. */
-interface WorkerService {
-  readonly kind: "worker";
-  /** Shutdown logs read `<label> worker` and `<label> queue`. */
-  readonly label: string;
-  readonly start: () => Promise<void>;
-  readonly stop: () => Promise<void>;
-  readonly close: () => Promise<void>;
-  /** `schedule` writes its schedulers on `queue`, so a boot with scheduled jobs off clears that queue. */
-  readonly repeatable?: {
-    readonly queue: () => Queue;
-    readonly schedule: () => Promise<void>;
-  };
-}
-
 /** An in-process recovery loop. It has no queue and runs only when scheduled jobs are enabled. */
 interface ScheduledLoop {
   readonly kind: "scheduled-loop";
@@ -148,7 +123,7 @@ interface ScheduledLoop {
   readonly stop: () => Promise<void>;
 }
 
-type BackgroundService = WorkerService | ScheduledLoop;
+type BackgroundService = BackgroundWorker | ScheduledLoop;
 
 /**
  * Teardown order. Each group stops every member, then closes every member's
@@ -194,21 +169,17 @@ function backgroundServices(config: RuntimeConfig) {
       stop: stopSubAgentJoinWakeWorker,
       close: closeSubAgentJoinWakeQueue,
     },
-    ingestion: {
-      kind: "worker",
-      label: "ingestion",
-      start: startIngestionWorker,
-      stop: stopIngestionWorker,
-      close: closeIngestionQueue,
-      repeatable: { queue: getIngestionQueue, schedule: scheduleRepeatableIngestionJobs },
-    },
+    ingestion: ingestionWorker,
     memory: {
       kind: "worker",
       label: "memory",
       start: startMemoryWorker,
       stop: stopMemoryWorker,
       close: closeMemoryQueue,
-      repeatable: { queue: getMemoryQueue, schedule: scheduleRepeatableMemoryJobs },
+      repeatable: {
+        schedule: scheduleRepeatableMemoryJobs,
+        clear: async () => clearJobSchedulers(getMemoryQueue()),
+      },
     },
     // ADR-0113 re-match. It enqueues relabels on the ingestion queue, so it stops in the
     // agent group, before that queue closes.
@@ -218,7 +189,10 @@ function backgroundServices(config: RuntimeConfig) {
       start: startTriageRematchWorker,
       stop: stopTriageRematchWorker,
       close: closeTriageRematchQueue,
-      repeatable: { queue: getTriageRematchQueue, schedule: scheduleRepeatableTriageRematchJobs },
+      repeatable: {
+        schedule: scheduleRepeatableTriageRematchJobs,
+        clear: async () => clearJobSchedulers(getTriageRematchQueue()),
+      },
     },
     chatMemory: {
       kind: "worker",
@@ -234,21 +208,17 @@ function backgroundServices(config: RuntimeConfig) {
       stop: stopConversationCompactionWorker,
       close: closeConversationCompactionQueue,
     },
-    briefing: {
-      kind: "worker",
-      label: "briefing",
-      start: startBriefingWorker,
-      stop: stopBriefingWorker,
-      close: closeBriefingQueue,
-      repeatable: { queue: getBriefingQueue, schedule: scheduleRepeatableBriefingJobs },
-    },
+    briefing: briefingWorker,
     workflows: {
       kind: "worker",
       label: "workflows",
       start: startWorkflowsWorker,
       stop: stopWorkflowsWorker,
       close: closeWorkflowsQueue,
-      repeatable: { queue: getWorkflowsQueue, schedule: scheduleRepeatableWorkflowsJobs },
+      repeatable: {
+        schedule: scheduleRepeatableWorkflowsJobs,
+        clear: async () => clearJobSchedulers(getWorkflowsQueue()),
+      },
     },
     approvalNotification: {
       kind: "worker",
@@ -292,21 +262,18 @@ function backgroundServices(config: RuntimeConfig) {
 /**
  * Delete every persisted repeatable job scheduler and return the count.
  * BullMQ keeps schedulers in Redis across restarts, so skipping
- * `scheduleRepeatable*` alone still fires a prior run's crons.
+ * `schedule` alone still fires a prior run's crons.
  * Reads the live set, so a scheduler added later is covered too.
  */
-async function clearPersistedJobSchedulers(queues: readonly Queue[]): Promise<number> {
+async function clearPersistedJobSchedulers(services: readonly BackgroundWorker[]): Promise<number> {
   let removed = 0;
 
-  for (const queue of queues) {
+  for (const service of services) {
     // A dev convenience must never fail boot.
     try {
-      for (const scheduler of await queue.getJobSchedulers()) {
-        await queue.removeJobScheduler(scheduler.key);
-        removed += 1;
-      }
+      removed += (await service.repeatable?.clear()) ?? 0;
     } catch (err) {
-      logger.error({ err }, `[runtime] could not clear schedulers on ${queue.name}`);
+      logger.error({ err }, `[runtime] could not clear schedulers for ${service.label}`);
     }
   }
 
@@ -366,9 +333,7 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
         }
       } else {
         const removed = await clearPersistedJobSchedulers(
-          bootOrder.flatMap((service) =>
-            service.kind === "worker" && service.repeatable ? [service.repeatable.queue()] : [],
-          ),
+          bootOrder.flatMap((service) => (service.kind === "worker" ? [service] : [])),
         );
 
         logger.info(

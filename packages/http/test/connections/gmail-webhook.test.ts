@@ -431,11 +431,7 @@ describe("/webhooks/gmail", () => {
       receiptPersisted: true,
     });
     assert.deepEqual(enqueued, [
-      [
-        "gmail.poll_recent",
-        { kind: "gmail.poll_recent", credentialId: "cred_123", pushHistoryId: "hist_123" },
-        { deduplication: { id: "gmail.poll_recent.cred_123", ttl: 30_000 } },
-      ],
+      ["gmail.poll_recent", { credentialId: "cred_123", pushHistoryId: "hist_123" }],
     ]);
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0]?.providerDeliveryId, "msg_123");

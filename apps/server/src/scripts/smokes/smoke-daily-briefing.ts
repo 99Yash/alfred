@@ -21,7 +21,7 @@
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
-import { resolveBriefingPreferences, closeBriefingQueue } from "@alfred/assistant/briefings";
+import { resolveBriefingPreferences, briefingWorker } from "@alfred/assistant/briefings";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
@@ -215,5 +215,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue, closeBriefingQueue);
+  await closeScriptResources(closeAgentQueue, briefingWorker.close);
 }
