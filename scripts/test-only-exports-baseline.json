@@ -75,7 +75,6 @@
     "guardSpawnedChildren",
     "guardUnreportedToolFailures"
   ],
-  "packages/assistant/src/chat/idle-capture-queue.ts": ["chatMemoryIdleJobId"],
   "packages/assistant/src/chat/media-adapter.ts": ["createChatMediaHandler"],
   "packages/assistant/src/chat/turn-attachment-reconciliation.ts": [
     "freshAttachmentRowsMatchSubset"
@@ -140,7 +139,6 @@
     "collectResumableRunIds",
     "minStaleAfterMs"
   ],
-  "packages/assistant/src/execution/sub-agent-join-wake-queue.ts": ["subAgentJoinWakeJobId"],
   "packages/assistant/src/execution/terminal-closure.ts": ["TerminalOutcome"],
   "packages/assistant/src/execution/tool-surface-usage.ts": [
     "ToolSurfaceUsage",
@@ -178,9 +176,6 @@
   "packages/assistant/src/knowledge/style-profiles.ts": ["upsertStyleProfileArgsSchema"],
   "packages/assistant/src/tasks/resolve.ts": ["gmailThreadIdsFromTodoSources"],
   "packages/assistant/src/tasks/suggest.ts": ["todoSourcesOverlap"],
-  "packages/assistant/src/tool-runtime/approval-notification-queue.ts": [
-    "approvalNotificationJobId"
-  ],
   "packages/assistant/src/tool-runtime/discovery.ts": [
     "ToolCatalogAccess",
     "preloadToolCatalog",

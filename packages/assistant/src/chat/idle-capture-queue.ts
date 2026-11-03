@@ -2,7 +2,7 @@ import { chatMemoryCaptureEnabled } from "@alfred/env/server";
 import { toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { isQueueEnabled } from "@alfred/db/redis";
-import { defineQueue, job } from "@alfred/assistant/queue-jobs";
+import { defineQueue, keyedJob } from "@alfred/assistant/queue-jobs";
 import { logger } from "@alfred/logging";
 
 /**
@@ -28,22 +28,17 @@ export const CHAT_MEMORY_IDLE_MS = 12 * 60_000;
 
 const idleJobSlotSchema = z.enum(["primary", "tail"]);
 
-/**
- * A stable id per thread and slot, so a reschedule replaces one job. The tail slot is used only
- * while the primary job is active, so a new turn still gets a later pass. BullMQ custom ids
- * cannot contain `:`.
- */
-export function chatMemoryIdleJobId(
-  threadId: string,
-  slot: z.infer<typeof idleJobSlotSchema>,
-): string {
-  return slot === "tail" ? `chat-mem-idle-tail.${threadId}` : `chat-mem-idle.${threadId}`;
-}
+type IdleJobSlot = z.infer<typeof idleJobSlotSchema>;
 
 export const chatMemoryQueue = defineQueue({
   name: "chat-memory",
   jobs: {
-    "chat-memory.extract": job(
+    /**
+     * A stable id per thread and slot, so a reschedule replaces one job. The tail slot is used
+     * only while the primary job is active, so a new turn still gets a later pass. BullMQ custom
+     * ids cannot contain `:`.
+     */
+    "chat-memory.extract": keyedJob(
       z.object({
         userId: z.string().min(1),
         threadId: z.string().min(1),
@@ -51,10 +46,12 @@ export const chatMemoryQueue = defineQueue({
         /** Which of the two per-thread job ids the job holds. A job added before this field is `primary`. */
         slot: idleJobSlotSchema.default("primary"),
       }),
-      ({ threadId, slot }) => ({
-        delay: CHAT_MEMORY_IDLE_MS,
-        jobId: chatMemoryIdleJobId(threadId, slot),
-      }),
+      {
+        key: ["threadId", "slot"],
+        id: ({ threadId, slot }) =>
+          slot === "tail" ? `chat-mem-idle-tail.${threadId}` : `chat-mem-idle.${threadId}`,
+        options: () => ({ delay: CHAT_MEMORY_IDLE_MS }),
+      },
     ),
   },
   defaults: {
@@ -66,9 +63,10 @@ export const chatMemoryQueue = defineQueue({
 });
 
 async function removeReplaceableJob(
-  jobId: string,
+  threadId: string,
+  slot: IdleJobSlot,
 ): Promise<"missing" | "active" | "removed" | "locked"> {
-  const existing = await chatMemoryQueue.getJob(jobId);
+  const existing = await chatMemoryQueue.getJob("chat-memory.extract", { threadId, slot });
 
   if (!existing) return "missing";
   const state = await existing.getState();
@@ -99,16 +97,16 @@ export async function scheduleThreadIdleExtraction(args: {
   if (!isQueueEnabled() || !chatMemoryCaptureEnabled()) return "disabled";
 
   try {
-    const primaryState = await removeReplaceableJob(chatMemoryIdleJobId(args.threadId, "primary"));
+    const primaryState = await removeReplaceableJob(args.threadId, "primary");
 
     if (primaryState === "active" || primaryState === "locked") {
-      await removeReplaceableJob(chatMemoryIdleJobId(args.threadId, "tail"));
+      await removeReplaceableJob(args.threadId, "tail");
       await chatMemoryQueue.add("chat-memory.extract", { ...args, slot: "tail" });
 
       return "scheduled";
     }
 
-    await removeReplaceableJob(chatMemoryIdleJobId(args.threadId, "tail"));
+    await removeReplaceableJob(args.threadId, "tail");
     await chatMemoryQueue.add("chat-memory.extract", { ...args, slot: "primary" });
 
     return "scheduled";

@@ -17,7 +17,6 @@ import {
 } from "@alfred/assistant/execution/sub-agent-metadata";
 import {
   scheduleSubAgentJoinWakeJob,
-  subAgentJoinWakeJobId,
   subAgentJoinWakeQueue,
 } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import { subAgentJoinWakeWorker } from "@alfred/assistant/execution/sub-agent-join-wake-worker";
@@ -209,7 +208,7 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
     await removeQueuedAgentRuns();
 
     for (const runId of createdRunIds) {
-      const job = await subAgentJoinWakeQueue.getJob(subAgentJoinWakeJobId(runId));
+      const job = await subAgentJoinWakeQueue.getJob("sub-agent-join.wake", { childRunId: runId });
       await job?.remove();
     }
   });

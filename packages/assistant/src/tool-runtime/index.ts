@@ -67,7 +67,6 @@ export {
 
 // Approval job scheduling (ADR-0034). The workers live in execution.
 export {
-  approvalExpiryJobId,
   approvalExpiryQueue,
   scheduleApprovalExpiryJob,
   removeApprovalExpiryJob,

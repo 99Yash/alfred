@@ -1,6 +1,6 @@
 # ADR-0119 — A BullMQ queue is declared once, and each job kind owns its schema and its dedup rule
 
-**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `agent-runs` queue, the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. Slice 3 built: the `memory-cron`, `workflows-tick`, `triage-rematch`, `chat-memory`, and `conversation-compaction` queues. Every BullMQ queue now uses `defineQueue`. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
+**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `agent-runs` queue, the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. Slice 3 built: the `memory-cron`, `workflows-tick`, `triage-rematch`, `chat-memory`, and `conversation-compaction` queues. Every BullMQ queue now uses `defineQueue`. §10 (keyed job ids and `revive`) built after slice 3. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
 
 **Enforced.** The lint rule `alfred/no-raw-bullmq-queue` rejects a value import of the BullMQ `Queue` or `Worker` class outside `packages/assistant/src/queue-jobs.ts`, so a new queue cannot skip `defineQueue`.
 
@@ -29,7 +29,7 @@ Jobs and schedulers that are already in Redis still carry `kind` in their data. 
 
 ### 2. Each job kind owns its options (amends ADR-0032)
 
-`job(schema, options?)` declares a kind. `options` is a function of the parsed data, so a dedup id or a job id can use a field of the data. `add` takes no options argument. This is deliberate: a caller cannot change the dedup rule of a kind, and two producers of one kind always use the same rule.
+`job(schema, options?)` declares a kind. `options` is a function of the parsed data, so a dedup id can use a field of the data. A job id is a separate rule (§10). `add` takes no options argument. This is deliberate: a caller cannot change the dedup rule of a kind, and two producers of one kind always use the same rule.
 
 ADR-0032 still decides **what** the rule is: a TTL dedup, never a static `jobId`, for a burst of pushes. This ADR decides **where** the rule is: on the catalog entry of the kind. The `gmail.poll_recent` entry holds the webhook burst dedup, and the webhook route passes only `{ credentialId, pushHistoryId }`.
 
@@ -72,7 +72,7 @@ A helper that starts other work and is not a queue job stays out of `queue.ts`. 
 - The `isQueueEnabled()` checks. A feature decides what to do when Redis is not configured.
 - The never-throw wrappers, for example `bestEffort` in the Google OAuth callback. A feature decides which failures are fatal.
 - The producer helpers that other modules use as ports, for example `enqueueInboundDelivery` and `enqueueTriageRelabel`. Each one is now one `add` call.
-- `clearFinishedJob`, for a kind that must revive a finished job under a static id. The handle's `getJob(jobId)` returns a `JobRef` (`id`, `getState`, `remove`) and fits `clearFinishedJob`. `inspect()` returns a read-only view of the BullMQ queue (`getJob`, `getJobs`, `getJobCounts`, `getWorkers`) for tests and smoke scripts only.
+- The decision to remove a job, for example when an approval is decided. The handle's `getJob(kind, key)` returns a `JobRef` (`id`, `getState`, `remove`); §10 gives the key. `inspect()` returns a read-only view of the BullMQ queue (`getJob`, `getJobs`, `getJobCounts`, `getWorkers`) for tests and smoke scripts only.
 
 ### 9. The worker record carries its companions (slice 2)
 
@@ -83,6 +83,20 @@ A helper that starts other work and is not a queue job stays out of `queue.ts`. 
 - `alongside`: loops that live beside the worker, for example the Postgres reconcilers that back up the approval-expiry and sub-agent-wake delayed jobs, and the agent resume sweep. They start after the worker and stop before it closes. This is the order the hand-written workers used. `start` may await a first pass.
 
 Each handler gets a third argument, the job's `AbortSignal`, for a handler that must stop when the worker closes (triage re-match).
+
+### 10. A kind with a job id names its key fields, and may revive a finished job
+
+Before this section, a kind set its job id inside `options`, and each caller that read or removed the job built the same string again with an exported helper (for example `chatMemoryIdleJobId` and `approvalExpiryJobId`). Most of these callers have only the fields of the id, not the full data. For example, `removeApprovalExpiryJob` has only the staging id.
+
+A kind with a job id now declares it with `keyedJob(schema, { key, id, revive?, options? })`.
+
+- `key` lists the fields of the data that the id reads. The type of `id` is a function of those fields only. A field that is not in `key` does not compile in `id`.
+- `options` cannot set `jobId`. The id comes only from `id`, so one kind has one id rule.
+- `add` computes the id from the parsed data.
+- `handle.jobId(kind, key)` returns the id, and `handle.getJob(kind, key)` finds the job. Both accept only a kind with an `id`, and only the fields in `key`. No caller builds a job id string, so the exported id helpers are gone.
+- `revive: true` makes `add` first remove a `completed` or `failed` job under the id. Without it, BullMQ does nothing for an id that a finished job still holds until its retention age. A `waiting`, `delayed`, or `active` job stays and covers the new request. This replaces the `clearFinishedJob` call that the approval-expiry and sub-agent-wake producers made before each `add`. Only `keyedJob` takes `revive`, so it does not compile on a kind without an id.
+
+The job id strings are the same as before. A job that is in Redis at the deploy keeps its id.
 
 ## Residual risk
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { defineQueue, job } from "@alfred/assistant/queue-jobs";
+import { defineQueue, job, keyedJob } from "@alfred/assistant/queue-jobs";
 import { getWorkflow } from "./registry";
 
 /**
@@ -27,7 +27,7 @@ export const agentQueue = defineQueue({
      * The job id is the run id, so a retried producer adds nothing while the job is kept.
      * BullMQ job ids cannot contain `:`.
      */
-    start: job(runRef, (d) => ({ jobId: `run-start.${d.runId}` })),
+    start: keyedJob(runRef, { key: ["runId"], id: ({ runId }) => `run-start.${runId}` }),
   },
   defaults: {
     // Job retries only; the run row owns step attempts.
