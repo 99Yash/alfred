@@ -88,7 +88,7 @@ export const GMAIL_INSERT_JOB_KINDS = [
 const ingestedIdListSchema = z.array(z.string().min(1).max(500)).max(10_000);
 
 /**
- * Published by `queue.ts` after a Gmail insert job. Each consumer owns its own policy.
+ * Published by the ingestion `worker.ts` after a Gmail insert job. Each consumer owns its own policy.
  * `unembeddedDocumentIds` is empty on paths that embed inline, so nothing embeds twice.
  */
 const gmailDocumentsIngestedPayloadSchema = z

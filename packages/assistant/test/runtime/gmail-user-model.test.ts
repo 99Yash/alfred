@@ -16,7 +16,7 @@ import {
 } from "../../src/connections/ingestion/gmail-user-model";
 import { createGmailUserModelHandler } from "../../src/runtime/adapters/gmail-user-model";
 import type { GmailDocumentForReduction } from "@alfred/assistant/knowledge";
-import { runGmailKindRefoldJob } from "../../src/connections/ingestion/queue";
+import { runGmailKindRefoldJob } from "../../src/connections/ingestion/worker";
 import { asContractViolation } from "../support/contract-violation";
 
 const captureRequest = {

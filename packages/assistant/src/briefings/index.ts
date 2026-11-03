@@ -78,16 +78,9 @@ export {
   type PriorityEmailDemandItem,
 } from "./read";
 
-export {
-  startBriefingWorker,
-  stopBriefingWorker,
-  closeBriefingQueue,
-  getBriefingQueue,
-  enqueueBriefingRun,
-  type BriefingJobData,
-} from "./queue";
+export { briefingWorker } from "./worker";
 
-export { scheduleRepeatableBriefingJobs } from "./repeatable";
+export { enqueueBriefingRun } from "./run";
 
 export { buildSystemPrompt } from "./agent/prompt";
 

@@ -10,11 +10,8 @@ import {
 import { Elysia, t } from "elysia";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
-import {
-  GMAIL_POLL_DEDUP_TTL_MS,
-  getIngestionQueue,
-  type IngestionJobData,
-} from "@alfred/assistant/connections/ingestion";
+import { ingestionQueue } from "@alfred/assistant/connections/ingestion";
+import type { JobInput } from "@alfred/assistant/queue-jobs";
 
 /**
  * Gmail push receiver: Pub/Sub -> POST /webhooks/gmail.
@@ -37,11 +34,11 @@ type GmailWebhookCredentialLookup = (
   emailAddress: string,
 ) => Promise<{ id: string; userId: string } | null>;
 
+/** The `gmail.poll_recent` kind owns its burst dedup, so the route passes only the data. */
 type GmailWebhookQueue = {
   add: (
-    name: "gmail.poll_recent",
-    data: Extract<IngestionJobData, { kind: "gmail.poll_recent" }>,
-    options: { deduplication: { id: string; ttl: number } },
+    kind: "gmail.poll_recent",
+    data: JobInput<typeof ingestionQueue, "gmail.poll_recent">,
   ) => Promise<void>;
 };
 
@@ -174,7 +171,7 @@ export function makeGmailWebhookRoutes(
 ) {
   const verifyOidc = deps.verifyOidc ?? verifyPubSubOidcForGmailWebhook;
   const findCredential = deps.findCredential ?? findCredentialByEmail;
-  const getQueue = deps.getQueue ?? getIngestionQueue;
+  const getQueue = deps.getQueue ?? (() => ingestionQueue);
   const persistReceipt = deps.persistReceipt ?? defaultPersistReceipt;
 
   return new Elysia({ prefix: "/webhooks", normalize: "typebox" }).post(
@@ -227,19 +224,11 @@ export function makeGmailWebhookRoutes(
           })
         : { inserted: false };
 
-      // A TTL dedup collapses bursts. Not a static `jobId`: BullMQ keeps completed jobs,
-      // so a reused id is a silent no-op for hours. Poll, not history.list, which lags (ADR-0037).
-      const queue = getQueue();
-      await queue.add(
-        "gmail.poll_recent",
-        { kind: "gmail.poll_recent", credentialId: cred.id, pushHistoryId: historyId },
-        {
-          deduplication: {
-            id: `gmail.poll_recent.${cred.id}`,
-            ttl: GMAIL_POLL_DEDUP_TTL_MS,
-          },
-        },
-      );
+      // Poll, not history.list, which lags (ADR-0037). The job collapses push bursts.
+      await getQueue().add("gmail.poll_recent", {
+        credentialId: cred.id,
+        pushHistoryId: historyId,
+      });
 
       return { ok: true, credentialId: cred.id, receiptPersisted: receipt.inserted };
     },

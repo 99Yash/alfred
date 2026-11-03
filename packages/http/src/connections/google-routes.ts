@@ -23,7 +23,7 @@ import {
 import { Elysia, t } from "elysia";
 import { and, eq } from "drizzle-orm";
 import {
-  getIngestionQueue,
+  ingestionQueue,
   installGmailWatchAndSeedCursor,
   resolveWorkflowRecoveryTarget,
 } from "@alfred/assistant/connections/ingestion";
@@ -245,10 +245,7 @@ export const googleIntegrationRoutes = new Elysia({
         async ({ params, body, user }) => {
           await assertCredentialOwned(params.id, user.id);
 
-          const queue = getIngestionQueue();
-
-          const job = await queue.add("gmail.ingest_recent", {
-            kind: "gmail.ingest_recent",
+          const job = await ingestionQueue.add("gmail.ingest_recent", {
             credentialId: params.id,
             query: body?.query,
             maxMessages: body?.maxMessages,
@@ -293,8 +290,7 @@ export const googleIntegrationRoutes = new Elysia({
 
       // Triage a few recent messages so a new account has sorted mail at once. Idempotent.
       await bestEffort(`failed to enqueue initial-sync for ${credentialId}`, async () => {
-        await getIngestionQueue().add("gmail.ingest_recent", {
-          kind: "gmail.ingest_recent",
+        await ingestionQueue.add("gmail.ingest_recent", {
           credentialId,
           maxMessages: 8,
           triageInsertedDocs: true,
@@ -303,10 +299,7 @@ export const googleIntegrationRoutes = new Elysia({
 
       // Without a watch, mail waits for the 5-minute poll sweep (ADR-0037).
       await bestEffort(`failed to enqueue watch install for ${credentialId}`, async () => {
-        await getIngestionQueue().add("gmail.watch_install", {
-          kind: "gmail.watch_install",
-          credentialId,
-        });
+        await ingestionQueue.add("gmail.watch_install", { credentialId });
       });
 
       await publishGoogleCallbackCompleted(userId, credentialId);
