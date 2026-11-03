@@ -1,6 +1,6 @@
 # ADR-0119 — A BullMQ queue is declared once, and each job kind owns its schema and its dedup rule
 
-**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. The other 9 queues move in later slices. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
+**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. The `agent-runs` queue does not move yet: two producers give a job id at the call (see Residual risk). The other queues move in later slices. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
 
 **Decision.** Each BullMQ queue is one `defineQueue({ name, defaults, jobs })` call in the `queue.ts` file of the feature that owns it. The call gives a **queue handle**. The `jobs` field is the **catalog**: it gives each **job kind** a zod schema and the job options that belong to that kind (dedup, job id, delay, retention). A producer calls `handle.add(kind, data)` and passes only the data. The consumer calls `handle.consume({ label, concurrency, handlers, schedules })` in the `worker.ts` file of the same feature. It gives one handler for each kind and gets the worker record that `runtime.ts` starts and stops. The module is `@alfred/assistant/queue-jobs`.
 
@@ -86,7 +86,10 @@ Each handler gets a third argument, the job's `AbortSignal`, for a handler that 
 
 - Nothing proves the dedup TTL of `gmail.poll_recent` with a test. The webhook test asserts the kind and the data only.
 - Slice 1 did not run against Redis. A local boot with `ALFRED_RUN_SCHEDULED_JOBS=true` must show the same scheduler ids, a `briefing.tick` run, and a `gmail.poll_sweep` run.
-- Until the other 9 queues move, two patterns exist. `runtime.ts` builds the record of the old queues by hand with `clearJobSchedulers`.
+- Slice 2 did not run against Redis. The approval smoke (`smoke-expiry`) and the DB/Redis-backed join-wake test must pass against a live Postgres and Redis.
+- A `workflow.blocked` job that the slice 2 build adds has no `kind` field in its data. The worker before slice 2 finds that kind by a parse of the data, not by the job name. If a deploy rolls back while such a job waits, the old worker fails the job, and no blocked email goes out for that generation.
+- The `agent-runs` queue stays on the old pattern. The `workflows.tick` dispatch (`workflow.<id>.scheduled.<ms>`, ADR-0027) and the sub-agent spawn (`subAgent.<parent>.<toolCall>`) give a job id at the `enqueueRun` call. The job id is not a function of the job data (`{ runId }`), and `add` takes no job id. A static id per run would block the next step of the run while the finished job stays in Redis. A decision about a caller-chosen job id is necessary before this queue can move.
+- Until the other queues move, two patterns exist. `runtime.ts` builds the record of the old queues by hand with `clearJobSchedulers`.
 
 ## Alternatives
 
