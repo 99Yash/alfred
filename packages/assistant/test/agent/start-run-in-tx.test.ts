@@ -52,7 +52,8 @@ const ID_PREFIX = "test-start-run-in-tx-";
 
 const createdUserIds: string[] = [];
 
-const createdJobIds: string[] = [];
+/** Runs whose `start` job a test may have added. */
+const startedRunIds: string[] = [];
 
 function seedServerEnvForQueueTests(): void {
   for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
@@ -103,10 +104,6 @@ async function queuedStartJobIds(): Promise<Set<string>> {
   return new Set(jobs.flatMap((job) => (job.name === "start" && job.id ? [job.id] : [])));
 }
 
-function startJobId(runId: string): string {
-  return `run-start.${runId}`;
-}
-
 async function runRowCountForUser(userId: string): Promise<number> {
   const rows = await db()
     .select({ id: agentRuns.id })
@@ -118,8 +115,8 @@ async function runRowCountForUser(userId: string): Promise<number> {
 
 async function removeCreatedJobs(): Promise<void> {
   await Promise.all(
-    createdJobIds.map(async (jobId) => {
-      const job = await agentQueue.getJob(jobId);
+    startedRunIds.map(async (runId) => {
+      const job = await agentQueue.getJob("start", { runId });
 
       if (job) await job.remove();
     }),
@@ -183,8 +180,9 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
 
     assert.ok(result, "committed claim should resolve a run result");
     assert.equal(result.created, true);
-    const jobId = startJobId(result.runId);
-    createdJobIds.push(jobId);
+    startedRunIds.push(result.runId);
+    const jobId = agentQueue.jobId("start", { runId: result.runId });
+    assert.equal(jobId, `run-start.${result.runId}`);
     assert.equal(queuedWhileClaimRan?.has(jobId), false, "enqueue must not fire before commit");
 
     const rows = await db()
@@ -218,8 +216,8 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
 
     assert.equal(await runRowCountForUser(userId), 0, "the tx write must roll back");
     assert.ok(rolledBackRunId, "the claim created a run before it threw");
-    const jobId = startJobId(rolledBackRunId);
-    createdJobIds.push(jobId);
+    startedRunIds.push(rolledBackRunId);
+    const jobId = agentQueue.jobId("start", { runId: rolledBackRunId });
     assert.equal((await queuedStartJobIds()).has(jobId), false, "no job fires when claim throws");
   });
 });

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { isQueueEnabled } from "@alfred/db/redis";
 import { sha256Canonical } from "@alfred/db/hash";
 import { logger } from "@alfred/logging";
-import { defineQueue, job, type JobInput } from "@alfred/assistant/queue-jobs";
+import { defineQueue, type JobInput, keyedJob } from "@alfred/assistant/queue-jobs";
 
 /**
  * Which approval card of a staging row a notice is for. The first card has no key (`undefined`).
@@ -20,21 +20,6 @@ export function approvalCardKey(dispatchClaimedAt: Date | null): string | undefi
   return dispatchClaimedAt === null ? undefined : `claim-${dispatchClaimedAt.getTime()}`;
 }
 
-/** Each card has its own id, so a may-have-run card's job never meets the first card's job. */
-export function approvalNotificationJobId(stagingId: string, card?: string): string {
-  const base = `staging-notify.${stagingId}`;
-
-  return card === undefined ? base : `${base}.${card}`;
-}
-
-/** One job per workflow and blocker generation. Hashed because BullMQ ids must be short and free of `:`. */
-export function workflowBlockedNotificationJobId(args: {
-  workflowId: string;
-  generation: string;
-}): string {
-  return `workflow-blocked.${args.workflowId}.${sha256Canonical(args.generation).slice(7, 23)}`;
-}
-
 /**
  * Two kinds on one queue (#561). Jobs added before the kinds split still carry
  * `kind: "workflow_blocked"` in their data; the object schemas strip it.
@@ -42,25 +27,41 @@ export function workflowBlockedNotificationJobId(args: {
 export const approvalNotificationQueue = defineQueue({
   name: "staging-notify",
   jobs: {
-    /** The debounced approval email for one card of one staging row. */
-    "approval.notify": job(
+    /**
+     * The debounced approval email for one card of one staging row. Each card has its own id, so
+     * a may-have-run card's job never meets the first card's job.
+     */
+    "approval.notify": keyedJob(
       z.object({
         stagingId: z.string().min(1),
         userId: z.string().min(1),
         /** `approvalCardKey` of the card this job is for. Absent for a row's first card. */
         card: z.string().min(1).optional(),
       }),
-      (d) => ({ jobId: approvalNotificationJobId(d.stagingId, d.card) }),
+      {
+        key: ["stagingId", "card"],
+        id: ({ stagingId, card }) =>
+          card === undefined
+            ? `staging-notify.${stagingId}`
+            : `staging-notify.${stagingId}.${card}`,
+      },
     ),
-    /** One email when a workflow becomes blocked. */
-    "workflow.blocked": job(
+    /**
+     * One email when a workflow becomes blocked: one job per workflow and blocker generation.
+     * Hashed because BullMQ ids must be short and free of `:`.
+     */
+    "workflow.blocked": keyedJob(
       z.object({
         workflowId: z.string().min(1),
         userId: z.string().min(1),
         /** `workflowBlockedGeneration` at enqueue. The worker sends only while it still matches. */
         generation: z.string().min(1),
       }),
-      (d) => ({ jobId: workflowBlockedNotificationJobId(d) }),
+      {
+        key: ["workflowId", "generation"],
+        id: ({ workflowId, generation }) =>
+          `workflow-blocked.${workflowId}.${sha256Canonical(generation).slice(7, 23)}`,
+      },
     ),
   },
   defaults: {
@@ -136,7 +137,7 @@ export async function removeApprovalNotificationJob(stagingId: string): Promise<
   if (!isQueueEnabled()) return;
 
   try {
-    const queued = await approvalNotificationQueue.getJob(approvalNotificationJobId(stagingId));
+    const queued = await approvalNotificationQueue.getJob("approval.notify", { stagingId });
     await queued?.remove();
   } catch (err) {
     logger.warn({ err, stagingId }, "[approvals] failed to remove queued approval notification");

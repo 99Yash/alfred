@@ -2,24 +2,19 @@ import { jsonObjectSchema, toMessage, type AgentTranscriptMessage } from "@alfre
 import { z } from "zod";
 
 import { isQueueEnabled } from "@alfred/db/redis";
-import { defineQueue, job, type JobInput } from "@alfred/assistant/queue-jobs";
+import { defineQueue, type JobInput, keyedJob } from "@alfred/assistant/queue-jobs";
 import {
   markConversationCompactionRequested,
   recordConversationCompactionFailure,
 } from "./chat-context-store";
 import type { ChatMessageWatermark } from "./chat-message-watermark";
 
-/** BullMQ custom ids cannot contain `:`. */
-function conversationCompactionJobId(threadId: string): string {
-  return `conversation-compact.${threadId}`.replaceAll(":", ".");
-}
-
 /** Background compaction of one chat thread. The worker is `conversation-compaction-worker.ts`. */
 export const conversationCompactionQueue = defineQueue({
   name: "conversation-compaction",
   jobs: {
-    /** One job per thread: the job id is the thread. */
-    "conversation.compact": job(
+    /** One job per thread: the job id is the thread. BullMQ custom ids cannot contain `:`. */
+    "conversation.compact": keyedJob(
       z.object({
         userId: z.string().min(1),
         threadId: z.string().min(1),
@@ -37,7 +32,10 @@ export const conversationCompactionQueue = defineQueue({
           }),
         ),
       }),
-      ({ threadId }) => ({ jobId: conversationCompactionJobId(threadId) }),
+      {
+        key: ["threadId"],
+        id: ({ threadId }) => `conversation-compact.${threadId}`.replaceAll(":", "."),
+      },
     ),
   },
   defaults: {
@@ -57,7 +55,7 @@ type ConversationCompactionJobInput = JobInput<
 export interface ConversationCompactionQueueDependencies {
   enabled?: () => boolean;
   getExisting?: (
-    jobId: string,
+    threadId: string,
   ) => Promise<{ state: string; remove: () => Promise<void> } | undefined>;
   markRequested?: typeof markConversationCompactionRequested;
   add?: (data: ConversationCompactionJobInput) => Promise<void>;
@@ -65,9 +63,9 @@ export interface ConversationCompactionQueueDependencies {
 }
 
 async function getExistingJob(
-  jobId: string,
+  threadId: string,
 ): Promise<{ state: string; remove: () => Promise<void> } | undefined> {
-  const existing = await conversationCompactionQueue.getJob(jobId);
+  const existing = await conversationCompactionQueue.getJob("conversation.compact", { threadId });
 
   return existing
     ? { state: await existing.getState(), remove: async () => existing.remove() }
@@ -92,7 +90,7 @@ export async function enqueueConversationCompaction(
 
   if (!enabled()) return "disabled";
   const getExisting = dependencies.getExisting ?? getExistingJob;
-  const existing = await getExisting(conversationCompactionJobId(args.threadId));
+  const existing = await getExisting(args.threadId);
 
   if (existing) {
     const state = existing.state;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineQueue, job, signal, type JobInput } from "@alfred/assistant/queue-jobs";
+import { defineQueue, job, type JobInput, keyedJob, signal } from "@alfred/assistant/queue-jobs";
 import { claimChatMediaEnrichment, recordChatMediaEnqueueFailure } from "./chat-media";
 import { GMAIL_POLL_DEDUP_TTL_MS, gmailPollHistoryReasonSchema } from "./gmail-delivery-policy";
 
@@ -116,13 +116,13 @@ export const ingestionQueue = defineQueue({
       },
     })),
 
-    "media.enrich": job(
+    "media.enrich": keyedJob(
       z.object({
         userId: z.string(),
         attachmentId: z.string(),
         estimatedCostMicrousd: z.number(),
       }),
-      (d) => ({ jobId: `media-enrich.${d.attachmentId}` }),
+      { key: ["attachmentId"], id: ({ attachmentId }) => `media-enrich.${attachmentId}` },
     ),
 
     /** Delete chat attachment bytes under a key prefix (ADR-0065). Storage has no FK cascade. */
@@ -144,10 +144,11 @@ export const ingestionQueue = defineQueue({
      * so a redelivery is a no-op while the job exists. BullMQ refuses a duplicate `jobId` in every
      * state, failed too, so `removeOnFail: true` lets a redelivery revive a failed receipt.
      */
-    "ingress.deliver": job(z.object({ receiptId: z.string() }), (d) => ({
-      jobId: `ingress.deliver.${d.receiptId}`,
-      removeOnFail: true,
-    })),
+    "ingress.deliver": keyedJob(z.object({ receiptId: z.string() }), {
+      key: ["receiptId"],
+      id: ({ receiptId }) => `ingress.deliver.${receiptId}`,
+      options: () => ({ removeOnFail: true }),
+    }),
   },
 });
 

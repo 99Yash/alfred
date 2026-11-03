@@ -13,7 +13,6 @@
  */
 
 import {
-  approvalExpiryJobId,
   approvalExpiryQueue,
   approvalNotificationQueue,
   removeApprovalExpiryJob,
@@ -245,7 +244,7 @@ async function main(): Promise<void> {
     Math.abs(expiresInMs - APPROVAL_EXPIRY_MS) < 5 * 60_000,
     `expires_at should be ≈ now + APPROVAL_EXPIRY_MS, off by ${expiresInMs - APPROVAL_EXPIRY_MS}ms`,
   );
-  const queuedJob = await queue.getJob(approvalExpiryJobId(stagedId));
+  const queuedJob = await queue.getJob("approval.expire", { stagingId: stagedId });
   assert(queuedJob, "dispatcher must enqueue a staging-expire job for a gated row");
   console.log("[smoke-expiry] 1. staging: expires_at set, expiry job queued ✓");
 
@@ -365,11 +364,11 @@ async function main(): Promise<void> {
   const runId3 = await createSmokeRun(userId, "cancel-job-turn");
   const cancelId = await stageGatedDraft(userId, runId3, "tc_expire_3", timezone);
   assert(
-    await queue.getJob(approvalExpiryJobId(cancelId)),
+    await queue.getJob("approval.expire", { stagingId: cancelId }),
     "expiry job should be queued after staging",
   );
   await removeApprovalExpiryJob(cancelId);
-  const goneJob = await queue.getJob(approvalExpiryJobId(cancelId));
+  const goneJob = await queue.getJob("approval.expire", { stagingId: cancelId });
   assert(!goneJob, "removeApprovalExpiryJob must dequeue the staging-expire job");
   console.log("[smoke-expiry] 4. removeApprovalExpiryJob: job dequeued ✓");
 }

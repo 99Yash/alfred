@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { isQueueEnabled } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
-import { clearFinishedJob, defineQueue, job } from "@alfred/assistant/queue-jobs";
+import { defineQueue, keyedJob } from "@alfred/assistant/queue-jobs";
 
 /**
  * The dead-man delay, and the point past which a still-running child is reported, not awaited
@@ -19,21 +19,24 @@ import { clearFinishedJob, defineQueue, job } from "@alfred/assistant/queue-jobs
  */
 export const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
 
-export function subAgentJoinWakeJobId(childRunId: string): string {
-  // BullMQ custom job ids cannot contain `:`.
-  return `sub-agent-join-wake.${childRunId}`;
-}
-
 export const subAgentJoinWakeQueue = defineQueue({
   name: "sub-agent-join-wake",
   jobs: {
-    /** One timer per child: the job id is the child run. */
-    "sub-agent-join.wake": job(
+    /**
+     * One timer per child: the job id is the child run. A re-park needs a live timer, so the kind
+     * revives a finished job. An unfinished job covers it, and the join reconciler is the backstop
+     * when the wake ran too early. BullMQ custom job ids cannot contain `:`.
+     */
+    "sub-agent-join.wake": keyedJob(
       z.object({
         childRunId: z.string().min(1),
         parentRunId: z.string().min(1),
       }),
-      (d) => ({ jobId: subAgentJoinWakeJobId(d.childRunId) }),
+      {
+        key: ["childRunId"],
+        id: ({ childRunId }) => `sub-agent-join-wake.${childRunId}`,
+        revive: true,
+      },
     ),
   },
   defaults: {
@@ -52,10 +55,6 @@ export async function scheduleSubAgentJoinWakeJob(args: {
   if (!isQueueEnabled()) return;
 
   try {
-    // A re-park needs a live timer. An unfinished job covers it, and the join reconciler is the
-    // backstop when the wake ran too early.
-    await clearFinishedJob(subAgentJoinWakeQueue, subAgentJoinWakeJobId(args.childRunId));
-
     await subAgentJoinWakeQueue.add(
       "sub-agent-join.wake",
       { childRunId: args.childRunId, parentRunId: args.parentRunId },

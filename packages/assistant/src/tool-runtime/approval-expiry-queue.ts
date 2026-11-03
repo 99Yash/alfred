@@ -8,23 +8,22 @@
 import { z } from "zod";
 import { isQueueEnabled } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
-import { clearFinishedJob, defineQueue, job } from "@alfred/assistant/queue-jobs";
-
-export function approvalExpiryJobId(stagingId: string): string {
-  // BullMQ custom job ids cannot contain `:`.
-  return `staging-expire.${stagingId}`;
-}
+import { defineQueue, keyedJob } from "@alfred/assistant/queue-jobs";
 
 export const approvalExpiryQueue = defineQueue({
   name: "staging-expire",
   jobs: {
-    /** One timer per staging row: the job id is the row. */
-    "approval.expire": job(
+    /**
+     * One timer per staging row: the job id is the row. A resumed re-park needs a live timer, so
+     * the kind revives a finished job. An unfinished job covers it: the worker re-delays a job
+     * that runs before the row's new `expires_at`. BullMQ custom job ids cannot contain `:`.
+     */
+    "approval.expire": keyedJob(
       z.object({
         stagingId: z.string().min(1),
         userId: z.string().min(1),
       }),
-      (d) => ({ jobId: approvalExpiryJobId(d.stagingId) }),
+      { key: ["stagingId"], id: ({ stagingId }) => `staging-expire.${stagingId}`, revive: true },
     ),
   },
   defaults: {
@@ -43,10 +42,6 @@ export async function scheduleApprovalExpiryJob(args: {
   if (!isQueueEnabled()) return;
 
   try {
-    // A resumed re-park needs a live timer. An unfinished job covers it: the worker re-delays a
-    // job that runs before the row's new `expires_at`.
-    await clearFinishedJob(approvalExpiryQueue, approvalExpiryJobId(args.stagingId));
-
     await approvalExpiryQueue.add(
       "approval.expire",
       { stagingId: args.stagingId, userId: args.userId },
@@ -64,7 +59,7 @@ export async function removeApprovalExpiryJob(stagingId: string): Promise<void> 
   if (!isQueueEnabled()) return;
 
   try {
-    const queued = await approvalExpiryQueue.getJob(approvalExpiryJobId(stagingId));
+    const queued = await approvalExpiryQueue.getJob("approval.expire", { stagingId });
     await queued?.remove();
   } catch (err) {
     logger.warn({ err, stagingId }, "[approvals] failed to remove queued approval expiry");

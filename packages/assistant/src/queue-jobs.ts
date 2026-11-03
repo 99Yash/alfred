@@ -23,18 +23,59 @@ import { logger } from "@alfred/logging";
 // The catalog
 // ---------------------------------------------------------------------------------------------
 
-/** One job kind: the shape of its data, and the options every job of this kind gets. */
-export interface JobSpec<S extends z.ZodType> {
+/** The options a kind sets. Not the job id: a kind with a job id declares it as `id`. */
+type KindOptions = Omit<JobsOptions, "jobId">;
+
+/**
+ * One job kind: the shape of its data, and the options every job of this kind gets. `Key` is the
+ * fields that its job id reads; `never` for a kind with no job id.
+ */
+export interface JobSpec<S extends z.ZodType, Key = never> {
   readonly schema: S;
-  /** Identity, delay, and retention that belong to the kind, not to each caller (ADR-0032). */
-  readonly options?: (data: z.output<S>) => JobsOptions;
+  /** Dedup, delay, and retention that belong to the kind, not to each caller (ADR-0032). */
+  readonly options?: (data: z.output<S>) => KindOptions;
+  /**
+   * The job id. A method, so each kind's own key fits the catalog; the handle's `jobId` and
+   * `getJob` check the key for each kind.
+   */
+  id?(this: void, key: Key): string;
+  /** `add` first removes a `completed` or `failed` job under the id, so the new job is live. */
+  readonly revive?: boolean;
+}
+
+/** The rule of a kind with a job id (ADR-0119 §10). */
+interface KeyedRule<S extends z.ZodType, F extends keyof z.output<S>> {
+  /** The fields that the id reads. `jobId` and `getJob` take only these fields. */
+  readonly key: readonly F[];
+  readonly id: (key: Pick<z.output<S>, F>) => string;
+  /**
+   * Revive a finished job. Without it, `add` does nothing while a finished job under the id is
+   * kept (until its `removeOnComplete` or `removeOnFail` age).
+   */
+  readonly revive?: boolean;
+  readonly options?: (data: z.output<S>) => KindOptions;
 }
 
 export function job<S extends z.ZodType>(
   schema: S,
-  options?: (data: z.output<S>) => JobsOptions,
+  options?: (data: z.output<S>) => KindOptions,
 ): JobSpec<S> {
   return options ? { schema, options } : { schema };
+}
+
+/** A kind with a job id: `rule.id` reads only the `rule.key` fields of the data. */
+export function keyedJob<S extends z.ZodType, const F extends keyof z.output<S>>(
+  schema: S,
+  rule: KeyedRule<S, F>,
+): JobSpec<S, Pick<z.output<S>, F>> {
+  const { id, revive, options } = rule;
+
+  return {
+    schema,
+    id,
+    ...(revive && { revive }),
+    ...(options && { options }),
+  };
 }
 
 const emptyPayload = z.object({});
@@ -44,7 +85,7 @@ export function signal(): JobSpec<typeof emptyPayload> {
   return job(emptyPayload);
 }
 
-type Catalog = Record<string, JobSpec<z.ZodType>>;
+type Catalog = Record<string, JobSpec<z.ZodType, unknown>>;
 
 type Input<C extends Catalog, K extends keyof C> = z.input<C[K]["schema"]>;
 
@@ -72,6 +113,15 @@ type AddArgs<C extends Catalog, K extends keyof C> =
 
 type SignalKind<C extends Catalog> = {
   [K in keyof C & string]: AcceptsEmpty<C, K> extends true ? K : never;
+}[keyof C & string];
+
+/** The fields that the job id of kind `K` reads; `never` for a kind with no job id. */
+type JobKey<C extends Catalog, K extends keyof C> =
+  C[K] extends JobSpec<z.ZodType, infer Key> ? Key : never;
+
+/** A kind that declares a job id. */
+type KeyedKind<C extends Catalog> = {
+  [K in keyof C & string]: [JobKey<C, K>] extends [never] ? never : K;
 }[keyof C & string];
 
 // ---------------------------------------------------------------------------------------------
@@ -106,10 +156,15 @@ export type QueueInspector = Pick<
 
 export interface QueueHandle<C extends Catalog> {
   readonly name: string;
-  /** Parse `data` with the kind's schema, then add it with the kind's options. */
+  /**
+   * Parse `data` with the kind's schema, then add it with the kind's options and job id. A kind
+   * with `revive` first removes a finished job under that id.
+   */
   add<K extends keyof C & string>(kind: K, ...args: AddArgs<C, K>): Promise<QueuedJob>;
-  /** The job under `jobId`, for a kind whose rule sets a job id. Fits {@link clearFinishedJob}. */
-  getJob(jobId: string): Promise<JobRef | undefined>;
+  /** The job id that the kind gives a job with these key fields. */
+  jobId<K extends KeyedKind<C>>(kind: K, key: JobKey<C, K>): string;
+  /** The job of this kind with these key fields, in any state, if Redis still has it. */
+  getJob<K extends KeyedKind<C>>(kind: K, key: JobKey<C, K>): Promise<JobRef | undefined>;
   /** Tests and smoke scripts only. */
   inspect(): QueueInspector;
   readonly close: () => Promise<void>;
@@ -223,19 +278,37 @@ export function defineQueue<const C extends Catalog>(spec: QueueSpec<C>): QueueH
     queue = undefined;
   };
 
+  // `KeyedKind` lets only a kind with an `id` reach here; the throw covers a caller outside the types.
+  const idOf = (kind: keyof C & string, key: unknown): string => {
+    const { id } = entry(kind);
+
+    if (!id) throw new Error(`${spec.name}: job kind ${kind} declares no job id`);
+
+    return id(key);
+  };
+
   return {
     name: spec.name,
     close,
 
     async add(kind, ...[data, when]) {
-      const { schema, options } = entry(kind);
+      const { schema, options, id, revive } = entry(kind);
       const parsed = z.parse(schema, data ?? {});
+      const jobId = id?.(parsed);
 
-      return open().add(kind, parsed, { ...options?.(parsed), ...when });
+      if (jobId !== undefined && revive) await clearFinishedJob(open(), jobId);
+
+      return open().add(kind, parsed, {
+        ...options?.(parsed),
+        ...(jobId !== undefined && { jobId }),
+        ...when,
+      });
     },
 
-    async getJob(jobId) {
-      return open().getJob(jobId);
+    jobId: idOf,
+
+    async getJob(kind, key) {
+      return open().getJob(idOf(kind, key));
     },
 
     inspect: open,
@@ -338,15 +411,15 @@ interface FinishedJobQueue {
 }
 
 /**
- * Remove a `completed` or `failed` job under `jobId`, so the next `add` with that id schedules a
- * live job. `add` does nothing for an id that exists, and a finished job stays until its
- * `removeOnComplete` or `removeOnFail` age.
+ * The `revive` step: remove a `completed` or `failed` job under `jobId`, so the next `add` with
+ * that id schedules a live job. `add` does nothing for an id that exists, and a finished job stays
+ * until its `removeOnComplete` or `removeOnFail` age.
  *
- * A `waiting`, `delayed`, or `active` job stays, and the next `add` does nothing. The caller must
- * accept that the unfinished job covers the new request. BullMQ has no atomic replace, so a job
- * that becomes active between the read and `remove` makes `remove` throw.
+ * A `waiting`, `delayed`, or `active` job stays, and the next `add` does nothing. A kind with
+ * `revive` accepts that the unfinished job covers the new request. BullMQ has no atomic replace,
+ * so a job that becomes active between the read and `remove` makes `remove` throw.
  */
-export async function clearFinishedJob(queue: FinishedJobQueue, jobId: string): Promise<void> {
+async function clearFinishedJob(queue: FinishedJobQueue, jobId: string): Promise<void> {
   const existing = await queue.getJob(jobId);
 
   if (!existing) return;

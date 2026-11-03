@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+  conversationCompactionQueue,
   enqueueConversationCompaction,
   isUnrecoverableConversationCompactionError,
 } from "../../src/chat/compaction/conversation-compaction-queue";
@@ -73,13 +74,13 @@ describe("conversation compaction queue", () => {
 
   test("replaces a terminal job and enqueues the complete bounded request", async () => {
     let removed = false;
-    let existingJobId: string | undefined;
+    let existingThreadId: string | undefined;
     let added: unknown;
 
     const result = await enqueueConversationCompaction(args, {
       enabled: () => true,
-      getExisting: async (jobId) => {
-        existingJobId = jobId;
+      getExisting: async (threadId) => {
+        existingThreadId = threadId;
 
         return {
           state: "completed",
@@ -96,7 +97,11 @@ describe("conversation compaction queue", () => {
 
     assert.equal(result, "scheduled");
     assert.equal(removed, true);
-    assert.equal(existingJobId, "conversation-compact.thread.1");
+    assert.equal(existingThreadId, "thread:1");
+    assert.equal(
+      conversationCompactionQueue.jobId("conversation.compact", { threadId: "thread:1" }),
+      "conversation-compact.thread.1",
+    );
     assert.deepEqual(added, {
       userId: "user_1",
       threadId: "thread:1",

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  approvalExpiryJobId,
   approvalExpiryQueue,
   approvalNotificationQueue,
   removeApprovalExpiryJob,
@@ -15,7 +14,6 @@ import {
   approvalNotificationWorker,
   stagedAction,
 } from "@alfred/assistant/execution";
-import { approvalNotificationJobId } from "../../src/tool-runtime/approval-notification-queue";
 
 /**
  * Approval queue names and job-id formats must not change: a delayed job in flight
@@ -29,8 +27,14 @@ describe("approvals split — queue identity + owner-index reachability", () => 
   });
 
   test("job-id formats are the dot-separated logical ids", () => {
-    assert.equal(approvalExpiryJobId("abc"), "staging-expire.abc");
-    assert.equal(approvalNotificationJobId("abc"), "staging-notify.abc");
+    assert.equal(
+      approvalExpiryQueue.jobId("approval.expire", { stagingId: "abc" }),
+      "staging-expire.abc",
+    );
+    assert.equal(
+      approvalNotificationQueue.jobId("approval.notify", { stagingId: "abc" }),
+      "staging-notify.abc",
+    );
   });
 
   test("scheduling surface is reachable from the tool-runtime index", () => {
