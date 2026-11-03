@@ -118,13 +118,7 @@ export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
 
 export { threadsWhereInstructionBlocksTodo } from "./instruction-todo-sweep";
 
-export {
-  closeTriageRematchQueue,
-  getTriageRematchQueue,
-  scheduleRepeatableTriageRematchJobs,
-  startTriageRematchWorker,
-  stopTriageRematchWorker,
-} from "./rematch-queue";
+export { triageRematchWorker } from "./rematch-worker";
 
 // The ADR-0113 migration review previews a proposed scope over stored mail with it.
 export {

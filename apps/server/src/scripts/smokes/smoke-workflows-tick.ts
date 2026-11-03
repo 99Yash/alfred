@@ -5,7 +5,7 @@
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-workflows-tick.ts
  */
-import { dispatchDueCronWorkflows, closeWorkflowsQueue } from "@alfred/assistant/automation";
+import { dispatchDueCronWorkflows, workflowsWorker } from "@alfred/assistant/automation";
 import { agentQueue } from "@alfred/assistant/execution";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
@@ -173,7 +173,7 @@ try {
 } finally {
   try {
     await agentQueue.close();
-    await closeWorkflowsQueue();
+    await workflowsWorker.close();
     await closeRedis();
     await closeConnections();
   } catch (err) {

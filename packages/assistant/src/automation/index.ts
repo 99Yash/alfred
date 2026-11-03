@@ -46,15 +46,7 @@ export { dispatchDueCronWorkflows } from "./tick";
 
 export type { TickResult } from "./tick";
 
-export {
-  getWorkflowsQueue,
-  startWorkflowsWorker,
-  stopWorkflowsWorker,
-  closeWorkflowsQueue,
-  scheduleRepeatableWorkflowsJobs,
-} from "./queue";
-
-export type { WorkflowsJobData, StartWorkflowsWorkerOpts } from "./queue";
+export { workflowsWorker } from "./worker";
 
 export { registerWorkflowSystemToolAdapter } from "./system-tool-adapter";
 

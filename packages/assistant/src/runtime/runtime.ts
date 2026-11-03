@@ -4,13 +4,9 @@ import {
   stopPolicyBustSubscriber,
 } from "@alfred/assistant/action-policies";
 import {
-  getWorkflowsQueue,
-  scheduleRepeatableWorkflowsJobs,
   seedBuiltinWorkflowsForAllUsers,
   seedBuiltinWorkflowsForUser,
-  closeWorkflowsQueue,
-  startWorkflowsWorker,
-  stopWorkflowsWorker,
+  workflowsWorker,
 } from "@alfred/assistant/automation";
 import { briefingWorker } from "@alfred/assistant/briefings";
 import {
@@ -18,7 +14,7 @@ import {
   startReceiptPayloadReaper,
   stopReceiptPayloadReaper,
 } from "@alfred/assistant/connections/ingestion";
-import { clearJobSchedulers, type BackgroundWorker } from "@alfred/assistant/queue-jobs";
+import type { BackgroundWorker } from "@alfred/assistant/queue-jobs";
 import {
   startDocumentAskReconciler,
   stopDocumentAskReconciler,
@@ -27,14 +23,7 @@ import {
   startMcpConnectionRecovery,
   stopMcpConnectionRecovery,
 } from "@alfred/assistant/connections/mcp";
-import {
-  closeChatMemoryQueue,
-  closeConversationCompactionQueue,
-  startChatMemoryWorker,
-  startConversationCompactionWorker,
-  stopChatMemoryWorker,
-  stopConversationCompactionWorker,
-} from "@alfred/assistant/chat";
+import { chatMemoryWorker, conversationCompactionWorker } from "@alfred/assistant/chat";
 import {
   agentWorker,
   approvalExpiryWorker,
@@ -42,21 +31,9 @@ import {
   subAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
-import {
-  closeMemoryQueue,
-  scheduleRepeatableMemoryJobs,
-  startMemoryWorker,
-  stopMemoryWorker,
-} from "@alfred/assistant/knowledge";
-import { getMemoryQueue } from "@alfred/assistant/knowledge/queue";
+import { memoryWorker } from "@alfred/assistant/knowledge";
 import { scheduledJobsEnabled } from "@alfred/env/server";
-import {
-  closeTriageRematchQueue,
-  getTriageRematchQueue,
-  scheduleRepeatableTriageRematchJobs,
-  startTriageRematchWorker,
-  stopTriageRematchWorker,
-} from "@alfred/assistant/triage";
+import { triageRematchWorker } from "@alfred/assistant/triage";
 import {
   closeEventBridge,
   closeReplicachePokeBridge,
@@ -148,56 +125,14 @@ function backgroundServices(config: RuntimeConfig) {
     agent: agentWorker({ concurrency: config.workerConcurrency }),
     subAgentJoinWake: subAgentJoinWakeWorker,
     ingestion: ingestionWorker,
-    memory: {
-      kind: "worker",
-      label: "memory",
-      start: startMemoryWorker,
-      stop: stopMemoryWorker,
-      close: closeMemoryQueue,
-      repeatable: {
-        schedule: scheduleRepeatableMemoryJobs,
-        clear: async () => clearJobSchedulers(getMemoryQueue()),
-      },
-    },
+    memory: memoryWorker,
     // ADR-0113 re-match. It enqueues relabels on the ingestion queue, so it stops in the
     // agent group, before that queue closes.
-    triageRematch: {
-      kind: "worker",
-      label: "triage re-match",
-      start: startTriageRematchWorker,
-      stop: stopTriageRematchWorker,
-      close: closeTriageRematchQueue,
-      repeatable: {
-        schedule: scheduleRepeatableTriageRematchJobs,
-        clear: async () => clearJobSchedulers(getTriageRematchQueue()),
-      },
-    },
-    chatMemory: {
-      kind: "worker",
-      label: "chat-memory",
-      start: startChatMemoryWorker,
-      stop: stopChatMemoryWorker,
-      close: closeChatMemoryQueue,
-    },
-    conversationCompaction: {
-      kind: "worker",
-      label: "conversation-compaction",
-      start: startConversationCompactionWorker,
-      stop: stopConversationCompactionWorker,
-      close: closeConversationCompactionQueue,
-    },
+    triageRematch: triageRematchWorker,
+    chatMemory: chatMemoryWorker,
+    conversationCompaction: conversationCompactionWorker,
     briefing: briefingWorker,
-    workflows: {
-      kind: "worker",
-      label: "workflows",
-      start: startWorkflowsWorker,
-      stop: stopWorkflowsWorker,
-      close: closeWorkflowsQueue,
-      repeatable: {
-        schedule: scheduleRepeatableWorkflowsJobs,
-        clear: async () => clearJobSchedulers(getWorkflowsQueue()),
-      },
-    },
+    workflows: workflowsWorker,
     approvalNotification: approvalNotificationWorker,
     approvalExpiry: approvalExpiryWorker,
     mcpConnectionRecovery: {

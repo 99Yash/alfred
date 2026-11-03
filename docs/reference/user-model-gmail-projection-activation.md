@@ -218,7 +218,7 @@ from Step 2; never re-run a completed version.
   downstream floor that only demotes an already-resolved sender kind.
 - Scheduled re-fold + frozen-logic gate (PR J): `packages/assistant/src/knowledge/refold.ts`
   (sweep registered in `packages/assistant/src/connections/ingestion/worker.ts`,
-  not in `packages/assistant/src/knowledge/repeatable.ts`).
+  not in `packages/assistant/src/knowledge/worker.ts`).
 - Local gate tests: `packages/assistant/test/knowledge/gmail-kind-projection-gates.test.ts`
   (activation gates) and `packages/assistant/test/knowledge/gmail-kind-refold.test.ts`
   (re-fold frozen-logic gate).

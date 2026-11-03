@@ -122,6 +122,11 @@
     // so a doc that says "only foo() mints it" was false (#1540, #1548). The rule keeps a
     // closed BRANDS table, and it reports a brand declaration that the table does not list.
     "alfred/no-brand-mint-outside-owner": "error",
+    // no-raw-bullmq-queue: a value import of the BullMQ `Queue` or `Worker` class outside
+    // `packages/assistant/src/queue-jobs.ts` (ADR-0119). A raw queue skips the kind's schema, its
+    // dedup and job-id rule, and the failed-job log, and nothing else fails. Declare the queue
+    // with `defineQueue` and build its worker with `handle.consume(...)`. A type import is allowed.
+    "alfred/no-raw-bullmq-queue": "error",
     // The web motion and copy rules read one element's classes or JSX:
     // transition-names-individual-transform: a `transition-[…transform…]` list that misses the
     // `scale`/`translate`/`rotate` property a Tailwind v4 utility on the element writes.

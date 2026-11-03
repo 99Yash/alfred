@@ -741,7 +741,7 @@ export const RULES = [
     // unrelated `.timestamp` (`key.timestamp` in mcp/recovery.ts) is not read.
     //
     // `job.id ?? job.timestamp` is an IDENTITY fallback for a request id, not a
-    // time reading (knowledge/queue.ts). The lookbehind skips a `.timestamp`
+    // time reading (knowledge/worker.ts). The lookbehind skips a `.timestamp`
     // that is the right side of an `id ??`, so that site needs no marker.
     re: /(?<!\bid\s*\?\?\s*(?:\w+\.)?)\b(?:job|\w+Job)\.timestamp\b/,
     severity: "gate",

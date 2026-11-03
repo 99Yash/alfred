@@ -10,7 +10,7 @@
 import { agentQueue } from "@alfred/assistant/execution";
 import { getPath } from "@alfred/contracts";
 import { warmPool } from "@alfred/db";
-import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/queue";
+import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/run";
 import { memoryExtractionOutcomeSchema, recallActiveByKey } from "@alfred/assistant/knowledge";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { db } from "@alfred/db";

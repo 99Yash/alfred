@@ -41,7 +41,7 @@
     "./knowledge/extractor": "./src/knowledge/extractor.ts",
     "./knowledge/fact-policy": "./src/knowledge/fact-policy.ts",
     "./knowledge/gmail-reducer": "./src/knowledge/gmail-reducer.ts",
-    "./knowledge/queue": "./src/knowledge/queue.ts",
+    "./knowledge/run": "./src/knowledge/run.ts",
     "./knowledge/significance": "./src/knowledge/significance.ts",
     "./knowledge/standing-instructions": "./src/knowledge/standing-instructions.ts",
     "./knowledge/style-profiles": "./src/knowledge/style-profiles.ts",

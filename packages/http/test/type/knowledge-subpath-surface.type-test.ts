@@ -32,7 +32,7 @@ type _ProjectionTs = typeof import("@alfred/assistant/knowledge/projection.ts");
 // @ts-expect-error - `facts` is not exported under any spelling; see above.
 type _FactsTs = typeof import("@alfred/assistant/knowledge/facts.ts");
 
-/** `queue` is listed, so the negatives cannot pass on a typo or a missing dependency. */
-type _Queue = typeof import("@alfred/assistant/knowledge/queue");
+/** `run` is listed, so the negatives cannot pass on a typo or a missing dependency. */
+type _Run = typeof import("@alfred/assistant/knowledge/run");
 
-type _AssertQueueResolves = _Queue["enqueueExtractionForUser"];
+type _AssertRunResolves = _Run["enqueueExtractionForUser"];

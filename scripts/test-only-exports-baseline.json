@@ -50,9 +50,6 @@
   "packages/assistant/src/chat/chat-history-retrieval.ts": ["CHAT_HISTORY_EXCERPT_CHARS"],
   "packages/assistant/src/chat/chat-turn-closure.ts": ["sanitizeChatMessageFields"],
   "packages/assistant/src/chat/compaction/chat-context-assembly.ts": ["selectVerbatimTail"],
-  "packages/assistant/src/chat/compaction/conversation-compaction-queue.ts": [
-    "isUnrecoverableConversationCompactionError"
-  ],
   "packages/assistant/src/chat/compaction/conversation-compaction-scheduler.ts": [
     "BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS"
   ],
@@ -78,10 +75,7 @@
     "guardSpawnedChildren",
     "guardUnreportedToolFailures"
   ],
-  "packages/assistant/src/chat/idle-capture-queue.ts": [
-    "chatMemoryIdleJobId",
-    "chatMemoryIdleTailJobId"
-  ],
+  "packages/assistant/src/chat/idle-capture-queue.ts": ["chatMemoryIdleJobId"],
   "packages/assistant/src/chat/media-adapter.ts": ["createChatMediaHandler"],
   "packages/assistant/src/chat/turn-attachment-reconciliation.ts": [
     "freshAttachmentRowsMatchSubset"

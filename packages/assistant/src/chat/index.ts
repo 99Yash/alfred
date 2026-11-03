@@ -9,10 +9,8 @@ export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachm
 
 export {
   backgroundCompactionThresholdTokens,
-  closeConversationCompactionQueue,
+  conversationCompactionWorker,
   scheduleConversationCompactionIfNeeded,
-  startConversationCompactionWorker,
-  stopConversationCompactionWorker,
 } from "./compaction";
 
 export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
@@ -20,17 +18,10 @@ export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 export {
   CHAT_MEMORY_CAPTURE_WORKFLOW_SLUG,
   CHAT_MEMORY_IDLE_MS,
-  CHAT_MEMORY_QUEUE_NAME,
-  chatMemoryIdleJobId,
-  chatMemoryIdleTailJobId,
-  chatMemoryJobDataSchema,
-  closeChatMemoryQueue,
-  getChatMemoryQueue,
   scheduleThreadIdleExtraction,
-  startChatMemoryWorker,
-  stopChatMemoryWorker,
-  type ChatMemoryJobData,
 } from "./idle-capture-queue";
+
+export { chatMemoryWorker } from "./idle-capture-worker";
 
 export { chatMemoryCaptureWorkflow } from "./chat-memory-capture";
 

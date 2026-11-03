@@ -73,27 +73,31 @@ describe("conversation compaction queue", () => {
 
   test("replaces a terminal job and enqueues the complete bounded request", async () => {
     let removed = false;
-    let added: { jobId: string; data: unknown } | undefined;
+    let existingJobId: string | undefined;
+    let added: unknown;
 
     const result = await enqueueConversationCompaction(args, {
       enabled: () => true,
-      getExisting: async () => ({
-        state: "completed",
-        remove: async () => {
-          removed = true;
-        },
-      }),
+      getExisting: async (jobId) => {
+        existingJobId = jobId;
+
+        return {
+          state: "completed",
+          remove: async () => {
+            removed = true;
+          },
+        };
+      },
       markRequested: async () => ({ requestedAt: at, generation: 4 }),
-      add: async (jobId, data) => {
-        added = { jobId, data };
+      add: async (data) => {
+        added = data;
       },
     });
 
     assert.equal(result, "scheduled");
     assert.equal(removed, true);
-    assert.equal(added?.jobId, "conversation-compact.thread.1");
-    assert.deepEqual(added.data, {
-      kind: "conversation.compact",
+    assert.equal(existingJobId, "conversation-compact.thread.1");
+    assert.deepEqual(added, {
       userId: "user_1",
       threadId: "thread:1",
       throughMessageId: "msg_1",

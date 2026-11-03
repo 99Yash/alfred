@@ -1,6 +1,8 @@
 # ADR-0119 — A BullMQ queue is declared once, and each job kind owns its schema and its dedup rule
 
-**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `agent-runs` queue, the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. The other 5 queues move in later slices. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
+**Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `agent-runs` queue, the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. Slice 3 built: the `memory-cron`, `workflows-tick`, `triage-rematch`, `chat-memory`, and `conversation-compaction` queues. Every BullMQ queue now uses `defineQueue`. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
+
+**Enforced.** The lint rule `alfred/no-raw-bullmq-queue` rejects a value import of the BullMQ `Queue` or `Worker` class outside `packages/assistant/src/queue-jobs.ts`, so a new queue cannot skip `defineQueue`.
 
 **Decision.** Each BullMQ queue is one `defineQueue({ name, defaults, jobs })` call in the `queue.ts` file of the feature that owns it. The call gives a **queue handle**. The `jobs` field is the **catalog**: it gives each **job kind** a zod schema and the job options that belong to that kind (dedup, job id, delay, retention). A producer calls `handle.add(kind, data)` and passes only the data. The consumer calls `handle.consume({ label, concurrency, handlers, schedules })` in the `worker.ts` file of the same feature. It gives one handler for each kind and gets the worker record that `runtime.ts` starts and stops. The module is `@alfred/assistant/queue-jobs`.
 
@@ -88,7 +90,8 @@ Each handler gets a third argument, the job's `AbortSignal`, for a handler that 
 - Slice 1 did not run against Redis. A local boot with `ALFRED_RUN_SCHEDULED_JOBS=true` must show the same scheduler ids, a `briefing.tick` run, and a `gmail.poll_sweep` run.
 - A `workflow.blocked` job that the slice 2 build adds has no `kind` field in its data. The worker before slice 2 finds that kind by a parse of the data, not by the job name. If a deploy rolls back while such a job waits, the old worker fails the job, and no blocked email goes out for that generation.
 - The `agent-runs` `start` kind replaces two job id strings: `workflow.<id>.scheduled.<ms>` from the `workflows.tick` dispatch and `subAgent.<parent>.<toolCall>` from a sub-agent spawn. Each string named exactly one run, so `run-start.<runId>` gives the same dedup. During the deploy, one run can have one job under each id. The DB lease lets only one of them run a step.
-- Until the other queues move, two patterns exist. `runtime.ts` builds the record of the old queues by hand with `clearJobSchedulers`.
+- Slice 3 did not run against Redis. A local boot with `ALFRED_RUN_SCHEDULED_JOBS=true` must show the same scheduler ids on `memory-cron`, `workflows-tick`, and `triage-rematch`. Nothing proves the chat-memory tail slot or the compaction dedup against a real BullMQ queue.
+- The worker now parses `memory-cron`, `workflows-tick`, and `triage-rematch` jobs. Before, it did not parse them. A malformed job that ran before now fails and retries under its `attempts`.
 
 ## Alternatives
 

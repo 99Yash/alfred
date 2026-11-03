@@ -100,7 +100,7 @@ These three bias every subsystem below. Read them first.
 
 ## Runtime primitives
 
-**Tick.** A BullMQ repeatable that fans out per-user. Existing pattern: `briefing.tick` (hourly, `packages/assistant/src/briefings/worker.ts`). m12 adds `workflows.tick` (every minute, generic) per ADR-0027.
+**Tick.** A BullMQ repeatable that fans out per-user. Existing pattern: `briefing.tick` (hourly, `packages/assistant/src/briefings/worker.ts`). m12 adds `workflows.tick` (every minute, generic, `packages/assistant/src/automation/worker.ts`) per ADR-0027.
 
 **Dispatcher.** The piece that turns a trigger into a `createRun` + `enqueueRun` call. Exists implicitly per-feature today (e.g. the briefing tick handler); m12's `workflows.tick` is the first generic dispatcher. Cron fires via the tick; `event` fires via the `emitEvent` bus (below).
 
