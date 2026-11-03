@@ -83,6 +83,7 @@ flowchart LR
 | `index.ts` (129) | Public exports. |
 | `floors/override.ts` (111) | The only escalating floor (exposed secret → `urgent` @ 0.85). |
 | `sender-kind.ts` (98) | Sender-kind signal projection for the floor. |
+| `rematch-queue.ts`, `rematch-worker.ts` | ADR-0113: the `triageRematchQueue` contract (the per-user dedup rule is on the `triage.rematch.user` kind) and the `triageRematchWorker` consumer with its sweep schedule. |
 | `floors/standing.ts` | ADR-0113: applies the effects of matched instructions to the model verdict after the system floors; exceptions, later write wins, full cover to lower, security veto on lowering category effects. |
 | `standing-scope.ts` | ADR-0113: the scoped-instruction prompt section under the allowance, the E3 counter, and the parse of `instructionMatches`. |
 | `floors/meeting.ts` (82) | False-`meeting` demotion. |
@@ -276,6 +277,9 @@ flowchart LR
 | `knowledge/fact-policy.ts` | What background capture may write (`standing_instruction` is `not_writable` there) |
 | `knowledge/reader.ts`, `user-context.ts` | Projection reads |
 | `knowledge/drift-audit/metrics.ts` | The watch metrics (#210 lineage) |
+| `knowledge/queue.ts` | The `memoryQueue` contract (`memory-cron`): the extraction, embed-sweep, and drift-check kinds |
+| `knowledge/worker.ts` | The `memoryWorker` consumer and its daily and 5-minute schedules |
+| `knowledge/run.ts` | `enqueueExtractionForUser`: starts a memory-extraction run (not a queue job) |
 
 Tables: `observations`, `observation_family_heads`, `entity_nodes` /
 `entity_identities` / `entity_profiles` / `entity_edges` /

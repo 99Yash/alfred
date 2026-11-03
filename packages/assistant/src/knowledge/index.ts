@@ -159,9 +159,7 @@ export {
   type StandingInstructionTargetHit,
 } from "./standing-instructions";
 
-export { startMemoryWorker, stopMemoryWorker, closeMemoryQueue } from "./queue";
-
-export { scheduleRepeatableMemoryJobs } from "./repeatable";
+export { memoryWorker } from "./worker";
 
 // The composition root builds this with the Gmail sender adapter (ADR-0089).
 export { buildMemoryExtractionWorkflow } from "./memory-extraction";
