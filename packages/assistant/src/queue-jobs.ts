@@ -195,7 +195,7 @@ interface SchedulerQueue {
  * Remove every repeatable job scheduler on `queue` and return the count. BullMQ keeps schedulers
  * in Redis across restarts, so a boot that skips `schedule` still fires a prior run's crons.
  */
-export async function clearJobSchedulers(queue: SchedulerQueue): Promise<number> {
+async function clearJobSchedulers(queue: SchedulerQueue): Promise<number> {
   const schedulers = await queue.getJobSchedulers();
 
   for (const scheduler of schedulers) await queue.removeJobScheduler(scheduler.key);

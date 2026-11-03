@@ -27,20 +27,8 @@ import type { ESTree } from "@oxlint/plugins";
  * script reads a queue through the handle's `inspect()`.
  */
 
-/** The module that owns `Queue` and `Worker`, and the files that still build them by hand. */
-const OWNERS: ReadonlySet<string> = new Set([
-  "packages/assistant/src/queue-jobs.ts",
-  // Temporary. These queues have not moved to `defineQueue` yet. Slice 2 of ADR-0119 moves
-  // them and removes each entry here.
-  "packages/assistant/src/execution/approval-expiry-worker.ts",
-  "packages/assistant/src/execution/approval-notification-worker.ts",
-  "packages/assistant/src/execution/queue.ts",
-  "packages/assistant/src/execution/sub-agent-join-wake-queue.ts",
-  "packages/assistant/src/execution/sub-agent-join-wake-worker.ts",
-  "packages/assistant/src/execution/worker.ts",
-  "packages/assistant/src/tool-runtime/approval-expiry-queue.ts",
-  "packages/assistant/src/tool-runtime/approval-notification-queue.ts",
-]);
+/** The module that owns `Queue` and `Worker`. */
+const OWNERS: ReadonlySet<string> = new Set(["packages/assistant/src/queue-jobs.ts"]);
 
 const RESTRICTED: ReadonlySet<string> = new Set(["Queue", "Worker"]);
 
