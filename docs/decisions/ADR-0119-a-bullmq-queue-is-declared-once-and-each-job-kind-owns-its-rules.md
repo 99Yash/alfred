@@ -2,6 +2,8 @@
 
 **Status.** Accepted; slice 1 built: the `ingestion-runs` queue and the `briefing-cron` queue. Slice 2 built: the `agent-runs` queue, the `sub-agent-join-wake` queue, the `staging-expire` queue, and the `staging-notify` queue. The other 5 queues move in later slices. Amends ADR-0032: the dedup rule belongs to the job kind, not to the call site.
 
+**Slice 3 built.** The `memory-cron`, `workflows-tick`, `triage-rematch`, `chat-memory`, and `conversation-compaction` queues use `defineQueue`. The lint rule `alfred/no-raw-bullmq-queue` rejects a value import of the BullMQ `Queue` or `Worker` class outside `packages/assistant/src/queue-jobs.ts`. Its owner list holds the files of the queues that slice 2 moves, until slice 2 lands.
+
 **Decision.** Each BullMQ queue is one `defineQueue({ name, defaults, jobs })` call in the `queue.ts` file of the feature that owns it. The call gives a **queue handle**. The `jobs` field is the **catalog**: it gives each **job kind** a zod schema and the job options that belong to that kind (dedup, job id, delay, retention). A producer calls `handle.add(kind, data)` and passes only the data. The consumer calls `handle.consume({ label, concurrency, handlers, schedules })` in the `worker.ts` file of the same feature. It gives one handler for each kind and gets the worker record that `runtime.ts` starts and stops. The module is `@alfred/assistant/queue-jobs`.
 
 ---
