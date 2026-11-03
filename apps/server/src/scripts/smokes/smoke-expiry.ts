@@ -23,8 +23,7 @@ import {
 import { settings } from "@alfred/assistant/settings";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
 import { stubIntegrationHealthForTests } from "@alfred/assistant/tool-runtime/test-support";
-import { stagedAction } from "@alfred/assistant/execution";
-import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { agentQueue, stagedAction } from "@alfred/assistant/execution";
 import { clearToolRegistryForTests, liveTool, registerTools } from "@alfred/assistant/tool-runtime";
 import { warmPool } from "@alfred/db";
 import {
@@ -57,7 +56,7 @@ async function assertNoLiveWorkers(): Promise<void> {
   for (const queue of [
     approvalExpiryQueue.inspect(),
     approvalNotificationQueue.inspect(),
-    getAgentQueue(),
+    agentQueue.inspect(),
   ]) {
     const workers = await queue.getWorkers();
 
@@ -397,8 +396,8 @@ try {
   }
 
   await closeScriptResources(
-    closeAgentQueue,
-    async () => approvalExpiryQueue.close(),
-    async () => approvalNotificationQueue.close(),
+    agentQueue.close,
+    approvalExpiryQueue.close,
+    approvalNotificationQueue.close,
   );
 }

@@ -36,11 +36,9 @@ import {
   stopConversationCompactionWorker,
 } from "@alfred/assistant/chat";
 import {
+  agentWorker,
   approvalExpiryWorker,
   approvalNotificationWorker,
-  closeAgentQueue,
-  startAgentWorker,
-  stopAgentWorker,
   subAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
@@ -146,14 +144,8 @@ type BackgroundServiceName = (typeof SHUTDOWN_ORDER)[number][number];
  */
 function backgroundServices(config: RuntimeConfig) {
   return {
-    agent: {
-      kind: "worker",
-      label: "agent",
-      // The pool ceiling derives from this same value (#437), so throughput cannot outrun the pool.
-      start: () => startAgentWorker({ concurrency: config.workerConcurrency }),
-      stop: stopAgentWorker,
-      close: closeAgentQueue,
-    },
+    // The pool ceiling derives from this same value (#437), so throughput cannot outrun the pool.
+    agent: agentWorker({ concurrency: config.workerConcurrency }),
     subAgentJoinWake: subAgentJoinWakeWorker,
     ingestion: ingestionWorker,
     memory: {

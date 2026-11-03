@@ -214,10 +214,9 @@ export async function spawnSubAgent(args: SpawnSubAgentRequest): Promise<{
     spawn = { status: "already_spawned", childRunId: winner.id };
   }
 
-  // After commit, so the worker can see the row.
-  await enqueueRun(spawn.childRunId, {
-    jobId: subAgentJobId(args.parentRunId, args.parentToolCallId),
-  });
+  // After commit, so the worker can see the row. `once`: a retried spawn of the same child adds
+  // nothing while the first job is kept.
+  await enqueueRun(spawn.childRunId, { once: true });
 
   return {
     ok: true,
@@ -249,8 +248,4 @@ async function findExistingSubAgentRun(
     .limit(1);
 
   return rows[0] ?? null;
-}
-
-function subAgentJobId(parentRunId: string, toolCallId: string): string {
-  return `subAgent.${parentRunId}.${toolCallId}`.replaceAll(":", ".");
 }

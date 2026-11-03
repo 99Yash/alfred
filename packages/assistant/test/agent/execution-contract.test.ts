@@ -8,7 +8,7 @@ import { agentRuns, agentSteps, eventsOutbox, user } from "@alfred/db/schemas";
 import { and, eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { agentQueue } from "@alfred/assistant/execution/queue";
 import { leaseRun, runOnce } from "@alfred/assistant/execution/executor";
 import {
   _resetRegistryForTests,
@@ -225,11 +225,11 @@ async function startContractRun(workflowSlug: string): Promise<{ userId: string;
 }
 
 async function removeQueuedContractRuns(): Promise<void> {
-  const queue = getAgentQueue();
+  const queue = agentQueue.inspect();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   await Promise.all(
     jobs.map(async (job) => {
-      if (createdRunIds.includes(job.data.runId)) await job.remove();
+      if (createdRunIds.includes(getStringPath(job.data, "runId") ?? "")) await job.remove();
     }),
   );
 }
@@ -277,7 +277,7 @@ describe("generic execution contract (DB/Redis-backed)", { skip: SKIP }, () => {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
-    await closeAgentQueue();
+    await agentQueue.close();
     await closeRedis();
     await closeConnections();
   });

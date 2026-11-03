@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { getStringPath, wakeConditionSchema } from "@alfred/contracts";
-import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { requireRow } from "@alfred/db/helpers";
@@ -136,5 +136,5 @@ try {
   console.error("[smoke] FAIL", err instanceof Error ? err.message : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

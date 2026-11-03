@@ -1,8 +1,7 @@
-import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "@alfred/db/redis";
+import type { BackgroundWorker, Companion } from "@alfred/assistant/queue-jobs";
 import { snapshotScratchToPostgres } from "./scratchpad/index";
 import { runOnce, skipReasonIsLoud } from "./executor";
-import { AGENT_QUEUE_NAME, enqueueRun, type AgentJobData } from "./queue";
+import { agentQueue, enqueueRun } from "./queue";
 import {
   findResumableRunIds,
   heartbeatRun,
@@ -17,11 +16,7 @@ const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const RESUME_SWEEP_INTERVAL_MS = 30_000;
 
-let _worker: Worker<AgentJobData> | undefined;
-
-let _resumeTimer: ReturnType<typeof setInterval> | undefined;
-
-export interface StartAgentWorkerOpts {
+export interface AgentWorkerOpts {
   /**
    * Steps mostly wait on I/O, so the DB pool sets the limit, not the CPU.
    * Required, so the value comes only from `AGENT_WORKER_CONCURRENCY`, the one the pool was sized
@@ -30,34 +25,47 @@ export interface StartAgentWorkerOpts {
   concurrency: number;
 }
 
-export async function startAgentWorker(opts: StartAgentWorkerOpts): Promise<void> {
-  if (_worker) return;
-  const { concurrency } = opts;
-
-  _worker = new Worker<AgentJobData>(AGENT_QUEUE_NAME, processAgentJob, {
-    connection: createRedisConnection("queue"),
-    concurrency,
+/**
+ * The `agent-runs` worker. Both kinds run one step; `start` differs only in its job id.
+ * The resume sweep starts after the worker and stops before it closes. Stopping waits for active
+ * steps to finish (ADR-0014).
+ */
+export function agentWorker(opts: AgentWorkerOpts): BackgroundWorker {
+  return agentQueue.consume({
+    label: "agent",
+    concurrency: opts.concurrency,
     // Catches a dead process sooner than the resume sweep.
-    stalledInterval: 30_000,
-    maxStalledCount: 1,
+    stall: { stalledInterval: 30_000, maxStalledCount: 1 },
+    handlers: {
+      step: async ({ runId }) => processAgentJob(runId),
+      start: async ({ runId }) => processAgentJob(runId),
+    },
+    alongside: [resumeSweepLoop()],
   });
-
-  _worker.on("error", (err) => {
-    logger.error({ err }, "[agent:worker] error");
-  });
-
-  // Pick up runs a previous deploy left mid-flight.
-  await resumeSweep();
-
-  _resumeTimer = setInterval(() => {
-    void resumeSweep();
-  }, RESUME_SWEEP_INTERVAL_MS);
-
-  unrefTimer(_resumeTimer);
 }
 
-async function processAgentJob(job: Job<AgentJobData>): Promise<void> {
-  const { runId } = job.data;
+/** Pick up runs a previous deploy left mid-flight. The first sweep is awaited at start. */
+function resumeSweepLoop(): Companion {
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  return {
+    async start() {
+      await resumeSweep();
+
+      timer = setInterval(() => {
+        void resumeSweep();
+      }, RESUME_SWEEP_INTERVAL_MS);
+
+      unrefTimer(timer);
+    },
+    async stop() {
+      if (timer) clearInterval(timer);
+      timer = undefined;
+    },
+  };
+}
+
+async function processAgentJob(runId: string): Promise<void> {
   // Log each missed beat: enough of them cause a reclaim and a second paid model call.
   let missedHeartbeats = 0;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -139,18 +147,5 @@ async function resumeSweep(): Promise<void> {
     }
   } catch (err) {
     logger.warn({ err }, "[agent:worker] resume sweep failed");
-  }
-}
-
-/** Waits for active steps to finish (ADR-0014). */
-export async function stopAgentWorker(): Promise<void> {
-  if (_resumeTimer) {
-    clearInterval(_resumeTimer);
-    _resumeTimer = undefined;
-  }
-
-  if (_worker) {
-    await _worker.close();
-    _worker = undefined;
   }
 }

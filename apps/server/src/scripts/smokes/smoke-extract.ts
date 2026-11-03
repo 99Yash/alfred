@@ -7,7 +7,7 @@
  *
  * Pre-req: a server process running (`pnpm dev`).
  */
-import { closeAgentQueue } from "@alfred/assistant/execution";
+import { agentQueue } from "@alfred/assistant/execution";
 import { getPath } from "@alfred/contracts";
 import { warmPool } from "@alfred/db";
 import { enqueueExtractionForUser } from "@alfred/assistant/knowledge/queue";
@@ -230,5 +230,5 @@ try {
   console.error("[smoke-extract] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

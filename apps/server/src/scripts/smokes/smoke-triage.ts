@@ -11,7 +11,7 @@
 import { TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { randomUUID } from "node:crypto";
 import { getTriage } from "@alfred/assistant/triage";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, documents, emailTriage, integrationCredentials } from "@alfred/db/schemas";
@@ -349,5 +349,5 @@ try {
   console.error("[smoke-triage] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

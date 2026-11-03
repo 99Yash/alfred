@@ -1,4 +1,4 @@
-import { closeAgentQueue } from "./queue";
+import { agentQueue } from "./queue";
 import { registerRecipe } from "./registry";
 import { getRun } from "./run-summary";
 import {
@@ -12,7 +12,7 @@ import {
 } from "./service";
 import { subAgentJoinWakeWorker } from "./sub-agent-join-wake-worker";
 import { verifyMeteringModels } from "./verify-models";
-import { startAgentWorker, stopAgentWorker } from "./worker";
+import { agentWorker } from "./worker";
 
 export {
   registerRecipe,
@@ -21,8 +21,7 @@ export {
   getRun,
   wakeRun,
   cancelRun,
-  startAgentWorker,
-  stopAgentWorker,
+  agentWorker,
   subAgentJoinWakeWorker,
   verifyMeteringModels,
 };
@@ -44,7 +43,8 @@ export {
 // delivering it.
 export { persistChatTurnRunInTx, redeliverRun, replayRun };
 
-export { closeAgentQueue };
+// Scripts close it; the runtime closes it through `agentWorker`.
+export { agentQueue };
 
 export { scheduledFireTime } from "./job-scheduler";
 

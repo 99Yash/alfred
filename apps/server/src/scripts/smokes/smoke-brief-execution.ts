@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { startRun, wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { getStringPath, toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -328,5 +328,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

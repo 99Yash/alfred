@@ -7,7 +7,7 @@ import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { agentQueue } from "@alfred/assistant/execution/queue";
 import {
   _resetRegistryForTests,
   getWorkflow,
@@ -94,11 +94,17 @@ function runArgsFor(userId: string): CreateRunArgs {
   };
 }
 
-async function queueHasJobId(jobId: string): Promise<boolean> {
-  const queue = getAgentQueue();
-  const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
+/** The ids of the queued `start` jobs: the kind that `enqueue: "once"` adds. */
+async function queuedStartJobIds(): Promise<Set<string>> {
+  const jobs = await agentQueue
+    .inspect()
+    .getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
 
-  return jobs.some((job) => job.id === jobId);
+  return new Set(jobs.flatMap((job) => (job.name === "start" && job.id ? [job.id] : [])));
+}
+
+function startJobId(runId: string): string {
+  return `run-start.${runId}`;
 }
 
 async function runRowCountForUser(userId: string): Promise<number> {
@@ -111,10 +117,9 @@ async function runRowCountForUser(userId: string): Promise<number> {
 }
 
 async function removeCreatedJobs(): Promise<void> {
-  const queue = getAgentQueue();
   await Promise.all(
     createdJobIds.map(async (jobId) => {
-      const job = await queue.getJob(jobId);
+      const job = await agentQueue.getJob(jobId);
 
       if (job) await job.remove();
     }),
@@ -142,45 +147,45 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
-    await closeAgentQueue();
+    await agentQueue.close();
     await closeRedis();
     await closeConnections();
   });
 
   test("claim returning null resolves null with no run row and no queued job", async () => {
     const userId = await seedUser();
-    const jobId = `${ID_PREFIX}raced.${randomUUID()}`;
-    createdJobIds.push(jobId);
+    const before = await queuedStartJobIds();
 
     const result = await startRunInTx({
       claim: async () => null,
-      enqueue: { jobId },
+      enqueue: "once",
     });
 
     assert.equal(result, null, "raced claim should resolve null");
     assert.equal(await runRowCountForUser(userId), 0, "no run row for a raced claim");
-    assert.equal(await queueHasJobId(jobId), false, "no queued job for a raced claim");
+    const added = [...(await queuedStartJobIds())].filter((id) => !before.has(id));
+    assert.deepEqual(added, [], "no queued job for a raced claim");
   });
 
   test("claim returning args creates the run and enqueues only after commit", async () => {
     const userId = await seedUser();
-    const jobId = `${ID_PREFIX}committed.${randomUUID()}`;
-    createdJobIds.push(jobId);
 
-    let enqueuedWhileClaimRan: boolean | undefined;
+    let queuedWhileClaimRan: Set<string> | undefined;
 
     const result = await startRunInTx({
       claim: async () => {
-        enqueuedWhileClaimRan = await queueHasJobId(jobId);
+        queuedWhileClaimRan = await queuedStartJobIds();
 
         return runArgsFor(userId);
       },
-      enqueue: { jobId },
+      enqueue: "once",
     });
 
     assert.ok(result, "committed claim should resolve a run result");
     assert.equal(result.created, true);
-    assert.equal(enqueuedWhileClaimRan, false, "enqueue must not fire before commit");
+    const jobId = startJobId(result.runId);
+    createdJobIds.push(jobId);
+    assert.equal(queuedWhileClaimRan?.has(jobId), false, "enqueue must not fire before commit");
 
     const rows = await db()
       .select({ status: agentRuns.status })
@@ -189,26 +194,32 @@ describe("startRunInTx claims, persists, then enqueues (DB/Redis-backed)", { ski
 
     assert.equal(rows.length, 1, "expected exactly one agent_runs row");
     assert.equal(rows[0]?.status, "pending", "run row should be pending after commit");
-    assert.equal(await queueHasJobId(jobId), true, "expected the passed jobId on the queue");
+    assert.equal(
+      (await queuedStartJobIds()).has(jobId),
+      true,
+      "expected the run's `start` job on the queue",
+    );
   });
 
   test("claim throwing rolls back the run row and fires no job", async () => {
     const userId = await seedUser();
-    const jobId = `${ID_PREFIX}rollback.${randomUUID()}`;
-    createdJobIds.push(jobId);
+    let rolledBackRunId: string | undefined;
 
     await assert.rejects(
       startRunInTx({
         claim: async (tx) => {
-          await createRun(runArgsFor(userId), tx);
+          rolledBackRunId = (await createRun(runArgsFor(userId), tx)).runId;
           throw new Error("claim failed after a durable write");
         },
-        enqueue: { jobId },
+        enqueue: "once",
       }),
       /claim failed after a durable write/,
     );
 
     assert.equal(await runRowCountForUser(userId), 0, "the tx write must roll back");
-    assert.equal(await queueHasJobId(jobId), false, "no job fires when claim throws");
+    assert.ok(rolledBackRunId, "the claim created a run before it threw");
+    const jobId = startJobId(rolledBackRunId);
+    createdJobIds.push(jobId);
+    assert.equal((await queuedStartJobIds()).has(jobId), false, "no job fires when claim throws");
   });
 });

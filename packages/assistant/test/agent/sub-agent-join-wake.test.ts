@@ -3,12 +3,13 @@ import { randomUUID } from "node:crypto";
 import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeRedis } from "@alfred/db/redis";
-import { closeAgentQueue, enqueueRun, getAgentQueue } from "@alfred/assistant/execution/queue";
+import { agentQueue, enqueueRun } from "@alfred/assistant/execution/queue";
 import { cancelRun } from "@alfred/assistant/execution/service";
 import {
   SUB_AGENT_WORKFLOW_SLUG,
@@ -161,11 +162,15 @@ async function waitForParentRunnable(runId: string): Promise<void> {
 }
 
 async function queuedAgentRunIds(): Promise<Set<string>> {
-  const queue = getAgentQueue();
+  const queue = agentQueue.inspect();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   const runIds = new Set<string>();
 
-  for (const job of jobs) runIds.add(job.data.runId);
+  for (const job of jobs) {
+    const runId = getStringPath(job.data, "runId");
+
+    if (runId) runIds.add(runId);
+  }
 
   return runIds;
 }
@@ -180,11 +185,11 @@ async function assertAgentRunQueued(runId: string): Promise<void> {
 }
 
 async function removeQueuedAgentRuns(): Promise<void> {
-  const queue = getAgentQueue();
+  const queue = agentQueue.inspect();
   const jobs = await queue.getJobs(["waiting", "delayed", "prioritized", "paused"], 0, 500);
   await Promise.all(
     jobs.map(async (job) => {
-      if (createdRunIds.includes(job.data.runId)) {
+      if (createdRunIds.includes(getStringPath(job.data, "runId") ?? "")) {
         await job.remove();
       }
     }),
@@ -216,7 +221,7 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
-    await closeAgentQueue();
+    await agentQueue.close();
     await subAgentJoinWakeWorker.close();
     await closeRedis();
     await closeConnections();

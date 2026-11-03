@@ -153,8 +153,7 @@ async function dispatchOne(
   } as const;
 
   // Claim, run row, and enqueue are one operation. A racing worker gets `null`.
-  // The jobId blocks a retried tick from firing twice for one instant.
-  // BullMQ forbids `:` in custom ids, so use `.` and milliseconds.
+  // `once` blocks a retried tick from adding a second job for the run of one instant.
   const claimed = await (dependencies.startRunInTx ?? startRunInTx)({
     claim: async (tx) => {
       const updated = await tx
@@ -174,7 +173,7 @@ async function dispatchOne(
         trigger: { kind: "cron", scheduledFor: scheduledForIso },
       };
     },
-    enqueue: { jobId: `workflow.${row.id}.scheduled.${scheduledFor.getTime()}` },
+    enqueue: "once",
   });
 
   if (!claimed) return "raced";

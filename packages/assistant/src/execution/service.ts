@@ -281,9 +281,10 @@ export async function createRun(
  */
 export async function startRun(
   args: CreateRunArgs,
-  enqueueOpts?: { delayMs?: number; jobId?: string },
+  enqueueOpts?: { delayMs?: number },
 ): Promise<CreateRunResult> {
   const result = await createRun(args);
+  // A `step`, never `once`: a deduped run must get a new job, or the re-enqueue would no-op.
   await enqueueRun(result.runId, enqueueOpts);
 
   return result;
@@ -296,7 +297,8 @@ export async function startRun(
  */
 export async function startRunInTx(spec: {
   claim: (tx: AgentDbExecutor) => Promise<CreateRunArgs | null>;
-  enqueue?: { delayMs?: number; jobId?: string };
+  /** `once`: the producer can retry, so a second enqueue of this run adds nothing. */
+  enqueue?: "once";
 }): Promise<CreateRunResult | null> {
   const created = await db().transaction(async (tx) => {
     const args = await spec.claim(tx);
@@ -307,7 +309,7 @@ export async function startRunInTx(spec: {
   });
 
   if (!created) return null;
-  await enqueueRun(created.runId, spec.enqueue);
+  await enqueueRun(created.runId, { once: spec.enqueue === "once" });
 
   return created;
 }

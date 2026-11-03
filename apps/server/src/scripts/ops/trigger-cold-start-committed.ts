@@ -13,7 +13,7 @@
  *   COLD_START_EMAILS="a@x.com,b@y.com" node dist/scripts/ops/trigger-cold-start-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
@@ -116,5 +116,5 @@ try {
   process.exitCode = 1;
 } finally {
   // Close the queue so enqueued jobs are persisted before exit.
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }
