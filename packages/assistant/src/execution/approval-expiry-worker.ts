@@ -9,14 +9,9 @@
 import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { and, asc, eq, lte } from "drizzle-orm";
-import { DelayedError, Worker, type Job } from "bullmq";
-import { createRedisConnection } from "@alfred/db/redis";
+import { DelayedError } from "bullmq";
 import { stagedAction, type ExpireOutcome } from "./staged-action";
-import {
-  APPROVAL_EXPIRY_QUEUE_NAME,
-  approvalExpiryJobDataSchema,
-  type ApprovalExpiryJobData,
-} from "@alfred/assistant/tool-runtime";
+import { approvalExpiryQueue } from "@alfred/assistant/tool-runtime";
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { logger } from "@alfred/logging";
 
@@ -25,49 +20,6 @@ const RECONCILE_INTERVAL_MS = 5 * 60_000;
 
 /** Rows per pass. The pending gated set is bounded by the 24h window, so one pass drains it. */
 const RECONCILE_BATCH_SIZE = 100;
-
-let _worker: Worker<ApprovalExpiryJobData> | undefined;
-
-export interface StartApprovalExpiryWorkerOpts {
-  concurrency?: number;
-}
-
-export async function startApprovalExpiryWorker(
-  opts: StartApprovalExpiryWorkerOpts = {},
-): Promise<void> {
-  if (_worker) return;
-  _worker = new Worker<ApprovalExpiryJobData>(
-    APPROVAL_EXPIRY_QUEUE_NAME,
-    processApprovalExpiryJob,
-    {
-      connection: createRedisConnection("queue"),
-      concurrency: opts.concurrency ?? 1,
-    },
-  );
-  _worker.on("error", (err) => {
-    logger.error({ err }, "[approvals:expiry-worker] error");
-  });
-  reconciler.start();
-}
-
-export async function stopApprovalExpiryWorker(): Promise<void> {
-  if (!_worker) return;
-  await reconciler.stop();
-  await _worker.close();
-  _worker = undefined;
-}
-
-async function processApprovalExpiryJob(job: Job<ApprovalExpiryJobData>): Promise<ExpireOutcome> {
-  const { stagingId, userId } = approvalExpiryJobDataSchema.parse(job.data);
-  const result = await stagedAction({ userId, stagingId }).expire();
-
-  if (result.kind === "deferred") {
-    await job.moveToDelayed(result.expiresAt.getTime(), job.token);
-    throw new DelayedError();
-  }
-
-  return result;
-}
 
 /**
  * Expire overdue gated rows whose run still waits, and return how many expired. The join keeps
@@ -118,4 +70,23 @@ const reconciler = new PeriodicTask({
     // Each one means the delayed job was lost or never scheduled.
     if (expired > 0) logger.warn(`[approvals:expiry-reconciler] expired ${expired} overdue`);
   },
+});
+
+/** The `staging-expire` worker. The reconciler starts after it and stops before it closes. */
+export const approvalExpiryWorker = approvalExpiryQueue.consume({
+  label: "approval-expiry",
+  concurrency: 1,
+  handlers: {
+    "approval.expire": async ({ stagingId, userId }, job): Promise<ExpireOutcome> => {
+      const result = await stagedAction({ userId, stagingId }).expire();
+
+      if (result.kind === "deferred") {
+        await job.moveToDelayed(result.expiresAt.getTime(), job.token);
+        throw new DelayedError();
+      }
+
+      return result;
+    },
+  },
+  alongside: [reconciler],
 });

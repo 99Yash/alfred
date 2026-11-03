@@ -24,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import { resolveBriefingPreferences, briefingWorker } from "@alfred/assistant/briefings";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns, briefings, user as userTable } from "@alfred/db/schemas";
@@ -215,5 +215,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue, briefingWorker.close);
+  await closeScriptResources(agentQueue.close, briefingWorker.close);
 }

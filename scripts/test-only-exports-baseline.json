@@ -105,8 +105,6 @@
     "EffectReceiptSource",
     "RunStatus",
     "SignalArgs",
-    "StartApprovalExpiryWorkerOpts",
-    "StartApprovalNotificationWorkerOpts",
     "WakeCondition",
     "WorkflowInput"
   ],
@@ -117,8 +115,6 @@
     "ScratchWriter",
     "Scratchpad",
     "SignalArgs",
-    "StartApprovalExpiryWorkerOpts",
-    "StartApprovalNotificationWorkerOpts",
     "WakeCondition"
   ],
   "packages/assistant/src/execution/registry.ts": ["_resetRegistryForTests"],
@@ -150,10 +146,7 @@
     "collectResumableRunIds",
     "minStaleAfterMs"
   ],
-  "packages/assistant/src/execution/sub-agent-join-wake-queue.ts": [
-    "getSubAgentJoinWakeQueue",
-    "subAgentJoinWakeJobId"
-  ],
+  "packages/assistant/src/execution/sub-agent-join-wake-queue.ts": ["subAgentJoinWakeJobId"],
   "packages/assistant/src/execution/terminal-closure.ts": ["TerminalOutcome"],
   "packages/assistant/src/execution/tool-surface-usage.ts": [
     "ToolSurfaceUsage",
@@ -192,9 +185,7 @@
   "packages/assistant/src/tasks/resolve.ts": ["gmailThreadIdsFromTodoSources"],
   "packages/assistant/src/tasks/suggest.ts": ["todoSourcesOverlap"],
   "packages/assistant/src/tool-runtime/approval-notification-queue.ts": [
-    "approvalNotificationJobId",
-    "notificationJobDataSchema",
-    "workflowBlockedNotificationJobId"
+    "approvalNotificationJobId"
   ],
   "packages/assistant/src/tool-runtime/discovery.ts": [
     "ToolCatalogAccess",
@@ -219,10 +210,8 @@
     "WorkflowReadinessBlocker",
     "WorkflowServiceFailureResult",
     "WorkflowToolCatalogSource",
-    "notificationJobDataSchema",
     "registerTool",
-    "registerWorkflowToolCatalogSource",
-    "workflowBlockedNotificationJobId"
+    "registerWorkflowToolCatalogSource"
   ],
   "packages/assistant/src/tool-runtime/internal/dispatch/index.ts": ["ToolCallDispatchResult"],
   "packages/assistant/src/tool-runtime/internal/dispatch/pipeline.ts": [

@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { settings } from "@alfred/assistant/settings";
 import { activateWorkflow, createWorkflowDraft } from "@alfred/assistant/automation";
 import { dispatchToolCall } from "@alfred/assistant/tool-runtime/dispatch";
-import { scratchpad, startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { scratchpad, startRun, agentQueue } from "@alfred/assistant/execution";
 import { SUB_AGENT_WORKFLOW_SLUG } from "@alfred/assistant/execution/sub-agent-metadata";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
@@ -324,7 +324,7 @@ try {
   console.error("[smoke-sub-agents] FAIL", err);
   process.exitCode = 1;
 } finally {
-  await closeAgentQueue();
+  await agentQueue.close();
   await closeRedis();
   await closeConnections();
 }

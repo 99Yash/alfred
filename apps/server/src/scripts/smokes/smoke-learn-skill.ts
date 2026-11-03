@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { LEARN_SKILL_WORKFLOW_SLUG } from "@alfred/assistant/skills";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import {
@@ -251,5 +251,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

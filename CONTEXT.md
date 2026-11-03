@@ -118,7 +118,7 @@ These three bias every subsystem below. Read them first.
 
 **`trigger` (on `agent_runs`).** First-class jsonb column on the run, mirroring `workflows.trigger.kind` plus per-kind metadata (`scheduledFor`, `eventId`, `payload`, `signalName`). Source of truth for "why did this run fire?" Replaces ad-hoc `metadata.triggeredBy` stuffing. ADR-0027.
 
-**Scheduled-instant jobId.** BullMQ `jobId = workflow:{workflowId}:scheduled:{nextRunAtIso}`. Idempotency primitive: a retried tick is a no-op via BullMQ's native dedup without consulting Postgres. ADR-0027.
+**Run-start job.** The tick and a sub-agent spawn add the first step of a run as the `agent-runs` `start` kind, whose job id is `run-start.<runId>`. A retried producer adds nothing while that job is kept. One scheduled instant creates one run, because the claim UPDATE and the occurrence claim are unique. ADR-0027, ADR-0119.
 
 **Per-turn LLM driver.** `AlfredAgent` (ADR-0026, `packages/ai/src/agent.ts`). One `turn()` call = one LLM round-trip = one `api_call_log` row. Composes with the durable runtime; not yet wired into any agent_run.
 

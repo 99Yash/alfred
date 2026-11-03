@@ -9,15 +9,8 @@
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "@alfred/db/redis";
 import { wakeParentOfSubAgent, wakeRun } from "./service";
-import {
-  AWAIT_SUB_AGENT_CEILING_MS,
-  SUB_AGENT_JOIN_WAKE_QUEUE_NAME,
-  subAgentJoinWakeJobDataSchema,
-  type SubAgentJoinWakeJobData,
-} from "./sub-agent-join-wake-queue";
+import { AWAIT_SUB_AGENT_CEILING_MS, subAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
 import { wakeConditionSchema } from "@alfred/contracts";
 import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { logger } from "@alfred/logging";
@@ -28,59 +21,10 @@ const RECONCILE_INTERVAL_MS = 60_000;
 /** Rows per pass, oldest park first. */
 const RECONCILE_BATCH_SIZE = 100;
 
-let _worker: Worker<SubAgentJoinWakeJobData> | undefined;
-
-export interface StartSubAgentJoinWakeWorkerOpts {
-  concurrency?: number;
-}
-
-export async function startSubAgentJoinWakeWorker(
-  opts: StartSubAgentJoinWakeWorkerOpts = {},
-): Promise<void> {
-  if (_worker) return;
-  _worker = new Worker<SubAgentJoinWakeJobData>(
-    SUB_AGENT_JOIN_WAKE_QUEUE_NAME,
-    processSubAgentJoinWakeJob,
-    {
-      connection: createRedisConnection("queue"),
-      concurrency: opts.concurrency ?? 1,
-    },
-  );
-  _worker.on("error", (err) => {
-    logger.error({ err }, "[sub-agent-join:wake-worker] error");
-  });
-  reconciler.start();
-}
-
-export async function stopSubAgentJoinWakeWorker(): Promise<void> {
-  if (!_worker) return;
-  await reconciler.stop();
-  await _worker.close();
-  _worker = undefined;
-}
-
 interface SubAgentJoinWakeResult {
   status: "woken" | "noop";
   childRunId: string;
   parentRunId?: string;
-}
-
-async function processSubAgentJoinWakeJob(
-  job: Job<SubAgentJoinWakeJobData>,
-): Promise<SubAgentJoinWakeResult> {
-  const { childRunId, parentRunId } = subAgentJoinWakeJobDataSchema.parse(job.data);
-
-  try {
-    // `propagate`: an enqueue failure throws, and a retry enqueues the parent that an earlier
-    // attempt woke.
-    const woken = await wakeParentOfSubAgent(childRunId, { enqueue: "propagate" });
-
-    return { status: woken ? "woken" : "noop", childRunId, parentRunId };
-  } catch (err) {
-    // Rethrow so BullMQ retries. This job is the fast path; the reconciler below is the backstop.
-    logger.warn({ err, childRunId }, "[sub-agent-join:wake-worker] wake failed; will retry");
-    throw err;
-  }
 }
 
 /**
@@ -153,4 +97,26 @@ const reconciler = new PeriodicTask({
       logger.warn(`[sub-agent-join:wake-reconciler] woke ${woken} by the backstop`);
     }
   },
+});
+
+/** The `sub-agent-join-wake` worker. The reconciler starts after it and stops before it closes. */
+export const subAgentJoinWakeWorker = subAgentJoinWakeQueue.consume({
+  label: "sub-agent join-wake",
+  concurrency: 1,
+  handlers: {
+    "sub-agent-join.wake": async ({ childRunId, parentRunId }): Promise<SubAgentJoinWakeResult> => {
+      try {
+        // `propagate`: an enqueue failure throws, and a retry enqueues the parent that an earlier
+        // attempt woke.
+        const woken = await wakeParentOfSubAgent(childRunId, { enqueue: "propagate" });
+
+        return { status: woken ? "woken" : "noop", childRunId, parentRunId };
+      } catch (err) {
+        // Rethrow so BullMQ retries. This job is the fast path; the reconciler is the backstop.
+        logger.warn({ err, childRunId }, "[sub-agent-join:wake-worker] wake failed; will retry");
+        throw err;
+      }
+    },
+  },
+  alongside: [reconciler],
 });

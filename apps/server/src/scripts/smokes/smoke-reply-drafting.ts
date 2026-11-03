@@ -12,7 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
+import { agentQueue, startRun } from "@alfred/assistant/execution";
 import type { ReplyDraftingWorkflowInput } from "@alfred/assistant/reply-drafting";
 import {
   REPLY_EXPECTED_TRIAGE_CATEGORIES,
@@ -213,5 +213,5 @@ try {
   );
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

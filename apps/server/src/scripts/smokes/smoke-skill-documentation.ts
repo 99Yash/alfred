@@ -18,7 +18,7 @@ import {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
   skillDocumentationDedupKey,
 } from "@alfred/assistant/skills";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { toRecord } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -275,5 +275,5 @@ try {
   console.error("[smoke-skill-doc] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

@@ -23,7 +23,7 @@
  *     node dist/scripts/repairs/repair-triage-sender-miss-committed.js --commit
  */
 import { randomUUID } from "node:crypto";
-import { closeAgentQueue, startRun } from "@alfred/assistant/execution";
+import { agentQueue, startRun } from "@alfred/assistant/execution";
 import type { TriageWorkflowInput } from "@alfred/assistant/triage";
 import { toMessage, TRIAGE_WORKFLOW_SLUG } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
@@ -273,5 +273,5 @@ try {
   console.error(toMessage(e));
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

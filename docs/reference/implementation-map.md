@@ -141,12 +141,15 @@ flowchart LR
 | File | Owns |
 | --- | --- |
 | `execution/service.ts` | `startRun`, occurrence dedup |
-| `execution/queue.ts` | The `agent-runs` queue topology |
-| `execution/worker.ts` | DB lease + heartbeat + resume sweep |
+| `execution/queue.ts` | The `agentQueue` contract (`agent-runs`): the `step` kind and the `start` kind (job id `run-start.<runId>`), and `enqueueRun` |
+| `execution/worker.ts` | The `agentWorker` consumer: DB lease + heartbeat, and the resume sweep companion |
 | `execution/executor.ts` | One step body per job; `next` / `done` / `defer` semantics |
 | `execution/resolve-workflow.ts` + `registry.ts` | Workflow resolution; builtin slugs never live in the DB |
-| `execution/sub-agent-join-*.ts` | Sub-agent wake (`sub-agent-join-wake` queue) |
-| `execution/approval-*-worker.ts` | `action_stagings` lifecycle (expiry, notification) |
+| `execution/sub-agent-join-wake-queue.ts` | The `subAgentJoinWakeQueue` contract: the `sub-agent-join.wake` kind and its job id |
+| `execution/sub-agent-join-wake-worker.ts` | The `subAgentJoinWakeWorker` consumer and its Postgres join reconciler |
+| `tool-runtime/approval-expiry-queue.ts` | The `approvalExpiryQueue` contract (`staging-expire`): the `approval.expire` kind and its job id |
+| `tool-runtime/approval-notification-queue.ts` | The `approvalNotificationQueue` contract (`staging-notify`): the `approval.notify` and `workflow.blocked` kinds |
+| `execution/approval-*-worker.ts` | The `approvalExpiryWorker` and `approvalNotificationWorker` consumers: `action_stagings` lifecycle (expiry, notification) |
 | `automation/*` | User workflow authoring, readiness, `workflows-tick` |
 
 Tables: `agent_runs`, `agent_steps`, `agent_decision_traces`,

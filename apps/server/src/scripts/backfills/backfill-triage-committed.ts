@@ -17,7 +17,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { startRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { warmPool } from "@alfred/db";
 import { db, rowsFromExecute } from "@alfred/db";
@@ -248,5 +248,5 @@ try {
   process.exitCode = 1;
 } finally {
   // Close the queue so enqueued jobs are persisted before exit.
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

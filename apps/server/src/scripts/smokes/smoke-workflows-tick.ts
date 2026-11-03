@@ -6,7 +6,7 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-workflows-tick.ts
  */
 import { dispatchDueCronWorkflows, closeWorkflowsQueue } from "@alfred/assistant/automation";
-import { closeAgentQueue } from "@alfred/assistant/execution";
+import { agentQueue } from "@alfred/assistant/execution";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import { db } from "@alfred/db";
@@ -172,7 +172,7 @@ try {
   process.exitCode = 1;
 } finally {
   try {
-    await closeAgentQueue();
+    await agentQueue.close();
     await closeWorkflowsQueue();
     await closeRedis();
     await closeConnections();

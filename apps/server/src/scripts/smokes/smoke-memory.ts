@@ -24,7 +24,7 @@ import {
   findPendingEmbedChunks,
   isRejected,
 } from "@alfred/assistant/knowledge/internal";
-import { closeAgentQueue } from "@alfred/assistant/execution";
+import { agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { embed } from "@alfred/ai/embeddings";
 import { db } from "@alfred/db";
@@ -270,5 +270,5 @@ try {
   console.error("[smoke] FAIL", err instanceof Error ? (err.stack ?? err.message) : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }

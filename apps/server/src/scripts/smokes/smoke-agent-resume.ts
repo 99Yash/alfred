@@ -5,7 +5,7 @@
  *   $ pnpm tsx --env-file=.env src/scripts/smokes/smoke-agent-resume.ts <runId>
  */
 import { wakeConditionSchema } from "@alfred/contracts";
-import { wakeRun, closeAgentQueue } from "@alfred/assistant/execution";
+import { wakeRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { agentRuns } from "@alfred/db/schemas";
@@ -73,5 +73,5 @@ try {
   console.error("[resume] FAIL", err instanceof Error ? err.message : err);
   process.exitCode = 1;
 } finally {
-  await closeScriptResources(closeAgentQueue);
+  await closeScriptResources(agentQueue.close);
 }
