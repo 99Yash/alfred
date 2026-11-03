@@ -141,8 +141,8 @@ flowchart LR
 | File | Owns |
 | --- | --- |
 | `execution/service.ts` | `startRun`, occurrence dedup |
-| `execution/queue.ts` | The `agent-runs` queue topology |
-| `execution/worker.ts` | DB lease + heartbeat + resume sweep |
+| `execution/queue.ts` | The `agentQueue` contract (`agent-runs`): the `step` kind and the `start` kind (job id `run-start.<runId>`), and `enqueueRun` |
+| `execution/worker.ts` | The `agentWorker` consumer: DB lease + heartbeat, and the resume sweep companion |
 | `execution/executor.ts` | One step body per job; `next` / `done` / `defer` semantics |
 | `execution/resolve-workflow.ts` + `registry.ts` | Workflow resolution; builtin slugs never live in the DB |
 | `execution/sub-agent-join-wake-queue.ts` | The `subAgentJoinWakeQueue` contract: the `sub-agent-join.wake` kind and its job id |
