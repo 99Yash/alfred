@@ -15,15 +15,11 @@ import {
   subAgentDoneSignalName,
 } from "@alfred/assistant/execution/sub-agent-metadata";
 import {
-  closeSubAgentJoinWakeQueue,
-  getSubAgentJoinWakeQueue,
   scheduleSubAgentJoinWakeJob,
   subAgentJoinWakeJobId,
+  subAgentJoinWakeQueue,
 } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
-import {
-  startSubAgentJoinWakeWorker,
-  stopSubAgentJoinWakeWorker,
-} from "@alfred/assistant/execution/sub-agent-join-wake-worker";
+import { subAgentJoinWakeWorker } from "@alfred/assistant/execution/sub-agent-join-wake-worker";
 import { dbBackedSkip } from "../support/db-backed";
 
 /** ADR-0073 liveness through the real wake condition, wake worker, cancel path, and enqueue. */
@@ -204,31 +200,31 @@ describe("sub-agent join wake liveness (DB/Redis-backed)", { skip: SKIP }, () =>
   });
 
   afterEach(async () => {
-    await stopSubAgentJoinWakeWorker();
+    await subAgentJoinWakeWorker.stop();
     await removeQueuedAgentRuns();
 
     for (const runId of createdRunIds) {
-      const job = await getSubAgentJoinWakeQueue().getJob(subAgentJoinWakeJobId(runId));
+      const job = await subAgentJoinWakeQueue.getJob(subAgentJoinWakeJobId(runId));
       await job?.remove();
     }
   });
 
   after(async () => {
-    await stopSubAgentJoinWakeWorker();
+    await subAgentJoinWakeWorker.stop();
 
     if (createdUserIds.length > 0) {
       await db().delete(user).where(inArray(user.id, createdUserIds));
     }
 
     await closeAgentQueue();
-    await closeSubAgentJoinWakeQueue();
+    await subAgentJoinWakeWorker.close();
     await closeRedis();
     await closeConnections();
   });
 
   test("dead-man worker wakes and enqueues a parent stranded on a child signal", async () => {
     const { parentRunId, childRunId } = await seedJoinRows();
-    await startSubAgentJoinWakeWorker();
+    await subAgentJoinWakeWorker.start();
 
     await scheduleSubAgentJoinWakeJob({
       childRunId,

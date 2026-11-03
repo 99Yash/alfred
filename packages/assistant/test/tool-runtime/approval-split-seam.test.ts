@@ -2,22 +2,18 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  APPROVAL_EXPIRY_QUEUE_NAME,
-  APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalExpiryJobId,
-  closeApprovalExpiryQueue,
-  closeApprovalNotificationQueue,
+  approvalExpiryQueue,
+  approvalNotificationQueue,
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
   scheduleApprovalExpiryJob,
   scheduleApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
 import {
+  approvalExpiryWorker,
+  approvalNotificationWorker,
   stagedAction,
-  startApprovalExpiryWorker,
-  startApprovalNotificationWorker,
-  stopApprovalExpiryWorker,
-  stopApprovalNotificationWorker,
 } from "@alfred/assistant/execution";
 import { approvalNotificationJobId } from "../../src/tool-runtime/approval-notification-queue";
 
@@ -27,9 +23,9 @@ import { approvalNotificationJobId } from "../../src/tool-runtime/approval-notif
  * export the helpers. `smoke-expiry` covers `stagedAction(...).expire()` against a live DB.
  */
 describe("approvals split — queue identity + owner-index reachability", () => {
-  test("queue-name constants are byte-identical to before the split", () => {
-    assert.equal(APPROVAL_EXPIRY_QUEUE_NAME, "staging-expire");
-    assert.equal(APPROVAL_NOTIFICATION_QUEUE_NAME, "staging-notify");
+  test("queue names are byte-identical to before the split", () => {
+    assert.equal(approvalExpiryQueue.name, "staging-expire");
+    assert.equal(approvalNotificationQueue.name, "staging-notify");
   });
 
   test("job-id formats are the dot-separated logical ids", () => {
@@ -41,10 +37,8 @@ describe("approvals split — queue identity + owner-index reachability", () => 
     for (const fn of [
       scheduleApprovalExpiryJob,
       removeApprovalExpiryJob,
-      closeApprovalExpiryQueue,
       scheduleApprovalNotificationJob,
       removeApprovalNotificationJob,
-      closeApprovalNotificationQueue,
     ]) {
       assert.equal(typeof fn, "function");
     }
@@ -53,10 +47,10 @@ describe("approvals split — queue identity + owner-index reachability", () => 
   test("workers + expiry transition are reachable from the agent index", () => {
     for (const fn of [
       stagedAction,
-      startApprovalExpiryWorker,
-      stopApprovalExpiryWorker,
-      startApprovalNotificationWorker,
-      stopApprovalNotificationWorker,
+      approvalExpiryWorker.start,
+      approvalExpiryWorker.stop,
+      approvalNotificationWorker.start,
+      approvalNotificationWorker.stop,
     ]) {
       assert.equal(typeof fn, "function");
     }

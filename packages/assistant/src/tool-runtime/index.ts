@@ -67,30 +67,18 @@ export {
 
 // Approval job scheduling (ADR-0034). The workers live in execution.
 export {
-  APPROVAL_EXPIRY_QUEUE_NAME,
   approvalExpiryJobId,
-  approvalExpiryJobDataSchema,
-  getApprovalExpiryQueue,
+  approvalExpiryQueue,
   scheduleApprovalExpiryJob,
   removeApprovalExpiryJob,
-  closeApprovalExpiryQueue,
-  type ApprovalExpiryJobData,
 } from "./approval-expiry-queue";
 
 export {
-  APPROVAL_NOTIFICATION_QUEUE_NAME,
   approvalCardKey,
-  approvalNotificationJobDataSchema,
-  getApprovalNotificationQueue,
+  approvalNotificationQueue,
   scheduleApprovalNotificationJob,
   removeApprovalNotificationJob,
-  closeApprovalNotificationQueue,
-  notificationJobDataSchema,
   scheduleWorkflowBlockedNotificationJob,
-  workflowBlockedNotificationJobDataSchema,
-  workflowBlockedNotificationJobId,
-  type ApprovalNotificationJobData,
-  type NotificationJobData,
   type WorkflowBlockedNotificationJobData,
 } from "./approval-notification-queue";
 

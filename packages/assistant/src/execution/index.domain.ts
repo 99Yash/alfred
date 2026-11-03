@@ -10,11 +10,7 @@ import {
   startRun,
   startRunInTx,
 } from "./service";
-import { closeSubAgentJoinWakeQueue } from "./sub-agent-join-wake-queue";
-import {
-  startSubAgentJoinWakeWorker,
-  stopSubAgentJoinWakeWorker,
-} from "./sub-agent-join-wake-worker";
+import { subAgentJoinWakeWorker } from "./sub-agent-join-wake-worker";
 import { verifyMeteringModels } from "./verify-models";
 import { startAgentWorker, stopAgentWorker } from "./worker";
 
@@ -27,8 +23,7 @@ export {
   cancelRun,
   startAgentWorker,
   stopAgentWorker,
-  startSubAgentJoinWakeWorker,
-  stopSubAgentJoinWakeWorker,
+  subAgentJoinWakeWorker,
   verifyMeteringModels,
 };
 
@@ -49,7 +44,7 @@ export {
 // delivering it.
 export { persistChatTurnRunInTx, redeliverRun, replayRun };
 
-export { closeAgentQueue, closeSubAgentJoinWakeQueue };
+export { closeAgentQueue };
 
 export { scheduledFireTime } from "./job-scheduler";
 
@@ -127,11 +122,7 @@ export { joinChildOutcome, type ParkWake } from "./sub-agent-join";
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
 // Approval workers (ADR-0034). Their scheduling stays in `tool-runtime`.
-export {
-  startApprovalExpiryWorker,
-  stopApprovalExpiryWorker,
-  type StartApprovalExpiryWorkerOpts,
-} from "./approval-expiry-worker";
+export { approvalExpiryWorker } from "./approval-expiry-worker";
 
 // The one owner of a staged action's decision and expiry (ADR-0034).
 export {
@@ -141,11 +132,7 @@ export {
   type StagedApproval,
 } from "./staged-action";
 
-export {
-  startApprovalNotificationWorker,
-  stopApprovalNotificationWorker,
-  type StartApprovalNotificationWorkerOpts,
-} from "./approval-notification-worker";
+export { approvalNotificationWorker } from "./approval-notification-worker";
 
 export { isTerminalChildStatus, listSpawnedChildRuns, type ChildRunOutcome } from "./sub-agents";
 

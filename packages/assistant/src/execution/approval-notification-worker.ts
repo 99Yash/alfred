@@ -14,53 +14,22 @@ import { db } from "@alfred/db";
 import { actionStagings, agentRuns } from "@alfred/db/schemas";
 import { renderApprovalEmail, type ApprovalEmailField } from "@alfred/mailer";
 import { and, eq, sql } from "drizzle-orm";
-import { Worker, type Job } from "bullmq";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { createRedisConnection } from "@alfred/db/redis";
 import { send } from "@alfred/assistant/delivery";
-import {
-  APPROVAL_NOTIFICATION_QUEUE_NAME,
-  approvalCardKey,
-  approvalNotificationJobDataSchema,
-  workflowBlockedNotificationJobDataSchema,
-  type ApprovalNotificationJobData,
-  type NotificationJobData,
-} from "@alfred/assistant/tool-runtime";
+import type { JobInput } from "@alfred/assistant/queue-jobs";
+import { approvalCardKey, approvalNotificationQueue } from "@alfred/assistant/tool-runtime";
 import { emailLogoUrl, webOrigin } from "@alfred/assistant/settings";
-import {
-  processWorkflowBlockedNotification,
-  type WorkflowBlockedNotificationResult,
-} from "./workflow-blocked-notification";
-import { logger } from "@alfred/logging";
+import { processWorkflowBlockedNotification } from "./workflow-blocked-notification";
 
-let _worker: Worker<NotificationJobData> | undefined;
-
-export interface StartApprovalNotificationWorkerOpts {
-  concurrency?: number;
-}
-
-export async function startApprovalNotificationWorker(
-  opts: StartApprovalNotificationWorkerOpts = {},
-): Promise<void> {
-  if (_worker) return;
-  _worker = new Worker<NotificationJobData>(
-    APPROVAL_NOTIFICATION_QUEUE_NAME,
-    processNotificationJob,
-    {
-      connection: createRedisConnection("queue"),
-      concurrency: opts.concurrency ?? 1,
-    },
-  );
-  _worker.on("error", (err) => {
-    logger.error({ err }, "[approvals:worker] error");
-  });
-}
-
-export async function stopApprovalNotificationWorker(): Promise<void> {
-  if (!_worker) return;
-  await _worker.close();
-  _worker = undefined;
-}
+/** The `staging-notify` worker (#561): approval emails and workflow-blocked emails. */
+export const approvalNotificationWorker = approvalNotificationQueue.consume({
+  label: "approval-notification",
+  concurrency: 1,
+  handlers: {
+    "approval.notify": async (data) => processApprovalNotificationJob(data),
+    "workflow.blocked": async (data) => processWorkflowBlockedNotification(data),
+  },
+});
 
 /** A failed send throws so BullMQ retries; it is never returned. */
 export type ApprovalNotificationResult =
@@ -68,22 +37,14 @@ export type ApprovalNotificationResult =
   | { status: "skipped"; reason: string; stagingId: string }
   | { status: "sent" | "duplicate"; stagingId: string; emailSendId: string };
 
-/** Two job shapes (#561): an approval job with no `kind`, and `kind: "workflow_blocked"`. */
-async function processNotificationJob(
-  job: Job<NotificationJobData>,
-): Promise<ApprovalNotificationResult | WorkflowBlockedNotificationResult> {
-  const blocked = workflowBlockedNotificationJobDataSchema.safeParse(job.data);
-
-  if (blocked.success) return processWorkflowBlockedNotification(blocked.data);
-
-  return processApprovalNotificationJob(approvalNotificationJobDataSchema.parse(job.data));
-}
-
 async function processApprovalNotificationJob({
   stagingId,
   userId,
   card,
-}: ApprovalNotificationJobData): Promise<ApprovalNotificationResult> {
+}: JobInput<
+  typeof approvalNotificationQueue,
+  "approval.notify"
+>): Promise<ApprovalNotificationResult> {
   const rows = await db()
     .select({
       id: actionStagings.id,

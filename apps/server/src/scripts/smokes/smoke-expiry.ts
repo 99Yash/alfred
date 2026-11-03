@@ -14,10 +14,8 @@
 
 import {
   approvalExpiryJobId,
-  closeApprovalExpiryQueue,
-  closeApprovalNotificationQueue,
-  getApprovalExpiryQueue,
-  getApprovalNotificationQueue,
+  approvalExpiryQueue,
+  approvalNotificationQueue,
   removeApprovalExpiryJob,
   removeApprovalNotificationJob,
 } from "@alfred/assistant/tool-runtime";
@@ -56,7 +54,11 @@ function assert(condition: unknown, message: string): asserts condition {
 
 /** Stop before any write if a dev server's workers can expire the row or lease the run first. */
 async function assertNoLiveWorkers(): Promise<void> {
-  for (const queue of [getApprovalExpiryQueue(), getApprovalNotificationQueue(), getAgentQueue()]) {
+  for (const queue of [
+    approvalExpiryQueue.inspect(),
+    approvalNotificationQueue.inspect(),
+    getAgentQueue(),
+  ]) {
     const workers = await queue.getWorkers();
 
     if (workers.length > 0) {
@@ -224,7 +226,7 @@ async function main(): Promise<void> {
   await ensureDefaultActionPolicyForUser(userId);
   await setGated(userId);
 
-  const queue = getApprovalExpiryQueue();
+  const queue = approvalExpiryQueue;
 
   // 1. Staging sets expires_at + queues an expiry job
   const runId1 = await createSmokeRun(userId, "expire-turn");
@@ -396,7 +398,7 @@ try {
 
   await closeScriptResources(
     closeAgentQueue,
-    closeApprovalExpiryQueue,
-    closeApprovalNotificationQueue,
+    async () => approvalExpiryQueue.close(),
+    async () => approvalNotificationQueue.close(),
   );
 }

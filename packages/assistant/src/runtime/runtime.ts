@@ -36,16 +36,12 @@ import {
   stopConversationCompactionWorker,
 } from "@alfred/assistant/chat";
 import {
+  approvalExpiryWorker,
+  approvalNotificationWorker,
   closeAgentQueue,
-  closeSubAgentJoinWakeQueue,
   startAgentWorker,
-  startApprovalExpiryWorker,
-  startApprovalNotificationWorker,
-  startSubAgentJoinWakeWorker,
   stopAgentWorker,
-  stopApprovalExpiryWorker,
-  stopApprovalNotificationWorker,
-  stopSubAgentJoinWakeWorker,
+  subAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
 import {
@@ -69,10 +65,6 @@ import {
   initEventBridge,
   initReplicachePokeBridge,
 } from "@alfred/assistant/realtime";
-import {
-  closeApprovalExpiryQueue,
-  closeApprovalNotificationQueue,
-} from "@alfred/assistant/tool-runtime";
 import { reconcileInflightInvocations } from "@alfred/assistant/tool-runtime/mcp";
 import { closeConnections, warmPool } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
@@ -162,13 +154,7 @@ function backgroundServices(config: RuntimeConfig) {
       stop: stopAgentWorker,
       close: closeAgentQueue,
     },
-    subAgentJoinWake: {
-      kind: "worker",
-      label: "sub-agent join-wake",
-      start: startSubAgentJoinWakeWorker,
-      stop: stopSubAgentJoinWakeWorker,
-      close: closeSubAgentJoinWakeQueue,
-    },
+    subAgentJoinWake: subAgentJoinWakeWorker,
     ingestion: ingestionWorker,
     memory: {
       kind: "worker",
@@ -220,20 +206,8 @@ function backgroundServices(config: RuntimeConfig) {
         clear: async () => clearJobSchedulers(getWorkflowsQueue()),
       },
     },
-    approvalNotification: {
-      kind: "worker",
-      label: "approval-notification",
-      start: startApprovalNotificationWorker,
-      stop: stopApprovalNotificationWorker,
-      close: closeApprovalNotificationQueue,
-    },
-    approvalExpiry: {
-      kind: "worker",
-      label: "approval-expiry",
-      start: startApprovalExpiryWorker,
-      stop: stopApprovalExpiryWorker,
-      close: closeApprovalExpiryQueue,
-    },
+    approvalNotification: approvalNotificationWorker,
+    approvalExpiry: approvalExpiryWorker,
     mcpConnectionRecovery: {
       kind: "scheduled-loop",
       label: "MCP connection recovery",

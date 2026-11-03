@@ -4,16 +4,13 @@
  * The signal is lost when the child ends before the park commits, is cancelled, or crashes.
  * This delayed job is the fast path. It lives only in Redis, so the join reconciler in the
  * worker file is the backstop: it wakes a parent whose persisted wake deadline is past.
- * The worker lives in another file to avoid an import cycle.
+ * The worker is `sub-agent-join-wake-worker.ts`, in another file to avoid an import cycle.
  */
 
-import { Queue } from "bullmq";
 import { z } from "zod";
-import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
+import { isQueueEnabled } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
-import { clearFinishedJob } from "@alfred/assistant/queue-jobs";
-
-export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";
+import { clearFinishedJob, defineQueue, job } from "@alfred/assistant/queue-jobs";
 
 /**
  * The dead-man delay, and the point past which a still-running child is reported, not awaited
@@ -22,34 +19,30 @@ export const SUB_AGENT_JOIN_WAKE_QUEUE_NAME = "sub-agent-join-wake";
  */
 export const AWAIT_SUB_AGENT_CEILING_MS = 6 * 60_000;
 
-export const subAgentJoinWakeJobDataSchema = z.object({
-  childRunId: z.string().min(1),
-  parentRunId: z.string().min(1),
-});
-
-export type SubAgentJoinWakeJobData = z.infer<typeof subAgentJoinWakeJobDataSchema>;
-
-let _queue: Queue<SubAgentJoinWakeJobData> | undefined;
-
 export function subAgentJoinWakeJobId(childRunId: string): string {
   // BullMQ custom job ids cannot contain `:`.
   return `sub-agent-join-wake.${childRunId}`;
 }
 
-export function getSubAgentJoinWakeQueue(): Queue<SubAgentJoinWakeJobData> {
-  if (_queue) return _queue;
-  _queue = new Queue<SubAgentJoinWakeJobData>(SUB_AGENT_JOIN_WAKE_QUEUE_NAME, {
-    connection: createRedisConnection("queue"),
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 2_000 },
-      removeOnComplete: { count: 100, age: 60 * 60 },
-      removeOnFail: { count: 200, age: 24 * 60 * 60 },
-    },
-  });
-
-  return _queue;
-}
+export const subAgentJoinWakeQueue = defineQueue({
+  name: "sub-agent-join-wake",
+  jobs: {
+    /** One timer per child: the job id is the child run. */
+    "sub-agent-join.wake": job(
+      z.object({
+        childRunId: z.string().min(1),
+        parentRunId: z.string().min(1),
+      }),
+      (d) => ({ jobId: subAgentJoinWakeJobId(d.childRunId) }),
+    ),
+  },
+  defaults: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 2_000 },
+    removeOnComplete: { count: 100, age: 60 * 60 },
+    removeOnFail: { count: 200, age: 24 * 60 * 60 },
+  },
+});
 
 export async function scheduleSubAgentJoinWakeJob(args: {
   childRunId: string;
@@ -59,19 +52,14 @@ export async function scheduleSubAgentJoinWakeJob(args: {
   if (!isQueueEnabled()) return;
 
   try {
-    const queue = getSubAgentJoinWakeQueue();
-    const jobId = subAgentJoinWakeJobId(args.childRunId);
     // A re-park needs a live timer. An unfinished job covers it, and the join reconciler is the
     // backstop when the wake ran too early.
-    await clearFinishedJob(queue, jobId);
+    await clearFinishedJob(subAgentJoinWakeQueue, subAgentJoinWakeJobId(args.childRunId));
 
-    await queue.add(
+    await subAgentJoinWakeQueue.add(
       "sub-agent-join.wake",
       { childRunId: args.childRunId, parentRunId: args.parentRunId },
-      {
-        delay: Math.max(0, args.delayMs),
-        jobId,
-      },
+      { delay: Math.max(0, args.delayMs) },
     );
   } catch (err) {
     logger.warn(
@@ -79,10 +67,4 @@ export async function scheduleSubAgentJoinWakeJob(args: {
       "[sub-agent-join] failed to schedule dead-man wake",
     );
   }
-}
-
-export async function closeSubAgentJoinWakeQueue(): Promise<void> {
-  if (!_queue) return;
-  await _queue.close();
-  _queue = undefined;
 }
