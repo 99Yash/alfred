@@ -7,14 +7,13 @@
  */
 import { dispatchDueCronWorkflows, workflowsWorker } from "@alfred/assistant/automation";
 import { agentQueue } from "@alfred/assistant/execution";
-import { closeConnections, warmPool } from "@alfred/db";
-import { closeRedis } from "@alfred/db/redis";
-import { db } from "@alfred/db";
+import { db, warmPool } from "@alfred/db";
 import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
-import { agentRunTriggerSchema, parseIanaTimezone, toMessage } from "@alfred/contracts";
+import { agentRunTriggerSchema, parseIanaTimezone } from "@alfred/contracts";
+import { closeScriptResources } from "../script-runtime";
 
 // A registered slug, so `requireWorkflow` resolves. No worker runs the run.
 const TEST_SLUG = "echo-with-approval";
@@ -60,8 +59,11 @@ async function main() {
 
   await cleanupPriorTest(userId);
 
-  const fakeSchedule = "*/5 * * * *";
-  const scheduledFor = new Date(Date.now() - 60_000);
+  // The dispatcher computes the next run from `scheduledFor`, not from now. A
+  // yearly schedule with `scheduledFor` on this year's fire time puts the next
+  // run in the next year, so it is never due again during the smoke.
+  const fakeSchedule = "0 0 1 1 *";
+  const scheduledFor = new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1));
 
   const insertedWf = await db()
     .insert(workflows)
@@ -139,8 +141,9 @@ async function main() {
 
   assert(runs2.length === 1, `tick 2 created an extra run; total=${runs2.length}`);
 
-  // Race: rewind, then dispatch twice at once. The CAS allows one enqueue.
-  const replayScheduledFor = new Date(Date.now() - 30_000);
+  // Race: rewind, then dispatch twice at once. The CAS allows one enqueue. The
+  // replay stays in this year, so the next run it computes is not due either.
+  const replayScheduledFor = new Date(scheduledFor.getTime() + 60_000);
   await db()
     .update(workflows)
     .set({ nextRunAt: replayScheduledFor })
@@ -171,12 +174,5 @@ try {
   console.error("[smoke-workflows-tick] failed:", err);
   process.exitCode = 1;
 } finally {
-  try {
-    await agentQueue.close();
-    await workflowsWorker.close();
-    await closeRedis();
-    await closeConnections();
-  } catch (err) {
-    console.error("[smoke-workflows-tick] cleanup error:", toMessage(err));
-  }
+  await closeScriptResources(agentQueue.close, workflowsWorker.close);
 }
