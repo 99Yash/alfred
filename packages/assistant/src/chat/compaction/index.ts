@@ -12,11 +12,7 @@ export { estimateChatRequestTokens } from "./chat-request-pressure";
 
 export { CHAT_MAX_OUTPUT_TOKENS, CHAT_SYNC_COMPACTION_RATIO } from "./constants";
 
-export {
-  closeConversationCompactionQueue,
-  startConversationCompactionWorker,
-  stopConversationCompactionWorker,
-} from "./conversation-compaction-queue";
+export { conversationCompactionWorker } from "./conversation-compaction-worker";
 
 export {
   backgroundCompactionThresholdTokens,

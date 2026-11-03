@@ -1,73 +1,81 @@
-import { parseStoredTranscript } from "@alfred/ai";
 import { jsonObjectSchema, toMessage, type AgentTranscriptMessage } from "@alfred/contracts";
-import { Queue, UnrecoverableError, Worker, type Job } from "bullmq";
 import { z } from "zod";
 
-import { createRedisConnection, isQueueEnabled } from "@alfred/db/redis";
+import { isQueueEnabled } from "@alfred/db/redis";
+import { defineQueue, job, type JobInput } from "@alfred/assistant/queue-jobs";
 import {
   markConversationCompactionRequested,
   recordConversationCompactionFailure,
 } from "./chat-context-store";
 import type { ChatMessageWatermark } from "./chat-message-watermark";
-import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
-import { logger } from "@alfred/logging";
 
-const CONVERSATION_COMPACTION_QUEUE_NAME = "conversation-compaction";
-
-const jobDataSchema = z.object({
-  kind: z.literal("conversation.compact"),
-  userId: z.string().min(1),
-  threadId: z.string().min(1),
-  throughMessageId: z.string().min(1),
-  throughCreatedAt: z.iso.datetime(),
-  replayTailThroughMessageId: z.string().min(1),
-  replayTailThroughCreatedAt: z.iso.datetime(),
-  requestedAt: z.iso.datetime(),
-  expectedGeneration: z.number().int().nonnegative(),
-  replayTail: z.array(
-    z.object({
-      role: z.enum(["system", "user", "assistant", "tool"]),
-      content: z.unknown(),
-      providerOptions: jsonObjectSchema.optional(),
-    }),
-  ),
-});
-
-type ConversationCompactionJobData = z.infer<typeof jobDataSchema>;
-
-type ExistingJobState = Awaited<ReturnType<Job["getState"]>>;
-
-export interface ConversationCompactionQueueDependencies {
-  enabled?: () => boolean;
-  getExisting?: (
-    jobId: string,
-  ) => Promise<{ state: ExistingJobState; remove: () => Promise<void> } | undefined>;
-  markRequested?: typeof markConversationCompactionRequested;
-  add?: (jobId: string, data: ConversationCompactionJobData) => Promise<void>;
-  recordFailure?: typeof recordConversationCompactionFailure;
-}
-
-let queue: Queue<ConversationCompactionJobData> | undefined;
-
-let worker: Worker<ConversationCompactionJobData> | undefined;
-
+/** BullMQ custom ids cannot contain `:`. */
 function conversationCompactionJobId(threadId: string): string {
   return `conversation-compact.${threadId}`.replaceAll(":", ".");
 }
 
-function getConversationCompactionQueue(): Queue<ConversationCompactionJobData> {
-  if (queue) return queue;
-  queue = new Queue(CONVERSATION_COMPACTION_QUEUE_NAME, {
-    connection: createRedisConnection("queue"),
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: { type: "exponential", delay: 5_000 },
-      removeOnComplete: { count: 100, age: 24 * 60 * 60 },
-      removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
-    },
-  });
+/** Background compaction of one chat thread. The worker is `conversation-compaction-worker.ts`. */
+export const conversationCompactionQueue = defineQueue({
+  name: "conversation-compaction",
+  jobs: {
+    /** One job per thread: the job id is the thread. */
+    "conversation.compact": job(
+      z.object({
+        userId: z.string().min(1),
+        threadId: z.string().min(1),
+        throughMessageId: z.string().min(1),
+        throughCreatedAt: z.iso.datetime(),
+        replayTailThroughMessageId: z.string().min(1),
+        replayTailThroughCreatedAt: z.iso.datetime(),
+        requestedAt: z.iso.datetime(),
+        expectedGeneration: z.number().int().nonnegative(),
+        replayTail: z.array(
+          z.object({
+            role: z.enum(["system", "user", "assistant", "tool"]),
+            content: z.unknown(),
+            providerOptions: jsonObjectSchema.optional(),
+          }),
+        ),
+      }),
+      ({ threadId }) => ({ jobId: conversationCompactionJobId(threadId) }),
+    ),
+  },
+  defaults: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5_000 },
+    removeOnComplete: { count: 100, age: 24 * 60 * 60 },
+    removeOnFail: { count: 100, age: 7 * 24 * 60 * 60 },
+  },
+});
 
-  return queue;
+type ConversationCompactionJobInput = JobInput<
+  typeof conversationCompactionQueue,
+  "conversation.compact"
+>;
+
+/** Test seam. Each default reads the queue handle or the context store. */
+export interface ConversationCompactionQueueDependencies {
+  enabled?: () => boolean;
+  getExisting?: (
+    jobId: string,
+  ) => Promise<{ state: string; remove: () => Promise<void> } | undefined>;
+  markRequested?: typeof markConversationCompactionRequested;
+  add?: (data: ConversationCompactionJobInput) => Promise<void>;
+  recordFailure?: typeof recordConversationCompactionFailure;
+}
+
+async function getExistingJob(
+  jobId: string,
+): Promise<{ state: string; remove: () => Promise<void> } | undefined> {
+  const existing = await conversationCompactionQueue.getJob(jobId);
+
+  return existing
+    ? { state: await existing.getState(), remove: async () => existing.remove() }
+    : undefined;
+}
+
+async function addJob(data: ConversationCompactionJobInput): Promise<void> {
+  await conversationCompactionQueue.add("conversation.compact", data);
 }
 
 export async function enqueueConversationCompaction(
@@ -83,15 +91,8 @@ export async function enqueueConversationCompaction(
   const enabled = dependencies.enabled ?? isQueueEnabled;
 
   if (!enabled()) return "disabled";
-  const jobId = conversationCompactionJobId(args.threadId);
-
-  const existing = dependencies.getExisting
-    ? await dependencies.getExisting(jobId)
-    : await getConversationCompactionQueue()
-        .getJob(jobId)
-        .then(async (job) =>
-          job ? { state: await job.getState(), remove: () => job.remove() } : undefined,
-        );
+  const getExisting = dependencies.getExisting ?? getExistingJob;
+  const existing = await getExisting(conversationCompactionJobId(args.threadId));
 
   if (existing) {
     const state = existing.state;
@@ -103,8 +104,7 @@ export async function enqueueConversationCompaction(
   const markRequested = dependencies.markRequested ?? markConversationCompactionRequested;
   const request = await markRequested(args.userId, args.threadId);
 
-  const data: ConversationCompactionJobData = {
-    kind: "conversation.compact",
+  const data: ConversationCompactionJobInput = {
     userId: args.userId,
     threadId: args.threadId,
     throughMessageId: args.throughWatermark.messageId,
@@ -117,8 +117,8 @@ export async function enqueueConversationCompaction(
   };
 
   try {
-    if (dependencies.add) await dependencies.add(jobId, data);
-    else await getConversationCompactionQueue().add("conversation.compact", data, { jobId });
+    const add = dependencies.add ?? addJob;
+    await add(data);
 
     return "scheduled";
   } catch (error) {
@@ -135,73 +135,7 @@ export async function enqueueConversationCompaction(
   }
 }
 
-export async function startConversationCompactionWorker(): Promise<void> {
-  if (!isQueueEnabled() || worker) return;
-  worker = new Worker(CONVERSATION_COMPACTION_QUEUE_NAME, processConversationCompactionJob, {
-    connection: createRedisConnection("queue"),
-    concurrency: 1,
-  });
-  worker.on("error", (error) =>
-    logger.error({ err: error }, "[conversation-compaction] worker error"),
-  );
-  worker.on("failed", (job, error) => {
-    logger.error(
-      { err: error },
-      `[conversation-compaction] job failed id=${job?.id ?? "?"} ` +
-        `attempt=${job?.attemptsMade ?? "?"}`,
-    );
-  });
-}
-
-export async function stopConversationCompactionWorker(): Promise<void> {
-  if (!worker) return;
-  await worker.close();
-  worker = undefined;
-}
-
-export async function closeConversationCompactionQueue(): Promise<void> {
-  if (!queue) return;
-  await queue.close();
-  queue = undefined;
-}
-
-async function processConversationCompactionJob(job: Job<ConversationCompactionJobData>) {
-  const data = jobDataSchema.parse(job.data);
-  const requestedAt = new Date(data.requestedAt);
-
-  try {
-    return await compactConversationSynchronously({
-      userId: data.userId,
-      threadId: data.threadId,
-      throughWatermark: {
-        messageId: data.throughMessageId,
-        createdAt: new Date(data.throughCreatedAt),
-      },
-      replayTail: parseStoredTranscript(data.replayTail),
-      replayTailWatermark: {
-        messageId: data.replayTailThroughMessageId,
-        createdAt: new Date(data.replayTailThroughCreatedAt),
-      },
-      attribution: { userId: data.userId, name: "chat.conversation-summary.background" },
-    });
-  } catch (error) {
-    await recordConversationCompactionFailure({
-      userId: data.userId,
-      threadId: data.threadId,
-      expectedGeneration: data.expectedGeneration,
-      expectedRequestedAt: requestedAt,
-      category: "background_failed",
-      message: toMessage(error),
-    });
-
-    if (isUnrecoverableConversationCompactionError(error)) {
-      throw new UnrecoverableError(toMessage(error));
-    }
-
-    throw error;
-  }
-}
-
+/** A deterministic evidence failure: a retry fails the same way, so the worker does not retry it. */
 export function isUnrecoverableConversationCompactionError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 

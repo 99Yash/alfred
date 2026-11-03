@@ -181,7 +181,11 @@ flowchart LR
 | --- | --- |
 | `packages/http/src/chat.ts` | Chat HTTP routes |
 | `chat/chat-turn.ts` | Turn orchestration; the prompt charter; injects nothing about the user (tool calls fetch it) |
-| `chat/stream-model-turn.ts`, `chat/idle-capture-queue.ts` | Streaming; `chat-memory` queue for implicit capture |
+| `chat/stream-model-turn.ts` | Streaming |
+| `chat/idle-capture-queue.ts` | The `chatMemoryQueue` contract for implicit capture: the `chat-memory.extract` kind, its idle delay, and its primary or tail job id |
+| `chat/idle-capture-worker.ts` | The `chatMemoryWorker` consumer: starts a `chat-memory-capture` run |
+| `chat/compaction/conversation-compaction-queue.ts` | The `conversationCompactionQueue` contract (one job per thread) and `enqueueConversationCompaction` |
+| `chat/compaction/conversation-compaction-worker.ts` | The `conversationCompactionWorker` consumer |
 | `tool-runtime/index.ts` | 10 of the 11 boot seams |
 | `tool-runtime/internal/registry.ts`, `context.ts` | Tool catalog; context binding incl. `ctx.corpus.search` |
 | `tool-runtime/dispatch.ts` + `builtin-tools.ts` | Provider/db-free tool leaves |

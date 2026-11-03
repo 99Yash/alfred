@@ -23,14 +23,7 @@ import {
   startMcpConnectionRecovery,
   stopMcpConnectionRecovery,
 } from "@alfred/assistant/connections/mcp";
-import {
-  closeChatMemoryQueue,
-  closeConversationCompactionQueue,
-  startChatMemoryWorker,
-  startConversationCompactionWorker,
-  stopChatMemoryWorker,
-  stopConversationCompactionWorker,
-} from "@alfred/assistant/chat";
+import { chatMemoryWorker, conversationCompactionWorker } from "@alfred/assistant/chat";
 import {
   agentWorker,
   approvalExpiryWorker,
@@ -136,20 +129,8 @@ function backgroundServices(config: RuntimeConfig) {
     // ADR-0113 re-match. It enqueues relabels on the ingestion queue, so it stops in the
     // agent group, before that queue closes.
     triageRematch: triageRematchWorker,
-    chatMemory: {
-      kind: "worker",
-      label: "chat-memory",
-      start: startChatMemoryWorker,
-      stop: stopChatMemoryWorker,
-      close: closeChatMemoryQueue,
-    },
-    conversationCompaction: {
-      kind: "worker",
-      label: "conversation-compaction",
-      start: startConversationCompactionWorker,
-      stop: stopConversationCompactionWorker,
-      close: closeConversationCompactionQueue,
-    },
+    chatMemory: chatMemoryWorker,
+    conversationCompaction: conversationCompactionWorker,
     briefing: briefingWorker,
     workflows: workflowsWorker,
     approvalNotification: approvalNotificationWorker,
