@@ -33,6 +33,8 @@ ADR-0032 still decides **what** the rule is: a TTL dedup, never a static `jobId`
 
 `signal()` declares a kind with no data. Its schema is `z.object({})`.
 
+**Amendment (slice 2): the caller says when, the kind says who.** `add(kind, data, when?)` takes an optional third argument of type `Timing`: `{ delay?, priority? }` and nothing else. The job id, the dedup rule, the attempts, and the retention stay on the catalog entry. A caller cannot pass them. Four producers choose a delay at the call: an approval expiry fires at the row's `expires_at`, an approval email fires after the debounce, a sub-agent join wake fires at the ceiling, and a deferred agent step fires at its `retryAt`. The agent step also chooses a priority from a database lookup (bulk runs). None of these values is part of the job's identity, so none of them can make two producers of one kind disagree about which job is which. A `delay` in `when` replaces a delay that the kind declares. We rejected two other designs. Putting the delay in the job data stores a field in Redis that no handler reads. Typed per-kind hints add type-level code for four call sites.
+
 ### 3. Producers and the worker both parse
 
 `add` parses the data with the schema of the kind before it adds the job. A bad payload throws at the `add` call, in the producer, and not later in the worker.
@@ -68,7 +70,17 @@ A helper that starts other work and is not a queue job stays out of `queue.ts`. 
 - The `isQueueEnabled()` checks. A feature decides what to do when Redis is not configured.
 - The never-throw wrappers, for example `bestEffort` in the Google OAuth callback. A feature decides which failures are fatal.
 - The producer helpers that other modules use as ports, for example `enqueueInboundDelivery` and `enqueueTriageRelabel`. Each one is now one `add` call.
-- `clearFinishedJob`, for a kind that must revive a finished job under a static id. The handle has no `getJob` yet. The two queues that call `clearFinishedJob` (approval expiry and sub-agent join wake) need it before they move.
+- `clearFinishedJob`, for a kind that must revive a finished job under a static id. The handle's `getJob(jobId)` returns a `JobRef` (`id`, `getState`, `remove`) and fits `clearFinishedJob`. `inspect()` returns a read-only view of the BullMQ queue (`getJob`, `getJobs`, `getJobCounts`, `getWorkers`) for tests and smoke scripts only.
+
+### 9. The worker record carries its companions (slice 2)
+
+`consume` also takes:
+
+- `enabled`: read at `start`. False leaves the worker off. Chat memory capture and conversation compaction use it.
+- `stall`: `stalledInterval` and `maxStalledCount`, for the agent worker, whose jobs hold a lease.
+- `alongside`: loops that live beside the worker, for example the Postgres reconcilers that back up the approval-expiry and sub-agent-wake delayed jobs, and the agent resume sweep. They start after the worker and stop before it closes. This is the order the hand-written workers used. `start` may await a first pass.
+
+Each handler gets a third argument, the job's `AbortSignal`, for a handler that must stop when the worker closes (triage re-match).
 
 ## Residual risk
 

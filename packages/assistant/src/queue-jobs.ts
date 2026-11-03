@@ -7,7 +7,14 @@
  * lifecycle record that `runtime.ts` drives. The BullMQ job name is the kind, so the data does
  * not repeat it.
  */
-import { Queue, Worker, type Job, type JobsOptions, type RepeatOptions } from "bullmq";
+import {
+  Queue,
+  Worker,
+  type Job,
+  type JobsOptions,
+  type RepeatOptions,
+  type WorkerOptions,
+} from "bullmq";
 import { z } from "zod";
 import { createRedisConnection } from "@alfred/db/redis";
 import { logger } from "@alfred/logging";
@@ -47,8 +54,21 @@ type Output<C extends Catalog, K extends keyof C> = z.output<C[K]["schema"]>;
 type AcceptsEmpty<C extends Catalog, K extends keyof C> =
   Record<string, never> extends Input<C, K> ? true : false;
 
+/**
+ * When a job runs: the one thing a caller may choose. The kind owns who the job is (job id,
+ * dedup) and how long it stays (retention); the caller owns when it runs (ADR-0119 §2).
+ */
+export interface Timing {
+  /** Milliseconds from now. Replaces a delay the kind declares. */
+  readonly delay?: number;
+  /** BullMQ priority: a job with none runs before any prioritized job. */
+  readonly priority?: number;
+}
+
 type AddArgs<C extends Catalog, K extends keyof C> =
-  AcceptsEmpty<C, K> extends true ? [data?: Input<C, K>] : [data: Input<C, K>];
+  AcceptsEmpty<C, K> extends true
+    ? [data?: Input<C, K>, when?: Timing]
+    : [data: Input<C, K>, when?: Timing];
 
 type SignalKind<C extends Catalog> = {
   [K in keyof C & string]: AcceptsEmpty<C, K> extends true ? K : never;
@@ -69,10 +89,29 @@ export interface QueuedJob {
   readonly id?: string | undefined;
 }
 
+/** A job found by id: enough to read its state and to remove it, nothing else. */
+export interface JobRef extends QueuedJob {
+  getState(): Promise<string>;
+  remove(): Promise<void>;
+}
+
+/**
+ * A read-only view of the BullMQ queue, for tests and smoke scripts. Production code adds
+ * through `add` and finds through `getJob`.
+ */
+export type QueueInspector = Pick<
+  Queue,
+  "name" | "getJob" | "getJobs" | "getJobCounts" | "getWorkers"
+>;
+
 export interface QueueHandle<C extends Catalog> {
   readonly name: string;
   /** Parse `data` with the kind's schema, then add it with the kind's options. */
   add<K extends keyof C & string>(kind: K, ...args: AddArgs<C, K>): Promise<QueuedJob>;
+  /** The job under `jobId`, for a kind whose rule sets a job id. Fits {@link clearFinishedJob}. */
+  getJob(jobId: string): Promise<JobRef | undefined>;
+  /** Tests and smoke scripts only. */
+  inspect(): QueueInspector;
   close(): Promise<void>;
   /** The worker for this queue. Call it from the feature's worker file, not the contract file. */
   consume(spec: ConsumerSpec<C>): BackgroundWorker;
@@ -91,8 +130,24 @@ type JobResult = object | string | number | boolean | void;
 
 /** One handler per kind. A missing kind does not compile; an inline literal also rejects an extra kind. */
 type Handlers<C extends Catalog> = {
-  readonly [K in keyof C]: (data: Output<C, K>, job: Job<unknown>) => Promise<JobResult>;
+  readonly [K in keyof C]: (
+    data: Output<C, K>,
+    job: Job<unknown>,
+    /** Aborts when BullMQ cancels the job or the worker closes. */
+    signal: AbortSignal | undefined,
+  ) => Promise<JobResult>;
 };
+
+/**
+ * A loop that lives beside the worker, for example a Postgres reconciler that backs up a delayed
+ * job. It starts after the worker and stops before the worker closes. `start` may await a first
+ * pass. A `PeriodicTask` fits.
+ */
+export interface Companion {
+  start(): void | Promise<void>;
+  /** A `PeriodicTask` returns whether its last pass finished; the worker does not read it. */
+  stop(): Promise<boolean | void>;
+}
 
 interface Schedule<K extends string> {
   /** Also the scheduler id, so a reboot updates the scheduler and does not add one. */
@@ -105,8 +160,13 @@ interface ConsumerSpec<C extends Catalog> {
   /** Log prefix `[<label>:worker]`. */
   readonly label: string;
   readonly concurrency?: number;
+  /** Read at `start`. False leaves the worker and its companions off. */
+  readonly enabled?: () => boolean;
+  /** Stall detection, for a worker whose jobs hold a lease. */
+  readonly stall?: Pick<WorkerOptions, "stalledInterval" | "maxStalledCount">;
   readonly handlers: Handlers<C>;
   readonly schedules?: ReadonlyArray<Schedule<SignalKind<C>>>;
+  readonly alongside?: readonly Companion[];
 }
 
 /** A BullMQ module as `runtime.ts` drives it: one worker, its queue, and its schedules. */
@@ -167,25 +227,36 @@ export function defineQueue<const C extends Catalog>(spec: QueueSpec<C>): QueueH
     name: spec.name,
     close,
 
-    async add(kind, ...[data]) {
+    async add(kind, ...[data, when]) {
       const { schema, options } = entry(kind);
       const parsed = z.parse(schema, data ?? {});
 
-      return open().add(kind, parsed, options?.(parsed));
+      return open().add(kind, parsed, { ...options?.(parsed), ...when });
     },
+
+    async getJob(jobId) {
+      return open().getJob(jobId);
+    },
+
+    inspect: open,
 
     consume(consumer) {
       let worker: Worker | undefined;
       const prefix = `[${consumer.label}:worker]`;
 
       // One generic step per kind keeps the schema and its handler correlated without a cast.
-      const run = <K extends keyof C & string>(kind: K, job: Job<unknown>) => {
+      const run = <K extends keyof C & string>(
+        kind: K,
+        job: Job<unknown>,
+        signal: AbortSignal | undefined,
+      ) => {
         const schema: C[K]["schema"] = entry(kind).schema;
 
-        return consumer.handlers[kind](z.parse(schema, job.data), job);
+        return consumer.handlers[kind](z.parse(schema, job.data), job, signal);
       };
 
       const schedules = consumer.schedules;
+      const companions = consumer.alongside ?? [];
 
       return {
         kind: "worker",
@@ -194,17 +265,20 @@ export function defineQueue<const C extends Catalog>(spec: QueueSpec<C>): QueueH
 
         async start() {
           if (worker) return;
+
+          if (consumer.enabled && !consumer.enabled()) return;
           worker = new Worker(
             spec.name,
-            async (job: Job<unknown>) => {
+            async (job: Job<unknown>, _token?: string, signal?: AbortSignal) => {
               const kind = job.name;
 
               // A kind this build does not know retries under `attempts`, then stays failed.
               if (!isKind(kind)) throw new Error(`${prefix} unknown job kind ${job.name}`);
 
-              return run(kind, job);
+              return run(kind, job, signal);
             },
             {
+              ...consumer.stall,
               connection: createRedisConnection("queue"),
               concurrency: consumer.concurrency ?? 1,
             },
@@ -221,10 +295,14 @@ export function defineQueue<const C extends Catalog>(spec: QueueSpec<C>): QueueH
                 `attempt=${failed?.attemptsMade ?? "?"}`,
             );
           });
+
+          for (const companion of companions) await companion.start();
         },
 
         async stop() {
           if (!worker) return;
+
+          for (const companion of companions) await companion.stop();
           await worker.close();
           worker = undefined;
         },
