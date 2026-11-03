@@ -112,7 +112,7 @@ export interface QueueHandle<C extends Catalog> {
   getJob(jobId: string): Promise<JobRef | undefined>;
   /** Tests and smoke scripts only. */
   inspect(): QueueInspector;
-  close(): Promise<void>;
+  readonly close: () => Promise<void>;
   /** The worker for this queue. Call it from the feature's worker file, not the contract file. */
   consume(spec: ConsumerSpec<C>): BackgroundWorker;
 }

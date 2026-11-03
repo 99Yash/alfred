@@ -37,8 +37,10 @@ describe("approvals split — queue identity + owner-index reachability", () => 
     for (const fn of [
       scheduleApprovalExpiryJob,
       removeApprovalExpiryJob,
+      approvalExpiryQueue.close,
       scheduleApprovalNotificationJob,
       removeApprovalNotificationJob,
+      approvalNotificationQueue.close,
     ]) {
       assert.equal(typeof fn, "function");
     }
