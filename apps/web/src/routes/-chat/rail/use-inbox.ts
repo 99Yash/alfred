@@ -6,6 +6,7 @@ import {
   isFreeMail,
   mailboxLabel,
   parseMailbox,
+  stripInvisibleChars,
   type TriageCategory,
 } from "@alfred/contracts";
 import type { InfiniteData } from "@tanstack/react-query";
@@ -171,7 +172,7 @@ export function useInboxDetail(documentId: string | null) {
               to: m.to,
               cc: m.cc,
               subject: m.subject,
-              snippet: m.snippet ?? null,
+              snippet: cleanPreview(m.snippet) || null,
               body: m.body,
               htmlBody: m.htmlBody ?? null,
               authoredAt: m.authoredAt,
@@ -287,5 +288,5 @@ function toneFor(name: string): AppTint {
 function cleanPreview(snippet: string | null): string {
   if (!snippet) return "";
 
-  return collapseWhitespace(decodeHtmlEntities(snippet));
+  return collapseWhitespace(stripInvisibleChars(decodeHtmlEntities(snippet)));
 }

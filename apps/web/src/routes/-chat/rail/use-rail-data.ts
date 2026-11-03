@@ -154,15 +154,34 @@ export function useRailData(): RailData {
     setInboxPageIndex(target);
   }, [safeInboxPage, inboxPageCount, pages, fetchNextPage]);
 
-  const onOpenInbox = useCallback((documentId: string) => {
-    setSelectedInboxId(documentId);
-  }, []);
-
-  const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
-
   // `useMarkInboxRead` invalidates ["me","inbox"] on success.
   const markInboxRead = useMarkInboxRead();
   const markInboxReadMutate = markInboxRead.mutate;
+
+  // Opening a thread reads it, as in Gmail: mark the clicked row and its unread
+  // siblings in the loaded pages. The server skips rows that are already read.
+  const onOpenInbox = useCallback(
+    (documentId: string) => {
+      setSelectedInboxId(documentId);
+
+      const items = pages.flatMap((page) => page.items);
+      const opened = items.find((item) => item.id === documentId);
+
+      if (!opened) return;
+
+      const unreadIds = items
+        .filter((item) =>
+          opened.threadId ? item.threadId === opened.threadId : item.id === documentId,
+        )
+        .filter((item) => item.unread)
+        .map((item) => item.id);
+
+      if (unreadIds.length > 0) markInboxReadMutate(unreadIds);
+    },
+    [pages, markInboxReadMutate],
+  );
+
+  const onCloseInbox = useCallback(() => setSelectedInboxId(null), []);
 
   const onMarkInboxRead = useCallback(
     (ids: ReadonlyArray<string>) => {

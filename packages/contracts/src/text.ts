@@ -11,6 +11,20 @@ export function collapseWhitespace(text: string): string {
 }
 
 /**
+ * Remove characters that have no width, such as U+034F, U+200B to U+200F, and
+ * U+FEFF. Marketing mail pads its preheader with long runs of these characters
+ * and spaces. Gmail copies the padding into the snippet, so a one-line preview
+ * overflows on blank text and ends in an ellipsis. A ZWJ (U+200D) after an
+ * emoji stays, because it joins an emoji sequence. Display text only, like
+ * `collapseWhitespace`.
+ */
+export function stripInvisibleChars(text: string): string {
+  return text
+    .replace(/[\p{Default_Ignorable_Code_Point}--[‍]]/gv, "")
+    .replace(/(?<!\p{Extended_Pictographic}[️\p{Emoji_Modifier}]?)‍/gu, "");
+}
+
+/**
  * A value as text for a reader: a string as it is, anything else as JSON. A
  * missing value reads as `null`, because `JSON.stringify(undefined)` returns
  * `undefined`, not a string. `indent` pretty-prints the JSON form for a block
