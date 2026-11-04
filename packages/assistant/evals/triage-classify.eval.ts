@@ -956,6 +956,8 @@ function buildArgs(c: Case): ClassifyEmailArgs {
 
   return {
     identity: USER,
+    // The eval scores the todo rubric too, so it runs with action items on.
+    proposeTodo: true,
     document: {
       id: `eval_${c.label}`,
       title: c.subject,

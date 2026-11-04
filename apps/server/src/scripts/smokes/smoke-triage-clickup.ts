@@ -223,6 +223,8 @@ async function main() {
     try {
       result = await classifyWithRetry({
         identity: { name: "Yash", email: "yash.k@oliv.ai" },
+        // The smoke checks the todo rubric too, so it runs with action items on.
+        proposeTodo: true,
         document: {
           id: "smoke",
           title: c.subject,

@@ -112,6 +112,17 @@ const triageClassificationWithMatchesSchema = triageClassificationSchema.extend(
   instructionMatches: z.array(triageInstructionMatchOutputSchema).optional(),
 });
 
+/**
+ * The output schemas when the user has action items off. They have no todo fields, so the
+ * model cannot propose a todo, and the request does not pay for the todo rubric.
+ */
+const TODO_FIELDS = { todoSuggestion: true, todoDecision: true } as const;
+
+const triageClassificationWithoutTodoSchema = triageClassificationSchema.omit(TODO_FIELDS);
+
+const triageClassificationWithMatchesWithoutTodoSchema =
+  triageClassificationWithMatchesSchema.omit(TODO_FIELDS);
+
 /** A pass's answer. `instructionMatches` is present only when the pass asked for it. */
 export type TriageClassifierOutput = z.infer<typeof triageClassificationWithMatchesSchema>;
 
@@ -122,6 +133,8 @@ export type RunPass = (input: {
   pass: "first" | "second";
   /** The prompt carries scoped instructions, so the pass asks for `instructionMatches`. */
   withInstructionMatches: boolean;
+  /** The prompt carries the todo rubric (rule 16), so the pass asks for the todo fields. */
+  proposeTodo: boolean;
 }) => Promise<TriageClassifierOutput>;
 
 /** A pass plus the model id that served it. An injected pass serves as `injected`. */
@@ -143,6 +156,11 @@ export interface ClassifyEmailArgs {
    * assigned to a named third party is not minted as the user's todo.
    */
   identity?: { name?: string | null; email?: string | null };
+  /**
+   * The user's `feature.action_items`. When false, the prompt has no todo rubric and the
+   * schema has no todo fields, so the result carries no todo proposal.
+   */
+  proposeTodo: boolean;
   document: {
     id: string;
     title: string | null;
@@ -211,7 +229,8 @@ const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsle
 /** Count toward a sender's "bulk" share for the over-classification net. */
 const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 
-export const SYSTEM_PROMPT = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
+/** Rules 1 to 15: the category rules. Both prompt variants open with them. */
+const PROMPT_BEFORE_TODO_RULE = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
 
 - urgent: action needed within hours, not days. Security alerts where someone reports a risk they OBSERVED about the user's account — an unrecognized/suspicious sign-in ("was this you?"), an unfamiliar device or location, a scanner naming a committed key, a breach naming the user's credential, an account already compromised (rule 15b) — plus billing failure that breaks access today, deadline today, critical CI/CD blocking ship. NOT the account's OWN vendor reporting an event on that account (a login link or code, a password change, a passkey, 2FA, an OAuth grant) — that is fyi (rule 15a), whatever its "if you didn't do this" line says.
 - action_needed: the user must take a concrete step that isn't time-critical. Reply, decide, complete a task, rotate a credential, update a card before its actual deadline, verify identity, fix a broken build, respond to a code review. (Vendor self-echo authentication mail is NOT here — the account's own vendor reporting an event on that account, from a sign-in link or one-time code through a password change, passkey, 2FA setting or OAuth grant, is fyi per rule 15a.)
@@ -272,8 +291,10 @@ Rules:
 15. Authentication mail — the test is NOT what the body says. It is WHO asserts that something went wrong.
     15a. Vendor self-echo — ZERO signal → fyi. The account's own vendor reports an event on that account that the USER COULD HAVE PERFORMED: a sign-in / magic link, a one-time or step-up / sudo / re-authentication code ("Sudo email verification code", "your verification code is 123456"), email-address verification, "security verification completed", a password changed or reset, a passkey created, two-factor enabled or disabled, an OAuth application added, a recovery email/phone updated, a login method added or changed. Its "if you didn't do this, act immediately" line is BOILERPLATE: it appears identically on a legitimate echo and on a phish, so it carries no information and NEVER escalates a category on its own. Default to the user having done it → fyi, not action_needed and not urgent, and no rail todo (rule 16c). The mailbox showing a matching request moments earlier only confirms what is already the default.
     15b. Observed-anomaly evidence — REAL signal → the demand lane stays open, usually urgent. Someone reports a risk they claim to have OBSERVED about WHO acted, not merely that the event happened: a risk engine naming an unrecognized device, an unfamiliar location or impossible travel ("we detected a new sign-in from a device you don't usually use", "suspicious sign-in — was this you?", "critical security alert"), a secret scanner naming a key committed to a repository, a breach-notification service naming the user's credential in a dump, or a statement that the account is ALREADY compromised. The asserter holds information the user does not. Judge the asserter and what they claim to have SEEN — never the adjectives, and never the urgency of the phrasing.
-    15c. The reasoning behind 15a, so you do not re-open it per email: an 'urgent' tag inside the same mailbox it warns about is not a security control. A compromised mailbox compromises the tag with it; an uncompromised mailbox means the mail is almost certainly the echo of the user's own action. Either way 'urgent' buys nothing over 'fyi'.
-16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
+    15c. The reasoning behind 15a, so you do not re-open it per email: an 'urgent' tag inside the same mailbox it warns about is not a security control. A compromised mailbox compromises the tag with it; an uncompromised mailbox means the mail is almost certainly the echo of the user's own action. Either way 'urgent' buys nothing over 'fyi'.`;
+
+/** Rule 16, the todo rubric (ADR-0050). Only the todo variant carries it. */
+const TODO_RULE = `16. Todo suggestion (rail) — decide, SEPARATELY from the category, whether this email puts a commitment on the USER worth tracking on their todo rail. This is orthogonal to the category: evaluate the WHOLE email — including a secondary or trailing ask — and do NOT bend the category to fit it (a closure email that ends with a real request stays \`done\` AND may still yield a todo). A todo is a MEMORY AID: it earns its place only if the user could plausibly forget or drop it. Most actionable mail does not clear this bar.
     Apply five tests IN ORDER. Stop at the first that fails; report it in \`todoDecision.outcome\`. Only an email that passes all five gets a \`todoSuggestion\`.
     16a. Obligation on me (gate) — is there an action AND does the USER own it? Two ways to fail. (i) No action falls on the user: pure awareness, the sender's job, an invitation/opportunity/optional nicety, or a product nudging engagement → outcome \`no_obligation\`. A social-network connection request (LinkedIn/X/etc. — "wants to connect", "I want to connect", "would like to join your network") is the canonical optional nicety: the sender's want, not your obligation, and any urgency it phrases is THEIRS → \`no_obligation\` — regardless of the requester's stated title or seniority. A cold "Founder & CEO wants to connect" is still the sender's want, not the user's obligation; whether a connection or any other cold ask is worth a todo is decided by 16b's person-waiting test (the Sender relationship observation), NOT by the title in the email. Distribution-list/service mail (Sender kind \`group\` or \`service\`) is rarely individually actionable unless the body names, assigns, or directly @-mentions the user; do not mint a todo from a generic blast, shared-inbox update, or service activity feed. (ii) The action is real but the email assigns it to a DIFFERENT person: use the "You (the user being triaged)" block to know who you are, then check the owner — if the body hands the task to someone who is not the user ("Sakshi is running standup", "@alice please review the PR", "Karthik to send the deck"), the obligation is THEIRS, not the user's → outcome \`no_obligation\` (note who owns it). A newsletter or shipped-order notice leaves no ball in the user's court; an FYI that says "auto-renews in 30 days unless you cancel" DOES.
     16b. Significance — a REAL, EXTERNAL stake. The obligation must carry a real stake, one of: a real identifiable person waiting on the user; money owed or at risk; a hard deadline; loss of access; a commitment the user made to a human; OR a real-world consequence to the user judged from the content. That last clause is the ONLY way automated/bot mail earns a todo, and for code/PR/review findings (whether from a bot OR a human reviewer) it turns on LIVENESS — is something ALREADY LIVE at stake? A real stake = the issue affects PRODUCTION or already-merged (\`main\`) code: a secret already committed/exposed, a vulnerability in \`main\`, an outage, a broken or blocked production deploy, a same-day security deadline. NO stake = the issue exists only in the UNMERGED changes under review — nitpicks, style, perf suggestions, even a genuine vulnerability that lives only in the PR's proposed code and is not yet in \`main\`/production. That is pre-merge advisory (review working as intended; nothing live is at risk) → fail. The test is not "is a reviewer waiting" but "is something already live at stake." MECHANICAL RULE: a pull-request review comment — anything of the shape "<reviewer> commented on PR #N", "address the review feedback on PR #N", "apply these suggestions" — is BY DEFINITION about code not yet merged, so it is pre-merge advisory and emits NO todo (outcome \`not_significant\`, note \`advisory:\`), REGARDLESS of how concrete or severe the suggested fixes sound, UNLESS the body explicitly says the problem is already in production / \`main\` or a credential is already exposed. CodeRabbit/Greptile "consider…" comments and CVE-FYIs fail. Stakes a product MANUFACTURES to drive engagement OR conversion — gamification streaks ("play before midnight or lose your streak"), unread/notification counts, "N people viewed your profile", marketing scarcity ("ends tonight"), and upsell/quota pressure ("upgrade your plan", "trial ending", "you've hit your free quota", "upgrade to continue") where nothing is actually owed (rule 11a) — and CEREMONIAL obligations (AGM, "save the date") are NOT real stakes, however urgently phrased → outcome \`not_significant\` (set \`note\` prefix \`manufactured:\` or \`advisory:\`). Real-but-trivial asks also fail: rate-your-driver, surveys, "thoughts sometime?", optional feedback. Judge the INTRINSIC stakes — money owed/at-risk, a hard deadline, lost access, a commitment to a human, code/PR liveness — from the email content; they hold regardless of who sent it. The ONE stake you may NOT take from content alone is "a real identifiable PERSON is waiting on the user": it must be CORROBORATED by the Sender relationship observation. A weak / one-way-inbound / \`no prior contact on record\` sender is a cold contact, NOT a real person waiting — a cold ask ("give me a recommendation", "I want to connect", "can you intro me?", "endorse me") fails here however directly it is phrased and whatever the sender's stated title → outcome \`not_significant\` (note prefix \`cold_sender:\`). A strong / two-way relationship — or a known contact with real history — asking a direct question IS a real person waiting → passes. When NO Sender relationship line is present (a bot/service sender), there is no person waiting: judge only the intrinsic stakes. Never infer a relationship the observation does not state.
@@ -281,8 +302,16 @@ Rules:
     16d. Actionability. Can you write a SPECIFIC, self-contained action from the email alone? A vague ask ("something broke, please fix it" with no what/where, "let's catch up sometime", a problem report missing specifics) → outcome \`too_vague\`. A vague rail item is worse than none.
     16e. Already handled. Does thread state show the user already replied/acted, or the loop is closed with no new ask? → outcome \`already_handled\`.
     16f. All five pass → outcome \`proposed\` and set \`todoSuggestion\`. Write \`name\` the way the USER would jot it on a sticky note to themselves — short, plain, object-first — NOT the way the email phrased it. It is a second-person IMPERATIVE that leads with the real verb and names the object, ideally 3–6 words and HARD-CAPPED at 8: "Reply to Priya about Q3 budget", "Rotate the exposed Redis credential", "Add receipts to 4 Brex expenses", "Pay the Zerodha AMC charge". Strip scaffolding the user already knows from context — drop "request"/"notification"/"connection"/"on <Platform>" filler and the email's formal phrasing: "Reply to Ankur on LinkedIn", NOT "Respond to the LinkedIn connection request from Ankur Singh". Fold a count straight into the name ("Fix 3 blocking issues in PR #78", not name + "three items" in assist). NEVER a bare verb ("Log in", "Reply"), and NEVER a hedge or passive frame ("Review and address…", "Look into…", "Provide info for…", "Address the … on …", "Investigate the …") — name the actual action. \`assist\` is null BY DEFAULT — the \`name\` is the whole todo, and a sentence under it is just more for the user to read. Populate \`assist\` ONLY with a HARD FACT the name structurally cannot carry — a money amount, a hard deadline/date, or a genuine either/or decision — and then ONLY as a TERSE FRAGMENT, never a sentence: "₹88.5 · due Jun 11", "before Jun 30", "renews Jul 1 — keep or cancel". Always write a date as an ABSOLUTE calendar date ("Jun 11", "Jul 1") — NEVER a relative word like "tomorrow", "tonight", "today", or "next Friday". A rail todo persists for days, so "due tomorrow" is a lie the moment it goes stale; resolve any relative phrasing in the email against the email's Date shown above and write the actual date. NO verbs, NO restating the name, NO mechanical step ("click the link", "check the logs", "review the profile", "secure the account") — those are noise and MUST be null. When in doubt, null. Never invent specifics absent from the email.
-    16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.
-17. Thread tag is the LIVE loop, not the last keystroke. The thread carries ONE tag and the newest message rewrites it for the whole thread. Do not let a trailing low-signal message — an automation/bot status line ("Done. Created the task", "moved to In Progress"), an acknowledgement, or a reaction — overwrite an open ask from earlier in the thread. When the recent-thread-messages show the user was assigned a task or asked a direct question that is still unanswered, the thread stays \`action_needed\`/\`awaiting_reply\` even when the latest line is a bot's "done". Judge what the thread still needs FROM THE USER, not the wording of the final line.
+    16g. ALWAYS emit \`todoDecision\`: { "outcome": <one of the six above>, "note"?: "<≤1 short clause if useful>" }. \`todoSuggestion\` is null unless outcome is \`proposed\`.`;
+
+/**
+ * Rule 16 when the user has action items off. It keeps the rule numbers, and it tells the
+ * model that the todo parts of the other rules do not apply. The schema has no todo fields.
+ */
+const TODO_RULE_OFF = `16. Todo suggestion (rail) — OFF for this user. Do not decide a todo, and emit no todo fields. Where another rule or example below mentions a todo or rule 16, apply only its category guidance.`;
+
+/** Rules 17 to 21 and the category examples. Both prompt variants carry them. */
+const PROMPT_AFTER_TODO_RULE = `17. Thread tag is the LIVE loop, not the last keystroke. The thread carries ONE tag and the newest message rewrites it for the whole thread. Do not let a trailing low-signal message — an automation/bot status line ("Done. Created the task", "moved to In Progress"), an acknowledgement, or a reaction — overwrite an open ask from earlier in the thread. When the recent-thread-messages show the user was assigned a task or asked a direct question that is still unanswered, the thread stays \`action_needed\`/\`awaiting_reply\` even when the latest line is a bot's "done". Judge what the thread still needs FROM THE USER, not the wording of the final line.
 18. Your own reply closes the loop (the inverse of rule 17). When the MOST RECENT message in the thread is FROM THE USER — thread state reads "you last replied on <date>" and the recent-thread-messages show the user's send as the latest line — and that reply answers the thread's outstanding ask, the thread no longer needs anything FROM THE USER. It is NOT \`awaiting_reply\`/\`action_needed\`: the user does not owe a reply they have already sent. Route it to \`done\` — the user's side of the loop is closed; waiting on the counterparty to respond is THEIR move, not a user action, so do not re-tag it as a thing the user must do. The recruiter who got a reply, the question the user already answered, the request the user already actioned all land here. EXCEPTION: the user's own latest message itself poses a NEW unanswered question to the counterparty or commits the user to a concrete next step — then classify on that open ask, not on the closed one. Rule 17 keeps a trailing low-signal BOT line from burying an open ask; rule 18 recognizes the user's OWN substantive reply as the line that closes it.
 19. Collaboration-tool activity (\`collabActivity\`) — SEPARATELY from the category, for a notification from a task/issue tracker or doc-comment thread (ClickUp, Linear, Jira, Asana, Monday, Trello, Notion, GitHub Issues, Google Docs/Drive or Figma comments, and similar collaboration tools), emit \`collabActivity\` naming WHAT the notification is — the same ownership read rule 12e asks for, surfaced as a field:
     - \`assigned_to_user\`: the body assigns / hands the item to the user.
@@ -315,14 +344,21 @@ Examples (subject → category):
 - "Proxy voting closes tomorrow — cast your vote" from a registrar/depository → action_needed (concrete user action/deadline).
 - "Meeting notes: Eng standup • …" / "Post Meet Summary" from an automated meeting-assistant → fyi (a recap of a meeting that ALREADY happened — rule 7; nothing to attend or schedule), no todo.
 - "Meeting prep: Weekly Sync • …" / an agenda brief from an automated assistant → fyi (a pre-meeting brief, not a calendar action — rule 7).
-- A ClickUp/Linear comment "@everyone we'll meet in-person for the offsite in Aug, I'll confirm the dates" → fyi (rule 12e collab-tool relay + rule 7: a future event with no invite or set date; "meet" is not enough), no todo (16a: an @everyone broadcast, the sender owns confirming the dates).
+- A ClickUp/Linear comment "@everyone we'll meet in-person for the offsite in Aug, I'll confirm the dates" → fyi (rule 12e collab-tool relay + rule 7: a future event with no invite or set date; "meet" is not enough), no todo (16a: an @everyone broadcast, the sender owns confirming the dates).`;
 
-Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
+/** Worked todo decisions. Only the todo variant carries them. */
+const TODO_EXEMPLARS = `Todo-decision exemplars (each illustrates the ONE rubric test that decides it — note category and todo can disagree):
 - Client "Order shipped — also, please send the signed SOW by Friday" → category done, todo "Send the signed SOW to <client> by Friday" (16a+16b+16c all pass; category and todo disagree).
 - Vendor FYI "Your plan auto-renews on Jul 1 unless you cancel" → category fyi, todo "Decide whether to cancel <vendor> before the Jul 1 auto-renew" (16a obligation holds on an fyi).
 - "something broke on the site, can you look?" with no specifics → category action_needed, no todo (16d actionability: too vague).
 - A PR review (bot OR human) asking to add a timeout, optimize an index, fix style, or even patch a vulnerability that exists ONLY in the unmerged PR → category fyi, no todo (16b liveness: pre-merge advisory, nothing in production at stake). BUT a secret already committed/exposed, a vulnerability in \`main\`, or a blocked production deploy → todo (16b: a live consequence).
 - A cold ask — "give me a recommendation", "endorse my skills", "can you intro me?" — whose Sender relationship reads \`weak · one-way inbound\` or \`no prior contact on record\` → category awaiting_reply (an honest direct ask), no todo (16b person-waiting: a cold contact is not a real person waiting, note \`cold_sender:\`). The SAME ask from a \`strong · two-way\` contact (or a known contact with real history) → todo (a real person is waiting).`;
+
+/** The triage prompt with the todo rubric. Its text does not change with the split. */
+export const SYSTEM_PROMPT = `${PROMPT_BEFORE_TODO_RULE}\n${TODO_RULE}\n${PROMPT_AFTER_TODO_RULE}\n\n${TODO_EXEMPLARS}`;
+
+/** The triage prompt when the user has action items off: no todo rubric, no todo examples. */
+const SYSTEM_PROMPT_WITHOUT_TODO = `${PROMPT_BEFORE_TODO_RULE}\n${TODO_RULE_OFF}\n${PROMPT_AFTER_TODO_RULE}`;
 
 function renderThreadObservation(obs: Observations): string[] {
   const lines: string[] = [];
@@ -942,8 +978,10 @@ function floorBodySignalText(document: ClassifyEmailArgs["document"]): string {
  * Rubric plus Alfred's own identity from env. Without it, "<our hostname> was
  * granted access" reads as an unknown third party.
  */
-function classifySystemPrompt(): string {
-  return `${SYSTEM_PROMPT}\n\n${selfIdentityGrounding()}`;
+function classifySystemPrompt(proposeTodo: boolean): string {
+  const rubric = proposeTodo ? SYSTEM_PROMPT : SYSTEM_PROMPT_WITHOUT_TODO;
+
+  return `${rubric}\n\n${selfIdentityGrounding()}`;
 }
 
 export interface ClassifyEmailResult {
@@ -984,10 +1022,11 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
   ): Promise<ClassifyPassResult> => {
     const run = (section: string | null) =>
       runPass({
-        system: classifySystemPrompt(),
+        system: classifySystemPrompt(args.proposeTodo),
         prompt: userPrompt(args, conflict, section),
         pass,
         withInstructionMatches: section !== null,
+        proposeTodo: args.proposeTodo,
       });
 
     if (scopeBlock.section === null) return { served: await run(null), matchFailure: null };
@@ -1127,6 +1166,22 @@ function classifyHedgeBudget(): HedgeBudget {
   return _hedgeBudget;
 }
 
+/** One of four fixed schemas, so each request shape stays stable for the provider cache. */
+function classifierOutputSchema(input: {
+  withInstructionMatches: boolean;
+  proposeTodo: boolean;
+}): z.ZodType<TriageClassifierOutput> {
+  if (input.proposeTodo) {
+    return input.withInstructionMatches
+      ? triageClassificationWithMatchesSchema
+      : triageClassificationSchema;
+  }
+
+  return input.withInstructionMatches
+    ? triageClassificationWithMatchesWithoutTodoSchema
+    : triageClassificationWithoutTodoSchema;
+}
+
 /**
  * The request one classify pass sends. `signal` is required: if it does not
  * reach the request, the hedge loser is never cancelled and silently bills twice.
@@ -1138,14 +1193,13 @@ export function classifyCallOptions(input: {
   signal: AbortSignal;
   maxRetries: number | undefined;
   withInstructionMatches: boolean;
+  proposeTodo: boolean;
 }): MeteredGenerateObjectArgs<TriageClassifierOutput> {
   return {
     model: input.model,
     instructions: input.instructions,
     prompt: input.prompt,
-    schema: input.withInstructionMatches
-      ? triageClassificationWithMatchesSchema
-      : triageClassificationSchema,
+    schema: classifierOutputSchema(input),
     temperature: 0,
     maxOutputTokens:
       TRIAGE_MAX_OUTPUT_TOKENS +
@@ -1168,7 +1222,7 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
   const name = (pass: "first" | "second") =>
     pass === "second" ? "triage.classify.second_pass" : "triage.classify";
 
-  return async ({ system, prompt, pass, withInstructionMatches }) => {
+  return async ({ system, prompt, pass, withInstructionMatches, proposeTodo }) => {
     const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
 
     const result = await runHedged({
@@ -1185,6 +1239,7 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
             signal,
             maxRetries: args.maxRetries,
             withInstructionMatches,
+            proposeTodo,
           }),
           {
             role: "triage",

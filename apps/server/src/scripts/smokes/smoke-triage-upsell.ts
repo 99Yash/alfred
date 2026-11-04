@@ -140,6 +140,8 @@ async function main() {
 
     const { classification, model } = await classifyEmail({
       identity: { name: "Yash", email: c.to },
+      // Keep the prompt the smoke was written against: action items on.
+      proposeTodo: true,
       document: {
         id: "smoke",
         title: c.subject,
