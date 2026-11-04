@@ -16,13 +16,15 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **Identity.** A key that names one thing, for example an email address, a PR URL, or an alarm ARN. Two records with the same identity are the same thing. Table: `entity_identities`.
 
-**State.** The current condition of a thing, for example `open`, `merged`, or `failed`. Only a provider fact can set a state. Table: `integration_objects`.
+**State.** The current condition of a thing, for example `open`, `merged`, or `failed`. Only a provider fact can set a state. A mail from the service itself is a provider fact for a thing that no connected provider tracks (ADR-0120). Table: `integration_objects`.
+
+**Loop.** A thing in the state `active` or `failed` that a priority mail or an open todo points to. A loop is not a separate record: it closes when its thing becomes `resolved` or `abandoned` (ADR-0120).
 
 **Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`.
 
 **Work item.** Something that the user must do or wants to watch. It has a status, and it points to the things that it is about. Today the only work item is a todo. Table: `todos`.
 
-**Referent.** A thing that a notification is about and that no connected provider tracks, for example the Baserow alarm from SNS ([ADR-0092](../decisions/ADR-0092-notification-referent-dedup-on-the-observation-log.md)). A referent is a thing. It is not a new idea. When a provider tracks the thing, for example a PR with GitHub connected, the `integration_objects` row is the thing, and no referent is made.
+**Referent.** A thing with no lifecycle that a notification is about and that no connected provider tracks, for example the Baserow alarm from SNS ([ADR-0092](../decisions/ADR-0092-notification-referent-dedup-on-the-observation-log.md)). A referent is a thing. It is not a new idea. When a provider tracks the thing, for example a PR with GitHub connected, the `integration_objects` row is the thing, and no referent is made.
 
 **Projection.** A table that code rebuilds from events. You can delete a projection and build it again from the events. `entity_nodes`, `entity_identities`, `entity_profiles`, and `entity_edges` are projections. `observations` is not a projection.
 

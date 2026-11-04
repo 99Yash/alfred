@@ -85,7 +85,7 @@ The store is built. The graph model is built. Only the extraction of non-person 
 
 ## Amendment 2026-10-21 (proposed): one owner for each thing; meeting notes leave this ADR
 
-**Status.** Proposed. Only the object half of A1's D5 consumers is built (2026-10-23, #917). Nothing else in this section is built. It replaces an earlier draft of the same day, which made `about` a list of items with an owner for each item. The owner rejected that draft: one meeting-notes mail must not start tracking for every person that it names. Plain definitions of the words in this section are in [the context-graph glossary](../theory/context-graph.md).
+**Status.** Proposed. Only the object half of A1's D5 consumers is built (2026-10-23, #917). Nothing else in this section is built. It replaces an earlier draft of the same day, which made `about` a list of items with an owner for each item. The owner rejected that draft: one meeting-notes mail must not start tracking for every person that it names. Plain definitions of the words in this section are in [the context-graph glossary](../theory/context-graph.md). Amended by ADR-0120 (2026-11-04): a thing that only mail tracks, but that has a lifecycle, is an `integration_objects` row whose state the service's own mail sets, so a referent is only a thing with no lifecycle. The `about` observation is the stored input of `verifyLoops`.
 
 **Build status (verified 2026-10-21).**
 
