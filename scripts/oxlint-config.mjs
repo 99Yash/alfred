@@ -607,7 +607,12 @@ export function restrictedSpecifierFailures(root) {
   for (const { where, groups } of sites) {
     for (const { group } of groups) {
       for (const specifier of group) {
-        const classified = specifierKind(specifier);
+        // A gitignore negation (`!@alfred/integrations/google`) re-admits a path that an
+        // earlier pattern in the same group fenced. It is gated like the path it names: a
+        // negation of a deleted door is dead config in the same way as a fence of one.
+        const classified = specifierKind(
+          specifier.startsWith("!") ? specifier.slice(1) : specifier,
+        );
 
         if (classified.kind === "relative") {
           ungated += 1;

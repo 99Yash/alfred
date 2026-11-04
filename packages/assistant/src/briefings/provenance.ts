@@ -25,6 +25,7 @@ import {
   type SilenceEvidence,
   type UnsettledActivityCoverage,
 } from "@alfred/assistant/connections";
+// oxlint-disable-next-line no-restricted-imports -- #1684 row 3: the github_merged and deploy_status provenance goes when those reads move behind the seams
 import type {
   GithubMergedReadOutcome,
   VerifiedPullOutcome,

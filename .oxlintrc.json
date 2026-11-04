@@ -704,6 +704,69 @@
       }
     },
     {
+      // ADR-0118 decision 9: the briefing reads acts through `readActivity` and the state of a
+      // mailed loop through `verifyLoops`. Both seams are keyed by `SourceIdentity`, so no file
+      // under briefings/ names a provider client or a provider-specific read. Gmail and Calendar
+      // (`@alfred/integrations/google`) are inputs of the briefing, not activity sources, so the
+      // first group negates them. The imports that existed when this fence landed carry an
+      // `oxlint-disable-next-line` that names #1684. Each slice of #1684 removes one of them.
+      // Every root group is restated byte-identically above the two new groups.
+      "files": ["packages/assistant/src/briefings/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@alfred/assistant/knowledge/internal"],
+                "message": "The knowledge internal tooling door is restricted to apps/server/src/scripts/** (see packages/assistant/src/knowledge/internal.ts). Import the sanctioned contract from @alfred/assistant/knowledge instead."
+              },
+              {
+                "group": ["@alfred/integrations/google/internal"],
+                "message": "The raw Gmail watch primitive is restricted to its one allowlisted friend file (see packages/integrations/src/google/internal.ts). Install a watch through installGmailWatchAndSeedCursor from @alfred/assistant/connections/ingestion, which also seeds the ingestion_state cursor; a raw installGmailWatch leaves the credential cursorless."
+              },
+              {
+                "group": ["@alfred/assistant/connections/ingestion/internal"],
+                "message": "The raw Gmail ingestion entry points are restricted to the operational scripts under apps/server/src/scripts/** and the ingestion-cursor test packages/assistant/test/gmail-ingest.test.ts (see packages/assistant/src/connections/ingestion/internal.ts). Import the sanctioned contract from @alfred/assistant/connections/ingestion instead, which drives ingestion through the BullMQ job that owns retry, burst dedup and the ingestion_state cursor."
+              },
+              {
+                "group": ["@alfred/assistant/tool-runtime/internal/registry"],
+                "message": "The global tool catalog is restricted to packages/assistant/src/tool-runtime/ (see packages/assistant/src/tool-runtime/internal/registry.ts, which owns the one mutable map). Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index re-exports the catalog surface."
+              },
+              {
+                "group": [
+                  "@alfred/assistant/tool-runtime/internal/*",
+                  "@alfred/assistant/tool-runtime/internal/**"
+                ],
+                "message": "Every module under packages/assistant/src/tool-runtime/internal/ is private to packages/assistant/src/tool-runtime/, not one door but the whole directory. Import the sanctioned contract from @alfred/assistant/tool-runtime instead, whose index publishes the runtime surface. The narrower @alfred/assistant/tool-runtime/internal/registry group above is deliberately kept beside this one: a specifier holding a glob is gated on package existence alone, so the literal registry specifier is the only one in this family that `pnpm check:oxlint-config` still resolves through the exports map to a git-listed file."
+              },
+              {
+                "group": ["effect", "effect/*"],
+                "message": "The effect library is restricted to packages/assistant/src/connections/mcp/manager.ts, the one Effect module in Alfred (ADR-0114). Write async/await here. A second Effect module needs its own ADR or an amendment to ADR-0114 with its own evidence, and then a new allowlist override in this file."
+              },
+              {
+                "group": [
+                  "@alfred/integrations/*",
+                  "@alfred/integrations/*/**",
+                  "!@alfred/integrations/google",
+                  "!@alfred/integrations/google/**"
+                ],
+                "message": "ADR-0118 decision 9: the briefing does not name a provider. Read acts through readActivity (@alfred/assistant/knowledge) and the state of a mailed loop through verifyLoops, both keyed by SourceIdentity. Gmail and Calendar (@alfred/integrations/google) are briefing inputs, so they are allowed. Issue #1684 lists the imports that remain."
+              },
+              {
+                "group": [
+                  "@alfred/assistant/connections/verified-pull",
+                  "@alfred/assistant/connections/verified-pull/**",
+                  "@alfred/assistant/connections/object-state/*-reducer"
+                ],
+                "message": "ADR-0118 decision 9: a provider-specific read does not enter the briefing by name. Put an activity read behind readActivity and its coverage, and a loop-state read behind verifyLoops. Issue #1684 lists the imports that remain, and #1683 moves the Vercel and Railway reads."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       // no-unsafe-dictionary-type is at `error` for product source; test and
       // eval scopes are exempt ON PURPOSE. The rule asks an open dictionary
       // to name its value contract, which is load-bearing when the bag crosses
