@@ -14,12 +14,14 @@ import {
   type ObjectStateProvider,
   type StateCategory,
 } from "@alfred/contracts";
+// oxlint-disable-next-line no-restricted-imports -- #1684 row 5: the live GitHub read moves into the verifyLoops registry
 import { githubClientForUser } from "@alfred/integrations/github";
 import {
   selectPrimaryReconciledObject,
   type ObjectState,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
+// oxlint-disable-next-line no-restricted-imports -- #1684 row 5 and #1683: the live Railway read moves into the verifyLoops registry
 import {
   railwayTargetFromId,
   readRailwayDeploymentStatus,

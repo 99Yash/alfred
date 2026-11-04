@@ -44,6 +44,7 @@ import {
   type ReconcileCandidates,
   type ReconcileResult,
 } from "@alfred/assistant/connections";
+// oxlint-disable-next-line no-restricted-imports -- #1684 rows 1, 3 and 8: the GitHub merged read and the deploy status reads move behind readActivity and verifyLoops
 import {
   gatherGithubMergedPullRequests,
   gatherVerifiedPulls,
