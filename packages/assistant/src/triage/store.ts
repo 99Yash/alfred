@@ -475,6 +475,7 @@ export interface TriageDocumentContext {
     title: string | null;
     content: string;
     authoredAt: Date | null;
+    ingestedAt: Date;
     metadata: GmailDocumentMetadata;
   };
   credentialId: string;
@@ -543,6 +544,7 @@ export async function loadTriageContext(
       title: doc.title,
       content: doc.content,
       authoredAt: doc.authoredAt,
+      ingestedAt: doc.ingestedAt,
       metadata: parseGmailDocumentMetadata(doc.metadata),
     },
     credentialId: cred.id,

@@ -13,6 +13,7 @@ import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliat
 import { pluckField, typedKeys } from "./records";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 import { assertNever } from "./errors";
+import { OBJECT_STATE_PROVIDERS } from "./object-state-providers";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Observation sources + precedence (D1, D14)
@@ -54,8 +55,11 @@ export const OBSERVATION_REDUCERS = {
   user: { rank: 0, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
   /** The same statements, captured from a chat thread. */
   alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
-  /** Gmail messages. Its `domain` org nodes are nodes only, so `domain` stays forward. */
-  gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
+  /**
+   * Gmail messages, and what triage reads each message to be about (ADR-0092 D2, ADR-0120 decision
+   * 3). Its `domain` org nodes are nodes only, so `domain` stays forward.
+   */
+  gmail: { rank: 2, kinds: ["email_message", "email_interpretation"], identityKinds: ["email"] },
   /** The connected Google account asserts the user's org domain (ADR-0080 §4a). Not a Gmail event. */
   google_account: { rank: 2, kinds: ["user_org_affiliation"], identityKinds: [] },
   /** GitHub App deliveries, as activity rows (ADR-0118). Evidence of what happened, never a fact. */
@@ -438,6 +442,62 @@ export const gmailEmailMessagePayloadSchema = z
 
 export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
 
+const objectStateProviderSchema = z.enum(OBJECT_STATE_PROVIDERS);
+
+/** A key that an adapter read from the mail text (ADR-0062). `prefix`: an abbreviated sha. */
+const mailObjectKeySchema = z
+  .object({
+    provider: objectStateProviderSchema,
+    keyKind: z.string().min(1),
+    keyValue: z.string().min(1),
+    match: z.enum(["exact", "prefix"]),
+  })
+  .strict();
+
+/** One provider link of the mail, reduced to its id values (ADR-0109 rule 2). The prose stays out. */
+const mailIdentityReferenceSchema = z
+  .object({
+    provider: objectStateProviderSchema,
+    labeled: z.array(z.object({ label: z.string().min(1), value: z.string().min(1) }).strict()),
+    strong: z.array(z.string().min(1)),
+  })
+  .strict();
+
+/** A stored thing that the keys or the links named when triage wrote the row. */
+const mailObjectRefSchema = z
+  .object({
+    provider: objectStateProviderSchema,
+    kind: z.string().min(1),
+    externalId: z.string().min(1),
+    match: z.enum(["exact", "identity", "prefix", "nomination"]),
+  })
+  .strict();
+
+/**
+ * The payload of an `email_interpretation` row: the things one message is about (ADR-0120 decision
+ * 3). Only the object half of ADR-0092 is built. `keys` and `references` are what the mail names,
+ * so a reader can find a thing whose row did not exist yet when triage ran. `resolved` is the
+ * stored things they named at that time, strongest match first.
+ */
+export const gmailEmailInterpretationPayloadSchema = z
+  .object({
+    provider: z.literal("gmail"),
+    documentId: z.string().min(1),
+    messageId: z.string().min(1),
+    threadId: z.string().min(1).nullable(),
+    accountId: z.string().min(1).nullable(),
+    objects: z
+      .object({
+        keys: z.array(mailObjectKeySchema),
+        references: z.array(mailIdentityReferenceSchema),
+        resolved: z.array(mailObjectRefSchema),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type GmailEmailInterpretationPayload = z.infer<typeof gmailEmailInterpretationPayloadSchema>;
+
 const canonicalDomainSchema = identityValueSchema
   .refine((v) => v === canonicalizeIdentityValue("domain", v), {
     error: "domain must be canonical (lowercased, no surrounding whitespace)",
@@ -585,6 +645,22 @@ export const observationInsertSchema = z
   .superRefine(({ source, kind, payload, subjectIdentity }, ctx) => {
     if (kind === "email_message") {
       const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["payload", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }
+
+      return;
+    }
+
+    if (kind === "email_interpretation") {
+      const parsed = gmailEmailInterpretationPayloadSchema.safeParse(payload);
 
       if (!parsed.success) {
         for (const issue of parsed.error.issues) {

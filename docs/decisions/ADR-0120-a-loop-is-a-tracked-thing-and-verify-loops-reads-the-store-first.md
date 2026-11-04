@@ -1,6 +1,6 @@
 # ADR-0120 — A loop is a tracked thing, and `verifyLoops` reads the store first
 
-**Status.** Proposed. Nothing is built. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
+**Status.** Proposed. Slice 1 is built (the `gmail/email_interpretation` link at triage, and its backfill). Slices 2 to 6 are not built. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
 
 **Decision.** A loop is not a new record. A loop is a **thing**, an `integration_objects` row, in the state `active` or `failed`, that touches the user. Each integration activity can open a loop, and the closure of a loop is the change of state of its thing. The link from a mail to its thing is the ADR-0092 `about` observation, which triage writes one time. `verifyLoops` selects the things in a bounded set, uses the stored state as the verdict, and runs a live read only when the stored state is ambiguous. It folds each fact through `applyEvent` in one transaction. The briefing reads one list with three verdicts: `open`, `closed`, and `unverified`.
 
@@ -93,7 +93,7 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 
 ## Implementation slices
 
-1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill.
+1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the keys and the provider links that the mail names, and the stored things that they resolved to when triage ran. Thus slice 2 can find a thing whose row did not exist yet at triage, which is ambiguous case 3. The triage todo ref reads the same resolution, so triage resolves each mail one time. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
 2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684.
 3. The Vercel and Railway pulls move into the registry, and the deploy failures with no mail become a live read behind `readActivity` (decision 10). This closes #1683.
 4. Things that only mail tracks (decision 2), with the Voyage AI case as the first proof.
