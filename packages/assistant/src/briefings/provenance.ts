@@ -118,9 +118,13 @@ export function provenanceAudience(entry: GatherProvenance): ProvenanceAudience 
         case "silent":
         case "record_incomplete":
           return FACT_AND_LOG;
-        // The record holds nothing from these sources, or the window starts after the last
-        // briefing. No reconnect repairs either, and `activityGaps` does not count them.
+        // The record holds nothing from these sources. This is the scope of the record, not a
+        // failure of this read, and it is the same on each run. So it is a log line. The
+        // `list_activity` description names the sources that the record holds.
         case "no_record":
+          return LOG_ONLY;
+        // The window starts after the last briefing. No reconnect repairs it, and `activityGaps`
+        // does not count it.
         case "window_clipped":
           return FACT_AND_LOG;
         default:
@@ -394,8 +398,9 @@ type CoverageFailure = Extract<ActivityCoverage, { state: "unavailable" }>["fail
  * that this build cannot read. This function only gives each verdict its audience.
  *
  * The sources with no reducer (`no_record`: a `tools_only` or `live` source) share one entry, so
- * the list stays inside `GATHER_PROVENANCE_MAX`. The composer gets it as a fact, so it does not call
- * the day of these sources quiet. It is not a gap (`activityGaps`): the record never held events
+ * the list stays inside `GATHER_PROVENANCE_MAX`. It is a log line only (`provenanceAudience`). The
+ * composer learns the scope of the record from the `list_activity` description, which names the
+ * sources with a reducer, so it does not call the day of the other sources quiet. It is not a gap (`activityGaps`): the record never held events
  * from such a source, so a sent briefing would not show them either.
  */
 export function activityRecordProvenance(args: {
