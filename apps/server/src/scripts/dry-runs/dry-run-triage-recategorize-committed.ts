@@ -111,9 +111,13 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
 
     const senderContext = scResult.context;
 
+    // One bind: the action-items flag and the gather share its load, as in the live step.
+    const userSettings = settings({ userId: u.userId });
+    const flags = await userSettings.flags();
+
     const { observations } = await gatherObservations({
       userId: u.userId,
-      settings: settings({ userId: u.userId }),
+      settings: userSettings,
       documentId: row.documentId,
       sourceThreadId: row.threadId,
       document: ctxData.document,
@@ -139,6 +143,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
         senderContext,
         observations,
         identity: ctxData.identity,
+        proposeTodo: flags.actionItems,
       });
 
       newCategory = classification.category;

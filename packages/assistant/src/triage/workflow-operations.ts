@@ -330,6 +330,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         senderContext,
         observations,
         identity: ctxData.identity,
+        // Action items off: the model gets no todo rubric and returns no todo fields.
+        proposeTodo: flags.actionItems,
         runId: ctx.runId,
         stepId: "classify",
         idempotencyKey: ctx.idempotencyKey,
@@ -1046,7 +1048,7 @@ async function resolveTodoObject(args: {
 export interface StoredTriageClassifyInput {
   input: Pick<
     ClassifyEmailArgs,
-    "userId" | "identity" | "document" | "senderContext" | "observations"
+    "userId" | "identity" | "proposeTodo" | "document" | "senderContext" | "observations"
   >;
   accountId: string | null;
 }
@@ -1074,9 +1076,13 @@ export async function loadStoredTriageClassifyInput(args: {
     body: document.content,
   });
 
+  // One bind: the action-items flag and the observation gather share its load.
+  const userSettings = settings({ userId: args.userId });
+  const flags = await userSettings.flags();
+
   const { observations } = await gatherObservations({
     userId: args.userId,
-    settings: settings({ userId: args.userId }),
+    settings: userSettings,
     documentId: args.documentId,
     sourceThreadId,
     document,
@@ -1090,6 +1096,7 @@ export async function loadStoredTriageClassifyInput(args: {
     input: {
       userId: args.userId,
       identity: ctxData.identity,
+      proposeTodo: flags.actionItems,
       document: {
         id: document.id,
         title: document.title,

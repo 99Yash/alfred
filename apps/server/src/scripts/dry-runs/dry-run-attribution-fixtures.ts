@@ -86,6 +86,8 @@ async function main() {
       senderContext: scResult.context,
       observations,
       identity: IDENTITY,
+      // The fixtures check the todo decision, so the rubric stays on.
+      proposeTodo: true,
     });
 
     const d = classification.todoDecision;

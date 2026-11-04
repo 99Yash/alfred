@@ -99,6 +99,7 @@ function classification(over: Partial<TriageClassification> = {}): TriageClassif
 
 function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {
   return {
+    proposeTodo: true,
     document: { id: "doc_1", title: "Subject", content: "Body", authoredAt: null, metadata: {} },
     senderContext: { fromKind: "service", effectiveAuthor: "service" },
     observations: observations(),
@@ -2626,6 +2627,7 @@ describe("classifyCallOptions", () => {
       signal,
       maxRetries: undefined,
       withInstructionMatches: false,
+      proposeTodo: true,
     });
 
   test("forwards the hedge attempt's signal to the provider call", () => {
@@ -2657,6 +2659,7 @@ describe("classifyCallOptions", () => {
       signal: new AbortController().signal,
       maxRetries: 1,
       withInstructionMatches: false,
+      proposeTodo: true,
     });
 
     assert.equal(evalOptions.maxRetries, 1);
