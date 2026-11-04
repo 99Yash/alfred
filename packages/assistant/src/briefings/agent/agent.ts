@@ -178,9 +178,8 @@ const BLIND_COST = {
   no_place: "So this briefing may be missing",
   silent: "So this briefing may be missing",
   record_incomplete: "So this briefing may be missing",
-  no_record: "So for these sources, this briefing cannot see",
   window_clipped: "So this briefing does not show the older part of",
-} as const satisfies Record<UnavailableCause, string>;
+} as const satisfies Record<Exclude<UnavailableCause, "no_record">, string>;
 
 /**
  * One composer fact: the tool, what Alfred knows about the read, and what it costs. Of the inputs
@@ -197,6 +196,10 @@ function composerFact(entry: GatherProvenance, read: ComposerRead): string | nul
     case "stale":
       return null;
     case "unavailable":
+      // `provenanceAudience` keeps `no_record` out: it is the scope of the record, which the
+      // `list_activity` description states, not a failure of this read.
+      if (entry.cause === "no_record") return null;
+
       return `- ${read.tool}: ${entry.reason} ${BLIND_COST[entry.cause]} ${read.hides}.`;
     default:
       return assertNever(entry, "provenance state");

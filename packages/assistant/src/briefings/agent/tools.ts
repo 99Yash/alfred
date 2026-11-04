@@ -12,6 +12,7 @@ import { tool, type ToolSet } from "@alfred/ai";
 import {
   ACTIVITY_VERBS,
   briefingConnectionNoticeSchema,
+  INTEGRATIONS,
   type ActivityVerb,
   type BriefingConnectionNotice,
   type BriefingClosedLoop,
@@ -22,8 +23,8 @@ import {
   type IanaTimezone,
   type OfficialWarning,
 } from "@alfred/contracts";
-import type { ActivityWindow } from "@alfred/assistant/connections";
-import type { LocalDateKey } from "@alfred/assistant/time";
+import { ACTIVITY_SOURCE_SLUGS, type ActivityWindow } from "@alfred/assistant/connections";
+import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { z } from "zod";
 import {
   activityCursorExists,
@@ -149,14 +150,28 @@ export const listActivityInputSchema = z.object({
     ),
 });
 
-/** One act in the `list_activity` page. `actor` is `you` for the user, else the provider login. */
+/**
+ * One act in the `list_activity` page. `actor` is `you` for the user, else the provider login.
+ * `occurredAtLocal` is the same instant as wall-clock time in the user's zone, so the composer
+ * does not convert a UTC time when it says when an act happened.
+ */
 interface ActivityLine {
   readonly verb: ActivityVerb;
   readonly actor: string;
   readonly title: string | null;
   readonly url: string | null;
   readonly occurredAt: string;
+  readonly occurredAtLocal: string;
 }
+
+/**
+ * The sources that the activity record holds: the sources with an activity reducer. The record
+ * holds no act from any other source (`no_record`), so `list_activity` names these and nothing
+ * else. A new reducer changes this list, and the prompt needs no change.
+ */
+const RECORDED_SOURCE_NAMES = ACTIVITY_SOURCE_SLUGS.map(
+  (slug) => INTEGRATIONS[slug].displayName,
+).join(", ");
 
 /**
  * The `list_activity` result. One status for each state, so an unknown cursor cannot look like
@@ -192,7 +207,7 @@ function matchedCount(
 }
 
 async function listActivity(
-  args: Pick<BuildArgs, "userId" | "activityWindow">,
+  args: Pick<BuildArgs, "userId" | "activityWindow" | "timezone">,
   filter: z.infer<typeof listActivityInputSchema>,
 ): Promise<ActivityList> {
   const window = args.activityWindow;
@@ -222,6 +237,8 @@ async function listActivity(
     }),
   ]);
 
+  const zone = inZone(args.timezone);
+
   const items = page.events.toReversed().map(
     (event): ActivityLine => ({
       verb: event.verb,
@@ -229,6 +246,7 @@ async function listActivity(
       title: event.title ?? event.object,
       url: event.url,
       occurredAt: event.occurredAt.toISOString(),
+      occurredAtLocal: zone.format(event.occurredAt),
     }),
   );
 
@@ -418,7 +436,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
     }),
 
     list_activity: tool({
-      description: `The activity record of the user's connected tools over the briefing window: what the user did and what other people did. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { status: 'listed', counts, matched, items, before }, or { status: 'unknown_cursor', message } when before names no act: then fix before, because Alfred read no page. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. counts.unreadable is the number of rows of the window that Alfred cannot read; when it is above zero, the record is not complete. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, and occurredAt. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only list_closed_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
+      description: `The activity record over the briefing window: what the user did and what other people did. The record holds acts from ${RECORDED_SOURCE_NAMES} only. It holds no acts from the user's other tools, so a small or empty result says nothing about them: never call the day quiet in those tools, and do not list the tools that it does not cover. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { status: 'listed', counts, matched, items, before }, or { status: 'unknown_cursor', message } when before names no act: then fix before, because Alfred read no page. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. counts.unreadable is the number of rows of the window that Alfred cannot read; when it is above zero, the record is not complete. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, occurredAt (UTC), and occurredAtLocal (the same time as wall-clock in the user's timezone, e.g. 'Mon, Nov 2, 9:32 PM'). When you say when an act happened, use occurredAtLocal only. Call an act overnight only when occurredAtLocal is after midnight. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only list_closed_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
       inputSchema: listActivityInputSchema,
       execute: async (filter): Promise<ActivityList> => listActivity(args, filter),
     }),
