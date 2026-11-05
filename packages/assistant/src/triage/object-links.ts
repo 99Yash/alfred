@@ -15,6 +15,7 @@ import { sha256Canonical } from "@alfred/db/hash";
 import {
   proposeReconcileCandidates,
   reconcileEvidence,
+  type ReconcileCandidates,
   type ReconciledObject,
 } from "@alfred/assistant/connections";
 import { appendObservationFamilyMember, UNKNOWN_ACCOUNT_FAMILY_KEY_PART } from "../knowledge";
@@ -54,19 +55,54 @@ export type MailObjectLinkProposal =
 
 type MailObjectLinks = GmailEmailInterpretationPayload["objects"]["links"];
 
-/**
- * Propose the keys and the provider links of one mail, and resolve the keys against the store. It
- * writes nothing. The reading and the sender gate are the briefing's `about` ones. The resolution
- * is for the todo ref of the same step; the row does not store it.
- */
-export async function proposeMailObjectLinks(args: {
+/** One mail to propose for. */
+export interface MailObjectLinkInput {
   document: MailObjectLinkDocument;
   /** The raw From header. */
   sender: string | null;
-  /** The triage verdict for this message. `null` only when no source for the verdict exists. */
-  category: TriageCategory | null;
-}): Promise<MailObjectLinkProposal> {
-  const { document, sender } = args;
+  /** The triage verdict for this message. */
+  category: TriageCategory;
+}
+
+/** What one mail names, before the resolve. Pure, so a batch resolves all of them in one call. */
+interface MailObjectLinkPlan {
+  mail: MailObjectLinkInput;
+  candidates: ReconcileCandidates<"about"> | null;
+  links: MailObjectLinks;
+}
+
+/**
+ * Propose the keys and the provider links of one mail, and resolve the keys against the store. It
+ * writes nothing. The reading and the sender gate are the briefing's `about` ones. The resolution
+ * is for the todo ref of the same step; the row does not store it. It is the batch path with one
+ * mail, so triage and the backfill share one code path.
+ */
+export async function proposeMailObjectLinks(
+  mail: MailObjectLinkInput,
+): Promise<MailObjectLinkProposal> {
+  const plan = planMailObjectLinks(mail);
+
+  return finishMailObjectLinks(plan, await resolveMailObjectLinkPlans([plan]));
+}
+
+/**
+ * {@link proposeMailObjectLinks} for many mails, with one `reconcileEvidence` call for each user
+ * in the batch, not one for each mail. The result keeps the input order.
+ */
+export async function proposeMailObjectLinksBatch(
+  mails: readonly MailObjectLinkInput[],
+): Promise<{ mail: MailObjectLinkInput; proposal: MailObjectLinkProposal }[]> {
+  const plans = mails.map(planMailObjectLinks);
+  const resolved = await resolveMailObjectLinkPlans(plans);
+
+  return plans.map((plan) => ({
+    mail: plan.mail,
+    proposal: finishMailObjectLinks(plan, resolved),
+  }));
+}
+
+function planMailObjectLinks(mail: MailObjectLinkInput): MailObjectLinkPlan {
+  const { document, sender } = mail;
   const subject = document.title ?? "";
 
   const candidates = proposeReconcileCandidates(
@@ -77,13 +113,42 @@ export async function proposeMailObjectLinks(args: {
   // The same text that the identity probe reads, before its label and strength filters.
   const links = storedProviderLinks(`${subject}\n${document.content}`, sender);
 
+  return { mail, candidates, links };
+}
+
+/** The resolution of each plan, keyed by document id. One `reconcileEvidence` call for each user. */
+async function resolveMailObjectLinkPlans(
+  plans: readonly MailObjectLinkPlan[],
+): Promise<ReadonlyMap<string, MailObjectResolution>> {
+  const subjectsByUser = new Map<string, ReconcileCandidates<"about">[]>();
+
+  for (const { mail, candidates } of plans) {
+    if (!candidates) continue;
+    const subjects = subjectsByUser.get(mail.document.userId) ?? [];
+    subjects.push(candidates);
+    subjectsByUser.set(mail.document.userId, subjects);
+  }
+
+  const resolved = new Map<string, MailObjectResolution>();
+
+  for (const [userId, subjects] of subjectsByUser) {
+    for (const [id, objects] of await reconcileEvidence({ userId, subjects })) {
+      resolved.set(id, objects);
+    }
+  }
+
+  return resolved;
+}
+
+function finishMailObjectLinks(
+  { mail, candidates, links }: MailObjectLinkPlan,
+  resolvedById: ReadonlyMap<string, MailObjectResolution>,
+): MailObjectLinkProposal {
+  const { document, sender } = mail;
+
   if (!candidates && links.length === 0) return { status: "no_link" };
 
-  const resolved = candidates
-    ? ((await reconcileEvidence({ userId: document.userId, subjects: [candidates] })).get(
-        document.id,
-      ) ?? [])
-    : [];
+  const resolved = resolvedById.get(document.id) ?? [];
 
   const senderIdentity = parseEmailIdentity(parseMailbox(sender)?.address);
 
@@ -95,7 +160,7 @@ export async function proposeMailObjectLinks(args: {
     messageId: document.sourceId,
     threadId: document.sourceThreadId,
     accountId: document.accountId,
-    category: args.category,
+    category: mail.category,
     objects: {
       keys: (candidates?.keys ?? []).map(({ provider, keyKind, keyValue, match }) => ({
         provider,

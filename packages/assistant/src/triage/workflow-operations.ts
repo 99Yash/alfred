@@ -430,6 +430,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // `classification.category` is the verdict for this message on both paths. Both halves are
   // non-fatal. A failed resolve loses the link and the todo object ref. A failed append loses only
   // the link, because the todo ref reads the resolution in memory. The backfill rewrites a lost link.
+  // A failed classify stores `DEFAULT_TRIAGE_CATEGORY` (`fyi`). It is not a priority category, so
+  // a fallback verdict puts no thing in the slice 2 verify set.
   const links = await proposeMailObjectLinks({
     document: ctxData.document,
     sender: ctxData.document.metadata.from ?? null,

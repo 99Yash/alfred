@@ -496,9 +496,8 @@ const mailProviderLinkSchema = z
  * `keys` and `links` against `integration_objects` when it reads, so it also finds a thing whose
  * row did not exist when triage ran (ADR-0120 decision 5, case 3).
  *
- * `category` is the triage verdict for this message (ADR-0120 decision 4). `null`: the verdict is
- * unknown, for a backfill row with no source for it. A reader treats `null` as not in a priority
- * category. The triage step always writes a category.
+ * `category` is the triage verdict for this message (ADR-0120 decision 4). Each writer has one: the
+ * triage step writes its verdict, and the backfill writes only a message with a triage verdict.
  *
  * `links` holds only the links of a provider whose notification sender sent the mail (ADR-0120
  * decision 2), the same sender gate as the `about` reading.
@@ -510,7 +509,7 @@ export const gmailEmailInterpretationPayloadSchema = z
     messageId: z.string().min(1),
     threadId: z.string().min(1).nullable(),
     accountId: z.string().min(1).nullable(),
-    category: triageCategorySchema.nullable(),
+    category: triageCategorySchema,
     objects: z
       .object({
         keys: z.array(mailObjectKeySchema),
