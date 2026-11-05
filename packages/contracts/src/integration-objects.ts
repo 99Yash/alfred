@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { emailDomain, isDomainOrSubdomain, normalizeDomain } from "./domain";
 import { enumGuard, parseEmailAddress } from "./guards";
-import { OBJECT_STATE_PROVIDERS, type ObjectStateProvider } from "./object-state-providers";
+import { OBJECT_STATE_PROVIDERS, type ObjectStateProvider } from "./object-state-vocabulary";
 import { canonicalizeIdentityValue } from "./user-model";
 
 export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
@@ -136,8 +136,6 @@ export interface IntegrationObjectDef {
   /** Map a native state token for one kind. `null` for an unknown token, which never closes. */
   normalize(kind: string, nativeState: string): StateCategory | null;
 }
-
-export { OBJECT_STATE_PROVIDERS, type ObjectStateProvider };
 
 const GITHUB_PULL_REQUEST_URL_RE =
   /^https?:\/\/github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\/(\d+)(?:[/?#].*)?$/i;

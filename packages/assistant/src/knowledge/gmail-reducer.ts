@@ -19,7 +19,8 @@ import type { GmailPayloadSignals } from "./entity-kind-classifier";
 
 const GMAIL_REDUCER_VERSION = 1;
 
-const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
+/** The account part of a Gmail family key for a message with no account. Every Gmail family uses it. */
+export const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
 
 const SENT_LABEL = "SENT";
 

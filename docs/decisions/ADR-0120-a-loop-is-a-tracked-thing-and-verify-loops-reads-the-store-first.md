@@ -29,7 +29,7 @@ A referent (`entity_nodes`, ADR-0092) stays only for a thing with no lifecycle, 
 
 ### 3. The link from a mail to a thing is stored one time (amends ADR-0092)
 
-Triage writes the ADR-0092 `about` observation for each mail: the `documentId` and the key of each thing that the mail is about. One mail can be about more than one thing. `verifyLoops` reads these links through `observations_document_idx`. It does not call `reconcileEvidence` again. The first slice builds only the object half of the `about` observation. The referent half and the significance half of ADR-0092 come later.
+Triage writes the ADR-0092 `about` observation for each mail: the `documentId` and the key of each thing that the mail is about. One mail can be about more than one thing. `verifyLoops` reads these links through `observations_document_idx`. It does not read the mail text again. It resolves the stored keys and links against `integration_objects` when it reads, because a resolution from the time of triage goes stale. The first slice builds only the object half of the `about` observation. The referent half and the significance half of ADR-0092 come later.
 
 ### 4. The verify set is bounded
 
@@ -93,7 +93,7 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 
 ## Implementation slices
 
-1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the keys and the provider links that the mail names, and the stored things that they resolved to when triage ran. Thus slice 2 can find a thing whose row did not exist yet at triage, which is ambiguous case 3. The triage todo ref reads the same resolution, so triage resolves each mail one time. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
+1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the triage category of the message (decision 4), the keys that the mail names, and the provider links of the sender's own service, with every value and label. It holds no resolution. Thus slice 2 resolves the stored keys and links when it reads, and it can find a thing whose row did not exist yet at triage, which is ambiguous case 3. A row with `category: null` (verdict unknown, from the backfill) is not in a priority category. The family dedups against its head only, so the head is always the latest reading. The triage todo ref reads the resolution in memory, so triage resolves each mail one time, and a failed append loses only the link. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
 2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684.
 3. The Vercel and Railway pulls move into the registry, and the deploy failures with no mail become a live read behind `readActivity` (decision 10). This closes #1683.
 4. Things that only mail tracks (decision 2), with the Voyage AI case as the first proof.

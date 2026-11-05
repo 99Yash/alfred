@@ -140,6 +140,6 @@ export {
 // Registered by the composition root.
 export { emailTriageWorkflow } from "./email-triage";
 
-export { recordMailObjectLinks } from "./object-links";
+export { appendMailObjectLink, proposeMailObjectLinks } from "./object-links";
 
-export type { MailObjectLinkDocument, MailObjectLinkWrite } from "./object-links";
+export type { MailObjectLinkDocument, MailObjectLinkProposal } from "./object-links";

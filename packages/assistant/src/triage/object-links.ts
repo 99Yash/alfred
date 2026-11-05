@@ -1,8 +1,14 @@
 import {
+  collectProviderLinks,
+  isNotificationSender,
+  MAX_MAIL_PROVIDER_LINK_VALUE_LENGTH,
+  MAX_MAIL_PROVIDER_LINK_VALUES,
+  MAX_MAIL_PROVIDER_LINKS,
   parseEmailIdentity,
   parseMailbox,
   type GmailEmailInterpretationPayload,
   type ObservationInsertInput,
+  type TriageCategory,
 } from "@alfred/contracts";
 import type { Document } from "@alfred/db/schemas";
 import { sha256Canonical } from "@alfred/db/hash";
@@ -11,17 +17,16 @@ import {
   reconcileEvidence,
   type ReconciledObject,
 } from "@alfred/assistant/connections";
-import { appendObservationFamilyMember } from "../knowledge";
+import { appendObservationFamilyMember, UNKNOWN_ACCOUNT_FAMILY_KEY_PART } from "../knowledge";
 
 /**
- * The object half of the ADR-0092 `about` observation (ADR-0120 decision 3). Triage links each
- * mail to the things it names one time, so a later reader does not match the mail text again.
+ * The object half of the ADR-0092 `about` observation (ADR-0120 decision 3). Triage stores what
+ * each mail names one time, so a later reader does not read the mail text again. The row holds the
+ * keys and the provider links, not a resolution: a reader resolves them against the store when it
+ * reads.
  */
 
 const OBJECT_LINKS_REDUCER_VERSION = 1;
-
-/** The same family-key part that `gmail-reducer.ts` uses for a message with no account. */
-const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
 
 export type MailObjectLinkDocument = Pick<
   Document,
@@ -36,67 +41,53 @@ export type MailObjectLinkDocument = Pick<
   | "ingestedAt"
 >;
 
-export type MailObjectLinkWrite =
-  /** The mail names no key and no provider link. Nothing is written. */
+/** The stored things that the mail names now, strongest match first. For the todo ref only. */
+type MailObjectResolution = readonly ReconciledObject<"about">[];
+
+export type MailObjectLinkProposal =
+  /** The mail names no key and no link of its sender. Nothing resolves, and there is no row. */
   | { status: "no_link" }
-  /**
-   * `no_sender`: the From header has no address, so the row has no subject, and nothing is
-   * written. `dry`: the caller asked for no write (`commit: false`).
-   */
-  | {
-      status: "inserted" | "deduped" | "dry" | "no_sender";
-      resolved: readonly ReconciledObject<"about">[];
-    };
+  /** The From header has no address, so the row has no subject. The resolution still holds. */
+  | { status: "no_sender"; resolved: MailObjectResolution }
+  /** The row to append with {@link appendMailObjectLink}, and the resolution of its keys now. */
+  | { status: "link"; resolved: MailObjectResolution; row: ObservationInsertInput };
+
+type MailObjectLinks = GmailEmailInterpretationPayload["objects"]["links"];
 
 /**
- * Propose the keys of one mail, resolve them against the store, and append the
- * `gmail/email_interpretation` row. The reading and the sender gate are the briefing's `about`
- * ones. A changed resolution appends a member that supersedes the head, and the same resolution
- * dedups. Thus a rerun and the backfill are idempotent. It returns the resolution, so a caller
- * does not resolve the same mail two times.
+ * Propose the keys and the provider links of one mail, and resolve the keys against the store. It
+ * writes nothing. The reading and the sender gate are the briefing's `about` ones. The resolution
+ * is for the todo ref of the same step; the row does not store it.
  */
-export async function recordMailObjectLinks(args: {
+export async function proposeMailObjectLinks(args: {
   document: MailObjectLinkDocument;
   /** The raw From header. */
   sender: string | null;
-  /** `false` resolves and builds the row but writes nothing, for a dry run. Default `true`. */
-  commit?: boolean;
-}): Promise<MailObjectLinkWrite> {
-  const { document } = args;
+  /** The triage verdict for this message. `null` only when no source for the verdict exists. */
+  category: TriageCategory | null;
+}): Promise<MailObjectLinkProposal> {
+  const { document, sender } = args;
+  const subject = document.title ?? "";
 
   const candidates = proposeReconcileCandidates(
-    { id: document.id, text: { subject: document.title ?? "", content: document.content } },
-    { reading: "about", sender: args.sender },
+    { id: document.id, text: { subject, content: document.content } },
+    { reading: "about", sender },
   );
 
-  if (!candidates) return { status: "no_link" };
+  // The same text that the identity probe reads, before its label and strength filters.
+  const links = storedProviderLinks(`${subject}\n${document.content}`, sender);
 
-  const reconciled = await reconcileEvidence({ userId: document.userId, subjects: [candidates] });
-  const resolved = reconciled.get(document.id) ?? [];
-  const senderIdentity = parseEmailIdentity(parseMailbox(args.sender)?.address);
+  if (!candidates && links.length === 0) return { status: "no_link" };
 
-  // The todo ref still reads the resolution.
+  const resolved = candidates
+    ? ((await reconcileEvidence({ userId: document.userId, subjects: [candidates] })).get(
+        document.id,
+      ) ?? [])
+    : [];
+
+  const senderIdentity = parseEmailIdentity(parseMailbox(sender)?.address);
+
   if (!senderIdentity) return { status: "no_sender", resolved };
-
-  const objects: GmailEmailInterpretationPayload["objects"] = {
-    keys: candidates.keys.map(({ provider, keyKind, keyValue, match }) => ({
-      provider,
-      keyKind,
-      keyValue,
-      match,
-    })),
-    references: (candidates.probe?.references ?? []).map(({ provider, labeled, strong }) => ({
-      provider,
-      labeled: labeled.map(({ label, value }) => ({ label, value })),
-      strong: [...strong],
-    })),
-    resolved: resolved.map(({ key, state }) => ({
-      provider: state.provider,
-      kind: state.kind,
-      externalId: state.externalId,
-      match: key.match,
-    })),
-  };
 
   const payload = {
     provider: "gmail",
@@ -104,7 +95,16 @@ export async function recordMailObjectLinks(args: {
     messageId: document.sourceId,
     threadId: document.sourceThreadId,
     accountId: document.accountId,
-    objects,
+    category: args.category,
+    objects: {
+      keys: (candidates?.keys ?? []).map(({ provider, keyKind, keyValue, match }) => ({
+        provider,
+        keyKind,
+        keyValue,
+        match,
+      })),
+      links,
+    },
   } satisfies GmailEmailInterpretationPayload;
 
   const row: ObservationInsertInput = {
@@ -114,7 +114,7 @@ export async function recordMailObjectLinks(args: {
     // A mail with no `authoredAt` still links; its ingest time is the next best clock.
     occurredAt: document.authoredAt ?? document.ingestedAt,
     familyKey: `gmail:interpretation:${document.accountId ?? UNKNOWN_ACCOUNT_FAMILY_KEY_PART}:${document.sourceId}`,
-    evidenceHash: sha256Canonical(objects),
+    evidenceHash: sha256Canonical(payload),
     subjectIdentity: { kind: "email", value: senderIdentity },
     objectIdentity: null,
     payload,
@@ -122,9 +122,52 @@ export async function recordMailObjectLinks(args: {
     reducerVersion: OBJECT_LINKS_REDUCER_VERSION,
   };
 
-  if (args.commit === false) return { status: "dry", resolved };
+  return { status: "link", resolved, row };
+}
 
-  const result = await appendObservationFamilyMember(row);
+/**
+ * Append the row of a `link` proposal. The family dedups against its head only: the same payload
+ * as the head writes nothing, and each other payload becomes the head, also a return to an older
+ * one (a category that changes on a re-triage and then changes back). Thus a rerun and the
+ * backfill are idempotent, and the head is always the latest reading.
+ */
+export async function appendMailObjectLink(
+  row: ObservationInsertInput,
+): Promise<"inserted" | "deduped"> {
+  const result = await appendObservationFamilyMember(row, { dedup: "head" });
 
-  return { status: result.status, resolved };
+  return result.status;
+}
+
+/**
+ * The provider links of the mail as `collectProviderLinks` reads them, for each provider whose
+ * notification sender sent the mail (ADR-0120 decision 2: only the service's own mail is a provider
+ * fact). Each link keeps every id-like value with its label. Equal values and equal links collapse,
+ * and the counts stay inside the payload caps.
+ */
+function storedProviderLinks(text: string, sender: string | null): MailObjectLinks {
+  const links: MailObjectLinks = [];
+  const seen = new Set<string>();
+
+  for (const link of collectProviderLinks(text)) {
+    if (links.length >= MAX_MAIL_PROVIDER_LINKS) break;
+
+    if (!isNotificationSender(link.provider, sender)) continue;
+
+    const values = [
+      ...new Map(
+        link.values
+          .filter(({ value }) => value.length <= MAX_MAIL_PROVIDER_LINK_VALUE_LENGTH)
+          .map(({ label, value }) => [JSON.stringify([label, value]), { label, value }] as const),
+      ).values(),
+    ].slice(0, MAX_MAIL_PROVIDER_LINK_VALUES);
+
+    const key = JSON.stringify([link.provider, values]);
+
+    if (values.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    links.push({ provider: link.provider, values });
+  }
+
+  return links;
 }

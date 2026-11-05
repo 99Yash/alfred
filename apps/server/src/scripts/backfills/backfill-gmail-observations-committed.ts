@@ -15,6 +15,7 @@
 import {
   appendObservationFamilyMember,
   reduceGmailDocument,
+  UNKNOWN_ACCOUNT_FAMILY_KEY_PART,
   type GmailDocumentForReduction,
 } from "@alfred/assistant/knowledge";
 import { warmPool } from "@alfred/db";
@@ -36,8 +37,6 @@ const ALL_CONNECTED = process.argv.includes("--all-connected");
 const FORCE = process.argv.includes("--force");
 
 const DEFAULT_LIMIT = 5000;
-
-const UNKNOWN_ACCOUNT_FAMILY_KEY_PART = "unknown-account";
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;

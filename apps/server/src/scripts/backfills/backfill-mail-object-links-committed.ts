@@ -1,9 +1,10 @@
 /**
  * Write the `gmail/email_interpretation` link of each received Gmail message from the last 30 days
  * (ADR-0120 slice 1). Triage writes the same row for each new mail; this covers the mail that
- * arrived before. The script calls the triage writer, so the keys, the sender gate, and the
- * resolution are the live ones. The writer is idempotent: the same resolution dedups, and a changed
- * one supersedes the head. Dry by default; `--commit` appends.
+ * arrived before. The script calls the triage writer, so the keys, the links, and the sender gate
+ * are the live ones. The append is idempotent: a payload equal to the head dedups, and another
+ * payload becomes the head. Dry by default; `--commit` appends. It writes `category: null` (verdict
+ * unknown) until it reads the verdict of each message.
  *
  *   # preview (writes nothing):
  *   tsx src/scripts/backfills/backfill-mail-object-links-committed.ts
@@ -12,7 +13,11 @@
  *   # another window, in days:
  *   tsx src/scripts/backfills/backfill-mail-object-links-committed.ts --days 45
  */
-import { recordMailObjectLinks, type MailObjectLinkWrite } from "@alfred/assistant/triage";
+import {
+  appendMailObjectLink,
+  proposeMailObjectLinks,
+  type MailObjectLinkProposal,
+} from "@alfred/assistant/triage";
 import { isSentGmailMetadata, parseGmailDocumentMetadata, toMessage } from "@alfred/contracts";
 import { db, warmPool } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -35,7 +40,12 @@ async function backfill(): Promise<void> {
     `# Mail object links: mode=${COMMIT ? "COMMIT" : "DRY"} since=${since.toISOString()}`,
   );
 
-  type Outcome = MailObjectLinkWrite["status"] | "sent" | "failed";
+  type Outcome =
+    | Exclude<MailObjectLinkProposal["status"], "link">
+    | Awaited<ReturnType<typeof appendMailObjectLink>>
+    | "dry"
+    | "sent"
+    | "failed";
 
   const counts = new Map<Outcome, number>();
 
@@ -75,15 +85,19 @@ async function backfill(): Promise<void> {
       }
 
       try {
-        const result = await recordMailObjectLinks({
+        const result = await proposeMailObjectLinks({
           document: doc,
           sender: metadata.from ?? null,
-          commit: COMMIT,
+          category: null,
         });
 
-        bump(result.status);
+        if (result.status === "link") {
+          bump(COMMIT ? await appendMailObjectLink(result.row) : "dry");
+        } else {
+          bump(result.status);
+        }
 
-        if ("resolved" in result) resolvedObjects += result.resolved.length;
+        if (result.status !== "no_link") resolvedObjects += result.resolved.length;
       } catch (err) {
         bump("failed");
         console.error(`  ${doc.id}: ${toMessage(err)}`);

@@ -3,7 +3,8 @@
 import { z } from "zod";
 
 import { attributionRecordSchema } from "./attribution";
-import { getObjectKindDef, type ObjectStateProvider } from "./integration-objects";
+import { getObjectKindDef } from "./integration-objects";
+import type { ObjectStateProvider } from "./object-state-vocabulary";
 import { deriveLoopEntityRef } from "./loop-key";
 
 // ─── Status ────────────────────────────────────────────────────────────────
