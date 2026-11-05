@@ -17,6 +17,7 @@ export {
 
 export {
   reduceGmailDocument,
+  UNKNOWN_ACCOUNT_FAMILY_KEY_PART,
   type GmailDocumentForReduction,
   type GmailReductionIssue,
   type GmailReductionResult,

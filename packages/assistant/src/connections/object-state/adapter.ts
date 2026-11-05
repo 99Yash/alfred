@@ -1,12 +1,12 @@
-import type { ObjectStateProvider } from "@alfred/contracts";
+import type { ObjectKeyMatch, ObjectStateProvider } from "@alfred/contracts";
 
 /**
  * Propose-side vocabulary for reconciliation (ADR-0062, #1088). Text may only propose a candidate
  * key; only the reducer-owned projection decides whether work is finished.
  */
 
-/** `prefix` is for an abbreviated sha, which an exact lookup on the 40-hex key cannot find. */
-export type ObjectKeyMatch = "exact" | "prefix";
+/** Contracts owns the tuple, so the stored `email_interpretation` keys parse the same modes. */
+export type { ObjectKeyMatch };
 
 export interface ExtractedKey {
   keyKind: string;

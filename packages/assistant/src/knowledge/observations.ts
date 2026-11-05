@@ -6,6 +6,7 @@ import {
   type ObservationInsertInput,
 } from "@alfred/contracts";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { sha256Canonical } from "@alfred/db/hash";
 import { PG_UNIQUE_VIOLATION, pgErrorChain } from "@alfred/db/pg-errors";
 import type { DbTransaction } from "@alfred/db";
 
@@ -78,6 +79,23 @@ interface AppendObservationFamilyMemberOptions {
    * when two deliveries report one act and one of them must win, whichever arrives first.
    */
   readonly keepHead?: (head: Observation) => boolean;
+  /**
+   * Which members identical evidence dedups against. `family` (the default): any member, so the
+   * same evidence is written one time per family. `head`: only the live head. Use `head` for a
+   * family whose value can go back to an older value (A, then B, then A): the third write must
+   * become the head, and a family-wide dedup would return the old A row and keep B as the head.
+   * With `head`, the stored `evidenceHash` also binds the evidence to the head that it supersedes,
+   * so each position in the chain has its own hash.
+   */
+  readonly dedup?: "family" | "head";
+}
+
+/**
+ * The stored hash of a member under `dedup: "head"`. No-fork lets one row supersede a given head,
+ * so two members with the same evidence get two hashes.
+ */
+function headScopedEvidenceHash(evidenceHash: string, supersedes: string | null): string {
+  return sha256Canonical({ evidenceHash, supersedes });
 }
 
 export function isObservationAppendConflict(err: unknown): boolean {
@@ -199,6 +217,7 @@ async function insertParsed(
  */
 export async function appendObservationFamilyMember(
   input: ObservationInsertInput,
+  options?: AppendObservationFamilyMemberOptions & { readonly keepHead?: undefined },
 ): Promise<AppendObservationFamilyMemberResult>;
 /** Only a caller that passes `keepHead` can get `kept_head`. */
 export async function appendObservationFamilyMember(
@@ -227,20 +246,41 @@ export async function appendObservationFamilyMember(
           )
           .limit(1);
 
-        if (head && options.keepHead) {
-          const [current] = await tx
-            .select()
-            .from(observations)
-            .where(eq(observations.id, head.headObservationId))
-            .limit(1);
+        const headScoped = options.dedup === "head";
 
-          if (current && options.keepHead(current)) {
-            return { observation: current, deduped: false, status: "kept_head" as const };
-          }
+        const [current] =
+          head && (options.keepHead || headScoped)
+            ? await tx
+                .select()
+                .from(observations)
+                .where(eq(observations.id, head.headObservationId))
+                .limit(1)
+            : [];
+
+        if (current && options.keepHead?.(current)) {
+          return { observation: current, deduped: false, status: "kept_head" as const };
+        }
+
+        const supersedes = head?.headObservationId ?? null;
+
+        if (
+          headScoped &&
+          current &&
+          current.evidenceHash ===
+            headScopedEvidenceHash(parsed.evidenceHash, current.supersedesObservationId)
+        ) {
+          // The head holds this evidence: dedup, and the head stays.
+          return { observation: current, deduped: true, status: "deduped" as const };
         }
 
         const result = await insertParsed(
-          { ...parsed, supersedesObservationId: head?.headObservationId ?? null },
+          {
+            ...parsed,
+            evidenceHash: headScoped
+              ? headScopedEvidenceHash(parsed.evidenceHash, supersedes)
+              : parsed.evidenceHash,
+            supersedesObservationId: supersedes,
+          },
           tx,
         );
 

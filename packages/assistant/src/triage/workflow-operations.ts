@@ -6,8 +6,6 @@ import {
 import {
   documentAskReducer,
   gmailMessageLocatorSchema,
-  proposeReconcileCandidates,
-  reconcileEvidence,
   selectPrimaryReconciledObject,
   type ReconciledObject,
 } from "@alfred/assistant/connections";
@@ -60,6 +58,7 @@ import {
   type TriageTodoDecision,
 } from "./todo-decision";
 import { assembleObservations, type Observations } from "./observations";
+import { appendMailObjectLink, proposeMailObjectLinks } from "./object-links";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   assertNever,
@@ -426,6 +425,34 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   // Side effects run on both paths (#157). Each is idempotent, so a re-entry is safe.
   // The document ask is not one of them: it travels in run state to `open-document-ask`.
 
+  // The things this mail is about (ADR-0120 decision 3). It runs on each mail that reaches a
+  // verdict, also when a run for a newer message owns the thread row: the link is per message, and
+  // `classification.category` is the verdict for this message on both paths. Both halves are
+  // non-fatal. A failed resolve loses the link and the todo object ref. A failed append loses only
+  // the link, because the todo ref reads the resolution in memory. The backfill rewrites a lost link.
+  // A failed classify stores `DEFAULT_TRIAGE_CATEGORY` (`fyi`). It is not a priority category, so
+  // a fallback verdict puts no thing in the slice 2 verify set.
+  const links = await proposeMailObjectLinks({
+    document: ctxData.document,
+    sender: ctxData.document.metadata.from ?? null,
+    category: classification.category,
+  }).catch(async (err: unknown) => {
+    await ctx.log(`object links: resolve failed (non-fatal): ${toMessage(err)}`);
+
+    return null;
+  });
+
+  if (links?.status === "link") {
+    try {
+      const status = await appendMailObjectLink(links.row);
+      await ctx.log(`object links: ${status} resolved=${links.resolved.length}`);
+    } catch (err) {
+      await ctx.log(`object links: write failed (non-fatal): ${toMessage(err)}`);
+    }
+  } else if (links?.status === "no_sender") {
+    await ctx.log(`object links: no_sender resolved=${links.resolved.length}`);
+  }
+
   // Best-effort and outside the row transaction. The 5-minute rail poll recovers a lost frame.
   if (written) {
     try {
@@ -595,17 +622,11 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     const { todo: suggestion } = todo.outcome;
     const sender = ctxData.document.metadata.from ?? null;
 
-    // A failed read loses only the object ref; the thread and loop refs still merge.
-    const object = await resolveTodoObject({
-      userId: ctx.userId,
-      documentId: ctx.state.documentId,
-      document: ctxData.document,
-      sender,
-    }).catch(async (err: unknown) => {
-      await ctx.log(`suggest_todo: object resolve failed (non-fatal): ${toMessage(err)}`);
-
-      return null;
-    });
+    // The link proposal resolved the mail. A failed resolve loses only the object ref; the thread
+    // and loop refs still merge.
+    const object = todoObjectOf(
+      links === null || links.status === "no_link" ? undefined : links.resolved,
+    );
 
     try {
       // The object and `loop` refs fold a thing that re-notifies on new threads into one todo
@@ -1010,27 +1031,14 @@ function objectLogField(object: TodoObjectRef, sources: readonly TodoSource[]): 
 }
 
 /**
- * The `integration_objects` row this mail is about (ADR-0092 A1), by the briefing's `about`
- * reading and precedence rule. `null` when the mail names no stored object by a hard edge.
+ * The `integration_objects` row this mail is about (ADR-0092 A1), from the resolution that the
+ * link proposal made with the briefing's `about` reading. `null` when the mail names no stored
+ * object by a hard edge.
  */
-async function resolveTodoObject(args: {
-  userId: string;
-  documentId: string;
-  document: { title: string | null; content: string };
-  sender: string | null;
-}): Promise<TodoObjectRef | null> {
-  const candidates = proposeReconcileCandidates(
-    {
-      id: args.documentId,
-      text: { subject: args.document.title ?? "", content: args.document.content },
-    },
-    { reading: "about", sender: args.sender },
-  );
-
-  if (!candidates) return null;
-
-  const reconciled = await reconcileEvidence({ userId: args.userId, subjects: [candidates] });
-  const primary = selectPrimaryReconciledObject(reconciled.get(args.documentId));
+function todoObjectOf(
+  resolved: readonly ReconciledObject<"about">[] | undefined,
+): TodoObjectRef | null {
+  const primary = selectPrimaryReconciledObject(resolved);
 
   if (!primary || !TODO_REF_MATCHES[primary.key.match]) return null;
 

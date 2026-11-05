@@ -1,6 +1,6 @@
 # ADR-0120 — A loop is a tracked thing, and `verifyLoops` reads the store first
 
-**Status.** Proposed. Nothing is built. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
+**Status.** Proposed. Slice 1 is built (the `gmail/email_interpretation` link at triage, and its backfill). Slices 2 to 6 are not built. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
 
 **Decision.** A loop is not a new record. A loop is a **thing**, an `integration_objects` row, in the state `active` or `failed`, that touches the user. Each integration activity can open a loop, and the closure of a loop is the change of state of its thing. The link from a mail to its thing is the ADR-0092 `about` observation, which triage writes one time. `verifyLoops` selects the things in a bounded set, uses the stored state as the verdict, and runs a live read only when the stored state is ambiguous. It folds each fact through `applyEvent` in one transaction. The briefing reads one list with three verdicts: `open`, `closed`, and `unverified`.
 
@@ -29,7 +29,7 @@ A referent (`entity_nodes`, ADR-0092) stays only for a thing with no lifecycle, 
 
 ### 3. The link from a mail to a thing is stored one time (amends ADR-0092)
 
-Triage writes the ADR-0092 `about` observation for each mail: the `documentId` and the key of each thing that the mail is about. One mail can be about more than one thing. `verifyLoops` reads these links through `observations_document_idx`. It does not call `reconcileEvidence` again. The first slice builds only the object half of the `about` observation. The referent half and the significance half of ADR-0092 come later.
+Triage writes the ADR-0092 `about` observation for each mail: the `documentId`, the triage category of the message, the keys that the mail names, and the provider links of the sender's own service. One mail can be about more than one thing. `verifyLoops` reads these rows through `observations_document_idx`. It does not read the mail text again. It resolves the stored keys and links against `integration_objects` when it reads, because a resolution from the time of triage goes stale. Thus it also finds a thing whose row did not exist at triage (case 3 of decision 5). The first slice builds only the object half of the `about` observation. The referent half and the significance half of ADR-0092 come later.
 
 ### 4. The verify set is bounded
 
@@ -37,6 +37,8 @@ Triage writes the ADR-0092 `about` observation for each mail: the `documentId` a
 
 - an `about` observation from a mail in a priority category (`urgent`, `action_needed`, or `follow_up`) inside the window, or
 - an open todo, with no time limit. "Remind me in a week" is a todo with a `due_date`. It needs no new state.
+
+The `category` field of each `about` observation holds the triage verdict of its message. The priority filter reads that field, not the triage row of the thread.
 
 The window is 30 days on the first run. Each later run starts at the last successful run, with a minimum of 3 days. Thus a gap in the briefings, for example a holiday or a broken credential, does not lose a loop. A thing outside the set keeps its state. It is not read and not shown. Expiry never sets `abandoned`, because only a provider fact sets a state. A new priority mail about the thing puts it back in the set.
 
@@ -93,7 +95,7 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 
 ## Implementation slices
 
-1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill.
+1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the triage category, the keys that the mail names, and the provider links of the sender's own service. It holds no resolution (decision 3). The family dedups against its head only, so the head always holds the latest triage result for the message. The backfill writes a row only for a message with a triage verdict in the run history, with that verdict. A failed classify stores `fyi`, which is not a priority category. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
 2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684.
 3. The Vercel and Railway pulls move into the registry, and the deploy failures with no mail become a live read behind `readActivity` (decision 10). This closes #1683.
 4. Things that only mail tracks (decision 2), with the Voyage AI case as the first proof.
@@ -114,7 +116,7 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 - **The store can be wrong without being ambiguous.** A provider can change a state without a mail and without a webhook, while the coverage still reads `live`. The briefing then shows the old state until a new mail arrives. The coverage rule of ADR-0118 decision 4 is the guard, and it is only as good as the silence proof of each source.
 - **The first run reads 30 days only.** A loop opened by a mail older than 30 days, with no open todo, is not in the set.
 - **The service-mail rule depends on the sender.** A relay that copies the domain of the service could set a state. Decision 2 needs the same sender gate that the reconcile adapters use.
-- **Slice 1 changes triage.** A fault in the `about` writer stops loops for each new mail. The backfill must be idempotent.
+- **Slice 1 changes triage.** A fault in the `about` writer loses the link of each new mail. The write is non-fatal, so triage continues. The backfill is idempotent, and a new run writes the lost links again.
 
 ## Rejected alternatives
 

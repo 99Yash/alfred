@@ -13,6 +13,8 @@ import { classifyConnectedAccount, domainClassSchema } from "./identity-affiliat
 import { pluckField, typedKeys } from "./records";
 import { STANDING_INSTRUCTION_KEY } from "./standing-instructions";
 import { assertNever } from "./errors";
+import { OBJECT_KEY_MATCHES, OBJECT_STATE_PROVIDERS } from "./object-state-vocabulary";
+import { triageCategorySchema } from "./triage";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Observation sources + precedence (D1, D14)
@@ -54,8 +56,11 @@ export const OBSERVATION_REDUCERS = {
   user: { rank: 0, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
   /** The same statements, captured from a chat thread. */
   alfred_chat: { rank: 1, kinds: USER_AUTHORED_KINDS, identityKinds: [] },
-  /** Gmail messages. Its `domain` org nodes are nodes only, so `domain` stays forward. */
-  gmail: { rank: 2, kinds: ["email_message"], identityKinds: ["email"] },
+  /**
+   * Gmail messages, and what triage reads each message to be about (ADR-0092 D2, ADR-0120 decision
+   * 3). Its `domain` org nodes are nodes only, so `domain` stays forward.
+   */
+  gmail: { rank: 2, kinds: ["email_message", "email_interpretation"], identityKinds: ["email"] },
   /** The connected Google account asserts the user's org domain (ADR-0080 §4a). Not a Gmail event. */
   google_account: { rank: 2, kinds: ["user_org_affiliation"], identityKinds: [] },
   /** GitHub App deliveries, as activity rows (ADR-0118). Evidence of what happened, never a fact. */
@@ -438,6 +443,84 @@ export const gmailEmailMessagePayloadSchema = z
 
 export type GmailEmailMessagePayload = z.infer<typeof gmailEmailMessagePayloadSchema>;
 
+const objectStateProviderSchema = z.enum(OBJECT_STATE_PROVIDERS);
+
+/** A key that an adapter read from the mail text (ADR-0062). */
+const mailObjectKeySchema = z
+  .object({
+    provider: objectStateProviderSchema,
+    keyKind: z.string().min(1),
+    keyValue: z.string().min(1),
+    match: z.enum(OBJECT_KEY_MATCHES),
+  })
+  .strict();
+
+/**
+ * At most this many provider links on one row. The most in one dev-DB mail on 2026-11-05 was 11, so
+ * the cap keeps each real mail whole and stops a link digest from growing the row without a limit.
+ */
+export const MAX_MAIL_PROVIDER_LINKS = 32;
+
+/** At most this many values on one stored link, in link order. An object id sits early in a path. */
+export const MAX_MAIL_PROVIDER_LINK_VALUES = 32;
+
+/** A longer link value is a token, not an object id, so the row does not keep it. */
+export const MAX_MAIL_PROVIDER_LINK_VALUE_LENGTH = 256;
+
+/**
+ * One provider link of the mail as `collectProviderLinks` reads it (ADR-0109 rule 2): each id-like
+ * value with the path segment or query name before it. The prose stays out. The label and strength
+ * filters of the identity probe do not apply, so a label that a provider declares later still
+ * applies to this row.
+ */
+const mailProviderLinkSchema = z
+  .object({
+    provider: objectStateProviderSchema,
+    values: z
+      .array(
+        z
+          .object({
+            label: z.string().nullable(),
+            value: z.string().min(1).max(MAX_MAIL_PROVIDER_LINK_VALUE_LENGTH),
+          })
+          .strict(),
+      )
+      .max(MAX_MAIL_PROVIDER_LINK_VALUES),
+  })
+  .strict();
+
+/**
+ * The payload of an `email_interpretation` row: what one message says it is about (ADR-0120
+ * decision 3). Only the object half of ADR-0092 is built. The row holds what the mail names, not a
+ * resolution, because a stored resolution goes stale when the store changes. A reader resolves
+ * `keys` and `links` against `integration_objects` when it reads, so it also finds a thing whose
+ * row did not exist when triage ran (ADR-0120 decision 5, case 3).
+ *
+ * `category` is the triage verdict for this message (ADR-0120 decision 4). Each writer has one: the
+ * triage step writes its verdict, and the backfill writes only a message with a triage verdict.
+ *
+ * `links` holds only the links of a provider whose notification sender sent the mail (ADR-0120
+ * decision 2), the same sender gate as the `about` reading.
+ */
+export const gmailEmailInterpretationPayloadSchema = z
+  .object({
+    provider: z.literal("gmail"),
+    documentId: z.string().min(1),
+    messageId: z.string().min(1),
+    threadId: z.string().min(1).nullable(),
+    accountId: z.string().min(1).nullable(),
+    category: triageCategorySchema,
+    objects: z
+      .object({
+        keys: z.array(mailObjectKeySchema),
+        links: z.array(mailProviderLinkSchema).max(MAX_MAIL_PROVIDER_LINKS),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type GmailEmailInterpretationPayload = z.infer<typeof gmailEmailInterpretationPayloadSchema>;
+
 const canonicalDomainSchema = identityValueSchema
   .refine((v) => v === canonicalizeIdentityValue("domain", v), {
     error: "domain must be canonical (lowercased, no surrounding whitespace)",
@@ -557,6 +640,26 @@ function boundedKeySchema(maxBytes: number, label: string) {
 }
 
 /**
+ * Parse an observation payload against the schema of its kind. On a failure, add each issue under
+ * `payload` and return `null`.
+ */
+function parsePayload<Schema extends z.ZodType>(
+  schema: Schema,
+  payload: unknown,
+  ctx: z.RefinementCtx,
+): z.infer<Schema> | null {
+  const parsed = schema.safeParse(payload);
+
+  if (parsed.success) return parsed.data;
+
+  for (const issue of parsed.error.issues) {
+    ctx.addIssue({ code: "custom", path: ["payload", ...issue.path], message: issue.message });
+  }
+
+  return null;
+}
+
+/**
  * Every observation write parses this first (ADR-0067 P1). The DB columns are plain
  * text and jsonb, so this is the only guard against a corrupt log.
  * Cycle checks on `supersedesObservationId` stay with the reducer.
@@ -584,37 +687,23 @@ export const observationInsertSchema = z
   })
   .superRefine(({ source, kind, payload, subjectIdentity }, ctx) => {
     if (kind === "email_message") {
-      const parsed = gmailEmailMessagePayloadSchema.safeParse(payload);
+      parsePayload(gmailEmailMessagePayloadSchema, payload, ctx);
 
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["payload", ...issue.path],
-            message: issue.message,
-          });
-        }
-      }
+      return;
+    }
+
+    if (kind === "email_interpretation") {
+      parsePayload(gmailEmailInterpretationPayloadSchema, payload, ctx);
 
       return;
     }
 
     if (kind === "activity") {
-      const parsed = activityPayloadSchema.safeParse(payload);
+      const parsed = parsePayload(activityPayloadSchema, payload, ctx);
 
-      if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["payload", ...issue.path],
-            message: issue.message,
-          });
-        }
+      if (!parsed) return;
 
-        return;
-      }
-
-      const { source: identity, verb } = parsed.data;
+      const { source: identity, verb } = parsed;
 
       if (identity.kind !== "integration" || identity.slug !== source) {
         ctx.addIssue({
@@ -636,19 +725,9 @@ export const observationInsertSchema = z
     }
 
     if (kind !== "user_org_affiliation") return;
-    const parsed = userOrgAffiliationPayloadSchema.safeParse(payload);
+    const parsed = parsePayload(userOrgAffiliationPayloadSchema, payload, ctx);
 
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["payload", ...issue.path],
-          message: issue.message,
-        });
-      }
-
-      return;
-    }
+    if (!parsed) return;
 
     if (subjectIdentity.kind !== "user") {
       ctx.addIssue({
@@ -659,11 +738,11 @@ export const observationInsertSchema = z
     }
 
     const expectedDomainClass = classifyConnectedAccount({
-      email: parsed.data.accountEmail,
-      verifiedHostedDomain: parsed.data.verifiedHostedDomain,
+      email: parsed.accountEmail,
+      verifiedHostedDomain: parsed.verifiedHostedDomain,
     });
 
-    if (expectedDomainClass !== parsed.data.domainClass) {
+    if (expectedDomainClass !== parsed.domainClass) {
       ctx.addIssue({
         code: "custom",
         path: ["payload", "domainClass"],
@@ -671,10 +750,7 @@ export const observationInsertSchema = z
       });
     }
 
-    if (
-      parsed.data.verifiedHostedDomain != null &&
-      parsed.data.verifiedHostedDomain !== parsed.data.orgDomain
-    ) {
+    if (parsed.verifiedHostedDomain != null && parsed.verifiedHostedDomain !== parsed.orgDomain) {
       ctx.addIssue({
         code: "custom",
         path: ["payload", "verifiedHostedDomain"],

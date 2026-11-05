@@ -139,3 +139,18 @@ export {
 
 // Registered by the composition root.
 export { emailTriageWorkflow } from "./email-triage";
+
+// The backfill reads the triage coverage of each message with it.
+export { readTriageVerdicts } from "./email-triage";
+
+export {
+  appendMailObjectLink,
+  proposeMailObjectLinks,
+  proposeMailObjectLinksBatch,
+} from "./object-links";
+
+export type {
+  MailObjectLinkDocument,
+  MailObjectLinkInput,
+  MailObjectLinkProposal,
+} from "./object-links";
