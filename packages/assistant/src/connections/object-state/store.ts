@@ -90,6 +90,8 @@ export interface ObjectState {
   repo: string | null;
   /** Last delivery that advanced the state, for freshness reports. */
   stateDeliveredAt: Date | null;
+  /** The provider-clock time of the fact that set the state, when the provider gave one. */
+  providerEventAt: Date | null;
 }
 
 interface ApplyEventArgs {
@@ -104,6 +106,19 @@ interface ApplyEventArgs {
   deliveredAt: DeliveryInstant;
 }
 
+/** One fact for {@link ObjectStateStore.applyEvents}: an event and its receipt time. */
+type ObjectStateFact = Pick<ApplyEventArgs, "event" | "deliveredAt">;
+
+interface ApplyEventsArgs {
+  userId: string;
+  facts: readonly ObjectStateFact[];
+  /**
+   * Runs last, inside the same transaction, after every fold. A throw rolls back every fold. The
+   * loop verifier records its run here (ADR-0120 decision 7).
+   */
+  inTransaction?: (tx: DbTransaction) => Promise<void>;
+}
+
 interface ObjectListFilter {
   kind?: string;
   stateCategory?: StateCategory;
@@ -114,6 +129,12 @@ interface ObjectListFilter {
 
 export interface ObjectStateStore {
   applyEvent(args: ApplyEventArgs): Promise<void>;
+  /**
+   * Fold many facts in one transaction (ADR-0120 decision 7). Each fact goes through the same
+   * guards as {@link applyEvent}. A repeated fact is a no-op, and the recency guard refuses an
+   * older one. All object rows lock in one identity order, so two calls cannot deadlock.
+   */
+  applyEvents(args: ApplyEventsArgs): Promise<void>;
   resolveByKey(
     userId: string,
     provider: ObjectStateProvider,
@@ -255,6 +276,7 @@ function rowToObjectState(row: IntegrationObject): ObjectState {
     url: row.url,
     repo: row.repo,
     stateDeliveredAt: row.stateDeliveredAt,
+    providerEventAt: row.providerEventAt,
   };
 }
 
@@ -302,12 +324,21 @@ type LockedIdentityRow = IntegrationObject & {
  * Code-unit order, not `localeCompare`: collation can rank distinct strings equal and break the
  * lock order.
  */
-function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
-  if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+function compareIdentity(a: PendingDelta, b: PendingDelta): number {
+  if (a.provider !== b.provider) return a.provider < b.provider ? -1 : 1;
 
-  if (a.externalId === b.externalId) return 0;
+  if (a.delta.kind !== b.delta.kind) return a.delta.kind < b.delta.kind ? -1 : 1;
 
-  return a.externalId < b.externalId ? -1 : 1;
+  if (a.delta.externalId === b.delta.externalId) return 0;
+
+  return a.delta.externalId < b.delta.externalId ? -1 : 1;
+}
+
+/** One reduced delta, with the provider and the receipt time of its fact. */
+interface PendingDelta {
+  provider: ObjectStateProvider;
+  delta: ObjectStateDelta;
+  deliveredAt: DeliveryInstant;
 }
 
 /**
@@ -317,18 +348,24 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * wait crosses phases. `sort` is stable, so two deltas for one identity keep their order and the
  * later one wins. `applyEvent` is the only app writer of either table.
  */
-function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
+function inLockOrder(deltas: readonly PendingDelta[]): PendingDelta[] {
   return deltas.toSorted(compareIdentity);
 }
 
 /** One deferred key upsert, bound to the object its delta resolved. */
-type PendingKeyUpsert = Readonly<Pick<IntegrationObjectKey, "keyKind" | "keyValue" | "objectId">>;
+type PendingKeyUpsert = Readonly<
+  Pick<IntegrationObjectKey, "keyKind" | "keyValue" | "objectId"> & {
+    provider: ObjectStateProvider;
+  }
+>;
 
 /**
  * Code-unit order over `(keyKind, keyValue)`, for the same reason as `compareIdentity`. No
  * `objectId` tie-break: equal keys keep the fold order, so the last folded delta wins the row.
  */
 function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
+  if (a.provider !== b.provider) return a.provider < b.provider ? -1 : 1;
+
   if (a.keyKind !== b.keyKind) return a.keyKind < b.keyKind ? -1 : 1;
 
   if (a.keyValue === b.keyValue) return 0;
@@ -342,20 +379,32 @@ function inKeyLockOrder(upserts: readonly PendingKeyUpsert[]): PendingKeyUpsert[
 }
 
 export const objectStateStore: ObjectStateStore = {
-  async applyEvent(args) {
-    const { provider } = args.event;
-    const deltas = reduce(args.event);
+  applyEvent(args) {
+    return objectStateStore.applyEvents({
+      userId: args.userId,
+      facts: [{ event: args.event, deliveredAt: args.deliveredAt }],
+    });
+  },
 
-    if (deltas.length === 0) return;
+  async applyEvents(args) {
+    const deltas: PendingDelta[] = args.facts.flatMap((fact) => {
+      // The lexical comparison below needs the fixed-width shape, so parse, not trust.
+      const deliveredAt = deliveryInstantSchema.parse(fact.deliveredAt);
 
-    // The lexical comparison below needs the fixed-width shape, so parse, not trust.
-    const deliveredAt = deliveryInstantSchema.parse(args.deliveredAt);
+      return reduce(fact.event).map((delta) => ({
+        provider: fact.event.provider,
+        delta,
+        deliveredAt,
+      }));
+    });
+
+    if (deltas.length === 0 && !args.inTransaction) return;
 
     await db().transaction(async (tx) => {
       // Key upserts lock a second table, so they wait for phase 2.
       const pendingKeys: PendingKeyUpsert[] = [];
 
-      for (const delta of inLockOrder(deltas)) {
+      for (const { provider, delta, deliveredAt } of inLockOrder(deltas)) {
         // No kind def means no absorbing policy, so the guard would fail open.
         if (!getObjectKindDef(provider, delta.kind)) continue;
 
@@ -466,7 +515,7 @@ export const objectStateStore: ObjectStateStore = {
 
         // Keys are additive identity facts, so they upsert regardless of event order.
         for (const key of delta.keys) {
-          pendingKeys.push({ keyKind: key.keyKind, keyValue: key.keyValue, objectId });
+          pendingKeys.push({ provider, keyKind: key.keyKind, keyValue: key.keyValue, objectId });
         }
       }
 
@@ -478,7 +527,7 @@ export const objectStateStore: ObjectStateStore = {
           .values({
             userId: args.userId,
             objectId: pending.objectId,
-            provider,
+            provider: pending.provider,
             keyKind: pending.keyKind,
             keyValue: pending.keyValue,
           })
@@ -492,6 +541,8 @@ export const objectStateStore: ObjectStateStore = {
             set: { objectId: pending.objectId },
           });
       }
+
+      await args.inTransaction?.(tx);
     });
   },
 

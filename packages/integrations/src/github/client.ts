@@ -66,6 +66,7 @@ const issueSchema = z.object({
 const MAX_ISSUE_BODY_CHARS = 20_000;
 
 const pullRequestSchema = z.object({
+  id: z.number().int().positive(),
   number: z.number(),
   title: z.string(),
   html_url: z.string(),
@@ -121,6 +122,8 @@ export interface PullRequestBatch {
 }
 
 export interface PullRequestDetail {
+  /** GitHub's numeric id. The webhook keys the `integration_objects` row by it. */
+  githubId: number;
   number: number;
   title: string;
   url: string;
@@ -195,6 +198,7 @@ export function createGithubClient(options: GithubClientOptions) {
     });
 
     return {
+      githubId: pr.id,
       number: pr.number,
       title: pr.title,
       url: pr.html_url,

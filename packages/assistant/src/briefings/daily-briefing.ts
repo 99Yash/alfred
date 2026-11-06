@@ -34,7 +34,7 @@ export const dailyBriefingWorkflow: Workflow<
       dryRun: parsed.dryRun,
       briefingDate: parsed.briefingDate,
       closedLoops: [],
-      loopRelevance: [],
+      loops: [],
     };
   },
   steps: {

@@ -79,6 +79,7 @@ export {
   deliveryInstantOf,
   deliveryInstantSchema,
   firstClosingObject,
+  identityProbeFromLinks,
   MCP_APPROVED_HEALTH_EVENT_TYPE,
   MCP_APPROVED_HEALTH_KEY_KIND,
   MCP_APPROVED_HEALTH_KIND,

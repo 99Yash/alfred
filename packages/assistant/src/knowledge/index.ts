@@ -122,6 +122,14 @@ export {
   type ActivityEvent,
 } from "./activity";
 
+// The state of each mailed loop (ADR-0120): the store first, a live read only when it is ambiguous.
+export {
+  verifyLoops,
+  type ExtraLoopMail,
+  type VerifyLoopsArgs,
+  type VerifyLoopsResult,
+} from "./loops";
+
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.
 export { valueSignature } from "./signature";
 

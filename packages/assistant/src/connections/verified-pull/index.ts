@@ -40,6 +40,15 @@ export type {
 export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarget } from "./vercel";
 
 export {
+  loopVerifierFor,
+  loopVerifierForKey,
+  type LoopKey,
+  type LoopReadBatch,
+  type LoopVerifier,
+  type LoopVerifierRead,
+} from "./loop-verifiers";
+
+export {
   verifyApprovedMcpHealth,
   type ApprovedMcpHealthCallInput,
   type ApprovedMcpHealthDependencies,

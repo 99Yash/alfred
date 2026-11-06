@@ -1,9 +1,8 @@
 import { route, meteredGenerateText, isStepCount, type ModelMessage } from "@alfred/ai";
 import {
   assertNever,
-  type BriefingClosedLoop,
   type BriefingGather,
-  type BriefingLoopRelevance,
+  type BriefingLoop,
   type DayShape,
   type GatherInput,
   type GatherProvenance,
@@ -47,10 +46,8 @@ export interface RunBriefingAgentArgs {
   /** For metering attribution. */
   runId: string;
   stepId: string;
-  /** Closure facts from this run's gather. */
-  closedLoops: BriefingClosedLoop[];
-  /** One verdict per live loop, from the same gather. */
-  loopRelevance: BriefingLoopRelevance[];
+  /** The verdict of each loop, from this run's gather (`verifyLoops`). */
+  loops: BriefingLoop[];
   /** The gather's day shape, so `get_day_shape` does not repeat the live GitHub read. */
   dayShape?: DayShape | undefined;
   /**
@@ -141,8 +138,8 @@ const COMPOSER_READS = {
   email: { tool: "list_emails_since", hides: "your new email" },
   calendar: { tool: "list_calendar_events", hides: "your meetings" },
   github_merged: { tool: "get_day_shape", hides: "the work that merged on GitHub" },
-  loop_relevance: {
-    tool: "list_loop_relevance",
+  loops: {
+    tool: "list_loops",
     hides: "whether your open threads still need you",
   },
   official_warnings: {
@@ -308,8 +305,7 @@ export async function runBriefingAgent(
     activityWindow: args.activityWindow,
     briefingDate: args.briefingDate,
     timezone: args.timezone,
-    closedLoops: args.closedLoops,
-    loopRelevance: args.loopRelevance,
+    loops: args.loops,
     dayShape: args.dayShape,
     calendar: args.calendar,
     officialWarnings: args.officialWarnings,
@@ -320,7 +316,7 @@ export async function runBriefingAgent(
       role: "user",
       content:
         `Compose the ${args.slot} briefing for ${args.recipientFirstName ?? "the user"}. ` +
-        `Start by reading list_prior_briefings, then list_emails_since, list_closed_loops, and list_loop_relevance. ` +
+        `Start by reading list_prior_briefings, then list_emails_since and list_loops. ` +
         `Apply the three honest loop-state tiers, then end with dump_briefing.` +
         officialWarningFacts({
           officialWarnings: args.officialWarnings,

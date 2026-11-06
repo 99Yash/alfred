@@ -131,7 +131,7 @@ On 2026-10-20 a read-only replay read all triaged production mail since 2026-09-
 
 The cause is structural, not only a quiet period. Each built-in provider already has a deterministic path for each object that a built-in reader can confirm. Railway has the verified pull and identity containment. A Sentry or Vercel reader cannot find an object that the store does not hold. Production has 4 MCP connections (GitHub, Railway, Sentry, Polylane), and none has an approved tool policy or health mapping. Polylane sent no priority mail. Thus slices 2 and 3 have no loop to close, and the paired replay of 2026-10-18 and 2026-10-19 cannot show a difference.
 
-Rule 3 stays the decision. The build waits for evidence. Each briefing gather logs `[briefing.gather] soft-edge loops with no hard edge` with the count, the count for each provider, and the document ids. Build the verifier when this line names a loop whose object a read can close. The registry now declares `github.com` as the GitHub notification sender. GitHub declares no identity, so this changes only the count.
+Rule 3 stays the decision. The build waits for evidence. Each `verifyLoops` run logs `[loops] soft-edge loops with no hard edge` with the count, the count for each provider, and the document ids (ADR-0120 slice 2; before it, the briefing gather logged `[briefing.gather] soft-edge loops with no hard edge`). It counts the mails of the verify set whose stored provider links resolve to no thing by a hard edge. Build the verifier when this line names a loop whose object a read can close. The registry now declares `github.com` as the GitHub notification sender. GitHub declares no identity, so this changes only the count.
 
 ## Verification
 

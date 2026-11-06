@@ -157,6 +157,39 @@ export const integrationObjectPulls = pgTable(
   (t) => [uniqueIndex("integration_object_pulls_object_idx").on(t.objectId)],
 );
 
+// ---------------------------------------------------------------------------
+// loop_verification_runs
+// ---------------------------------------------------------------------------
+
+/**
+ * One row for each `verifyLoops` run that committed (ADR-0120 decision 7). The same transaction
+ * folds the facts of the run, so a row exists only when every fact of the run is stored. The next
+ * run starts its window at the newest `ran_at` (decision 4).
+ */
+export const loopVerificationRuns = pgTable(
+  "loop_verification_runs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("lvr")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ranAt: timestamp("ran_at", { withTimezone: true }).notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    /** Things in the verify set, live reads, and facts folded. For a reader of the run history. */
+    things: integer("things").notNull(),
+    liveReads: integer("live_reads").notNull(),
+    facts: integer("facts").notNull(),
+    ...lifecycle_dates,
+  },
+  (t) => [index("loop_verification_runs_user_ran_idx").on(t.userId, t.ranAt)],
+);
+
+export type LoopVerificationRun = typeof loopVerificationRuns.$inferSelect;
+
+export type NewLoopVerificationRun = typeof loopVerificationRuns.$inferInsert;
+
 export type IntegrationObject = typeof integrationObjects.$inferSelect;
 
 export type NewIntegrationObject = typeof integrationObjects.$inferInsert;

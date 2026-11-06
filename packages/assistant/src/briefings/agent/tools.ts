@@ -15,9 +15,8 @@ import {
   INTEGRATIONS,
   type ActivityVerb,
   type BriefingConnectionNotice,
-  type BriefingClosedLoop,
   type BriefingGather,
-  type BriefingLoopRelevance,
+  type BriefingLoop,
   type CalendarContribution,
   type DayShape,
   type IanaTimezone,
@@ -77,10 +76,8 @@ interface BuildArgs {
   briefingDate: LocalDateKey;
   /** Local day boundaries for the calendar window. */
   timezone: IanaTimezone;
-  /** Closure facts from gather. */
-  closedLoops: BriefingClosedLoop[];
-  /** Non-closing verdicts for each live loop. */
-  loopRelevance: BriefingLoopRelevance[];
+  /** The verdict of each loop, from the gather (`verifyLoops`). */
+  loops: BriefingLoop[];
   /**
    * The gather's day shape. It holds the live GitHub read, which a recompute here would repeat.
    * Absent on a run that gathered before this field existed; the tool then recomputes.
@@ -280,6 +277,7 @@ const dumpInputSchema = z
       "object state",
       "provider read",
       "relevance verdict",
+      "loop verdict",
       "event receipt",
       "native state",
       "payment loop",
@@ -316,8 +314,7 @@ export type BriefingToolName =
   | "list_official_warnings"
   | "get_day_shape"
   | "list_activity"
-  | "list_closed_loops"
-  | "list_loop_relevance"
+  | "list_loops"
   | "list_action_items"
   | "list_meeting_preps"
   | "dump_briefing";
@@ -436,25 +433,16 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
     }),
 
     list_activity: tool({
-      description: `The activity record over the briefing window: what the user did and what other people did. The record holds acts from ${RECORDED_SOURCE_NAMES} only. It holds no acts from the user's other tools, so a small or empty result says nothing about them: never call the day quiet in those tools, and do not list the tools that it does not cover. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { status: 'listed', counts, matched, items, before }, or { status: 'unknown_cursor', message } when before names no act: then fix before, because Alfred read no page. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. counts.unreadable is the number of rows of the window that Alfred cannot read; when it is above zero, the record is not complete. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, occurredAt (UTC), and occurredAtLocal (the same time as wall-clock in the user's timezone, e.g. 'Mon, Nov 2, 9:32 PM'). When you say when an act happened, use occurredAtLocal only. Call an act overnight only when occurredAtLocal is after midnight. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only list_closed_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
+      description: `The activity record over the briefing window: what the user did and what other people did. The record holds acts from ${RECORDED_SOURCE_NAMES} only. It holds no acts from the user's other tools, so a small or empty result says nothing about them: never call the day quiet in those tools, and do not list the tools that it does not cover. The verbs are: ${ACTIVITY_VERBS.join(", ")}. Returns { status: 'listed', counts, matched, items, before }, or { status: 'unknown_cursor', message } when before names no act: then fix before, because Alfred read no page. counts gives the number of acts by actor (user, other) and verb for the whole window, for all filters. counts.unreadable is the number of rows of the window that Alfred cannot read; when it is above zero, the record is not complete. matched is the number of acts that pass the filter. items holds the newest acts that pass the filter, at most limit, each with verb, actor ('you' or a login), title, url, occurredAt (UTC), and occurredAtLocal (the same time as wall-clock in the user's timezone, e.g. 'Mon, Nov 2, 9:32 PM'). When you say when an act happened, use occurredAtLocal only. Call an act overnight only when occurredAtLocal is after midnight. To get older acts, send before from the result with the same filter. before is null when no older act passes the filter. An act can have an occurredAt before the window when its event reached Alfred late; it is still new to the user. Use counts to see the shape of the window, then page with actor and verb to find what matters. You decide which acts are worth a sentence; most are not. Never list pull requests or pushes: recap work in one collapsed clause. An act is evidence of what occurred, not the current state of the thing. So an act never closes a loop, also a merged or closed act: only a closed item of list_loops, or get_day_shape.shipped for the same object, closes a loop. This tool never grants closure authority. An empty result is not proof of a quiet window: when the briefing request says that the activity record is incomplete, follow that fact.`,
       inputSchema: listActivityInputSchema,
       execute: async (filter): Promise<ActivityList> => listActivity(args, filter),
     }),
 
-    list_closed_loops: tool({
+    list_loops: tool({
       description:
-        "List priority-email loops that the deterministic object-state projection positively proved closed. Each row is finished work, not a live item, so it never outranks a live item. An email absent from this result is not proved closed by this tool and stays live unless get_day_shape.shipped identifies the same object as shipped.",
+        "List the loops of the user: each thing (a pull request, a deploy target, a CI branch) that a recent priority email or an open todo points to, with one verdict. open: the thing is still active or failed, so the ask can still matter. closed: a provider fact proved that the thing resolved or was abandoned; stateAt is the time of that fact. unverified: Alfred could not check the thing in this run; the item holds the last known state, and it never means closed. evidence is stored_state when the stored state was clear, or live_read when Alfred read the provider in this run. documentIds names the emails that point to the thing, so you can match a loop to its email. Only a closed item may close a loop. An email that no item names, or that an open or unverified item names, stays live. The verdict names and fields are internal: never copy them into user-facing prose.",
       inputSchema: z.object({}),
-      // The email's old triage label stays out: an `urgent` label on a closed loop reads as a live alarm.
-      execute: async (): Promise<Omit<BriefingClosedLoop, "category">[]> =>
-        args.closedLoops.map(({ category: _category, ...loop }) => loop),
-    }),
-
-    list_loop_relevance: tool({
-      description:
-        "List one bounded live-read relevance verdict for every still-live priority-email loop, with provider evidence in source, observedState, objectTitle/objectUrl, and detail. Use these rows to calibrate priority and avoid overclaiming, not as a list of items to mention. still-actionable means a trusted live read saw an open or unresolved object; stale-but-open means it saw a resolved, closed, ignored, or draft state and only demotes; unverifiable means no trusted read proved current state and the loop remains live. The verdict names and detail are internal diagnostics: never copy them into user-facing prose, and never turn unverifiable into an ask. No relevance verdict grants closure authority.",
-      inputSchema: z.object({}),
-      execute: async (): Promise<BriefingLoopRelevance[]> => args.loopRelevance,
+      execute: async (): Promise<BriefingLoop[]> => args.loops,
     }),
 
     list_action_items: tool({
