@@ -58,6 +58,8 @@ Last verified: 2026-10-20 at `fd13e6427`. A section or a part that names a diffe
 
 ## 3. Email tagging (triage)
 
+The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This section records the built flow.
+
 **Owner's model.** Alfred tags each email as fast as possible and updates the tag from the thread messages. The thread update is not accurate. Standing instructions are not fully respected. The flow is possibly too complex and the context too large.
 
 **Verified model.**
