@@ -12,7 +12,7 @@ import {
 import { db } from "@alfred/db";
 import { observationFamilyHeads, observations, todos } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import {
   candidateIdentity,
   identityProbeFromGatedLinks,
@@ -64,7 +64,11 @@ export interface LoopThing {
   newestMailAt: Date | null;
 }
 
-/** The live head of each `email_interpretation` family in the window, in a loop category. */
+/**
+ * The live head of each `email_interpretation` family in the window, in a loop category. The
+ * category filter runs in SQL, so a mail in another category never leaves the database.
+ * `unreadable` counts the rows in a loop category whose payload this build cannot parse.
+ */
 export async function readLoopMails(
   userId: string,
   windowStart: Date,
@@ -81,6 +85,7 @@ export async function readLoopMails(
         eq(observations.kind, "email_interpretation"),
         gte(observations.occurredAt, windowStart),
         lte(observations.occurredAt, clock),
+        inArray(sql<string>`(${observations.payload} ->> 'category')`, [...LOOP_CATEGORIES]),
       ),
     )
     .orderBy(desc(observations.occurredAt));
@@ -95,8 +100,6 @@ export async function readLoopMails(
       unreadable += 1;
       continue;
     }
-
-    if (!LOOP_CATEGORIES.has(parsed.data.category)) continue;
 
     const { keys, links } = parsed.data.objects;
 
