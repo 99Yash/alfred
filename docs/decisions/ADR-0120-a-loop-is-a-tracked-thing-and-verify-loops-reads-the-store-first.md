@@ -80,7 +80,7 @@ All provider reads run first, outside any transaction, because they are slow net
 
 **Amended 2026-11-07.** Two rules make the commit more exact:
 
-- **Each fact carries the time when its read returned, not the time of the commit.** Why: a webhook can land between the read and the commit. With the commit time, an older read can replace that newer webhook fact in the recency guard.
+- **Each fact carries the time just before its read request went out, not the time of the commit.** Why: a webhook can land during the read or between the read and the commit. With the commit time, an older read can replace that newer webhook fact in the recency guard. With the start time of the read, the webhook wins.
 - **A read earns the evidence `live_read` only when the store kept its fact.** The recency guard or an absorbing state can refuse the fact of a read. Then the row after the commit does not hold the state that the read saw, and the thing keeps the evidence `stored_state`. Why: a refused read did not set the state that the briefing shows.
 
 ### 8. The briefing reads one list with three verdicts
@@ -98,8 +98,8 @@ Each item carries `stateCategory`, `nativeState`, the evidence tier of decision 
 **Amended 2026-11-07.** Three rules make this decision more exact:
 
 - **`unverified` has more causes than a failed read.** A thing is `unverified` when its live read failed or the cap stopped the read. It is also `unverified` when no reader exists for it, when the commit failed, or when a closing state failed its proof. `verifyLoops` logs the count of each cause.
-- **A `closed` item comes only from a thing that closed in the window.** A thing that closed before the window gives no item. Why: an open todo can point to a thing that closed long ago, and the recap would show it again on each run. The drop rule below still counts that thing as `closed`.
-- **The gather drops a priority mail only when every thing that the mail points to is `closed`.** The mail must point to at least one thing. Every thing counts, also a thing that has no item in the list because a cap or a schema check left it out. Before slice 2, the gather dropped a mail when one of its objects closed. Why: one mail can ask about two things, and the ask about the open thing stays open. Absence never closes a loop (ADR-0048 decision D), so a thing with no item cannot count as `closed`.
+- **A `closed` thing that no mail points to gives an item only when it closed in the window.** Such a thing comes only from an open todo. Why: an open todo can point to a thing that closed long ago, and the recap would show it again on each run. A closed thing with a mail keeps its item, also when it closed before the window. Why: `list_emails_since` reads the mails from the store, and the item is how the composer knows that the mail is closed. The drop rule below counts every closed thing.
+- **The gather drops a priority mail only when every thing that the mail points to is `closed`.** The mail must point to at least one thing. Every thing counts, also a thing that has no item in the list because it has no source or the schema check rejected it. The drop reads every mail of each thing, with no cap; an item lists at most 20 mails. Before slice 2, the gather dropped a mail when one of its objects closed. Why: one mail can ask about two things, and the ask about the open thing stays open. Absence never closes a loop (ADR-0048 decision D), so a thing with no item cannot count as `closed`.
 
 ### 9. Code Mode gets the same three steps
 
