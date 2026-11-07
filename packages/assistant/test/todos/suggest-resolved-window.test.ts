@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import type { TodoSource, TodoStatus } from "@alfred/contracts";
+import type { TodoCause, TodoSource, TodoStatus } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { agentRuns, todos, user } from "@alfred/db/schemas";
 import { inArray } from "drizzle-orm";
@@ -46,9 +46,15 @@ function issueSource(): TodoSource {
   return { provider: "github", kind: "issue", id: `acme/app#${randomUUID()}` };
 }
 
+const RESOLVED_CAUSE = {
+  done: "completed",
+  dismissed: "dismissed",
+  cleared: "cleared",
+} as const satisfies Partial<Record<TodoStatus, TodoCause>>;
+
 async function seedResolvedTodo(
   userId: string,
-  status: TodoStatus,
+  status: keyof typeof RESOLVED_CAUSE,
   source: TodoSource,
 ): Promise<string> {
   const [row] = await db()
@@ -63,7 +69,7 @@ async function seedResolvedTodo(
         actor: "user",
         authority: "user_direct",
         authorityRef: null,
-        cause: status === "done" ? "completed" : status,
+        cause: RESOLVED_CAUSE[status],
       },
     })
     .returning({ id: todos.id });
