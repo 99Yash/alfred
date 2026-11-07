@@ -1,6 +1,7 @@
 import {
   canonicalizeGithubPullRequestUrl,
   type INTEGRATION_OBJECT_DEFS,
+  keyGuard,
   type ObjectIdentity,
   type ObjectStateProvider,
   parseGithubPullRequestUrl,
@@ -130,7 +131,24 @@ function githubPullTarget(url: string): GithubPullTarget | null {
   return owner && repo && rest.length === 0 ? { owner, repo, number: parsed.number } : null;
 }
 
-/** One REST read for each pull request, in one batch call (`getPullRequests`). */
+/**
+ * The GitHub REST pull request `state`, closed. A merged pull request is `closed` with
+ * `merged: true`. A state outside this table gives no fact, so its thing stays unverified.
+ */
+const NATIVE_STATE_BY_GITHUB_PULL_STATE = {
+  open: "open",
+  closed: "closed",
+} as const satisfies Record<
+  "open" | "closed",
+  GithubPullRequestReadEvent["payload"]["nativeState"]
+>;
+
+const isKnownGithubPullState = keyGuard(NATIVE_STATE_BY_GITHUB_PULL_STATE);
+
+/**
+ * One REST read for each pull request. `getPullRequests` sends the reads concurrently, because
+ * GitHub has no batch read of pull requests.
+ */
 const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
   keyKinds: ["pull_request_url"],
   targetFromState: (state) => (state.url ? githubPullTarget(state.url) : null),
@@ -146,7 +164,21 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
       ...targets.values(),
     ]);
 
+    if (batch.failed.length > 0) {
+      logger.warn(
+        {
+          count: batch.failed.length,
+          failed: batch.failed.map((f) => ({
+            pullRequest: `${f.owner}/${f.repo}#${f.number}`,
+            error: f.error,
+          })),
+        },
+        "[loops] github pull request reads failed; their things stay unverified",
+      );
+    }
+
     const reads = new Map<string, LoopVerifierRead>();
+    const unknownStates = new Set<string>();
 
     for (const pr of batch.items) {
       const url = canonicalizeGithubPullRequestUrl({ url: pr.url });
@@ -154,7 +186,12 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
 
       if (!url || !parsed || !targets.has(url)) continue;
 
-      const nativeState = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "open";
+      if (!isKnownGithubPullState(pr.state)) {
+        unknownStates.add(pr.state);
+        continue;
+      }
+
+      const nativeState = pr.merged ? "merged" : NATIVE_STATE_BY_GITHUB_PULL_STATE[pr.state];
 
       const at =
         nativeState === "merged" ? pr.mergedAt : nativeState === "closed" ? pr.closedAt : null;
@@ -180,6 +217,13 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
         },
         identity: { provider: "github", kind: "pull_request", externalId: String(pr.githubId) },
       });
+    }
+
+    if (unknownStates.size > 0) {
+      logger.warn(
+        { states: [...unknownStates] },
+        "[loops] github pull request state unknown; its things stay unverified",
+      );
     }
 
     return reads;
