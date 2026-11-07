@@ -14,9 +14,9 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
-  learnSkillDedupKey,
+  learnSkillConcurrencyKey,
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
-  skillDocumentationDedupKey,
+  skillDocumentationConcurrencyKey,
 } from "@alfred/assistant/skills";
 import { startRun, agentQueue } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
@@ -25,12 +25,13 @@ import { db } from "@alfred/db";
 import {
   agentRuns,
   emailSends,
+  runIsNotTerminal,
   skillRevisions,
   skillRuns,
   skills,
   user as userTable,
 } from "@alfred/db/schemas";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
@@ -141,13 +142,13 @@ async function main() {
     console.log(`[smoke-skill-doc] created skill ${skillId}`);
   }
 
-  // Cancel in-flight runs for this skill, or the dedup indexes block the inserts.
-  const dedupKeysBySlug: Array<[string, string]> = [
-    [LEARN_SKILL_WORKFLOW_SLUG, learnSkillDedupKey(skillId)],
-    [SKILL_DOCUMENTATION_WORKFLOW_SLUG, skillDocumentationDedupKey(skillId)],
+  // Cancel in-flight runs for this skill, or the concurrency index blocks the inserts.
+  const concurrencyKeysBySlug: Array<[string, string]> = [
+    [LEARN_SKILL_WORKFLOW_SLUG, learnSkillConcurrencyKey(skillId)],
+    [SKILL_DOCUMENTATION_WORKFLOW_SLUG, skillDocumentationConcurrencyKey(skillId)],
   ];
 
-  for (const [slug, dedupKey] of dedupKeysBySlug) {
+  for (const [slug, concurrencyKey] of concurrencyKeysBySlug) {
     const stomped = await db()
       .update(agentRuns)
       .set({ status: "cancelled", endedAt: new Date(), updatedAt: new Date() })
@@ -155,8 +156,8 @@ async function main() {
         and(
           eq(agentRuns.userId, u.id),
           eq(agentRuns.workflowSlug, slug),
-          eq(agentRuns.dedupKey, dedupKey),
-          sql`${agentRuns.status} NOT IN ('failed', 'cancelled')`,
+          eq(agentRuns.concurrencyKey, concurrencyKey),
+          runIsNotTerminal(agentRuns.status),
         ),
       )
       .returning({ id: agentRuns.id });

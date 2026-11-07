@@ -10,7 +10,7 @@ import {
 import { composeSkillDocumentationEmail } from "./email";
 import {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
-  skillDocumentationDedupKey,
+  skillDocumentationConcurrencyKey,
   skillDocumentationInputSchema,
 } from "./skill-documentation-workflow-input";
 import { assertNever } from "@alfred/contracts";
@@ -86,7 +86,7 @@ export const skillDocumentationWorkflow: Workflow<
   },
 
   // One doc run per skill; the survivor re-reads the latest v1.
-  dedupKey: ({ input }) => skillDocumentationDedupKey(input.skillId),
+  concurrencyKey: ({ input }) => skillDocumentationConcurrencyKey(input.skillId),
 
   // Each branch records its own status, so a cancel is not recorded as a failure.
   closure: {

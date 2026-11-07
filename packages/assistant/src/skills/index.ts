@@ -3,7 +3,7 @@
 // Phase 1
 export {
   LEARN_SKILL_WORKFLOW_SLUG,
-  learnSkillDedupKey,
+  learnSkillConcurrencyKey,
   learnSkillWorkflowInputSchema,
 } from "./workflow-input";
 
@@ -44,7 +44,7 @@ export type {
 // Phase 2
 export {
   SKILL_DOCUMENTATION_WORKFLOW_SLUG,
-  skillDocumentationDedupKey,
+  skillDocumentationConcurrencyKey,
   skillDocumentationInputSchema,
 } from "./skill-documentation-workflow-input";
 

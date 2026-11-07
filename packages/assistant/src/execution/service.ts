@@ -221,6 +221,7 @@ export async function createRun(
 
   const occurrenceKey = occurrenceIdentity ? workflowOccurrenceKey(occurrenceIdentity) : undefined;
   const dedupKey = manualRequestKey ?? workflow.dedupKey?.(workflowInput) ?? null;
+  const concurrencyKey = workflow.concurrencyKey?.(workflowInput) ?? null;
 
   const insert = ex.insert(agentRuns).values({
     userId: args.userId,
@@ -234,6 +235,7 @@ export async function createRun(
     trigger,
     status: "pending",
     dedupKey,
+    concurrencyKey,
     occurrenceKey,
     replayOfRunId: occurrence?.kind === "replay" ? occurrence.replayOfRunId : undefined,
   });

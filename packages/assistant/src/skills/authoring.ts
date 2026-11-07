@@ -10,7 +10,7 @@ import { recordSkillRun } from "./revisions";
 import { slugifyForUser } from "./slug";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
-  learnSkillDedupKey,
+  learnSkillConcurrencyKey,
   type LearnSkillWorkflowInput,
 } from "./workflow-input";
 
@@ -76,8 +76,8 @@ export interface RelearnSkillArgs {
 
 export type RelearnSkillOutcome =
   | { kind: "started"; runId: string }
-  /** A learn run for this skill holds the dedup index; `dedupKey` names it. */
-  | { kind: "in_flight"; dedupKey: string }
+  /** A live learn run for this skill holds its `concurrencyKey`. */
+  | { kind: "in_flight"; concurrencyKey: string }
   /** No skill with this id belongs to the user. */
   | { kind: "not_found" };
 
@@ -101,7 +101,7 @@ export async function relearnSkill(args: RelearnSkillArgs): Promise<RelearnSkill
     return { kind: "started", runId };
   } catch (err) {
     if (isUniqueViolation(err)) {
-      return { kind: "in_flight", dedupKey: learnSkillDedupKey(args.skillId) };
+      return { kind: "in_flight", concurrencyKey: learnSkillConcurrencyKey(args.skillId) };
     }
 
     throw err;

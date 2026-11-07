@@ -34,7 +34,7 @@ export const skillsRoutes = new Elysia({ prefix: "/api/skills", normalize: "type
               throw Errors.NotFoundError("Skill not found");
             case "in_flight":
               throw Errors.ConflictError("A learn run is already in flight for this skill", {
-                dedupKey: outcome.dedupKey,
+                concurrencyKey: outcome.concurrencyKey,
               });
             case "started":
               return { runId: outcome.runId };

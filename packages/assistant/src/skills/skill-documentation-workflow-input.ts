@@ -2,8 +2,8 @@ import { z } from "zod";
 
 /**
  * Input and slug for `skill-documentation`, phase 2 of Learn (ADR-0017).
- * `learn-skill` enqueues it after a v1 revision commits. One run per skill: a second
- * Learn click is blocked by the dedup index, and the running doc re-reads the latest v1.
+ * `learn-skill` enqueues it after a v1 revision commits. One live run per skill: an enqueue while
+ * one runs is blocked by the concurrency index, and the running doc re-reads the latest v1.
  */
 
 export const SKILL_DOCUMENTATION_WORKFLOW_SLUG = "skill-documentation";
@@ -16,7 +16,7 @@ export const skillDocumentationInputSchema = z.object({
 
 export type SkillDocumentationInput = z.infer<typeof skillDocumentationInputSchema>;
 
-/** At most one documentation run per skill. */
-export function skillDocumentationDedupKey(skillId: string): string {
+/** At most one live documentation run per skill. A completed run frees it. */
+export function skillDocumentationConcurrencyKey(skillId: string): string {
   return `skill-doc:${skillId}`;
 }
