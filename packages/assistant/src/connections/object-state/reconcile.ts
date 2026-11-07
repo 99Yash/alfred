@@ -136,8 +136,7 @@ function proposeObjectKeys<Reading extends KeyProposalReading>(
  * Resolve each subject's candidate keys to object state. Subjects with nothing resolved are absent.
  * Exact keys batch per `(provider, keyKind)` and dedupe across subjects (#1087). Prefix keys stay
  * per key, because their ambiguity check has no single-query shape. Callers pass one reading per
- * call. A mixed array still closes correctly per key, but an `annotates` member makes {@link
- * firstClosingObject} refuse the whole result.
+ * call. A mixed array still closes correctly per key.
  */
 export async function reconcileEvidence<Reading extends KeyProposalReading>(args: {
   userId: string;
@@ -349,21 +348,6 @@ export function selectPrimaryReconciledObject<Reading extends KeyProposalReading
   resolved: readonly ReconciledObject<Reading>[] | undefined,
 ): ReconciledObject<Reading> | undefined {
   return selectReconciledObjectClass(resolved)[0];
-}
-
-/**
- * The first closure candidate in the authoritative class. Scans the whole class, so a later
- * built-in object can close. A consumer that suppresses on it must confirm with `closesOpenAsk`.
- */
-export function firstClosingObject(
-  resolved: readonly ReconciledObject<ClosureReading>[] | undefined,
-): (ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory }) | undefined {
-  return selectReconciledObjectClass(resolved).find(
-    (
-      object,
-    ): object is ReconciledObject<ClosureReading> & { closesAskAs: LoopClosingStateCategory } =>
-      object.closesAskAs !== null,
-  );
 }
 
 /** Exhaustive over {@link ObjectKeyMatch}, so a new mode is a compile error. */

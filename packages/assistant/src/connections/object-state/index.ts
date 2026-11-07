@@ -10,10 +10,9 @@ export { objectStateStore, type ObjectState, type ObjectStateStore } from "./sto
 
 export { type CandidateKey, type ClosureReading } from "./adapter";
 
-export { identityProbeFromLinks } from "./identity-containment";
+export { identityProbeFromGatedLinks } from "./identity-containment";
 
 export {
-  firstClosingObject,
   proposeReconcileCandidates,
   reconcileEvidence,
   selectPrimaryReconciledObject,

@@ -99,14 +99,17 @@ export function proposeIdentityProbe<Reading extends KeyProposalReading>(
     (link) => providers.includes(link.provider),
   );
 
-  return identityProbeFromLinks(links, proposal.reading);
+  return identityProbeFromGatedLinks(links, proposal.reading);
 }
 
 /**
- * The probe for links that a caller already gated, for example the stored links of an ADR-0120
- * `email_interpretation` row. Pure. `null` when no link holds a labeled or a strong value.
+ * The probe for links that already passed the sender gate. This function does not apply the gate:
+ * the caller must keep only the links whose sender passes `isNotificationSender` for the link's
+ * provider, as {@link proposeIdentityProbe} does under `about`. The stored links of an ADR-0120
+ * `email_interpretation` row are gated at write time. Pure. `null` when no link holds a labeled or
+ * a strong value.
  */
-export function identityProbeFromLinks<Reading extends KeyProposalReading>(
+export function identityProbeFromGatedLinks<Reading extends KeyProposalReading>(
   links: readonly ProviderLink[],
   reading: Reading,
 ): IdentityProbe<Reading> | null {

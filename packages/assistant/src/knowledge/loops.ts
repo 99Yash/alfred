@@ -32,7 +32,7 @@ import { logger } from "@alfred/logging";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import {
   deliveryInstantNow,
-  identityProbeFromLinks,
+  identityProbeFromGatedLinks,
   objectStateStore,
   readActivityCoverage,
   reconcileEvidence,
@@ -313,7 +313,7 @@ async function collectThings(args: {
   const subjects: ReconcileCandidates<"about">[] = args.mails.map((mail) => ({
     id: mail.documentId,
     keys: mail.candidates,
-    probe: identityProbeFromLinks(mail.links, "about"),
+    probe: identityProbeFromGatedLinks(mail.links, "about"),
   }));
 
   const reconciled = await reconcileEvidence({ userId: args.userId, subjects });
