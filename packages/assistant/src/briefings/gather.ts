@@ -28,7 +28,7 @@ import {
   type ActivityWindow,
   type ObjectState,
 } from "@alfred/assistant/connections";
-// oxlint-disable-next-line no-restricted-imports -- #1684 rows 1, 3 and 8: the GitHub merged read and the deploy status reads move behind readActivity and verifyLoops
+// oxlint-disable-next-line no-restricted-imports -- #1684 rows 1, 3 and 8: the GitHub merged read and the deploy status reads move behind readActivity and verifyLoops; the approved MCP health read stays a fold before verifyLoops until a later ADR-0120 slice (decision 6, amended)
 import {
   gatherGithubMergedPullRequests,
   gatherVerifiedPulls,
@@ -152,7 +152,10 @@ export interface BriefingDigest {
   githubMerged: GithubMergedReadOutcome;
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
-  /** Items whose every thing is `closed` (ADR-0120 decision 8). Feeds the evening recap. */
+  /**
+   * Items whose every thing is `closed` (ADR-0120 decision 8). Feeds the open-ask guard and the
+   * `briefings.closed_loops` column. The composer recap reads `loops` through `list_loops`.
+   */
   closedLoops: BriefingClosedLoop[];
   /** One item for each loop of the verify set (`verifyLoops`). */
   loops: BriefingLoop[];
