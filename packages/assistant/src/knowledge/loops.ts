@@ -1,6 +1,6 @@
 import type { BriefingLoop, LoopEvidenceTier, TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { loopVerificationRuns } from "@alfred/db/schemas";
+import { loopVerificationRuns, type NewLoopVerificationRun } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
 import { desc, eq } from "drizzle-orm";
 import {
@@ -154,20 +154,33 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
   return { loops, closedMails };
 }
 
-/** Decision 4: the last committed run, at least 3 days back. The first run reads 30 days. */
+/**
+ * Decision 4: the last committed run, at least 3 days back. The first run reads 30 days. A run
+ * that left a mailed thing `unverified` holds the next window at the oldest mail of that thing, so
+ * the thing stays in the set. No window starts more than 30 days back.
+ */
 async function readWindowStart(userId: string, clock: Date): Promise<Date> {
   const [last] = await db()
-    .select({ ranAt: loopVerificationRuns.ranAt })
+    .select({
+      ranAt: loopVerificationRuns.ranAt,
+      oldestUnverifiedMailAt: loopVerificationRuns.oldestUnverifiedMailAt,
+    })
     .from(loopVerificationRuns)
     .where(eq(loopVerificationRuns.userId, userId))
     .orderBy(desc(loopVerificationRuns.ranAt))
     .limit(1);
 
-  const minimum = clock.getTime() - MIN_WINDOW_MS;
+  const earliest = clock.getTime() - FIRST_RUN_WINDOW_MS;
 
-  if (!last) return new Date(clock.getTime() - FIRST_RUN_WINDOW_MS);
+  if (!last) return new Date(earliest);
 
-  return new Date(Math.min(last.ranAt.getTime(), minimum));
+  const start = Math.min(
+    last.ranAt.getTime(),
+    last.oldestUnverifiedMailAt?.getTime() ?? Number.POSITIVE_INFINITY,
+    clock.getTime() - MIN_WINDOW_MS,
+  );
+
+  return new Date(Math.max(start, earliest));
 }
 
 /** One read that this run admitted, with its verifier and its target id. */
@@ -292,9 +305,10 @@ async function readAndCommit(args: {
           userId: args.userId,
           ranAt: args.clock,
           windowStart: args.windowStart,
-          things: args.things.length,
-          liveReads,
-          facts: facts.size,
+          thingCount: args.things.length,
+          liveReadCount: liveReads,
+          factCount: facts.size,
+          ...unverifiedBeforeCommit(outcomes),
         });
       },
     });
@@ -333,6 +347,35 @@ async function readAndCommit(args: {
   }
 
   return outcomes;
+}
+
+/**
+ * The things that no read of this run backs, as the run row records them. A fact that the commit
+ * refuses (`fact_refused`) is known only after the commit, so it is not in the count, and its thing
+ * does not hold the window. Each verifier gives only a state that the store folds, so that case is
+ * not expected.
+ */
+function unverifiedBeforeCommit(
+  outcomes: ReadonlyMap<LoopThing, ThingOutcome>,
+): Pick<NewLoopVerificationRun, "unverifiedCount" | "oldestUnverifiedMailAt"> {
+  let unverifiedCount = 0;
+  let oldestUnverifiedMailAt: Date | null = null;
+
+  for (const [thing, { unverified }] of outcomes) {
+    if (unverified === null) continue;
+
+    unverifiedCount += 1;
+
+    // A thing with no mail comes from an open todo, and the todo keeps it in the set.
+    if (
+      thing.oldestMailAt !== null &&
+      (oldestUnverifiedMailAt === null || thing.oldestMailAt < oldestUnverifiedMailAt)
+    ) {
+      oldestUnverifiedMailAt = thing.oldestMailAt;
+    }
+  }
+
+  return { unverifiedCount, oldestUnverifiedMailAt };
 }
 
 /** The reasons of the `unverified` things, for the run log. */

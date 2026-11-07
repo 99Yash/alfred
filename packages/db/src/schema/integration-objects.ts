@@ -164,7 +164,8 @@ export const integrationObjectPulls = pgTable(
 /**
  * One row for each `verifyLoops` run that committed (ADR-0120 decision 7). The same transaction
  * folds the facts of the run, so a row exists only when every fact of the run is stored. The next
- * run starts its window at the newest `ran_at` (decision 4).
+ * run starts its window at the newest `ran_at`, or at its `oldest_unverified_mail_at` when that is
+ * older (decision 4). A run inserts its row one time and never updates it.
  */
 export const loopVerificationRuns = pgTable(
   "loop_verification_runs",
@@ -178,10 +179,17 @@ export const loopVerificationRuns = pgTable(
     ranAt: timestamp("ran_at", { withTimezone: true }).notNull(),
     windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
     /** Things in the verify set, live reads, and facts folded. For a reader of the run history. */
-    things: integer("things").notNull(),
-    liveReads: integer("live_reads").notNull(),
-    facts: integer("facts").notNull(),
-    ...lifecycle_dates,
+    thingCount: integer("thing_count").notNull(),
+    liveReadCount: integer("live_read_count").notNull(),
+    factCount: integer("fact_count").notNull(),
+    /** Things that no read of the run backs: no reader, no target, over the cap, or a failed read. */
+    unverifiedCount: integer("unverified_count").notNull(),
+    /**
+     * The oldest mail of a thing in `unverified_count`. `NULL` when no such thing has a mail. The
+     * next window starts at or before it, so the thing stays in the set.
+     */
+    oldestUnverifiedMailAt: timestamp("oldest_unverified_mail_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index("loop_verification_runs_user_ran_idx").on(t.userId, t.ranAt)],
 );

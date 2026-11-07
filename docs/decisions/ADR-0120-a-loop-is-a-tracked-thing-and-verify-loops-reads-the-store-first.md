@@ -46,6 +46,8 @@ The window is 30 days on the first run. Each later run starts at the last succes
 
 **Amended 2026-11-07 (owner decision).** The verify set stays bounded to the three priority categories above. Before slice 2, the gather also dropped a mail in `awaiting_reply`, `meeting`, or `payment` when its object was closed. That drop is deliberately gone. These mails now stay in the briefing when their thing closes. Why: this decision bounds the set, so it also bounds the live reads of each run.
 
+**Amended 2026-11-07 (review).** A run that leaves a mailed thing `unverified` does not move the window past the mails of that thing. The run row records `oldest_unverified_mail_at`: the oldest mail of each thing that no read of the run backs. The next window starts at the earliest of the last `ran_at`, that time, and 3 days back. It never starts more than 30 days back. Why: before, each committed run moved the window, also when a read failed. Thus an `unverified` thing whose mails were all older than the next window left the set.
+
 ### 5. The store is the verdict, and a live read runs only when the state is ambiguous
 
 The evidence order for a loop is:
@@ -118,7 +120,7 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 ## Implementation slices
 
 1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the triage category, the keys that the mail names, and the provider links of the sender's own service. It holds no resolution (decision 3). The family dedups against its head only, so the head always holds the latest triage result for the message. The backfill writes a row only for a message with a triage verdict in the run history, with that verdict. A failed classify stores `fyi`, which is not a priority category. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
-2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684. **Built.** `verifyLoops` is in `packages/assistant/src/knowledge/loops.ts`. The registry is `LOOP_VERIFIERS` in `connections/verified-pull/loop-verifiers.ts`. `objectStateStore.applyEvents` folds all the facts and inserts the `loop_verification_runs` row in one transaction. The composer tool is `list_loops`, and the gather input is `loops`. The 2026-11-07 amendments of decisions 1, 5, 6, 7, and 8 record the points of the build that change a decision. These other points make the decisions above more exact:
+2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684. **Built.** `verifyLoops` is in `packages/assistant/src/knowledge/loops.ts`. The registry is `LOOP_VERIFIERS` in `connections/verified-pull/loop-verifiers.ts`. `objectStateStore.applyEvents` folds all the facts and inserts the `loop_verification_runs` row in one transaction. The composer tool is `list_loops`, and the gather input is `loops`. The 2026-11-07 amendments of decisions 1, 4, 5, 6, 7, and 8 record the points of the build that change a decision. These other points make the decisions above more exact:
    - **The Vercel verifier has no thing yet.** Its verifier is in the registry, but a Vercel thing is not a loop (decision 1 amendment).
    - **An absorbing state is never ambiguous.** No later fact can move a merged pull request, so it is never read again.
    - **Case 2 reads the coverage before the merged-read proof.** The decision 5 amendment gives the rule for a provider with no activity source, and for a fold of this run.
@@ -148,7 +150,6 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 - **The first run reads 30 days only.** A loop opened by a mail older than 30 days, with no open todo, is not in the set.
 - **The service-mail rule depends on the sender.** A relay that copies the domain of the service could set a state. Decision 2 needs the same sender gate that the reconcile adapters use.
 - **Old failed Vercel rows are still read on each run (#1683).** Slice 2 does not change the Vercel verified pull. The owner deferred this fix to slice 3 on 2026-11-07.
-- **A run with a failed read still moves the window.** Each committed run records its time, also when a read failed. Thus an `unverified` thing whose mails are all older than the next window leaves the set. A new priority mail or an open todo puts it back.
 - **Slice 1 changes triage.** A fault in the `about` writer loses the link of each new mail. The write is non-fatal, so triage continues. The backfill is idempotent, and a new run writes the lost links again.
 
 ## Rejected alternatives

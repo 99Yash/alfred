@@ -62,6 +62,8 @@ export interface LoopThing {
   documentIds: Set<string>;
   /** The newest mail that points to the thing. `null` for a todo-only thing. */
   newestMailAt: Date | null;
+  /** The oldest mail that points to the thing. An `unverified` thing holds the next window here. */
+  oldestMailAt: Date | null;
 }
 
 /**
@@ -202,6 +204,10 @@ export async function collectThings(args: {
     if (thing.newestMailAt === null || mail.occurredAt > thing.newestMailAt) {
       thing.newestMailAt = mail.occurredAt;
     }
+
+    if (thing.oldestMailAt === null || mail.occurredAt < thing.oldestMailAt) {
+      thing.oldestMailAt = mail.occurredAt;
+    }
   };
 
   for (const mail of args.mails) {
@@ -259,6 +265,7 @@ export async function collectThings(args: {
         keyUrl: key.keyValue.startsWith("https://") ? key.keyValue : null,
         documentIds: new Set<string>(),
         newestMailAt: null,
+        oldestMailAt: null,
       };
 
       byKey.set(ref, thing);
@@ -315,6 +322,7 @@ function newThing(state: ObjectState): LoopThing {
     keyUrl: null,
     documentIds: new Set(),
     newestMailAt: null,
+    oldestMailAt: null,
   };
 }
 

@@ -1,5 +1,5 @@
 {
-  "id": "038bb28e-e59e-4871-a34f-2858f17de3e7",
+  "id": "a88d4f52-ec1a-4b68-b671-0d53e5a735ba",
   "prevId": "55d2f7dc-5cad-41d8-8ead-7f8212350c92",
   "version": "7",
   "dialect": "postgresql",
@@ -4753,23 +4753,35 @@
           "primaryKey": false,
           "notNull": true
         },
-        "things": {
-          "name": "things",
+        "thing_count": {
+          "name": "thing_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "live_reads": {
-          "name": "live_reads",
+        "live_read_count": {
+          "name": "live_read_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "facts": {
-          "name": "facts",
+        "fact_count": {
+          "name": "fact_count",
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "unverified_count": {
+          "name": "unverified_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "oldest_unverified_mail_at": {
+          "name": "oldest_unverified_mail_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4777,13 +4789,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "current_timestamp"
         }
       },
       "indexes": {
