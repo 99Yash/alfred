@@ -315,7 +315,11 @@ function newThing(state: ObjectState): LoopThing {
   };
 }
 
-/** The time of the fact that set the state: the provider time, else the delivery time. */
+/**
+ * The time of a fact for the current state: the provider time of its newest timed fact, else the
+ * receipt time of the last applied fact. The store clears `providerEventAt` when a fact with no
+ * provider time sets a new native state, so this never gives the time of an older state.
+ */
 export function factTime(state: ObjectState): Date | null {
   return state.providerEventAt ?? state.stateDeliveredAt;
 }

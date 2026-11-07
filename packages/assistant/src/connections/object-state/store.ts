@@ -63,7 +63,10 @@ export interface ObjectStateDelta {
   nativeState: string;
   /** Verified push or verified pull. No default, so every new producer must name its source. */
   closureSource: ClosureSource;
-  /** Provider-clock time. When present it orders the row; else `deliveredAt` does. */
+  /**
+   * Provider-clock time. It orders the fact against a row that also has a provider time. Against a
+   * row with none, or when absent, the receipt time orders it.
+   */
   providerEventTime?: Date | undefined;
   title?: string | undefined;
   url?: string | undefined;
@@ -89,9 +92,14 @@ export interface ObjectState {
   title: string | null;
   url: string | null;
   repo: string | null;
-  /** Last delivery that advanced the state, for freshness reports. */
+  /** Receipt time of the last fact that the store applied, for freshness reports. */
   stateDeliveredAt: Date | null;
-  /** The provider-clock time of the fact that set the state, when the provider gave one. */
+  /**
+   * Provider-clock time of the newest applied fact for the current native state. It is `null` when
+   * no fact since the last change of the native state carried a provider time. A fact with no
+   * provider time that sets a new native state clears it, so it never times an older state. The
+   * recency guard compares it only with the provider time of another fact.
+   */
   providerEventAt: Date | null;
 }
 
@@ -490,21 +498,24 @@ export const objectStateStore: ObjectStateStore = {
         }
 
         if (existing) {
-          // Recency: provider clock first, then receipt clock at microsecond precision (#1093,
-          // #1200). A null provider time on the row yields to a timestamped delta. `>=`, not `>`: a
-          // retried fold of the same receipt must re-apply, so the fold stays idempotent.
+          // Recency (#1093, #1200). The provider clock orders two facts only when both carry a
+          // provider time, and the receipt clock at microsecond precision breaks a tie. When either
+          // side has no provider time, the receipt clock alone orders them, so the guard never
+          // compares two clocks. Thus a read with a provider time does not beat a later webhook
+          // with none. `>=`, not `>`: a retried fold of the same receipt must re-apply, so the fold
+          // stays idempotent.
           const existingDelivered =
             existing.stateDeliveredAtExact === null
               ? null
               : deliveryInstantSchema.parse(existing.stateDeliveredAtExact);
 
+          const receiptIsNewer = existingDelivered === null || deliveredAt >= existingDelivered;
+
           const isNewer =
-            eventTime === null
-              ? existingDelivered === null || deliveredAt >= existingDelivered
-              : existing.providerEventAt === null ||
-                eventTime.getTime() > existing.providerEventAt.getTime() ||
-                (eventTime.getTime() === existing.providerEventAt.getTime() &&
-                  (existingDelivered === null || deliveredAt >= existingDelivered));
+            eventTime !== null && existing.providerEventAt !== null
+              ? eventTime.getTime() > existing.providerEventAt.getTime() ||
+                (eventTime.getTime() === existing.providerEventAt.getTime() && receiptIsNewer)
+              : receiptIsNewer;
 
           // The kind declares which states are final. CI runs and deploys declare none (#1093).
           const wouldLeaveAbsorbingState =
@@ -512,6 +523,12 @@ export const objectStateStore: ObjectStateStore = {
             isAbsorbingState(provider, delta.kind, existing.stateCategory);
 
           if (isNewer && !wouldLeaveAbsorbingState) {
+            // `providerEventAt` stays with the native state that it timed. A fact with no provider
+            // time that sets a new native state clears it, and one that keeps the state keeps it.
+            const providerEventAt =
+              eventTime ??
+              (delta.nativeState === existing.nativeState ? existing.providerEventAt : null);
+
             await tx
               .update(integrationObjects)
               .set({
@@ -522,7 +539,7 @@ export const objectStateStore: ObjectStateStore = {
                 repo: delta.repo ?? existing.repo,
                 attributes: { ...toRecord(existing.attributes), ...delta.attributes },
                 stateDeliveredAt: deliveryInstantValue(deliveredAt),
-                ...(eventTime === null ? {} : { providerEventAt: eventTime }),
+                providerEventAt,
               })
               .where(eq(integrationObjects.id, objectId));
           }
