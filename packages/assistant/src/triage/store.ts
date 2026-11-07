@@ -128,7 +128,7 @@ export interface UpsertTriageArgs {
   authoredAt: Date | null;
 }
 
-/** `written` is false when a newer stored row won. Gate side effects on it. */
+/** `written` is false when a newer stored row or a pinned re-run won. Gate side effects on it. */
 export type UpsertTriageResult =
   | { row: TriageRow; written: false }
   | {
@@ -142,29 +142,30 @@ export type UpsertTriageResult =
     };
 
 /**
- * Upsert under the thread lock. A user-pinned row or an older message is a no-op
- * (`written: false`). `appliedLabelId` resets to null unless given, so it only
- * marks the current row as reconciled.
+ * Upsert under the thread lock. An older message, or a re-run of the message a user override
+ * pinned, is a no-op (`written: false`). A newer message on a pinned row writes its evaluation
+ * and keeps the user's `category`, `source`, `overriddenAt` and `appliedLabelId`. On an `auto`
+ * row, `appliedLabelId` resets to null unless given, so it only marks the current row as
+ * reconciled.
  */
 export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriageResult> {
   const documentAsk = args.documentAsk ? documentAskProposalSchema.parse(args.documentAsk) : null;
 
   return withTriageThreadLock(args.userId, args.sourceThreadId, async (tx) => {
-    const existingRows = await tx
-      .select()
-      .from(emailTriage)
-      .where(
-        and(
-          eq(emailTriage.userId, args.userId),
-          eq(emailTriage.sourceThreadId, args.sourceThreadId),
-        ),
-      )
-      .limit(1);
+    const thisRow = and(
+      eq(emailTriage.userId, args.userId),
+      eq(emailTriage.sourceThreadId, args.sourceThreadId),
+    );
+
+    const existingRows = await tx.select().from(emailTriage).where(thisRow).limit(1);
 
     const existing = existingRows[0];
 
-    // User overrides are sticky; apply-label converges Gmail to the pinned tag.
-    if (existing?.source === "user") {
+    const pinned = existing?.source === "user";
+
+    // A user override pins the tag of the message it was made on. A re-run of that message
+    // writes nothing; a newer message still writes its evaluation below (SM-09).
+    if (pinned && existing.documentId === args.documentId) {
       return { row: rowToTriage(existing), written: false };
     }
 
@@ -194,8 +195,9 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
 
     const now = new Date();
 
-    const updateSet: PgUpdateSetSource<typeof emailTriage> = {
-      category: args.category,
+    // The evaluation of this message. A pinned row takes it without the tag: consumers read the
+    // effective result from `modelVerdict`, so the new message still gets its todo and draft.
+    const evaluationSet: PgUpdateSetSource<typeof emailTriage> = {
       confidence: args.confidence,
       rationale: args.rationale,
       documentAsk,
@@ -203,9 +205,6 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       documentId: args.documentId,
       classifiedAt: now,
       runId: args.runId,
-      source: "auto",
-      overriddenAt: null,
-      appliedLabelId: args.appliedLabelId ?? null,
       todoSuggestion: args.todoSuggestion ?? null,
       todoDecision: args.todoDecision ?? null,
       modelVerdict: args.modelVerdict,
@@ -216,50 +215,55 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       updatedAt: now,
     };
 
-    const result = await tx
-      .insert(emailTriage)
-      .values({
-        userId: args.userId,
-        sourceThreadId: args.sourceThreadId,
-        documentId: args.documentId,
-        category: args.category,
-        confidence: args.confidence,
-        rationale: args.rationale,
-        documentAsk,
-        model: args.model,
-        classifiedAt: now,
-        runId: args.runId,
-        appliedLabelId: args.appliedLabelId ?? null,
-        todoSuggestion: args.todoSuggestion ?? null,
-        todoDecision: args.todoDecision ?? null,
-        modelVerdict: args.modelVerdict,
-        instructionEvaluation: args.instructionEvaluation,
-        senderSignificanceBand: args.senderSignificanceBand ?? null,
-        senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
-        source: "auto",
-        overriddenAt: null,
-        rowVersion: 0,
-      })
-      .onConflictDoUpdate({
-        target: [emailTriage.userId, emailTriage.sourceThreadId],
-        set: updateSet,
-        setWhere: sql`${emailTriage.source} <> 'user'`,
-      })
-      .returning();
+    // The tag and its Gmail label do not change, so `appliedLabelId` stays.
+    const result = pinned
+      ? await tx
+          .update(emailTriage)
+          .set(evaluationSet)
+          .where(and(thisRow, eq(emailTriage.source, "user")))
+          .returning()
+      : await tx
+          .insert(emailTriage)
+          .values({
+            userId: args.userId,
+            sourceThreadId: args.sourceThreadId,
+            documentId: args.documentId,
+            category: args.category,
+            confidence: args.confidence,
+            rationale: args.rationale,
+            documentAsk,
+            model: args.model,
+            classifiedAt: now,
+            runId: args.runId,
+            appliedLabelId: args.appliedLabelId ?? null,
+            todoSuggestion: args.todoSuggestion ?? null,
+            todoDecision: args.todoDecision ?? null,
+            modelVerdict: args.modelVerdict,
+            instructionEvaluation: args.instructionEvaluation,
+            senderSignificanceBand: args.senderSignificanceBand ?? null,
+            senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
+            source: "auto",
+            overriddenAt: null,
+            rowVersion: 0,
+          })
+          .onConflictDoUpdate({
+            target: [emailTriage.userId, emailTriage.sourceThreadId],
+            set: {
+              ...evaluationSet,
+              category: args.category,
+              source: "auto",
+              overriddenAt: null,
+              appliedLabelId: args.appliedLabelId ?? null,
+            },
+            // An override that commits after the read above wins; this run then writes nothing.
+            setWhere: sql`${emailTriage.source} <> 'user'`,
+          })
+          .returning();
 
     const row = result[0];
 
     if (!row) {
-      const storedRows = await tx
-        .select()
-        .from(emailTriage)
-        .where(
-          and(
-            eq(emailTriage.userId, args.userId),
-            eq(emailTriage.sourceThreadId, args.sourceThreadId),
-          ),
-        )
-        .limit(1);
+      const storedRows = await tx.select().from(emailTriage).where(thisRow).limit(1);
 
       const stored = storedRows[0] ? rowToTriage(storedRows[0]) : null;
 
