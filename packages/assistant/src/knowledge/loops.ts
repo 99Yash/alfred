@@ -4,7 +4,6 @@ import { loopVerificationRuns } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
 import { desc, eq } from "drizzle-orm";
 import {
-  deliveryInstantNow,
   objectStateStore,
   type CandidateKey,
   type ObjectState,
@@ -274,11 +273,10 @@ async function readAndCommit(args: {
   let committed = true;
 
   try {
-    const deliveredAt = deliveryInstantNow();
-
     await objectStateStore.applyEvents({
       userId: args.userId,
-      facts: [...facts].map((read) => ({ event: read.fact, deliveredAt })),
+      // Each fact has the instant of its own read, not of the commit (decision 7).
+      facts: [...facts].map((read) => ({ event: read.fact, deliveredAt: read.readAt })),
       inTransaction: async (tx) => {
         await tx.insert(loopVerificationRuns).values({
           userId: args.userId,
@@ -295,7 +293,7 @@ async function readAndCommit(args: {
     logger.warn({ err, userId: args.userId }, "[loops] commit failed; read things stay unverified");
   }
 
-  // The rows after the fold. The recency guard can refuse an older fact, so the row is the truth.
+  // The rows after the fold. The guards can refuse a fact, so the row is the truth.
   const after = new Map<LoopVerifierRead, ObjectState | null>();
 
   if (committed) {
@@ -319,7 +317,11 @@ async function readAndCommit(args: {
       continue;
     }
 
-    outcomes.set(thing, { state, evidence: "live_read", unverified: null });
+    // The recency or absorbing guard refused the fact, so a newer stored fact gives the verdict.
+    // Only a read whose state the row holds is a live confirmation.
+    const evidence = state.nativeState === read.nativeState ? "live_read" : "stored_state";
+
+    outcomes.set(thing, { state, evidence, unverified: null });
   }
 
   return outcomes;

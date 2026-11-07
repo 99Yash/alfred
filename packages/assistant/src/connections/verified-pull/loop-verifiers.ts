@@ -9,7 +9,9 @@ import {
 import { githubClientForUser } from "@alfred/integrations/github";
 import { logger } from "@alfred/logging";
 import {
+  deliveryInstantNow,
   GITHUB_PULL_REQUEST_READ_EVENT_TYPE,
+  type DeliveryInstant,
   type GithubPullRequestReadEvent,
   type ObjectState,
   type VerifiedPullEvent,
@@ -29,6 +31,16 @@ import { vercelVerifiedPullProvider } from "./vercel";
 export interface LoopVerifierRead {
   readonly fact: GithubPullRequestReadEvent | VerifiedPullEvent;
   readonly identity: ObjectIdentity;
+  /**
+   * The native token that the read saw. When the row after the fold holds another token, the
+   * store refused the fact, and the read does not give the verdict.
+   */
+  readonly nativeState: string;
+  /**
+   * The instant before the request went out. The fold orders the fact by it, so a webhook that
+   * arrives during the read or before the commit wins over the read.
+   */
+  readonly readAt: DeliveryInstant;
 }
 
 /** A key that a mail names, as the `email_interpretation` row stores it. */
@@ -159,6 +171,8 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
       number: target.number,
     }),
   async readTargets(userId, targets) {
+    const readAt = deliveryInstantNow();
+
     // One attempt. A fault of one item lands in `failed`, and its target gets no entry.
     const batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests([
       ...targets.values(),
@@ -216,6 +230,8 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
           },
         },
         identity: { provider: "github", kind: "pull_request", externalId: String(pr.githubId) },
+        nativeState,
+        readAt,
       });
     }
 
@@ -247,6 +263,7 @@ function deploymentTargetVerifier<E extends VerifiedPullEvent, Target, Session, 
 
       for (const [id, target] of targets) {
         try {
+          const readAt = deliveryInstantNow();
           const reading = await provider.readStatus(session, target);
 
           // `absent` and a fault prove nothing, so the thing stays unverified.
@@ -255,6 +272,9 @@ function deploymentTargetVerifier<E extends VerifiedPullEvent, Target, Session, 
           reads.set(id, {
             fact: provider.mintReceipt(target, reading),
             identity: { provider: provider.provider, kind: provider.targetKind, externalId: id },
+            // The reducer gives the target the read status as its token.
+            nativeState: reading.status,
+            readAt,
           });
         } catch (err) {
           logger.warn({ err }, `[loops] ${provider.provider} live read failed target=${id}`);
