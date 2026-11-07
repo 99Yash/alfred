@@ -43,3 +43,4 @@ No one check can state it. Each client names its deadline in its own option, or 
 - #1111 packages/assistant/src/context-search/documents-source.ts: `reconcileEvidence` took no `abortSignal`, so the collect timeout lost every document card.
 - #1133 packages/assistant/src/connections/hosted-endpoint.ts: `createGuardedFetch` did not keep the signal of an input `Request`.
 - #1665 official-warnings/index.ts: gatherOfficialWarnings took no caller signal and made its own 30 s deadline
+- #1690 The loop verifier reads took no signal and had no deadline. Now verifyLoops takes the gather signal and a 30-second deadline, and ProviderRequest passes the signal.
