@@ -35,7 +35,9 @@ export type NotifyResult =
 /**
  * Send through Resend, idempotent in the DB and at the provider.
  * The row exists before the send, so a crash leaves a `queued` row to retry.
- * Resend's `Idempotency-Key` makes that retry safe if the send landed.
+ * Resend's `Idempotency-Key` makes that retry safe if the send landed: the same body returns the
+ * first response, and a re-rendered body returns `invalid_idempotent_request`, which also proves
+ * the first send landed. `sent` is terminal; no later write in this function moves it.
  */
 export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   const env = serverEnv();
@@ -85,9 +87,10 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
   }
 
   const resend = getResendClient();
+  let sendResult: Awaited<ReturnType<typeof resend.emails.send>>;
 
   try {
-    const result = await resend.emails.send(
+    sendResult = await resend.emails.send(
       {
         from: env.RESEND_FROM_EMAIL,
         to: toAddress,
@@ -101,32 +104,57 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
       },
       { idempotencyKey: args.idempotencyKey },
     );
+  } catch (err) {
+    return markFailed(emailSendId, toMessage(err));
+  }
 
-    if (result.error) {
-      throw new Error(`${result.error.name}: ${result.error.message}`);
+  if (sendResult.error) {
+    const { name, message } = sendResult.error;
+
+    // Resend accepted an earlier request with this key, and this retry rendered a different body
+    // (the shell stamps the render time). The first request is the email the user received, so the
+    // row is `sent`. Recording `failed` here would make every later retry fail the same way.
+    if (name === "invalid_idempotent_request") {
+      await markSent(emailSendId, null);
+
+      return { status: "sent", emailSendId, providerMessageId: null };
     }
 
-    const providerMessageId = result.data.id;
-    await db()
-      .update(emailSends)
-      .set({
-        status: "sent",
-        providerMessageId,
-        sentAt: new Date(),
-      })
-      .where(eq(emailSends.id, emailSendId));
+    // Another caller holds this key at Resend right now and owns the outcome.
+    if (name === "concurrent_idempotent_requests") return { status: "duplicate", emailSendId };
 
-    return { status: "sent", emailSendId, providerMessageId };
-  } catch (err) {
-    const message = toMessage(err);
-    await db()
-      .update(emailSends)
-      .set({
-        status: "failed",
-        error: message.slice(0, 1000),
-      })
-      .where(eq(emailSends.id, emailSendId));
-
-    return { status: "failed", emailSendId, error: message };
+    return markFailed(emailSendId, `${name}: ${message}`);
   }
+
+  // Outside the send's `catch`: the email is out, so a failed write here must throw for a retry,
+  // never record `failed`.
+  const providerMessageId = sendResult.data.id;
+  await markSent(emailSendId, providerMessageId);
+
+  return { status: "sent", emailSendId, providerMessageId };
+}
+
+async function markSent(emailSendId: string, providerMessageId: string | null): Promise<void> {
+  await db()
+    .update(emailSends)
+    .set({
+      status: "sent",
+      ...(providerMessageId !== null ? { providerMessageId } : {}),
+      error: null,
+      sentAt: new Date(),
+    })
+    .where(and(eq(emailSends.id, emailSendId), ne(emailSends.status, "sent")));
+}
+
+/** `sent` is terminal: a racing caller that lost at the provider must not overwrite it. */
+async function markFailed(
+  emailSendId: string,
+  message: string,
+): Promise<Extract<NotifyResult, { status: "failed" }>> {
+  await db()
+    .update(emailSends)
+    .set({ status: "failed", error: message.slice(0, 1000) })
+    .where(and(eq(emailSends.id, emailSendId), ne(emailSends.status, "sent")));
+
+  return { status: "failed", emailSendId, error: message };
 }

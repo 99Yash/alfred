@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
-import { inArray, like } from "drizzle-orm";
+import { emailSends, user } from "@alfred/db/schemas";
+import { and, eq, inArray, like } from "drizzle-orm";
 import type { Resend } from "resend";
 
 import { send } from "../src/delivery";
@@ -147,5 +147,100 @@ describe("delivery.send (DB-backed)", { skip: SKIP }, () => {
     assert.equal(result.status, "failed");
 
     assert.match(result.error, /rate_limit_exceeded/);
+  });
+  // SM-02 in docs/reference/state-machines.md: `sent` is terminal, and a provider reply that proves
+  // an earlier send landed records `sent`, never `failed`.
+
+  function resendError(
+    name: "invalid_idempotent_request" | "concurrent_idempotent_requests" | "rate_limit_exceeded",
+  ) {
+    return { data: null, error: { name, message: name, statusCode: 409 }, headers: null };
+  }
+
+  async function rowStatus(userId: string, idempotencyKey: string): Promise<string | undefined> {
+    const [row] = await db()
+      .select({ status: emailSends.status })
+      .from(emailSends)
+      .where(and(eq(emailSends.userId, userId), eq(emailSends.idempotencyKey, idempotencyKey)));
+
+    return row?.status;
+  }
+
+  function healthAlert(userId: string, day: string) {
+    return {
+      userId,
+      kind: "health_alert" as const,
+      idempotencyKey: `health_alert:${userId}:attention_share_7d:${day}`,
+      subject: "Health alert",
+      html: "<p>Health alert</p>",
+      text: "Health alert",
+    };
+  }
+
+  test("a re-rendered retry that Resend refuses as a reused key records sent", async () => {
+    const userId = await seedUser();
+    const args = healthAlert(userId, "2026-07-01");
+
+    _setResendClientForTests(
+      asTestDouble<Resend>({
+        emails: asTestDouble<Resend["emails"]>({
+          send: async () => resendError("invalid_idempotent_request"),
+        }),
+      }),
+    );
+
+    const result = await send(args);
+
+    assert.equal(result.status, "sent");
+    assert.equal(await rowStatus(userId, args.idempotencyKey), "sent");
+  });
+
+  test("a caller that loses at the provider cannot overwrite a sent row with failed", async () => {
+    const userId = await seedUser();
+    const args = healthAlert(userId, "2026-07-02");
+
+    // The winner finishes while this caller waits on the provider.
+    _setResendClientForTests(
+      asTestDouble<Resend>({
+        emails: asTestDouble<Resend["emails"]>({
+          send: async () => {
+            await db()
+              .update(emailSends)
+              .set({ status: "sent", sentAt: new Date() })
+              .where(
+                and(
+                  eq(emailSends.userId, userId),
+                  eq(emailSends.idempotencyKey, args.idempotencyKey),
+                ),
+              );
+
+            return resendError("rate_limit_exceeded");
+          },
+        }),
+      }),
+    );
+
+    const result = await send(args);
+
+    assert.equal(result.status, "failed");
+    assert.equal(await rowStatus(userId, args.idempotencyKey), "sent");
+  });
+
+  test("a key another caller holds at Resend is a duplicate, not a failure", async () => {
+    const userId = await seedUser();
+    const args = healthAlert(userId, "2026-07-03");
+
+    _setResendClientForTests(
+      asTestDouble<Resend>({
+        emails: asTestDouble<Resend["emails"]>({
+          send: async () => resendError("concurrent_idempotent_requests"),
+        }),
+      }),
+    );
+
+    const result = await send(args);
+
+    assert.equal(result.status, "duplicate");
+    assert.notEqual(await rowStatus(userId, args.idempotencyKey), "failed");
   });
 });
