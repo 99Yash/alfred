@@ -93,8 +93,9 @@ function mergeByObject(
 }
 
 /**
- * A closing state needs the proof that its kind demands (ADR-0103). A stored row of a kind that
- * needs a live confirmation is always a blind read (case 2), so it reaches here only after a read.
+ * A closing state needs the proof that its kind demands (ADR-0103). A kind that needs a live
+ * confirmation gets it only from a read of this run: a read of `verifyLoops`, or a pull that folded
+ * just before it. A stored row of such a kind is always a blind read (case 2).
  */
 function verdictOf(outcome: ThingOutcome): BriefingLoop["verdict"] {
   const { state } = outcome;

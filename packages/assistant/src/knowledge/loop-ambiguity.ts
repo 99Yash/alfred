@@ -13,6 +13,19 @@ import { readObservationFamilyHeads } from "./observations";
 /** The providers whose deliveries an activity source records, so a coverage read can see a gap. */
 const COVERED_PROVIDERS: ReadonlySet<ObjectStateProvider> = new Set(["github"]);
 
+/** The things that need a live read, and the things that a read of this run already set. */
+export interface Ambiguity {
+  /** Cases 1 to 3 of decision 5. */
+  ambiguous: Set<LoopThing>;
+  /**
+   * The state came from a fact that reached the store after `clock`, for example from the approved
+   * MCP health read or the verified pull just before `verifyLoops`. That is a live read of this
+   * run, so it needs no second read. Only a pull writes a Railway target or an MCP health row. A
+   * GitHub webhook that arrives in the same seconds is also a fresh provider fact.
+   */
+  readThisRun: Set<LoopThing>;
+}
+
 /**
  * Decision 5: the things whose stored state is ambiguous. An absorbing state is never ambiguous: no
  * later fact can move it. The three cases: no row, a mail newer than the fact, a blind source.
@@ -21,8 +34,9 @@ export async function findAmbiguous(args: {
   userId: string;
   clock: Date;
   things: readonly LoopThing[];
-}): Promise<Set<LoopThing>> {
+}): Promise<Ambiguity> {
   const ambiguous = new Set<LoopThing>();
+  const readThisRun = new Set<LoopThing>();
   const blindCheck: { thing: LoopThing; state: ObjectState; at: Date }[] = [];
 
   for (const thing of args.things) {
@@ -31,6 +45,12 @@ export async function findAmbiguous(args: {
     // Case 3.
     if (state === null) {
       ambiguous.add(thing);
+      continue;
+    }
+
+    // The read came after each mail of the window and leaves no time for a gap, so no case applies.
+    if (state.stateDeliveredAt !== null && state.stateDeliveredAt >= args.clock) {
+      readThisRun.add(thing);
       continue;
     }
 
@@ -44,9 +64,6 @@ export async function findAmbiguous(args: {
       continue;
     }
 
-    // A fold of this run (the MCP health read just before it) leaves no time for a gap.
-    if (state.stateDeliveredAt !== null && state.stateDeliveredAt >= args.clock) continue;
-
     // Case 2, for a provider with no activity source: nothing can show that it was not blind.
     if (!COVERED_PROVIDERS.has(state.provider)) {
       ambiguous.add(thing);
@@ -56,7 +73,7 @@ export async function findAmbiguous(args: {
     blindCheck.push({ thing, state, at });
   }
 
-  if (blindCheck.length === 0) return ambiguous;
+  if (blindCheck.length === 0) return { ambiguous, readThisRun };
 
   const oldest = blindCheck.reduce((min, { at }) => (at < min ? at : min), args.clock);
   const coverage = await readCoverage(args.userId, { start: oldest, end: args.clock }, args.clock);
@@ -65,7 +82,7 @@ export async function findAmbiguous(args: {
     if (isBlindAfter(coverage, state.provider, at)) ambiguous.add(thing);
   }
 
-  return ambiguous;
+  return { ambiguous, readThisRun };
 }
 
 /** The coverage entries, or `null` when the read faulted: then each source counts as blind. */

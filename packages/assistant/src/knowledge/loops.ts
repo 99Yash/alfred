@@ -113,8 +113,17 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
     todoIdentities,
   });
 
-  const ambiguous = await findAmbiguous({ userId, clock, things });
-  const outcomes = await readAndCommit({ userId, clock, windowStart, things, ambiguous });
+  const { ambiguous, readThisRun } = await findAmbiguous({ userId, clock, things });
+
+  const outcomes = await readAndCommit({
+    userId,
+    clock,
+    windowStart,
+    things,
+    ambiguous,
+    readThisRun,
+  });
+
   const loops = await toLoopItems(userId, things, outcomes);
 
   logger.info(
@@ -125,6 +134,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
       unreadableRows: mailRead.unreadable,
       things: things.length,
       ambiguous: ambiguous.size,
+      readThisRun: readThisRun.size,
       verdicts: countVerdicts(loops),
       unverified: countUnverified(outcomes),
     },
@@ -168,6 +178,7 @@ async function readAndCommit(args: {
   windowStart: Date;
   things: readonly LoopThing[];
   ambiguous: ReadonlySet<LoopThing>;
+  readThisRun: ReadonlySet<LoopThing>;
 }): Promise<Map<LoopThing, ThingOutcome>> {
   const outcomes = new Map<LoopThing, ThingOutcome>();
   const batches = new Map<LoopVerifier, LoopReadBatch>();
@@ -190,6 +201,11 @@ async function readAndCommit(args: {
 
   // `things` is newest evidence first, so the cap keeps the newest.
   for (const thing of args.things) {
+    if (args.readThisRun.has(thing)) {
+      outcomes.set(thing, { state: thing.state, evidence: "live_read", unverified: null });
+      continue;
+    }
+
     if (!args.ambiguous.has(thing)) {
       outcomes.set(thing, { state: thing.state, evidence: "stored_state", unverified: null });
       continue;
