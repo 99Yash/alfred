@@ -46,10 +46,18 @@ const MIN_WINDOW_MS = 3 * DAY_MS;
  */
 const MAX_LIVE_READS = 10;
 
+/**
+ * The bound on all live reads of one run. A read that it stops proves nothing, so its thing is
+ * `unverified`. The commit is outside the bound.
+ */
+const LIVE_READS_DEADLINE_MS = 30_000;
+
 export interface VerifyLoopsArgs {
   userId: string;
   /** The time of the run. The window ends here. */
   clock: Date;
+  /** The caller's abort. It stops the live reads, and an aborted run records nothing. */
+  signal: AbortSignal;
   /**
    * Mails that a read before this run pointed at a thing: the approved MCP health read (ADR-0120
    * slice 2). Such a mail often names no key, so triage stored no row for it.
@@ -119,6 +127,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
   const outcomes = await readAndCommit({
     userId,
     clock,
+    signal: args.signal,
     windowStart,
     things,
     ambiguous,
@@ -176,6 +185,7 @@ interface PlannedRead {
 async function readAndCommit(args: {
   userId: string;
   clock: Date;
+  signal: AbortSignal;
   windowStart: Date;
   things: readonly LoopThing[];
   ambiguous: ReadonlySet<LoopThing>;
@@ -250,13 +260,20 @@ async function readAndCommit(args: {
     planned.push({ thing, batch, targetId });
   }
 
+  // `read` never throws, so no sibling stops early. The caller's abort and the deadline stop all.
+  const readSignal = AbortSignal.any([args.signal, AbortSignal.timeout(LIVE_READS_DEADLINE_MS)]);
+
   const readsByBatch = new Map<LoopReadBatch, ReadonlyMap<string, LoopVerifierRead>>(
     await Promise.all(
       [...idsByBatch].map(
-        async ([batch, ids]) => [batch, await batch.read(args.userId, [...ids])] as const,
+        async ([batch, ids]) =>
+          [batch, await batch.read(args.userId, [...ids], readSignal)] as const,
       ),
     ),
   );
+
+  // The caller gave up on the run, so it records no run and folds no fact.
+  args.signal.throwIfAborted();
 
   const readByThing = new Map<LoopThing, LoopVerifierRead>();
 

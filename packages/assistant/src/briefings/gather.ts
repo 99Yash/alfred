@@ -227,6 +227,8 @@ export interface GatherBriefingDigestArgs {
   activityWindow: ActivityWindow;
   /** Cap per bucket. */
   maxPerBucket?: number;
+  /** The abort of the whole gather. It stops the live loop reads when another input fails. */
+  signal: AbortSignal;
 }
 
 export interface GatherBriefingArgs {
@@ -477,7 +479,12 @@ export async function gatherBriefingDigest(
     ];
   });
 
-  const verified = await readLoops({ userId: args.userId, clock: loopClock, extraMails });
+  const verified = await readLoops({
+    userId: args.userId,
+    clock: loopClock,
+    signal: args.signal,
+    extraMails,
+  });
 
   // Buckets stay uncapped until here, so closed loops do not take visible slots.
   const closedLoops = dropClosedLoops(buckets, verified.closedMails);
@@ -512,6 +519,7 @@ export async function gatherBriefingDigest(
 async function readLoops(args: {
   userId: string;
   clock: Date;
+  signal: AbortSignal;
   extraMails: readonly ExtraLoopMail[];
 }): Promise<{
   loops: Sourced<BriefingLoop[]>;
@@ -593,7 +601,7 @@ export async function gatherBriefingWithSuppressionAudit(
   const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
 
   // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
-  // the warnings feed reads, so they do not run on to their own deadline.
+  // the warnings feed reads and the live loop reads, so they do not run on to their own deadline.
   const gatherCancel = new AbortController();
 
   const placeRead = readUserLocation({
@@ -610,6 +618,7 @@ export async function gatherBriefingWithSuppressionAudit(
         windowStart: args.windowStart,
         windowEnd,
         activityWindow,
+        signal: gatherCancel.signal,
       }),
       gatherCalendarContribution({
         userId: args.userId,

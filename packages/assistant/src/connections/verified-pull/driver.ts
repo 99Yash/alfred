@@ -8,6 +8,7 @@ import { logger } from "@alfred/logging";
 import {
   deliveryInstantNow,
   objectStateStore,
+  type DeliveryInstant,
   type ObjectState,
   type VerifiedPullEvent,
   type VerifiedPullReading,
@@ -94,7 +95,8 @@ export interface VerifiedPullProvider<E extends VerifiedPullEvent, Target, Sessi
   canonicalTargetId(target: Target): string | null;
   /** Bootstrap targets before any row exists. */
   discoverTargets(userId: string, limit: number): Promise<Target[]>;
-  openSession(userId: string): Promise<Session | null>;
+  /** The session keeps `signal` for each of its calls. */
+  openSession(userId: string, signal: AbortSignal | undefined): Promise<Session | null>;
   /** Display names only, never identity. */
   resolveNames(session: Session): Promise<Map<string, Names>>;
   readStatus(session: Session, target: Target): Promise<VerifiedPullRead>;
@@ -151,6 +153,51 @@ export const MAX_VERIFIED_PULL_TARGETS = 5;
  */
 const DEMOTE_AFTER_ABSENT_READS = 3;
 
+/** One read of a target, and the instant just before its request went out. */
+interface VerifiedPullTimedRead {
+  reading: VerifiedPullRead;
+  readAt: DeliveryInstant;
+}
+
+/** An open session of one provider. `read` never throws: a fault is a `null` reading. */
+export interface VerifiedPullSession<Target, Session> {
+  session: Session;
+  read(target: Target, targetId: string): Promise<VerifiedPullTimedRead>;
+}
+
+/**
+ * Open one session of a provider for a set of reads. `null`: no grant, a refused grant, or a
+ * fault. The gather pull and the loop verifier (`loop-verifiers.ts`) read through it.
+ */
+export async function openVerifiedPullSession<E extends VerifiedPullEvent, Target, Session, Names>(
+  source: VerifiedPullProvider<E, Target, Session, Names>,
+  userId: string,
+  signal: AbortSignal | undefined,
+): Promise<VerifiedPullSession<Target, Session> | null> {
+  const session = await source.openSession(userId, signal).catch((err: unknown) => {
+    logger.warn({ err, provider: source.provider }, "[verified-pull] session open failed");
+
+    return null;
+  });
+
+  if (session === null) return null;
+
+  return {
+    session,
+    async read(target, targetId) {
+      const readAt = deliveryInstantNow();
+
+      const reading = await source.readStatus(session, target).catch((err: unknown) => {
+        logger.warn({ err, provider: source.provider, targetId }, "[verified-pull] read failed");
+
+        return null;
+      });
+
+      return { reading, readAt };
+    },
+  };
+}
+
 /**
  * Read and fold each target. Dedup is by attempt, not by outcome, so a new
  * attempt with the same status still advances the row. A folded attempt folds
@@ -163,14 +210,11 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
   userId: string,
   targets: readonly Target[],
 ): Promise<VerifiedPullResult<Target, Names>[]> {
-  const session = await source.openSession(userId).catch((err: unknown) => {
-    logger.warn({ err, provider: source.provider }, "[verified-pull] session open failed");
+  // The gather has no caller signal yet; each request keeps its own transport timeout.
+  const opened = await openVerifiedPullSession(source, userId, undefined);
 
-    return null;
-  });
-
-  const names = session
-    ? await source.resolveNames(session).catch(() => new Map<string, Names>())
+  const names = opened
+    ? await source.resolveNames(opened.session).catch(() => new Map<string, Names>())
     : new Map<string, Names>();
 
   const results: VerifiedPullResult<Target, Names>[] = [];
@@ -192,13 +236,7 @@ async function pullVerifiedTargets<E extends VerifiedPullEvent, Target, Session,
       continue;
     }
 
-    const reading: VerifiedPullRead = session
-      ? await source.readStatus(session, target).catch((err: unknown) => {
-          logger.warn({ err, provider: source.provider, targetId }, "[verified-pull] read failed");
-
-          return null;
-        })
-      : null;
+    const reading: VerifiedPullRead = opened ? (await opened.read(target, targetId)).reading : null;
 
     const identity = { provider: source.provider, kind: source.targetKind, externalId: targetId };
 

@@ -16,7 +16,7 @@ import {
   type ObjectState,
   type VerifiedPullEvent,
 } from "../object-state";
-import type { VerifiedPullProvider } from "./driver";
+import { openVerifiedPullSession, type VerifiedPullProvider } from "./driver";
 import { railwayVerifiedPullProvider } from "./railway";
 import { vercelVerifiedPullProvider } from "./vercel";
 
@@ -61,6 +61,7 @@ export interface LoopReadBatch {
   read(
     userId: string,
     targetIds: readonly string[],
+    signal: AbortSignal,
   ): Promise<ReadonlyMap<string, LoopVerifierRead>>;
 }
 
@@ -80,6 +81,7 @@ interface LoopVerifierDef<Target> {
   readTargets(
     userId: string,
     targets: ReadonlyMap<string, Target>,
+    signal: AbortSignal,
   ): Promise<ReadonlyMap<string, LoopVerifierRead>>;
 }
 
@@ -102,7 +104,7 @@ function defineLoopVerifier<Target>(def: LoopVerifierDef<Target>): LoopVerifier 
         planState: (state) => plan(def.targetFromState(state)),
         planKey: (key) =>
           def.keyKinds.includes(key.keyKind) ? plan(def.targetFromKey(key)) : null,
-        async read(userId, targetIds) {
+        async read(userId, targetIds, signal) {
           const admitted = new Map<string, Target>();
 
           for (const id of targetIds) {
@@ -114,7 +116,7 @@ function defineLoopVerifier<Target>(def: LoopVerifierDef<Target>): LoopVerifier 
           if (admitted.size === 0) return new Map();
 
           try {
-            return await def.readTargets(userId, admitted);
+            return await def.readTargets(userId, admitted, signal);
           } catch (err) {
             logger.warn({ err }, "[loops] live read failed; its things stay unverified");
 
@@ -170,13 +172,14 @@ const githubPullRequestVerifier = defineLoopVerifier<GithubPullTarget>({
       repoFullName: `${target.owner}/${target.repo}`,
       number: target.number,
     }),
-  async readTargets(userId, targets) {
+  async readTargets(userId, targets, signal) {
     const readAt = deliveryInstantNow();
 
     // One attempt. A fault of one item lands in `failed`, and its target gets no entry.
-    const batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests([
-      ...targets.values(),
-    ]);
+    const batch = await githubClientForUser({ userId, retry: "none" }).getPullRequests(
+      [...targets.values()],
+      { signal },
+    );
 
     if (batch.failed.length > 0) {
       logger.warn(
@@ -255,30 +258,25 @@ function deploymentTargetVerifier<E extends VerifiedPullEvent, Target, Session, 
     targetFromState: (state) => provider.targetFromRow(state),
     targetFromKey: () => null,
     targetId: (target) => provider.canonicalTargetId(target),
-    async readTargets(userId, targets) {
-      const session = await provider.openSession(userId);
+    async readTargets(userId, targets, signal) {
       const reads = new Map<string, LoopVerifierRead>();
+      const opened = await openVerifiedPullSession(provider, userId, signal);
 
-      if (session === null) return reads;
+      if (opened === null) return reads;
 
       for (const [id, target] of targets) {
-        try {
-          const readAt = deliveryInstantNow();
-          const reading = await provider.readStatus(session, target);
+        const { reading, readAt } = await opened.read(target, id);
 
-          // `absent` and a fault prove nothing, so the thing stays unverified.
-          if (reading === null || reading === "absent") continue;
+        // `absent` and a fault prove nothing, so the thing stays unverified.
+        if (reading === null || reading === "absent") continue;
 
-          reads.set(id, {
-            fact: provider.mintReceipt(target, reading),
-            identity: { provider: provider.provider, kind: provider.targetKind, externalId: id },
-            // The reducer gives the target the read status as its token.
-            nativeState: reading.status,
-            readAt,
-          });
-        } catch (err) {
-          logger.warn({ err }, `[loops] ${provider.provider} live read failed target=${id}`);
-        }
+        reads.set(id, {
+          fact: provider.mintReceipt(target, reading),
+          identity: { provider: provider.provider, kind: provider.targetKind, externalId: id },
+          // The reducer gives the target the read status as its token.
+          nativeState: reading.status,
+          readAt,
+        });
       }
 
       return reads;

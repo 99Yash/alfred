@@ -168,10 +168,12 @@ export function createVercelClient(options: VercelClientOptions) {
     async projects(args?: {
       limit?: number;
       repoUrl?: string | undefined;
+      signal?: AbortSignal | undefined;
     }): Promise<VercelProject[]> {
       const json = await client.json(listProjectsResponseSchema, "/v10/projects", {
         label: "/v10/projects",
         query: { limit: args?.limit ?? 20, repoUrl: args?.repoUrl },
+        signal: args?.signal,
       });
 
       return json.map((p) => ({
@@ -186,10 +188,12 @@ export function createVercelClient(options: VercelClientOptions) {
     async deployments(args?: {
       projectId?: string | undefined;
       limit?: number | undefined;
+      signal?: AbortSignal | undefined;
     }): Promise<VercelDeployment[]> {
       const json = await client.json(listDeploymentsResponseSchema, "/v7/deployments", {
         label: "/v7/deployments",
         query: { limit: args?.limit ?? 20, projectId: args?.projectId },
+        signal: args?.signal,
       });
 
       return json.deployments.map((d) => {
