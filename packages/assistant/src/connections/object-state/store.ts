@@ -185,6 +185,14 @@ export interface ObjectStateStore {
   ): Promise<ReadonlyMap<string, ObjectState>>;
   /** Current state by `(provider, kind, externalId)`, or `null`. */
   getByIdentity(userId: string, identity: ObjectIdentity): Promise<ObjectState | null>;
+  /**
+   * Batched `getByIdentity` in one query, keyed by the identity objects that the caller passed. An
+   * identity with no row has no entry. Empty input skips the database.
+   */
+  getByIdentities(
+    userId: string,
+    identities: readonly ObjectIdentity[],
+  ): Promise<ReadonlyMap<ObjectIdentity, ObjectState>>;
   list(
     userId: string,
     provider: ObjectStateProvider,
@@ -289,6 +297,11 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
     eq(integrationObjects.kind, identity.kind),
     eq(integrationObjects.externalId, identity.externalId),
   );
+}
+
+/** One string for an identity, so a batched read can match its rows to the identities asked. */
+function identityLookupKey(identity: ObjectIdentity): string {
+  return JSON.stringify([identity.provider, identity.kind, identity.externalId]);
 }
 
 /**
@@ -723,6 +736,39 @@ export const objectStateStore: ObjectStateStore = {
     if (!row) return null;
 
     return rowToObjectState(row);
+  },
+
+  async getByIdentities(userId, identities) {
+    if (identities.length === 0) return new Map();
+
+    const rows = await db()
+      .select()
+      .from(integrationObjects)
+      .where(
+        and(
+          eq(integrationObjects.userId, userId),
+          or(
+            ...identities.map((identity) =>
+              and(
+                eq(integrationObjects.provider, identity.provider),
+                eq(integrationObjects.kind, identity.kind),
+                eq(integrationObjects.externalId, identity.externalId),
+              ),
+            ),
+          ),
+        ),
+      );
+
+    const byLookupKey = new Map(rows.map((row) => [identityLookupKey(row), row]));
+    const byIdentity = new Map<ObjectIdentity, ObjectState>();
+
+    for (const identity of identities) {
+      const row = byLookupKey.get(identityLookupKey(identity));
+
+      if (row) byIdentity.set(identity, rowToObjectState(row));
+    }
+
+    return byIdentity;
   },
 
   async list(userId, provider, filter) {

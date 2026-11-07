@@ -265,10 +265,10 @@ export async function collectThings(args: {
 
   logSoftEdgeLoops(softEdge);
 
-  for (const identity of args.todoIdentities) {
-    const state = await objectStateStore.getByIdentity(args.userId, identity);
+  const todoStates = await objectStateStore.getByIdentities(args.userId, args.todoIdentities);
 
-    if (!state || byObject.has(state.objectId)) continue;
+  for (const state of todoStates.values()) {
+    if (byObject.has(state.objectId)) continue;
 
     byObject.set(state.objectId, newThing(state));
   }

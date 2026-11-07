@@ -298,16 +298,14 @@ async function readAndCommit(args: {
     logger.warn({ err, userId: args.userId }, "[loops] commit failed; read things stay unverified");
   }
 
-  // The rows after the fold. The guards can refuse a fact, so the row is the truth.
-  const after = new Map<LoopVerifierRead, ObjectState | null>();
-
-  if (committed) {
-    await Promise.all(
-      [...facts].map(async (read) => {
-        after.set(read, await objectStateStore.getByIdentity(args.userId, read.identity));
-      }),
-    );
-  }
+  // The rows after the fold, keyed by each read's identity. The guards can refuse a fact, so the
+  // row is the truth.
+  const after = committed
+    ? await objectStateStore.getByIdentities(
+        args.userId,
+        [...facts].map((read) => read.identity),
+      )
+    : null;
 
   for (const [thing, read] of readByThing) {
     if (!committed) {
@@ -315,7 +313,7 @@ async function readAndCommit(args: {
       continue;
     }
 
-    const state = after.get(read) ?? null;
+    const state = after?.get(read.identity) ?? null;
 
     if (state === null) {
       unverified(thing, "fact_refused");
