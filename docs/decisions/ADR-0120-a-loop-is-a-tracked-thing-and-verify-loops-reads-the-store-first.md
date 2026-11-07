@@ -1,6 +1,6 @@
 # ADR-0120 — A loop is a tracked thing, and `verifyLoops` reads the store first
 
-**Status.** Proposed. Slices 1 and 2 are built: the `gmail/email_interpretation` link at triage with its backfill, and `verifyLoops` with the `list_loops` composer tool. Slices 3 to 6 are not built. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
+**Status.** Proposed. Slices 1 and 2 are built: the `gmail/email_interpretation` link at triage with its backfill, and `verifyLoops` with the `list_loops` composer tool. Slices 3 to 7 are not built. Amended 2026-11-07 after the review of PR #1690: decisions 1, 4, 5, 6, 7, and 8 each have a dated amendment. Defines the `verifyLoops` seam of ADR-0118 decision 9. Amends ADR-0092 (a thing that only mail tracks can have a state, and the `about` observation is the input of `verifyLoops`), ADR-0062 (a mail from the service itself is a provider fact), and ADR-0048 (the store holds the state of a loop, not the briefing). The design comes from a grilling session with the owner on 2026-11-04.
 
 **Decision.** A loop is not a new record. A loop is a **thing**, an `integration_objects` row, in the state `active` or `failed`, that touches the user. Each integration activity can open a loop, and the closure of a loop is the change of state of its thing. The link from a mail to its thing is the ADR-0092 `about` observation, which triage writes one time. `verifyLoops` selects the things in a bounded set, uses the stored state as the verdict, and runs a live read only when the stored state is ambiguous. It folds each fact through `applyEvent` in one transaction. The briefing reads one list with three verdicts: `open`, `closed`, and `unverified`.
 
@@ -20,6 +20,8 @@ These facts are from the code on 2026-11-04 (issue #1684, and a map of the gathe
 ### 1. A loop is a thing in an open state
 
 A loop is an `integration_objects` row whose `state_category` is `active` or `failed`, and that a priority mail or an open todo points to (decision 4). There is no `loops` table and no "ask" kind. Each integration activity that sets a thing to `active` or `failed` can open a loop: a webhook, a poll, a verified pull, or a mail from the service itself (decision 2). The loop closes when its thing becomes `resolved` or `abandoned`. The store already holds that change, with its time and its version.
+
+**Amended 2026-11-07.** Only a kind with a non-empty `closesAskOn` is a loop kind. The slice 2 build added this rule in a build note, and this amendment records it as a change. Why: `closesOpenAsk` gives the only `closed` verdict. Thus a thing of a kind with no closing state would stay `open` on each run. An attempt never resolves, so it is never a loop. `vercel.deployment_target` declares an empty `closesAskOn` (#1357), so a Vercel thing is not a loop. It stays a non-loop until a later decision (owner decision, 2026-11-07).
 
 ### 2. A mail from the service itself is a provider fact (amends ADR-0062 and ADR-0092)
 
@@ -42,6 +44,8 @@ The `category` field of each `about` observation holds the triage verdict of its
 
 The window is 30 days on the first run. Each later run starts at the last successful run, with a minimum of 3 days. Thus a gap in the briefings, for example a holiday or a broken credential, does not lose a loop. A thing outside the set keeps its state. It is not read and not shown. Expiry never sets `abandoned`, because only a provider fact sets a state. A new priority mail about the thing puts it back in the set.
 
+**Amended 2026-11-07 (owner decision).** The verify set stays bounded to the three priority categories above. Before slice 2, the gather also dropped a mail in `awaiting_reply`, `meeting`, or `payment` when its object was closed. That drop is deliberately gone. These mails now stay in the briefing when their thing closes. Why: this decision bounds the set, so it also bounds the live reads of each run.
+
 ### 5. The store is the verdict, and a live read runs only when the state is ambiguous
 
 The evidence order for a loop is:
@@ -59,13 +63,25 @@ The stored state is ambiguous in exactly three cases:
 
 A thing that is closed and not ambiguous is never read again. One cap applies to each run, and the things with the newest evidence come first. It replaces the three caps of 5.
 
+**Amended 2026-11-07.** The slice 2 build changed case 2 and the evidence tier. A build note held these changes, and this amendment records them as decisions:
+
+- **Case 2 reads the coverage first.** A silent gap counts only when it ends after the stored fact. A provider with no activity source (Railway, Vercel, MCP) can never show that it was not blind. Thus a stored fact from before this run is always ambiguous for its thing, and the thing gets a live read.
+- **A fold of this run is a live read of this run.** The verified pull and the approved MCP health read fold their facts in the gather, before `verifyLoops`. A thing whose stored fact came from such a fold gets no second read. Its evidence is `live_read`, so its closing proof is `live_confirmation`. Why: the slice 2 build gave such a thing the evidence `stored_state`. A Railway target closes only from `live_confirmation`, so a Railway recovery stayed `unverified`.
+
 ### 6. One verifier registry
 
 The registry is keyed by the provider and the kind of the thing, and it is typed from `INTEGRATION_OBJECT_DEFS`. A new kind does not compile until it names a verifier or an explicit `null`. The first entries are the GitHub pull request read (one REST batch call), the Railway target read, the Vercel target read, and the approved MCP health reads. For a deploy, the thing is the target, not the attempt, because an attempt never resolves.
 
+**Amended 2026-11-07 (owner decision).** The approved MCP health reads are not in the registry yet. They stay a fold in the gather before `verifyLoops`, and their registry entry is `null`. The key of each read points the mail at the folded thing, also when the mail has no stored row. Slice 7 moves these reads into the registry. Why: a health read makes its key from the subject and the sender of the mail. `verifyLoops` reads only the stored `about` rows, and these rows do not hold that key (decision 3).
+
 ### 7. Read all, then one commit
 
 All provider reads run first, outside any transaction, because they are slow network calls. Each read gives a provider fact. Then one transaction folds every fact through `applyEvent` and records the time of the run, which decision 4 uses. A repeated run folds the same facts as `duplicate` no-ops, and the recency guard refuses an older fact. Thus the commit is idempotent with no extra compare-and-set. A failed read writes nothing. It is the `unverified` verdict of decision 8 for that thing in that run, never a state.
+
+**Amended 2026-11-07.** Two rules make the commit more exact:
+
+- **Each fact carries the time when its read returned, not the time of the commit.** Why: a webhook can land between the read and the commit. With the commit time, an older read can replace that newer webhook fact in the recency guard.
+- **A read earns the evidence `live_read` only when the store kept its fact.** The recency guard or an absorbing state can refuse the fact of a read. Then the row after the commit does not hold the state that the read saw, and the thing keeps the evidence `stored_state`. Why: a refused read did not set the state that the briefing shows.
 
 ### 8. The briefing reads one list with three verdicts
 
@@ -75,9 +91,15 @@ One composer tool replaces `list_closed_loops` and `list_loop_relevance`. It giv
 | --- | --- |
 | `open` | The thing is `active` or `failed`. The state is from this run or from a fresh stored fact. |
 | `closed` | The thing became `resolved` or `abandoned` in the window. The item carries the time of the fact, for the one-line recap. |
-| `unverified` | A live read failed in this run. The item shows the last stored state and its time. The briefing never shows it as closed. |
+| `unverified` | A live read failed in this run. The item shows the last stored state and its time. The briefing never shows it as closed. (Amended 2026-11-07: more causes, see below.) |
 
 Each item carries `stateCategory`, `nativeState`, the evidence tier of decision 5, the `SourceIdentity`, the title and the URL, and the `documentId` of each mail that points to the thing. `stale-but-open` is removed: it existed because closure needed a proof apart from the state, and the live read of decision 5 is now that proof. The loop-state tiers in the prompt map one to one: Verified-closed is `closed`, live is `open`, and couldn't-verify is `unverified`.
+
+**Amended 2026-11-07.** Three rules make this decision more exact:
+
+- **`unverified` has more causes than a failed read.** A thing is `unverified` when its live read failed or the cap stopped the read. It is also `unverified` when no reader exists for it, when the commit failed, or when a closing state failed its proof. `verifyLoops` logs the count of each cause.
+- **A `closed` item comes only from a thing that closed in the window.** A thing that closed before the window gives no item. Why: an open todo can point to a thing that closed long ago, and the recap would show it again on each run. The drop rule below still counts that thing as `closed`.
+- **The gather drops a priority mail only when every thing that the mail points to is `closed`.** The mail must point to at least one thing. Every thing counts, also a thing that has no item in the list because a cap or a schema check left it out. Before slice 2, the gather dropped a mail when one of its objects closed. Why: one mail can ask about two things, and the ask about the open thing stays open. Absence never closes a loop (ADR-0048 decision D), so a thing with no item cannot count as `closed`.
 
 ### 9. Code Mode gets the same three steps
 
@@ -96,20 +118,20 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 ## Implementation slices
 
 1. The object half of the ADR-0092 `about` observation at triage, with a 30-day backfill. **Built.** The row is a `gmail/email_interpretation` observation, one family for each message. It holds the triage category, the keys that the mail names, and the provider links of the sender's own service. It holds no resolution (decision 3). The family dedups against its head only, so the head always holds the latest triage result for the message. The backfill writes a row only for a message with a triage verdict in the run history, with that verdict. A failed classify stores `fyi`, which is not a priority category. The backfill is `apps/server/src/scripts/backfills/backfill-mail-object-links-committed.ts`.
-2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684. **Built.** `verifyLoops` is in `packages/assistant/src/knowledge/loops.ts`. The registry is `LOOP_VERIFIERS` in `connections/verified-pull/loop-verifiers.ts`. `objectStateStore.applyEvents` folds all the facts and inserts the `loop_verification_runs` row in one transaction. The composer tool is `list_loops`, and the gather input is `loops`. These points of the build make the decisions above more exact:
-   - **A loop kind can close an ask.** Only a kind with a non-empty `closesAskOn` is a loop. An attempt never resolves, so it is never a loop. `vercel.deployment_target` declares an empty `closesAskOn` (#1357), so a Vercel thing is not a loop yet. Its verifier is in the registry, but no thing uses it.
+2. `verifyLoops`: the set, the ambiguity rule, the registry (the live readers move out of `briefings/relevance.ts`), the commit and the run record, and the merged composer tool. It replaces `dropClosedLoops` and `assessLoopRelevance` in the gather, and it removes the `relevance.ts` disable lines of #1684. **Built.** `verifyLoops` is in `packages/assistant/src/knowledge/loops.ts`. The registry is `LOOP_VERIFIERS` in `connections/verified-pull/loop-verifiers.ts`. `objectStateStore.applyEvents` folds all the facts and inserts the `loop_verification_runs` row in one transaction. The composer tool is `list_loops`, and the gather input is `loops`. The 2026-11-07 amendments of decisions 1, 5, 6, 7, and 8 record the points of the build that change a decision. These other points make the decisions above more exact:
+   - **The Vercel verifier has no thing yet.** Its verifier is in the registry, but a Vercel thing is not a loop (decision 1 amendment).
    - **An absorbing state is never ambiguous.** No later fact can move a merged pull request, so it is never read again.
-   - **Case 2 reads the coverage before the merged-read proof.** A silent gap counts only when it ends after the stored fact. A provider with no activity source (Railway, Vercel, MCP) can never show that it was not blind, so its thing is always read. A fold of this run, for example the approved MCP health read just before `verifyLoops`, leaves no time for a gap.
-   - **Case 3 mints the row.** The GitHub read gives a `pull_request_read` fact. It holds the full identity (the GitHub id, the URL, the repository, and the number), so it mints the row that no webhook minted (amends ADR-0062). Railway and Vercel read no key, so they have no case-3 read.
-   - **The approved MCP health read stays a fold before `verifyLoops`.** It runs in the gather. Its key points the mail at the folded thing, also when the mail has no stored row. Its registry entry is `null`.
-   - **A closing state passes its proof.** A thing closes only through `closesOpenAsk` with the proof that the run holds: `live_confirmation` after a read of this run, else `stored_projection`. A closing state that fails its proof is `unverified`.
+   - **Case 2 reads the coverage before the merged-read proof.** The decision 5 amendment gives the rule for a provider with no activity source, and for a fold of this run.
+   - **Case 3 mints the row.** The GitHub read gives a `pull_request_read` fact for an open, a closed, or a merged pull request. It holds the full identity (the GitHub id, the URL, the repository, and the number), so it mints the row that no webhook minted (amends ADR-0062). Railway and Vercel read no key, so they have no case-3 read.
+   - **A closing state passes its proof.** A thing closes only through `closesOpenAsk` with the proof that the run holds: `live_confirmation` after a live read of this run, else `stored_projection`. The amendments of decisions 5 and 7 say which reads count. A closing state that fails its proof is `unverified`.
    - **One cap of 10 live reads for each run.** A soft edge (`nomination`) points to nothing.
-   - **The gather drops a priority mail only when it points to at least one thing and each such thing is `closed`.** The mails in `awaiting_reply`, `meeting`, and `payment` are outside the verify set, so a closure no longer drops them.
+   - **The gather drops a priority mail only when every thing that it points to is `closed`.** See the decision 8 amendment. The mails in `awaiting_reply`, `meeting`, and `payment` are outside the verify set, so a closure no longer drops them (decision 4 amendment).
    - **The soft-edge count of ADR-0109 moves into `verifyLoops`.** It now counts the mails of the verify set.
-3. The Vercel and Railway pulls move into the registry, and the deploy failures with no mail become a live read behind `readActivity` (decision 10). This closes #1683.
+3. The Vercel and Railway pulls move into the registry, and the deploy failures with no mail become a live read behind `readActivity` (decision 10). This closes #1683. The owner deferred #1683 from slice 2 to this slice on 2026-11-07.
 4. Things that only mail tracks (decision 2), with the Voyage AI case as the first proof.
 5. The Code Mode host functions (decision 9).
 6. The GitHub merged read becomes only the silence proof behind `readActivity` (#1684 rows 1 to 4).
+7. The approved MCP health reads move into the registry (decision 6 amendment, 2026-11-07).
 
 ## Preserved behavior
 
@@ -125,6 +147,8 @@ The Vercel and Railway pulls also find deploy failures that no mail reported. Th
 - **The store can be wrong without being ambiguous.** A provider can change a state without a mail and without a webhook, while the coverage still reads `live`. The briefing then shows the old state until a new mail arrives. The coverage rule of ADR-0118 decision 4 is the guard, and it is only as good as the silence proof of each source.
 - **The first run reads 30 days only.** A loop opened by a mail older than 30 days, with no open todo, is not in the set.
 - **The service-mail rule depends on the sender.** A relay that copies the domain of the service could set a state. Decision 2 needs the same sender gate that the reconcile adapters use.
+- **Old failed Vercel rows are still read on each run (#1683).** Slice 2 does not change the Vercel verified pull. The owner deferred this fix to slice 3 on 2026-11-07.
+- **A run with a failed read still moves the window.** Each committed run records its time, also when a read failed. Thus an `unverified` thing whose mails are all older than the next window leaves the set. A new priority mail or an open todo puts it back.
 - **Slice 1 changes triage.** A fault in the `about` writer loses the link of each new mail. The write is non-fatal, so triage continues. The backfill is idempotent, and a new run writes the lost links again.
 
 ## Rejected alternatives
