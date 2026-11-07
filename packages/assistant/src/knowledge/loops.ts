@@ -74,9 +74,6 @@ export interface VerifyLoopsResult {
    * first thing. An item caps its mails at 20, so the drop reads this map, not `loops`.
    */
   closedMails: ReadonlyMap<string, ClosedLoopItem>;
-  windowStart: Date;
-  /** Stored rows whose payload this build cannot parse. Their mails point to nothing. */
-  unreadableRows: number;
 }
 
 /** Why no fact of this run backs a thing whose stored state is ambiguous. */
@@ -145,7 +142,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
     "[loops] verified",
   );
 
-  return { loops, closedMails, windowStart, unreadableRows: mailRead.unreadable };
+  return { loops, closedMails };
 }
 
 /** Decision 4: the last committed run, at least 3 days back. The first run reads 30 days. */
