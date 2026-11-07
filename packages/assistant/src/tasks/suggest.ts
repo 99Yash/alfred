@@ -82,9 +82,10 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
             eq(todos.userId, input.userId),
             or(
               inArray(todos.status, LIVE_TODO_STATUSES),
-              // Recently resolved rows too, so handled work is not re-suggested.
+              // Recently resolved rows too, so handled work is not re-suggested. `cleared` is a
+              // `done` todo the user removed from the rail; it is just as handled.
               and(
-                inArray(todos.status, ["done", "dismissed"]),
+                inArray(todos.status, ["done", "dismissed", "cleared"]),
                 gte(todos.updatedAt, resolvedCutoff),
               ),
             ),
@@ -96,8 +97,8 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
       const live = overlapping.filter((c) => c.status === "open" || c.status === "suggested");
 
       const resolved = overlapping.filter(
-        (c): c is typeof c & { status: "done" | "dismissed" } =>
-          (c.status === "done" || c.status === "dismissed") &&
+        (c): c is typeof c & { status: "done" | "dismissed" | "cleared" } =>
+          (c.status === "done" || c.status === "dismissed" || c.status === "cleared") &&
           // Identity only: the same thread may carry a new ask the user has not seen.
           todoSourcesShareIdentityOverlap(c.sources, sources),
       );
@@ -132,7 +133,8 @@ export async function suggestTodo(input: SuggestTodoInput): Promise<SuggestTodoR
         return {
           status: "suppressed" as const,
           todoId: resolvedMatch.id,
-          reason: resolvedMatch.status,
+          // A cleared todo was done first, so it suppresses as `done`.
+          reason: resolvedMatch.status === "dismissed" ? ("dismissed" as const) : ("done" as const),
         };
       }
     }
