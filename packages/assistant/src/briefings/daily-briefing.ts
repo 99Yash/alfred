@@ -1,6 +1,7 @@
 import { DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import type { z } from "zod";
 import type { Workflow } from "@alfred/assistant/execution";
+import { failBriefingForRun } from "./store";
 import { dailyBriefingWorkflowInputSchema } from "./workflow-input";
 import {
   dailyBriefingStateSchema,
@@ -26,7 +27,14 @@ export const dailyBriefingWorkflow: Workflow<
   initialStep: "gather",
   stateSchema: dailyBriefingStateSchema,
   inputSchema: dailyBriefingWorkflowInputSchema,
-  closure: { kind: "none" },
+  // A throw outside a step's `markBriefingFailed`, the lease backstop, and a cancel all end the run
+  // here. The row must not stay live, or it blocks every retry for the day (SM-11).
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      await failBriefingForRun({ userId: ctx.userId, runId: ctx.runId });
+    },
+  },
   initialState({ input: parsed }) {
     return {
       slot: parsed.slot,

@@ -24,6 +24,7 @@ import { resolveBriefingPreferences } from "./preferences";
 import { renderBriefingEmailHtml } from "./references";
 import {
   beginBriefing,
+  failBriefingForRun,
   markBriefingComposed,
   markBriefingComposing,
   markBriefingFailed,
@@ -105,7 +106,13 @@ export const morningBriefingWorkflow: Workflow<
   initialStep: "gather",
   stateSchema,
   inputSchema: legacyMorningBriefingWorkflowInputSchema,
-  closure: { kind: "none" },
+  // Same as `dailyBriefingWorkflow`: a run that ends outside a step must not leave its row live (SM-11).
+  closure: {
+    kind: "client",
+    async onTerminal(ctx) {
+      await failBriefingForRun({ userId: ctx.userId, runId: ctx.runId });
+    },
+  },
 
   initialState({ input: parsed }) {
     return {
