@@ -17,10 +17,14 @@ Build the cases from the 2026-11-06 prod read. Each case has the label that the 
 - The 6 payment failures (Voyage AI, GitHub billing, Greptile low credit, Stripe "confirm your payment", Voyage "review your payment method") → `action`. Receipts and $0 invoices → `receipt`.
 - The 4 vendor webinars (Arize ×3, aihero) → `promo` or `fyi`, never `meeting`.
 - AGM and e-voting notices, smallcase reminders, TDS notices, and balance statements → quiet, under the stock instruction.
-- CI and deploy failures from GitHub, Linear, and Vercel → loud only when the thing is Yash's.
+- CI and deploy failures from GitHub, Linear, Railway, and Vercel on Yash's own projects → `fyi`. Yash decided this on 2026-11-07. He ships many PRs a day on alfred and sees each failure in the PR. Blair is not active, and a Polylane autofix PR started its deploy. His activity decides the label, not the sender.
 - Cold personal mail and AI-patterned outbound (`samuel@news.agensi.io`, `hi@agentcall.dev`, `talent@getclera.com`) and `pulse@jsgurujobs.com` (`urgent` today) → quiet unless a real person needs Yash.
 
 The deck runs at $0 on the existing eval runner. Each later slice runs it before and after. A slice lands only when no case gets worse.
+
+Built: `packages/assistant/evals/triage-deck.eval.ts`, with the cases in `evals/triage-deck/cases.ts` and the 21 prod instruction rows in `evals/triage-deck/instructions.ts`. The repo is public, so each body is a short excerpt with personal identifiers removed. Each case also records the label that prod gave it.
+
+Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 mails). Each run makes real model calls, so a case near a label boundary can change from run to run. Run the deck two times before and after a slice, and read the label of each mail, not only the total. The misses are the faults above: every payment failure gets `payment`, the webinars get `action_needed` or `meeting`, the own CI failures get `action_needed`, and the streak mails get three labels.
 
 ## Slice 1 — Stop the self-learning
 

@@ -8,7 +8,7 @@ pnpm --filter @alfred/assistant eval        # run once
 pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-A bare `evalite run` globs **all nine** suites in this directory, `boss-judgment`
+A bare `evalite run` globs **all ten** suites in this directory, `boss-judgment`
 and `triage-classify` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
@@ -54,6 +54,9 @@ it.
   usefulness with a cheap cross-provider judge.
 - `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
   mint decision, and an LLM-judge pass on rationale soundness.
+- `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
+  `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
+  no case gets worse. Deterministic only.
 - `passthrough-honesty.eval.ts` — the ADR-0074 rung-a general read-only tier:
   the boss reaches for the uncurated passthrough on a read the curated tools
   don't cover, and reports honestly when it cannot.
@@ -62,6 +65,7 @@ it.
   full one.
 - `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
+- `lib/triage-classify-retry.ts` — the provider-weather guards the two triage suites share.
 
 ## Scorers
 
