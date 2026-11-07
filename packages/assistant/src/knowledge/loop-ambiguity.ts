@@ -10,9 +10,6 @@ import { readObservationFamilyHeads } from "./observations";
 
 /** The ambiguity rule of `verifyLoops` (ADR-0120 decision 5): which things need a live read. */
 
-/** The providers whose deliveries an activity source records, so a coverage read can see a gap. */
-const COVERED_PROVIDERS: ReadonlySet<ObjectStateProvider> = new Set(["github"]);
-
 /** The things that need a live read, and the things that a read of this run already set. */
 export interface Ambiguity {
   /** Cases 1 to 3 of decision 5. */
@@ -64,12 +61,7 @@ export async function findAmbiguous(args: {
       continue;
     }
 
-    // Case 2, for a provider with no activity source: nothing can show that it was not blind.
-    if (!COVERED_PROVIDERS.has(state.provider)) {
-      ambiguous.add(thing);
-      continue;
-    }
-
+    // Case 2. A provider with no activity source has no `live` entry, so it is always blind.
     blindCheck.push({ thing, state, at });
   }
 
@@ -109,7 +101,9 @@ async function readCoverage(
 
 /**
  * Case 2: the coverage of the source is not `live` between the fact and now. A silent gap that
- * ended before the fact does not matter. Every other failure makes the whole window blind.
+ * ended before the fact does not matter. Every other failure makes the whole window blind. A
+ * provider with no activity source (Railway, Vercel, MCP) has no entry or a `no_record` entry, so
+ * it is always blind.
  */
 function isBlindAfter(
   coverage: readonly ActivityCoverage[] | null,
