@@ -43,4 +43,5 @@ Alfred is a personal assistant.
 - [Authentication](./docs/reference/auth.md)
 - [AI SDK conventions](./docs/reference/ai-sdk.md)
 - [Replicache synchronization](./docs/reference/replicache.md)
+- [State machines](./docs/reference/state-machines.md) — every status machine, its transition table and invariants, and the invalid transitions found
 - Domain pipelines: [email triage](./docs/reference/triage.md), [morning briefing](./docs/reference/briefing.md), and [cold-start research](./docs/reference/cold-start.md)
