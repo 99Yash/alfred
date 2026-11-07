@@ -18,9 +18,9 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **State.** The current condition of a thing, for example `open`, `merged`, or `failed`. Only a provider fact can set a state. A mail from the service itself is a provider fact for a thing that no connected provider tracks (ADR-0120). Table: `integration_objects`.
 
-**Loop.** A thing in the state `active` or `failed` that a priority mail or an open todo points to. A loop is not a separate record: it closes when its thing becomes `resolved` or `abandoned` (ADR-0120).
+**Loop.** A thing, or a condition in the user's words, that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A thing loop closes when a fact sets its thing to `resolved` or `abandoned`; a condition loop closes when a matched event meets the condition (ADR-0122, which supersedes the ADR-0120 definition).
 
-**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`.
+**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`. ADR-0122 (proposed) puts a link between two `integration_objects` rows in `integration_object_relations`, and a fact writes it.
 
 **Work item.** Something that the user must do or wants to watch. It has a status, and it points to the things that it is about. Today the only work item is a todo. Table: `todos`.
 
