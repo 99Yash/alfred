@@ -366,8 +366,10 @@ function unverifiedBeforeCommit(
 
     unverifiedCount += 1;
 
-    // A thing with no mail comes from an open todo, and the todo keeps it in the set.
+    // A thing with no mail comes from an open todo, and the todo keeps it in the set. A thing with
+    // no reader or no target can get no read in a later run, so it does not hold the window.
     if (
+      HOLDS_WINDOW[unverified] &&
       thing.oldestMailAt !== null &&
       (oldestUnverifiedMailAt === null || thing.oldestMailAt < oldestUnverifiedMailAt)
     ) {
@@ -377,6 +379,19 @@ function unverifiedBeforeCommit(
 
   return { unverifiedCount, oldestUnverifiedMailAt };
 }
+
+/**
+ * Which reasons hold the next window at the oldest mail of the thing. Only a reason that a later
+ * run can clear holds it: the cap and a failed read. `commit_failed` writes no run row.
+ */
+const HOLDS_WINDOW = {
+  no_reader: false,
+  no_target: false,
+  over_cap: true,
+  read_failed: true,
+  commit_failed: false,
+  fact_refused: false,
+} satisfies Record<UnverifiedReason, boolean>;
 
 /** The reasons of the `unverified` things, for the run log. */
 function countUnverified(outcomes: ReadonlyMap<LoopThing, ThingOutcome>) {

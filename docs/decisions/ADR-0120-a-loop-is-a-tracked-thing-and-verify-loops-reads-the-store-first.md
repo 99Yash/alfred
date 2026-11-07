@@ -46,7 +46,7 @@ The window is 30 days on the first run. Each later run starts at the last succes
 
 **Amended 2026-11-07 (owner decision).** The verify set stays bounded to the three priority categories above. Before slice 2, the gather also dropped a mail in `awaiting_reply`, `meeting`, or `payment` when its object was closed. That drop is deliberately gone. These mails now stay in the briefing when their thing closes. Why: this decision bounds the set, so it also bounds the live reads of each run.
 
-**Amended 2026-11-07 (review).** A run that leaves a mailed thing `unverified` does not move the window past the mails of that thing. The run row records `oldest_unverified_mail_at`: the oldest mail of each thing that no read of the run backs. The next window starts at the earliest of the last `ran_at`, that time, and 3 days back. It never starts more than 30 days back. Why: before, each committed run moved the window, also when a read failed. Thus an `unverified` thing whose mails were all older than the next window left the set.
+**Amended 2026-11-07 (review).** A run that leaves a mailed thing `unverified` does not move the window past the mails of that thing. The run row records `oldest_unverified_mail_at`: the oldest mail of each thing whose read the cap stopped or that failed. A thing with no reader or no target does not hold the window, because no later run can read it. The next window starts at the earliest of the last `ran_at`, that time, and 3 days back. It never starts more than 30 days back. Why: before, each committed run moved the window, also when a read failed. Thus an `unverified` thing whose mails were all older than the next window left the set.
 
 ### 5. The store is the verdict, and a live read runs only when the state is ambiguous
 

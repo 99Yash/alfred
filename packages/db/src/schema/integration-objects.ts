@@ -6,7 +6,8 @@ import { entities } from "./memory";
 
 /**
  * State of external work objects, such as GitHub PRs and deploys (ADR-0062).
- * Only the webhook reducer writes state. An LLM may propose a key but never
+ * Only the reducer writes state, through `objectStateStore.applyEvents`, from a
+ * provider fact (a webhook, a verified pull, or a loop read). An LLM may propose a key but never
  * asserts state, so a made-up key cannot fake a merge (ADR-0048).
  * A briefing reads a short window, so it needs this stored state to see a close.
  */
