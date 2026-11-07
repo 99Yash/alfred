@@ -1,6 +1,7 @@
 import {
   buildGmailDocumentContent,
   gmailDocumentMetadataSchema,
+  isHttpError,
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
   parseGmailIngestionState,
@@ -489,6 +490,35 @@ function compareHistoryIds(a: string, b: string): number {
   }
 }
 
+/**
+ * A message fetch that a later run can still complete. A 404 means the message was deleted after
+ * its add record, and a per-input status fails the same way on every run, so neither may pin the
+ * cursor. Everything else (429, 5xx, a network or DB fault) can clear.
+ */
+function isRetryableMessageFailure(err: unknown): boolean {
+  if (!isHttpError(err)) return true;
+
+  return err.status !== 404 && !err.perInputPermanent;
+}
+
+/**
+ * The cursor that keeps the add record at `failedHistoryId` in the next `history.list` window:
+ * its predecessor, never below where this run started and never past where it read to.
+ */
+function holdCursorBefore(failedHistoryId: string, cursorBefore: string, latest: string): string {
+  let predecessor: string;
+
+  try {
+    predecessor = (BigInt(failedHistoryId) - 1n).toString();
+  } catch {
+    return cursorBefore;
+  }
+
+  if (compareHistoryIds(predecessor, cursorBefore) < 0) return cursorBefore;
+
+  return compareHistoryIds(predecessor, latest) > 0 ? latest : predecessor;
+}
+
 interface UpsertIngestionStateArgs {
   credentialId: string;
   userId: string;
@@ -658,6 +688,8 @@ export interface PollHistoryArgs {
   maxPages?: number | undefined;
   /** Deferred attachment ingest sink. Production wires `enqueueGmailMediaIngest`. */
   scheduleMediaIngest?: ScheduleGmailMediaIngest | undefined;
+  /** Test seam. */
+  deps?: { mailbox?: Pick<GmailMailbox, "listHistory" | "getMessage"> | undefined } | undefined;
 }
 
 export interface PollHistoryResult {
@@ -698,7 +730,7 @@ export interface PollHistoryResult {
 export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHistoryResult> {
   const startedAt = new Date();
   const cred = await loadCredentialOrThrow(args.credentialId);
-  const mailbox = gmailMailbox({ credentialId: args.credentialId });
+  const mailbox = args.deps?.mailbox ?? gmailMailbox({ credentialId: args.credentialId });
   const { historyId: cursorBefore } = await loadIngestionState(args.credentialId);
 
   if (!cursorBefore) {
@@ -819,6 +851,9 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   const touchedThreadIds = new Set<string>();
 
   let insertedHistoryId: string | null = null;
+  // The add record of the earliest message a later run can still fetch. The cursor must stay
+  // below it, or `history.list` never returns that record again and the mail is lost.
+  let earliestRetryableHistoryId: string | null = null;
 
   for (const [id, addedHistoryId] of messageIds) {
     try {
@@ -868,8 +903,20 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     } catch (err) {
       errors++;
       logger.warn({ err }, `[gmail.ingestor] poll fetch failed for message=${id}`);
+
+      if (
+        isRetryableMessageFailure(err) &&
+        (!earliestRetryableHistoryId ||
+          compareHistoryIds(addedHistoryId, earliestRetryableHistoryId) < 0)
+      ) {
+        earliestRetryableHistoryId = addedHistoryId;
+      }
     }
   }
+
+  const cursorAfter = earliestRetryableHistoryId
+    ? holdCursorBefore(earliestRetryableHistoryId, cursorBefore, latestHistoryId)
+    : latestHistoryId;
 
   // An old internalDate can hide announced mail from the realtime search, so a late insert proves
   // nothing.
@@ -887,7 +934,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
   await upsertIngestionState({
     credentialId: cred.credentialId,
     userId: cred.userId,
-    historyId: latestHistoryId,
+    historyId: cursorAfter,
     fullSync: false,
     fallbackInsertAt: args.reason === "poll-fallback" && unannouncedInsert ? startedAt : undefined,
   });
@@ -901,7 +948,7 @@ export async function pollGmailHistory(args: PollHistoryArgs): Promise<PollHisto
     chunksWritten,
     embedFailures,
     cursorBefore,
-    cursorAfter: latestHistoryId,
+    cursorAfter,
     fullResync: false,
     insertedDocumentIds,
     unembeddedDocumentIds: [],
@@ -1102,15 +1149,20 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     }
   }
 
-  // Record webhook success even for an empty search. A partial failure may move the cursor, not the
-  // success time.
-  const cursorAdvanced = Boolean(highWaterHistoryId && highWaterHistoryId !== cursorBefore);
+  // The search window is the only evidence this path has. A failed fetch, or a list cut at the cap,
+  // leaves mail below the high-water mark that this run did not store. Moving the cursor past it
+  // would hide its add record from the `pollGmailHistory` catch-up (ADR-0037), so hold the cursor.
+  const listTruncated = refs.length >= cap;
+  const cursorAfter = errors > 0 || listTruncated ? cursorBefore : highWaterHistoryId;
+
+  // Record webhook success even for an empty search.
+  const cursorAdvanced = Boolean(cursorAfter && cursorAfter !== cursorBefore);
 
   if (cursorAdvanced || coverageGap || errors === 0) {
     await upsertIngestionState({
       credentialId: cred.credentialId,
       userId: cred.userId,
-      historyId: highWaterHistoryId,
+      historyId: cursorAfter,
       fullSync: false,
       coverageGap,
       webhookSyncCompleted: errors === 0,
@@ -1124,7 +1176,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     ignored,
     errors,
     cursorBefore,
-    cursorAfter: highWaterHistoryId,
+    cursorAfter,
     insertedDocumentIds,
     unembeddedDocumentIds: insertedDocumentIds,
     triageDocumentIds,

@@ -58,7 +58,6 @@ The realtime path advances the history cursor monotonically (only forward, only 
 
 **Trace back to the symptom.** 2026-05-22 ~10:24 IST: user reports a GitHub Sudo verification code took ~3 min to be tagged. Logs show the webhook fired at 04:54:06 UTC with `inserted=0 skipped=0` and the cursor advancing 73 ticks (label/system events only); the same message was finally ingested at 04:57:34 UTC on a subsequent webhook and tagged 4.5s later. Median tag latency for the same user in the prior 24h: 8.5s. This ADR replaces that webhook-triggered call with `messages.list`, which sees fresh sends within seconds rather than minutes.
 
-
 **Amended 2026-09-07 (#998 review).** The sweep now considers all active Gmail
 cursors on each five-minute run. It does not filter by sync completion time:
 a slow fallback poll previously made the next sweep skip its credential.
@@ -66,3 +65,13 @@ History jobs use `keepLastIfActive`, retaining at most one follow-up during an
 active poll. Realtime jobs retain their separate 30-second dedup window.
 This adds a history request for recently synced active mailboxes. The schedule
 is not a completion-time guarantee under queue or provider load.
+
+**Amended 2026-11-07 (SM-01, `docs/reference/state-machines.md`).** The history
+cursor never moves past mail that a run did not store. The realtime path holds
+the cursor when a message fetch fails or when the list reaches the message cap,
+because it reads no add records and cannot tell what it missed. The catch-up
+path holds the cursor one id below the add record of the earliest message whose
+fetch failed with a retryable fault. A 404 (the message was deleted) and a
+per-input status (400, 413, 422) do not hold it, because they fail the same way
+on every run. Before this change both paths moved the cursor to their
+high-water mark, and the catch-up sweep could never see the add record again.
