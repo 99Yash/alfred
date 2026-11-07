@@ -42,8 +42,7 @@ export { discoverVercelTargets, readVercelDeploymentStatus, type VercelPullTarge
 export {
   loopVerifierFor,
   loopVerifierForKey,
-  type LoopKey,
-  type LoopReadBatch,
+  type LoopReadSource,
   type LoopVerifier,
   type LoopVerifierRead,
 } from "./loop-verifiers";

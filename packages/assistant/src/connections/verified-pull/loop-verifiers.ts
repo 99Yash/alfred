@@ -6,6 +6,7 @@ import {
   type ObjectStateProvider,
   parseGithubPullRequestUrl,
 } from "@alfred/contracts";
+import type { IntegrationObjectKey } from "@alfred/db/schemas";
 import { githubClientForUser } from "@alfred/integrations/github";
 import { logger } from "@alfred/logging";
 import {
@@ -44,31 +45,25 @@ export interface LoopVerifierRead {
 }
 
 /** A key that a mail names, as the `email_interpretation` row stores it. */
-export interface LoopKey {
-  readonly keyKind: string;
-  readonly keyValue: string;
-}
+type LoopKey = Pick<IntegrationObjectKey, "keyKind" | "keyValue">;
+
+/** What a verifier reads a thing from: its stored row, or a key with no row (case 3). */
+export type LoopReadSource = { readonly state: ObjectState } | { readonly key: LoopKey };
 
 /**
- * The reads of one run for one verifier. `plan` parses a thing one time and gives its target id.
- * `read` reads only the ids it gets, so the run cap can drop a planned target. It never throws: a
- * fault is `null` for each target that it covers.
+ * The live reader of one object kind. `targetId` names the target that a read of the source
+ * reads. Two things with one target id share one read. `read` reads each source that it gets, so
+ * the run cap can drop a source. It never throws: a fault gives no entry for its targets.
  */
-export interface LoopReadBatch {
-  planState(state: ObjectState): string | null;
-  /** A key with no stored row (case 3). `null` when this kind cannot read from a key. */
-  planKey(key: LoopKey): string | null;
+export interface LoopVerifier {
+  /** The key kinds that it reads from a key. Empty: the kind has no case-3 read. */
+  readonly keyKinds: readonly string[];
+  targetId(source: LoopReadSource): string | null;
   read(
     userId: string,
-    targetIds: readonly string[],
+    sources: readonly LoopReadSource[],
     signal: AbortSignal,
   ): Promise<ReadonlyMap<string, LoopVerifierRead>>;
-}
-
-export interface LoopVerifier {
-  /** The key kinds that `planKey` reads. Empty: the kind has no case-3 read. */
-  readonly keyKinds: readonly string[];
-  batch(): LoopReadBatch;
 }
 
 /** The typed half of a verifier. {@link defineLoopVerifier} keeps the target type inside. */
@@ -86,44 +81,38 @@ interface LoopVerifierDef<Target> {
 }
 
 function defineLoopVerifier<Target>(def: LoopVerifierDef<Target>): LoopVerifier {
+  const targetOf = (source: LoopReadSource): Target | null => {
+    if ("state" in source) return def.targetFromState(source.state);
+
+    return def.keyKinds.includes(source.key.keyKind) ? def.targetFromKey(source.key) : null;
+  };
+
   return {
     keyKinds: def.keyKinds,
-    batch() {
-      const planned = new Map<string, Target>();
+    targetId(source) {
+      const target = targetOf(source);
 
-      const plan = (target: Target | null): string | null => {
-        if (target === null) return null;
-        const id = def.targetId(target);
+      return target === null ? null : def.targetId(target);
+    },
+    async read(userId, sources, signal) {
+      const targets = new Map<string, Target>();
 
-        if (id !== null) planned.set(id, target);
+      for (const source of sources) {
+        const target = targetOf(source);
+        const id = target === null ? null : def.targetId(target);
 
-        return id;
-      };
+        if (target !== null && id !== null) targets.set(id, target);
+      }
 
-      return {
-        planState: (state) => plan(def.targetFromState(state)),
-        planKey: (key) =>
-          def.keyKinds.includes(key.keyKind) ? plan(def.targetFromKey(key)) : null,
-        async read(userId, targetIds, signal) {
-          const admitted = new Map<string, Target>();
+      if (targets.size === 0) return new Map();
 
-          for (const id of targetIds) {
-            const target = planned.get(id);
+      try {
+        return await def.readTargets(userId, targets, signal);
+      } catch (err) {
+        logger.warn({ err }, "[loops] live read failed; its things stay unverified");
 
-            if (target !== undefined) admitted.set(id, target);
-          }
-
-          if (admitted.size === 0) return new Map();
-
-          try {
-            return await def.readTargets(userId, admitted, signal);
-          } catch (err) {
-            logger.warn({ err }, "[loops] live read failed; its things stay unverified");
-
-            return new Map();
-          }
-        },
-      };
+        return new Map();
+      }
     },
   };
 }

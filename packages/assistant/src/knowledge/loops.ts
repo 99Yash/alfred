@@ -10,7 +10,7 @@ import {
 } from "@alfred/assistant/connections";
 import {
   loopVerifierFor,
-  type LoopReadBatch,
+  type LoopReadSource,
   type LoopVerifier,
   type LoopVerifierRead,
 } from "@alfred/assistant/connections/verified-pull";
@@ -170,10 +170,10 @@ async function readWindowStart(userId: string, clock: Date): Promise<Date> {
   return new Date(Math.min(last.ranAt.getTime(), minimum));
 }
 
-/** One read that this run admitted, with its verifier batch and its target id. */
+/** One read that this run admitted, with its verifier and its target id. */
 interface PlannedRead {
   thing: LoopThing;
-  batch: LoopReadBatch;
+  verifier: LoopVerifier;
   targetId: string;
 }
 
@@ -192,19 +192,10 @@ async function readAndCommit(args: {
   readThisRun: ReadonlySet<LoopThing>;
 }): Promise<Map<LoopThing, ThingOutcome>> {
   const outcomes = new Map<LoopThing, ThingOutcome>();
-  const batches = new Map<LoopVerifier, LoopReadBatch>();
   const planned: PlannedRead[] = [];
-  // The distinct targets of each batch. Two things can name one target, so one read serves both.
-  const idsByBatch = new Map<LoopReadBatch, Set<string>>();
+  // The distinct targets of each verifier. Two things can name one target, so one read serves both.
+  const sourcesByVerifier = new Map<LoopVerifier, Map<string, LoopReadSource>>();
   let liveReads = 0;
-
-  const batchOf = (verifier: LoopVerifier): LoopReadBatch => {
-    const batch = batches.get(verifier) ?? verifier.batch();
-
-    batches.set(verifier, batch);
-
-    return batch;
-  };
 
   const unverified = (thing: LoopThing, reason: UnverifiedReason): void => {
     outcomes.set(thing, { state: thing.state, evidence: "stored_state", unverified: reason });
@@ -231,43 +222,43 @@ async function readAndCommit(args: {
       continue;
     }
 
-    const batch = batchOf(verifier);
-
-    const targetId = thing.state
-      ? batch.planState(thing.state)
+    const source: LoopReadSource | null = thing.state
+      ? { state: thing.state }
       : thing.keyRead
-        ? batch.planKey(thing.keyRead.key)
+        ? { key: thing.keyRead.key }
         : null;
 
-    if (targetId === null) {
+    const targetId = source ? verifier.targetId(source) : null;
+
+    if (source === null || targetId === null) {
       unverified(thing, "no_target");
       continue;
     }
 
-    const ids = idsByBatch.get(batch) ?? new Set<string>();
+    const sources = sourcesByVerifier.get(verifier) ?? new Map<string, LoopReadSource>();
 
-    if (!ids.has(targetId)) {
+    if (!sources.has(targetId)) {
       if (liveReads >= MAX_LIVE_READS) {
         unverified(thing, "over_cap");
         continue;
       }
 
-      ids.add(targetId);
+      sources.set(targetId, source);
       liveReads += 1;
     }
 
-    idsByBatch.set(batch, ids);
-    planned.push({ thing, batch, targetId });
+    sourcesByVerifier.set(verifier, sources);
+    planned.push({ thing, verifier, targetId });
   }
 
   // `read` never throws, so no sibling stops early. The caller's abort and the deadline stop all.
   const readSignal = AbortSignal.any([args.signal, AbortSignal.timeout(LIVE_READS_DEADLINE_MS)]);
 
-  const readsByBatch = new Map<LoopReadBatch, ReadonlyMap<string, LoopVerifierRead>>(
+  const readsByVerifier = new Map<LoopVerifier, ReadonlyMap<string, LoopVerifierRead>>(
     await Promise.all(
-      [...idsByBatch].map(
-        async ([batch, ids]) =>
-          [batch, await batch.read(args.userId, [...ids], readSignal)] as const,
+      [...sourcesByVerifier].map(
+        async ([verifier, sources]) =>
+          [verifier, await verifier.read(args.userId, [...sources.values()], readSignal)] as const,
       ),
     ),
   );
@@ -277,8 +268,8 @@ async function readAndCommit(args: {
 
   const readByThing = new Map<LoopThing, LoopVerifierRead>();
 
-  for (const { thing, batch, targetId } of planned) {
-    const read = readsByBatch.get(batch)?.get(targetId);
+  for (const { thing, verifier, targetId } of planned) {
+    const read = readsByVerifier.get(verifier)?.get(targetId);
 
     if (read) {
       readByThing.set(thing, read);
