@@ -76,7 +76,7 @@ The registry is keyed by the provider and the kind of the thing, and it is typed
 
 ### 7. Read all, then one commit
 
-All provider reads run first, outside any transaction, because they are slow network calls. Each read gives a provider fact. Then one transaction folds every fact through `applyEvent` and records the time of the run, which decision 4 uses. A repeated run folds the same facts as `duplicate` no-ops, and the recency guard refuses an older fact. Thus the commit is idempotent with no extra compare-and-set. A failed read writes nothing. It is the `unverified` verdict of decision 8 for that thing in that run, never a state.
+All provider reads run first, outside any transaction, because they are slow network calls. Each read gives a provider fact. Then one transaction folds every fact through `applyEvents` and records the time of the run, which decision 4 uses. A repeated run folds each read again with the time of its new read. The fold writes the same state again and moves `state_delivered_at` forward, and the recency guard refuses an older fact. Thus a repeated commit changes no state, and it needs no extra compare-and-set. A failed read writes nothing. It is the `unverified` verdict of decision 8 for that thing in that run, never a state.
 
 **Amended 2026-11-07.** Two rules make the commit more exact:
 

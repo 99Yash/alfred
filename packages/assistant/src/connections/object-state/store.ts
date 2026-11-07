@@ -140,8 +140,11 @@ export interface ObjectStateStore {
   applyEvent(args: ApplyEventArgs): Promise<void>;
   /**
    * Fold many facts in one transaction (ADR-0120 decision 7). Each fact goes through the same
-   * guards as {@link applyEvent}. A repeated fact is a no-op, and the recency guard refuses an
-   * older one. All object rows lock in one identity order, so two calls cannot deadlock.
+   * guards as {@link applyEvent}. The recency guard refuses an older fact. A fact that it accepts
+   * writes the row also when the state does not change, because it moves `stateDeliveredAt`
+   * forward: a reader takes that as proof that the state was read again. Thus a repeated fact is
+   * idempotent, but it is not a no-op. All object rows lock in one identity order, so two calls
+   * cannot deadlock.
    */
   applyEvents(args: ApplyEventsArgs): Promise<void>;
   resolveByKey(
