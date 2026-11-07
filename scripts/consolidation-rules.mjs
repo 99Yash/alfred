@@ -317,7 +317,7 @@ export const RULES = [
     severity: "gate",
     owners: [
       "packages/contracts/src/integration-objects.ts",
-      "packages/assistant/src/knowledge/loops.ts",
+      "packages/assistant/src/knowledge/loop-items.ts",
     ],
     fix: "Pass the proof you actually hold to closesOpenAsk(provider, kind, category, proof) from @alfred/contracts. A reader over a stored integration_objects row holds `stored_projection`; only a caller that just took a live provider read of THIS object may name `live_confirmation`. If you mean to nominate a candidate for a consumer that will go get the read, call closureCandidate(provider, kind, category) and hand on its `proof` instead of naming one. A new site that genuinely takes the read joins this rule's `owners`; a one-off states the read it holds in a `// drift-ok:` marker.",
   },
