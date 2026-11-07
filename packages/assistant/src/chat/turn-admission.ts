@@ -20,7 +20,12 @@ import {
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
-import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
+import {
+  cancelRun,
+  getRun,
+  persistChatTurnRunInTx,
+  redeliverRun,
+} from "@alfred/assistant/execution";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 import {
@@ -186,6 +191,35 @@ export async function stopChatTurn(runId: string, userId: string): Promise<{ ok:
     throw Errors.ServiceUnavailableError("Couldn't reach the stop channel — try again");
 
   return { ok: true };
+}
+
+/**
+ * Cancel the live chat runs of a thread the user deleted. A run has no FK to its thread, so the
+ * delete alone leaves it running: a card it staged stays decidable from `/approvals` and its tool
+ * still runs. The cancel rejects those cards and stops the next step. Call it after the delete
+ * commits. Returns the number of runs this call cancelled.
+ */
+export async function cancelDeletedThreadRuns(userId: string, threadId: string): Promise<number> {
+  const live = await db()
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(chatThreadRunMatch(agentRuns, { userId, threadId }), runIsNotTerminal(agentRuns.status)),
+    );
+
+  let cancelled = 0;
+
+  for (const { id } of live) {
+    const outcome = await cancelRun({
+      runId: id,
+      reason: "thread_deleted",
+      pendingApprovalRejectReason: "The conversation was deleted.",
+    });
+
+    if (outcome === "cancelled") cancelled++;
+  }
+
+  return cancelled;
 }
 
 export interface StartChatTurnInput {

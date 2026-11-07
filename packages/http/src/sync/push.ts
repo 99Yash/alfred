@@ -6,6 +6,7 @@ import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import type { MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "@alfred/assistant/action-policies";
+import { cancelDeletedThreadRuns } from "@alfred/assistant/chat";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import {
   enqueueChatStorageCleanup,
@@ -227,6 +228,19 @@ export async function handlePush(
       await enqueueTriageRelabel(userId, f.sourceThreadId);
     } catch (err) {
       logger.warn({ err }, "[replicache:push] triage relabel enqueue failed");
+    }
+  }
+
+  // Cancel a deleted thread's live chat runs. A run has no FK to its thread, so without this a
+  // card it staged stays decidable from `/approvals` and its tool still runs. The cancel rejects
+  // the cards. A failure here leaves the run live until it fails on the missing thread.
+  for (const f of outcome.followUps) {
+    if (f.kind !== "cancelThreadRuns") continue;
+
+    try {
+      await cancelDeletedThreadRuns(userId, f.threadId);
+    } catch (err) {
+      logger.warn({ err }, "[replicache:push] cancel of a deleted thread's runs failed");
     }
   }
 

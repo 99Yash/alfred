@@ -127,7 +127,10 @@ export const serverMutators: ServerMutatorsRegistry = {
   chatThreadDelete: {
     args: chatThreadDeleteArgsSchema,
     run: chatThreadDelete,
-    followUp: (_userId, args) => [{ kind: "cleanChatStorage", threadId: args.id }],
+    followUp: (_userId, args) => [
+      { kind: "cancelThreadRuns", threadId: args.id },
+      { kind: "cleanChatStorage", threadId: args.id },
+    ],
   },
   triageTagOverride: {
     args: triageTagOverrideArgsSchema,

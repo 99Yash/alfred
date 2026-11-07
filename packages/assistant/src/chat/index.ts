@@ -3,7 +3,7 @@
 
 export { chatTurnWorkflow } from "./chat-turn";
 
-export { startChatTurn, stopChatTurn } from "./turn-admission";
+export { cancelDeletedThreadRuns, startChatTurn, stopChatTurn } from "./turn-admission";
 
 export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachment-ingest";
 
