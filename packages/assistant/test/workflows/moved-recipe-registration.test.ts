@@ -19,9 +19,10 @@ import type { Workflow } from "@alfred/assistant/execution";
 import type { WorkflowInput } from "../../src/execution/index.domain";
 
 /**
- * Pin each recipe's slug, steps, entry, `trigger`, and `dedupKey` at its owning subpath.
- * A change breaks resume of a persisted run, fires it from another event,
- * or drops the `agent_runs_dedup_key_idx` singleton guard (ADR-0027, ADR-0047).
+ * Pin each recipe's slug, steps, entry, `trigger`, `dedupKey`, and `concurrencyKey` at its owning
+ * subpath. A change breaks resume of a persisted run, fires it from another event, or drops the
+ * `agent_runs_dedup_key_idx` singleton guard or the `agent_runs_concurrency_key_idx` one-at-a-time
+ * guard (ADR-0027, ADR-0047).
  */
 describe("moved product recipes keep their identity at their owning module seam", () => {
   // `dedupKey` ignores the trigger, but `WorkflowInput` requires one. `createRun` parses
@@ -44,6 +45,8 @@ describe("moved product recipes keep their identity at their owning module seam"
     trigger: WorkflowTrigger;
     /** `null` means no `dedupKey`. Inputs must match the recipe's `metadataSchema`/`inputSchema`. */
     dedup: null | ReadonlyArray<{ input: WorkflowInput; expected: string | null }>;
+    /** Absent means no `concurrencyKey`. */
+    concurrency?: ReadonlyArray<{ input: WorkflowInput; expected: string | null }>;
   }> = [
     // `slug` is the persisted literal, not the recipe's constant, so a renamed constant goes red.
     {
@@ -108,8 +111,9 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "gather-context",
       steps: ["gather-context", "compose", "persist-revision", "notify"],
       trigger: { kind: "event", source: "learn-skill", type: "completed" },
-      // Per-skill singleton; the input schema requires `skillId`.
-      dedup: [
+      // One live run per skill; the input schema requires `skillId`.
+      dedup: null,
+      concurrency: [
         {
           input: { ...sampleBase, input: { skillId: "skill_1" } },
           expected: "skill-doc:skill_1",
@@ -123,8 +127,9 @@ describe("moved product recipes keep their identity at their owning module seam"
       initialStep: "gather",
       steps: ["gather", "distill", "persist"],
       trigger: { kind: "manual" },
-      // Per-skill singleton; the input schema requires both `skillId` and `prompt`.
-      dedup: [
+      // One live run per skill; the input schema requires both `skillId` and `prompt`.
+      dedup: null,
+      concurrency: [
         {
           input: { ...sampleBase, input: { skillId: "skill_1", prompt: "p" } },
           expected: "learn-skill:skill_1",
@@ -184,6 +189,27 @@ describe("moved product recipes keep their identity at their owning module seam"
             c.recipe.dedupKey(s.input),
             s.expected,
             "dedup-key derivation must be unchanged",
+          );
+        }
+      }
+
+      if (c.concurrency === undefined) {
+        assert.equal(
+          typeof c.recipe.concurrencyKey,
+          "undefined",
+          "recipe must declare no concurrency key",
+        );
+      } else {
+        assert.ok(
+          typeof c.recipe.concurrencyKey === "function",
+          "recipe must declare a concurrency key",
+        );
+
+        for (const s of c.concurrency) {
+          assert.equal(
+            c.recipe.concurrencyKey(s.input),
+            s.expected,
+            "concurrency-key derivation must be unchanged",
           );
         }
       }

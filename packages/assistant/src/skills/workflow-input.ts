@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * Input and slug for `learn-skill`. One run per `skillId` via the dedup index;
- * a repeated click gets 23505, and the handler returns the existing run id.
+ * Input and slug for `learn-skill`. One live run per `skillId` via the concurrency index;
+ * a click while one runs gets 23505, and the handler answers "in flight". A finished run frees it.
  */
 
 export const LEARN_SKILL_WORKFLOW_SLUG = "learn-skill";
@@ -18,7 +18,7 @@ export const learnSkillWorkflowInputSchema = z.object({
 
 export type LearnSkillWorkflowInput = z.infer<typeof learnSkillWorkflowInputSchema>;
 
-/** At most one Learn run per skill. */
-export function learnSkillDedupKey(skillId: string): string {
+/** At most one live Learn run per skill. A completed run frees it, so Regenerate works. */
+export function learnSkillConcurrencyKey(skillId: string): string {
   return `learn-skill:${skillId}`;
 }

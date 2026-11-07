@@ -10,7 +10,7 @@ import { distillResultSchema, distillSkill, type DistillSkillResult } from "./di
 import { parsedMentionSchema, type ParsedMention } from "./mentions";
 import {
   LEARN_SKILL_WORKFLOW_SLUG,
-  learnSkillDedupKey,
+  learnSkillConcurrencyKey,
   learnSkillWorkflowInputSchema,
 } from "./workflow-input";
 
@@ -19,7 +19,7 @@ import {
  * Steps: gather context; one cheap-tier distill call; in one transaction, write a
  * `distilled` revision, activate the skill, rename it, and propose facts. Then enqueue
  * `skill-documentation`.
- * `dedupKey` blocks concurrent Learn clicks per skill. Retries are safe: facts and
+ * `concurrencyKey` blocks concurrent Learn clicks per skill. Retries are safe: facts and
  * revisions are idempotent. A crash re-bills one cheap call.
  * Review happens on the proposed `user_facts`, not here. The body commits on success.
  */
@@ -76,7 +76,7 @@ export const learnSkillWorkflow: Workflow<
   },
 
   // One run per skill; different skills run in parallel.
-  dedupKey: ({ input }) => learnSkillDedupKey(input.skillId),
+  concurrencyKey: ({ input }) => learnSkillConcurrencyKey(input.skillId),
 
   // The UI reads `skill_runs.status`, so close it on any terminal path or the card
   // stays "in progress". Each branch records its own status.

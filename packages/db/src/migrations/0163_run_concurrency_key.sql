@@ -1,0 +1,2 @@
+ALTER TABLE "agent_runs" ADD COLUMN "concurrency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_runs_concurrency_key_idx" ON "agent_runs" USING btree ("user_id","workflow_slug","concurrency_key") WHERE "agent_runs"."concurrency_key" IS NOT NULL AND "agent_runs"."status" NOT IN ('completed', 'failed', 'cancelled', 'blocked');

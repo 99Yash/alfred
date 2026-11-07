@@ -141,10 +141,17 @@ interface WorkflowDefinition<S, N extends string, M, I> {
    */
   closure: WorkflowClosure<S>;
   /**
-   * At most one live run per (user, key). Failed and cancelled runs do not count,
-   * so an outage is not a permanent lockout. The workflow owns the key, not the caller.
+   * At most one run per (user, key) that did not fail or get cancelled. A COMPLETED run still
+   * holds the key ("already done"), so use this for once-only work. Failed and cancelled runs do
+   * not count, so an outage is not a permanent lockout. The workflow owns the key, not the caller.
    */
   dedupKey?(input: WorkflowInput<M, I>): string | null;
+  /**
+   * At most one NON-TERMINAL run per (user, key). Any terminal run frees the key, so use this for
+   * work the user may repeat but never in parallel. A conflicting insert raises 23505 on
+   * `CONCURRENCY_RUN_INDEX`.
+   */
+  concurrencyKey?(input: WorkflowInput<M, I>): string | null;
 }
 
 /**

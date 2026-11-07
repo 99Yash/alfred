@@ -49,6 +49,12 @@ export const RUN_DEDUP_KEY_INDEX = "agent_runs_dedup_key_idx";
 
 export const MANUAL_REQUEST_RUN_INDEX = "agent_runs_manual_request_idx";
 
+/**
+ * The index behind `Workflow.concurrencyKey`: one NON-TERMINAL run per key. Unlike
+ * {@link RUN_DEDUP_KEY_INDEX}, a completed run frees the key, so the work can run again.
+ */
+export const CONCURRENCY_RUN_INDEX = "agent_runs_concurrency_key_idx";
+
 export const OCCURRENCE_RUN_INDEX = "agent_runs_occurrence_idx";
 
 /**
@@ -61,6 +67,7 @@ export const AGENT_RUN_UNIQUE_INDEXES = [
   RUN_DEDUP_KEY_INDEX,
   MANUAL_REQUEST_RUN_INDEX,
   CHAT_THREAD_ACTIVE_RUN_INDEX,
+  CONCURRENCY_RUN_INDEX,
 ] as const;
 
 export type AgentRunUniqueIndex = (typeof AGENT_RUN_UNIQUE_INDEXES)[number];
@@ -79,6 +86,7 @@ const AGENT_RUN_UNIQUE_INDEX_MEANING = {
   [RUN_DEDUP_KEY_INDEX]: "duplicate",
   [MANUAL_REQUEST_RUN_INDEX]: "duplicate",
   [CHAT_THREAD_ACTIVE_RUN_INDEX]: "busy",
+  [CONCURRENCY_RUN_INDEX]: "busy",
 } as const satisfies Record<AgentRunUniqueIndex, "duplicate" | "busy">;
 
 /** True when this 23505 constraint means "a run already exists, drop the loser". */
@@ -246,6 +254,8 @@ export const agentRuns = pgTable(
     deferredUntil: timestamp("deferred_until", { withTimezone: true }),
     /** Workflow-declared singleton key, enforced by `RUN_DEDUP_KEY_INDEX`. */
     dedupKey: text("dedup_key"),
+    /** Workflow-declared one-at-a-time key, enforced by `CONCURRENCY_RUN_INDEX`. */
+    concurrencyKey: text("concurrency_key"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastCheckpointAt: timestamp("last_checkpoint_at", { withTimezone: true }),
@@ -307,6 +317,11 @@ export const agentRuns = pgTable(
       .where(
         sql`${isChatTurnRun(t)} AND ${chatThreadIdExpr(t)} IS NOT NULL AND ${runIsNotTerminal(t.status)}`,
       ),
+    // Created after every other unique index on purpose: Postgres checks them in creation order,
+    // and callers branch on which one a 23505 names.
+    uniqueIndex(CONCURRENCY_RUN_INDEX)
+      .on(t.userId, t.workflowSlug, t.concurrencyKey)
+      .where(sql`${t.concurrencyKey} IS NOT NULL AND ${runIsNotTerminal(t.status)}`),
   ],
 );
 
