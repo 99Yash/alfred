@@ -51,10 +51,11 @@ import { reduceVercelEvent } from "./vercel-reducer";
 
 /**
  * Integration object-state store (ADR-0062). Consumers use {@link ObjectStateStore}, never the
- * tables. Only the per-provider webhook reducers write state, through `applyEvent`.
+ * tables. Only the per-provider reducers write state, through `applyEvents`: a webhook receipt
+ * through `applyEvent`, and a verified pull or a loop read as a typed fact.
  */
 
-/** What a provider reducer emits for one webhook delivery. */
+/** What a provider reducer emits for one fact: a webhook delivery or a verified read. */
 export interface ObjectStateDelta {
   kind: string;
   externalId: string;
@@ -346,7 +347,7 @@ interface PendingDelta {
  * Phase 2 locks key rows after the loop, in `inKeyLockOrder`. A key upsert takes only
  * `FOR KEY SHARE` on its parent object, which does not conflict with `FOR NO KEY UPDATE`, so no
  * wait crosses phases. `sort` is stable, so two deltas for one identity keep their order and the
- * later one wins. `applyEvent` is the only app writer of either table.
+ * later one wins. `applyEvents` is the only app writer of either table; `applyEvent` calls it.
  */
 function inLockOrder(deltas: readonly PendingDelta[]): PendingDelta[] {
   return deltas.toSorted(compareIdentity);
@@ -360,8 +361,9 @@ type PendingKeyUpsert = Readonly<
 >;
 
 /**
- * Code-unit order over `(keyKind, keyValue)`, for the same reason as `compareIdentity`. No
- * `objectId` tie-break: equal keys keep the fold order, so the last folded delta wins the row.
+ * Code-unit order over `(provider, keyKind, keyValue)`, the conflict target of one user's upsert,
+ * for the same reason as `compareIdentity`. No `objectId` tie-break: equal keys keep the fold
+ * order, so the last folded delta wins the row.
  */
 function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
   if (a.provider !== b.provider) return a.provider < b.provider ? -1 : 1;
@@ -465,7 +467,7 @@ export const objectStateStore: ObjectStateStore = {
             existing = await lockIdentityRow(tx, args.userId, identity);
 
             if (!existing) {
-              throw new Error("[object-state] applyEvent conflicted with a row it cannot read");
+              throw new Error("[object-state] applyEvents conflicted with a row it cannot read");
             }
 
             objectId = existing.id;
