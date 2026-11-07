@@ -721,6 +721,8 @@ export async function rejectLateCancelledRunStagings(
       .update(actionStagings)
       .set({
         status: "rejected",
+        // Every other reject writes `refused`; `awaiting_approval` here reads as "waiting" forever.
+        outcome: "refused",
         rejectReason: reason,
         decidedAt: now,
         rowVersion: sql`${actionStagings.rowVersion} + 1`,
@@ -819,6 +821,7 @@ export async function cancelRunInTx(
     .update(actionStagings)
     .set({
       status: "rejected",
+      outcome: "refused",
       rejectReason: args.pendingApprovalRejectReason ?? args.reason,
       decidedAt: now,
       rowVersion: sql`${actionStagings.rowVersion} + 1`,

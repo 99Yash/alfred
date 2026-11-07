@@ -325,6 +325,7 @@ export async function updateArtifact(
         format: artifacts.format,
         title: artifacts.title,
         runId: artifacts.runId,
+        status: artifacts.status,
         content: artifacts.content,
       })
       .from(artifacts)
@@ -385,9 +386,14 @@ export async function updateArtifact(
       return { status: "stale_content" as const };
     }
 
+    // A later turn that replaces the whole body of a faulted artifact repairs it.
+    // `finalizeRunArtifacts` matches only the creating run, so it never closes this row again.
+    const repairsFaulted = replacesContent && row.status === "error" && row.runId !== ctx.runId;
+
     // `pages` wins over `markdown` when both arrive.
     const set = {
       rowVersion: sql`${artifacts.rowVersion} + 1`,
+      ...(repairsFaulted ? { status: "complete" as const } : {}),
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.markdown !== undefined
         ? { content: { kind: "document" as const, markdown: input.markdown } }

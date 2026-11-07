@@ -15,7 +15,7 @@ import {
   getWorkflow,
   registerRecipe,
 } from "@alfred/assistant/execution/registry";
-import { cancelRun } from "@alfred/assistant/execution/service";
+import { cancelRun, rejectLateCancelledRunStagings } from "@alfred/assistant/execution/service";
 import { spawnSubAgent } from "@alfred/assistant/execution/sub-agents";
 import type { StepResult, Workflow } from "@alfred/assistant/execution";
 import { dbBackedSkip } from "../support/db-backed";
@@ -203,6 +203,8 @@ async function seedPendingStaging(userId: string, runId: string): Promise<string
       proposedInputHash: "hash",
       requiresApproval: true,
       status: "pending",
+      // What dispatch writes for a parked approval.
+      outcome: "awaiting_approval",
       effectKey: `eff:${runId}:call_${randomUUID().slice(0, 8)}`,
       attemptKey: `eff:${runId}:call_${randomUUID().slice(0, 8)}:1`,
       requestHash: "req:test-cancel-race",
@@ -441,6 +443,8 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
 
     assert.equal(pendingRow?.status, "rejected", "the pending approval is rejected by cancel");
     assert.equal(pendingRow.rejectReason, "user_stopped", "the rejection records the cancel");
+    // SM-05: a rejected row still marked `awaiting_approval` reads as "waiting" in run history.
+    assert.equal(pendingRow.outcome, "refused", "the cancel closes the effect outcome too");
     assert.equal(doneRow?.status, "executed", "a completed effect is preserved");
     assert.equal(
       unknownRow?.status,
@@ -448,6 +452,26 @@ describe("mid-flight cancel race (#530, DB-backed)", { skip: SKIP }, () => {
       "an unknown-outcome effect is preserved — the ambiguity barrier must keep blocking",
     );
     assert.equal(rows.length, 3);
+  });
+
+  test("SM-05: the late-commit sweep refuses a cancelled run's parked approval", async () => {
+    const { userId, runId } = await seedRun({
+      workflowSlug: CANCEL_CLOSURE_SLUG,
+      status: "cancelled",
+      attempt: 1,
+    });
+
+    const stagingId = await seedPendingStaging(userId, runId);
+
+    await rejectLateCancelledRunStagings(runId, "run cancelled before step commit");
+
+    const [row] = await db()
+      .select({ status: actionStagings.status, outcome: actionStagings.outcome })
+      .from(actionStagings)
+      .where(eq(actionStagings.id, stagingId));
+
+    assert.equal(row.status, "rejected");
+    assert.equal(row.outcome, "refused");
   });
 
   test("a cancelled run does not re-fire approval.requested from a late interrupt commit", async () => {
