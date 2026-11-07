@@ -271,13 +271,26 @@ const briefingLoopFieldsSchema = z.object({
   documentIds: z.array(z.string().min(1)).max(BRIEFING_LOOP_DOCUMENTS_MAX),
 });
 
-/** A `closed` item holds a closing category by type, so a reader needs no second closure rule. */
+const loopVerdictSchema = z.enum(LOOP_VERDICTS);
+
+/**
+ * A `closed` item holds a closing category by type, so a reader needs no second closure rule. An
+ * `open` item never holds a closing category: `verifyLoops` gives `open` only for `active` or
+ * `failed`. An `unverified` item can hold a closing category whose closure proof failed.
+ */
 export const briefingLoopSchema = z.discriminatedUnion("verdict", [
   briefingLoopFieldsSchema.extend({
-    verdict: z.literal("closed"),
+    verdict: loopVerdictSchema.extract(["closed"]),
     stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),
   }),
-  briefingLoopFieldsSchema.extend({ verdict: z.enum(["open", "unverified"]) }),
+  briefingLoopFieldsSchema.extend({
+    verdict: loopVerdictSchema.extract(["open"]),
+    stateCategory: z
+      .enum(OBJECT_STATE_CATEGORIES)
+      .exclude(LOOP_CLOSING_STATE_CATEGORIES)
+      .nullable(),
+  }),
+  briefingLoopFieldsSchema.extend({ verdict: loopVerdictSchema.extract(["unverified"]) }),
 ]);
 
 export type BriefingLoop = z.infer<typeof briefingLoopSchema>;
