@@ -79,7 +79,7 @@ import {
 import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn-run-metadata";
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
-import { isChatStopRequested } from "./stop-signal";
+import { clearChatStop, isChatStopRequested } from "./stop-signal";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
@@ -769,8 +769,16 @@ const dispatchToolsStep: Step<ChatRunState> = {
 
     let transcript = [...ctx.transcript];
 
+    // An approval park ends on the user's decision, which is newer than any Stop pressed in the
+    // round that staged the card. That Stop must not drop the approved call or cut the reply after
+    // it. A Stop pressed after the decision sets the flag again and still applies.
+    const resumedFromApproval = state.parkKind === "gate";
+
     // A resumed run re-enters here after a park; fold the park first (#902).
     foldResumedPark(state, Date.now());
+
+    if (resumedFromApproval) await clearChatStop(ctx.runId);
+
     const stepStartedMs = Date.now();
     let stepWallFolded = false;
 

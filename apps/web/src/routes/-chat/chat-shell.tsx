@@ -210,13 +210,14 @@ export function ChatShell({ threadId, thread, title }: ChatShellProps) {
 
   // Freeze the bubble and show Send this frame, then stop on the server.
   // The worker finalizes the partial reply through normal sync, so stop feels instant.
+  // The server refuses to stop a run parked on an approval; the approval card ends that wait.
   const onStopGeneration = useCallback(() => {
-    if (!activeRunId) return;
+    if (!activeRunId || approvalPending) return;
     stopStream();
     void stopChatRun(activeRunId).then((ok) => {
       if (!ok) toast.error("Couldn't stop the reply. Please try again.");
     });
-  }, [activeRunId, stopStream]);
+  }, [activeRunId, approvalPending, stopStream]);
 
   // Steer (#490): stop the reply and send this next. A run parked on an approval cannot stop.
   const canSteer = isStreaming && !approvalPending;
@@ -369,7 +370,7 @@ export function ChatShell({ threadId, thread, title }: ChatShellProps) {
                     disabled={approvalPending && !showStream}
                     onSend={queue.submit}
                     onSteer={queue.steer}
-                    onStopGeneration={queue.stopReply}
+                    onStopGeneration={approvalPending ? undefined : queue.stopReply}
                     prefill={editPrefill}
                     ghostText={ghostText}
                     onGhostAccept={onGhostDone}

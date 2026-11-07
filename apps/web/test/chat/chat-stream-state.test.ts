@@ -568,6 +568,17 @@ describe("applyChatFrame — absorption (a terminal is absorbing)", () => {
     assert.equal(applyOptimisticStop(cell), true);
     assert.equal(applyOptimisticStop(cell), false);
   });
+
+  test("a stop while the turn waits on an approval is refused, so the reply after it still shows", () => {
+    // SM-16: the server refuses this stop. A local freeze would drop every frame after approval.
+    const cell = cellOf();
+    applyChatFrame(cell, started(), 1_000);
+    applyChatFrame(cell, approval(TURN.runId), 1_100);
+
+    assert.equal(applyOptimisticStop(cell), false);
+    assert.equal(refOf(cell).stopped, false);
+    assert.equal(applyChatFrame(cell, delta(1, "Sent it."), 1_200), true);
+  });
 });
 
 describe("applyChatFrame — monotonicity (clause 3)", () => {

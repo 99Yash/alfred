@@ -635,7 +635,9 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
 export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   const r = cell.current;
 
-  if (!r || r.stopped) return false;
+  // The server refuses to stop a run parked on an approval. A local stop would freeze the bubble
+  // and drop every frame after the user decides, so the turn would show no reply (SM-16).
+  if (!r || r.stopped || r.awaitingApproval) return false;
   freezeAndFinalizeTurn(r, null);
 
   return true;
