@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type BriefingSlot, DAILY_BRIEFING_WORKFLOW_SLUG } from "@alfred/contracts";
 import { startRun } from "@alfred/assistant/execution";
 
@@ -34,7 +35,11 @@ export async function enqueueBriefingRun(args: EnqueueBriefingRunArgs): Promise<
           trigger,
           occurrence: {
             kind: "manual" as const,
-            requestId: `${args.briefingDate}:${slot}:${args.reason}`,
+            // One id per request. The occurrence index also holds terminal runs, so a fixed
+            // `date:slot` id would hand every later retry the first failed run, and the worker
+            // ignores a terminal run. The route's throttle and the `briefings` row status stop a
+            // double click from making two live runs.
+            requestId: `${args.briefingDate}:${slot}:${args.reason}:${randomUUID()}`,
           },
         };
 
