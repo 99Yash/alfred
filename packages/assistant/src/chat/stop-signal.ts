@@ -45,6 +45,20 @@ export async function requestChatStop(runId: string): Promise<boolean> {
 }
 
 /**
+ * Drop the flag. A run that resumes from an approval calls this: the user's decision is newer
+ * than a Stop pressed in the round that staged the card. Returns false when Redis is unreachable.
+ */
+export async function clearChatStop(runId: string): Promise<boolean> {
+  try {
+    await boundedRedis().del(stopKey(runId));
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Read the flag once, for a caller with no retry. A wrong `false` sends a whole
  * tool batch after Stop, so this waits for the connection. Repeated reads use {@link pollChatStopFlag}.
  */
