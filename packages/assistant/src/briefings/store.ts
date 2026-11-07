@@ -7,7 +7,7 @@ import type {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, type Briefing, type NewBriefing } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 /** `Briefing` without the lifecycle dates. */
 export type BriefingRow = Omit<Briefing, "createdAt" | "updatedAt">;
@@ -76,7 +76,14 @@ export async function beginBriefing(args: {
     return { action: "retry", row: retry };
   }
 
-  return { action: "resume", row: existing };
+  if (args.agentRunId === undefined || existing.agentRunId === args.agentRunId) {
+    return { action: "resume", row: existing };
+  }
+
+  // The resuming run owns the row now, so its terminal closure can fail the row (SM-11).
+  const resumed = await updateBriefing(existing.id, { agentRunId: args.agentRunId });
+
+  return { action: "resume", row: resumed };
 }
 
 export async function markBriefingGathering(args: {
@@ -190,6 +197,28 @@ export async function markBriefingFailed(briefingId: string): Promise<BriefingRo
   return updateBriefing(briefingId, {
     status: "failed",
   });
+}
+
+/**
+ * The terminal closure of a run that ended failed or cancelled outside its step's own
+ * `markBriefingFailed`. A row in a live status blocks every retry for the day, so set it `failed`.
+ * Only the row that this run owns changes. A `composed` row stays, because a later run resumes it
+ * and sends the prose.
+ */
+export async function failBriefingForRun(args: { userId: string; runId: string }): Promise<void> {
+  await db()
+    .update(briefings)
+    .set({
+      status: "failed",
+      rowVersion: sql`${briefings.rowVersion} + 1`,
+    })
+    .where(
+      and(
+        eq(briefings.userId, args.userId),
+        eq(briefings.agentRunId, args.runId),
+        inArray(briefings.status, ["pending", "gathering", "composing"]),
+      ),
+    );
 }
 
 async function getBriefingByUserDateSlot(
