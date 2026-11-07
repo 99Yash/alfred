@@ -24,6 +24,7 @@ export {
 export { objectStateFoldConsumers } from "./activity-consumer";
 
 export {
+  approvedMcpHealthConnectionId,
   approvedMcpHealthExternalId,
   GITHUB_MERGED_PULL_READ_EVENT_TYPE,
   GITHUB_PULL_REQUEST_READ_EVENT_TYPE,

@@ -65,6 +65,16 @@ export function approvedMcpHealthExternalId(input: {
   return `${input.connectionId}|${input.loopKey}` as ApprovedMcpHealthExternalId;
 }
 
+/**
+ * The connection of an id that {@link approvedMcpHealthExternalId} minted. `null` for a string of
+ * another shape, for example a stored row from an older format.
+ */
+export function approvedMcpHealthConnectionId(externalId: string): string | null {
+  const [connectionId, loopKey, ...rest] = externalId.split("|");
+
+  return connectionId && loopKey && rest.length === 0 ? connectionId : null;
+}
+
 /** What one read proved. A `null` read mints nothing and never closes a loop (ADR-0048-D). */
 export interface VerifiedPullReading {
   status: DeploymentStatus;

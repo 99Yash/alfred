@@ -74,6 +74,7 @@ export {
 } from "./hosted-endpoint";
 
 export {
+  approvedMcpHealthConnectionId,
   approvedMcpHealthExternalId,
   deliveryInstantNow,
   deliveryInstantOf,

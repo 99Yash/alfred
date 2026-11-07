@@ -14,7 +14,7 @@ import { db } from "@alfred/db";
 import { mcpConnections } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
 import { and, eq, inArray } from "drizzle-orm";
-import type { ObjectState } from "@alfred/assistant/connections";
+import { approvedMcpHealthConnectionId, type ObjectState } from "@alfred/assistant/connections";
 import { factTime, type LoopThing } from "./loop-set";
 import type { ThingOutcome } from "./loops";
 
@@ -192,9 +192,14 @@ async function readMcpServerIds(
   userId: string,
   things: readonly LoopThing[],
 ): Promise<ReadonlyMap<string, string>> {
-  const connectionIds = things.flatMap((thing) =>
-    thing.state?.provider === "mcp" ? [mcpConnectionIdOf(thing.state.externalId)] : [],
-  );
+  const connectionIds = things.flatMap((thing) => {
+    const connectionId =
+      thing.state?.provider === "mcp"
+        ? approvedMcpHealthConnectionId(thing.state.externalId)
+        : null;
+
+    return connectionId === null ? [] : [connectionId];
+  });
 
   if (connectionIds.length === 0) return new Map();
 
@@ -206,9 +211,13 @@ async function readMcpServerIds(
   return new Map(rows.map((row) => [row.id, row.serverId]));
 }
 
-/** `approvedMcpHealthExternalId` joins the connection and the loop key with `|`. */
-function mcpConnectionIdOf(externalId: string): string {
-  return externalId.split("|")[0] ?? externalId;
+function serverIdOf(
+  state: ObjectState | null,
+  serverIds: ReadonlyMap<string, string>,
+): string | undefined {
+  const connectionId = state ? approvedMcpHealthConnectionId(state.externalId) : null;
+
+  return connectionId === null ? undefined : serverIds.get(connectionId);
 }
 
 function sourceOf(
@@ -220,7 +229,7 @@ function sourceOf(
     provider === "mcp"
       ? {
           kind: "custom_mcp",
-          serverId: state ? serverIds.get(mcpConnectionIdOf(state.externalId)) : undefined,
+          serverId: serverIdOf(state, serverIds),
         }
       : { kind: "integration", slug: provider };
 
