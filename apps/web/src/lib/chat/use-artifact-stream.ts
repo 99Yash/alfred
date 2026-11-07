@@ -91,6 +91,28 @@ function applyArtifactToolResolution(
 }
 
 /**
+ * When the run ends, drop its bodies that no tool resolved: a Stop, or a retry that left a
+ * call behind. Each is a partial body that never reached the row, and while it lives the
+ * panel prefers it over a later finished rewrite. Resolved bodies stay until the rows sync.
+ */
+function applyRunCompleted(
+  streams: Map<string, LiveArtifactStream>,
+  p: EventPayload<"chat.message">,
+): boolean {
+  if (p.phase !== "completed") return false;
+  let changed = false;
+
+  for (const [toolCallId, stream] of streams) {
+    if (stream.runId === p.runId && !stream.done) {
+      streams.delete(toolCallId);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
  * Apply one SSE frame. Returns whether the map changed.
  * The thread check runs first because every subscriber gets every frame.
  * A replayed terminal `chat.tool` still returns `true`: one extra render, same map.
@@ -107,6 +129,8 @@ export function applyArtifactFrame(
   if (frame.kind === "artifact.delta") return applyArtifactDelta(streams, frame.payload);
 
   if (frame.kind === "chat.tool") return applyArtifactToolResolution(streams, frame.payload);
+
+  if (frame.kind === "chat.message") return applyRunCompleted(streams, frame.payload);
 
   return false;
 }
@@ -217,14 +241,19 @@ function releaseIfSettled(threadId: string, entry: ThreadArtifacts): void {
 }
 
 function onFrame(frame: EventStreamFrame): void {
-  if (frame.kind !== "artifact.delta" && frame.kind !== "chat.tool") return;
+  if (
+    frame.kind !== "artifact.delta" &&
+    frame.kind !== "chat.tool" &&
+    frame.kind !== "chat.message"
+  )
+    return;
   const named = frameThreadId(frame);
   let targets: [string, ThreadArtifacts][];
 
   if (named === null) {
     targets = [...threads];
   } else {
-    // Only a delta starts a body. A tool frame only resolves one that is already there.
+    // Only a delta starts a body. A tool or message frame only settles one that is already there.
     const entry = frame.kind === "artifact.delta" ? threadArtifacts(named) : threads.get(named);
     targets = entry ? [[named, entry]] : [];
   }

@@ -118,6 +118,58 @@ describe("applyArtifactFrame — chat.tool resolution", () => {
   });
 });
 
+function completedFrame(runId: string): EventStreamFrame {
+  return {
+    id: nextId(),
+    kind: "chat.message",
+    createdAt: CREATED_AT,
+    payload: { runId, threadId: THREAD, messageId: "msg_1", phase: "completed" },
+  };
+}
+
+describe("applyArtifactFrame — chat.message completed (SM-10)", () => {
+  test("a stopped create no longer shows as writing", () => {
+    const s = new Map<string, LiveArtifactStream>();
+    applyArtifactFrame(s, deltaFrame({ toolCallId: "t1", seq: 1, text: "partial" }), THREAD);
+    assert.equal(applyArtifactFrame(s, completedFrame(RUN), THREAD), true);
+    assert.equal(selectByToolCallId(s, "t1"), null);
+    assert.equal(selectLatestPendingForRun(s, RUN), null);
+  });
+
+  test("a stale partial update does not outrank a later finished rewrite", () => {
+    const s = new Map<string, LiveArtifactStream>();
+    applyArtifactFrame(
+      s,
+      deltaFrame({ toolCallId: "t1", seq: 1, text: "stale", artifactId: "art_1" }),
+      THREAD,
+    );
+    applyArtifactFrame(s, completedFrame(RUN), THREAD);
+
+    const next = "run_2";
+    applyArtifactFrame(
+      s,
+      deltaFrame({ runId: next, toolCallId: "t2", seq: 1, text: "fresh", artifactId: "art_1" }),
+      THREAD,
+    );
+    applyArtifactFrame(s, toolFrame("t2", { runId: next, artifactId: "art_1" }), THREAD);
+    assert.equal(selectByArtifactId(s, "art_1")?.text, "fresh");
+  });
+
+  test("keeps resolved bodies and other runs' bodies", () => {
+    const s = new Map<string, LiveArtifactStream>();
+    applyArtifactFrame(s, deltaFrame({ toolCallId: "t1", seq: 1, text: "done" }), THREAD);
+    applyArtifactFrame(s, toolFrame("t1", { artifactId: "art_1" }), THREAD);
+    applyArtifactFrame(
+      s,
+      deltaFrame({ runId: "run_2", toolCallId: "t2", seq: 1, text: "live" }),
+      THREAD,
+    );
+    assert.equal(applyArtifactFrame(s, completedFrame(RUN), THREAD), false);
+    assert.equal(s.get("t1")?.text, "done");
+    assert.equal(s.get("t2")?.text, "live");
+  });
+});
+
 describe("applyArtifactFrame — thread scope", () => {
   test("a frame naming another thread is dropped before it reaches an applier", () => {
     const s = new Map<string, LiveArtifactStream>();
