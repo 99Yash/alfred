@@ -6,7 +6,8 @@ import { entities } from "./memory";
 
 /**
  * State of external work objects, such as GitHub PRs and deploys (ADR-0062).
- * Only the webhook reducer writes state. An LLM may propose a key but never
+ * Only the reducer writes state, through `objectStateStore.applyEvents`, from a
+ * provider fact (a webhook, a verified pull, or a loop read). An LLM may propose a key but never
  * asserts state, so a made-up key cannot fake a merge (ADR-0048).
  * A briefing reads a short window, so it needs this stored state to see a close.
  */
@@ -156,6 +157,47 @@ export const integrationObjectPulls = pgTable(
   },
   (t) => [uniqueIndex("integration_object_pulls_object_idx").on(t.objectId)],
 );
+
+// ---------------------------------------------------------------------------
+// loop_verification_runs
+// ---------------------------------------------------------------------------
+
+/**
+ * One row for each `verifyLoops` run that committed (ADR-0120 decision 7). The same transaction
+ * folds the facts of the run, so a row exists only when every fact of the run is stored. The next
+ * run starts its window at the newest `ran_at`, or at its `oldest_unverified_mail_at` when that is
+ * older (decision 4). A run inserts its row one time and never updates it.
+ */
+export const loopVerificationRuns = pgTable(
+  "loop_verification_runs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("lvr")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ranAt: timestamp("ran_at", { withTimezone: true }).notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    /** Things in the verify set, live reads, and facts folded. For a reader of the run history. */
+    thingCount: integer("thing_count").notNull(),
+    liveReadCount: integer("live_read_count").notNull(),
+    factCount: integer("fact_count").notNull(),
+    /** Things that no read of the run backs: no reader, no target, over the cap, or a failed read. */
+    unverifiedCount: integer("unverified_count").notNull(),
+    /**
+     * The oldest mail of a thing in `unverified_count`. `NULL` when no such thing has a mail. The
+     * next window starts at or before it, so the thing stays in the set.
+     */
+    oldestUnverifiedMailAt: timestamp("oldest_unverified_mail_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("loop_verification_runs_user_ran_idx").on(t.userId, t.ranAt)],
+);
+
+export type LoopVerificationRun = typeof loopVerificationRuns.$inferSelect;
+
+export type NewLoopVerificationRun = typeof loopVerificationRuns.$inferInsert;
 
 export type IntegrationObject = typeof integrationObjects.$inferSelect;
 

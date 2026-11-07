@@ -307,7 +307,7 @@ export const RULES = [
     //
     // The token is therefore owned rather than free. Two files may write it:
     // the registry that declares the vocabulary, and the one site that takes
-    // the read (`dropClosedLoops`). A second confirmation site adds itself
+    // the read (`verifyLoops`, ADR-0120). A second confirmation site adds itself
     // here, which keeps every site that may assert a live proof readable in
     // one place. That is the only witness the registry's DEMAND has.
     //
@@ -317,7 +317,7 @@ export const RULES = [
     severity: "gate",
     owners: [
       "packages/contracts/src/integration-objects.ts",
-      "packages/assistant/src/briefings/gather.ts",
+      "packages/assistant/src/knowledge/loop-items.ts",
     ],
     fix: "Pass the proof you actually hold to closesOpenAsk(provider, kind, category, proof) from @alfred/contracts. A reader over a stored integration_objects row holds `stored_projection`; only a caller that just took a live provider read of THIS object may name `live_confirmation`. If you mean to nominate a candidate for a consumer that will go get the read, call closureCandidate(provider, kind, category) and hand on its `proof` instead of naming one. A new site that genuinely takes the read joins this rule's `owners`; a one-off states the read it holds in a `// drift-ok:` marker.",
   },

@@ -3,7 +3,8 @@
 import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
-import { LOOP_CLOSING_STATE_CATEGORIES } from "./integration-objects";
+import { LOOP_CLOSING_STATE_CATEGORIES, OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import { sourceIdentitySchema } from "./source-identity";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, LIVE_PROVIDER_SLUGS } from "./integrations";
 import { deliveryAlertSchema, mcpConnectionAlertSchema } from "./integration-status";
@@ -231,48 +232,68 @@ export const briefingClosedLoopSchema = z.object({
 export type BriefingClosedLoop = z.infer<typeof briefingClosedLoopSchema>;
 
 /**
- * Check-before-remind verdicts (#1194), one per live loop. They change phrasing
- * and priority only, never closure: only the object-state store closes a loop
- * (ADR-0048-D, ADR-0103). That is why no verdict means "closed".
+ * The verdict of one loop (ADR-0120 decision 8). A loop is a thing that a priority mail or an open
+ * todo points to. `closed` comes only from a provider fact. A read that failed is `unverified`,
+ * never `closed`.
  */
-export const LOOP_RELEVANCE_VERDICTS = [
-  "still-actionable",
-  "stale-but-open",
-  "unverifiable",
-] as const;
+export const LOOP_VERDICTS = ["open", "closed", "unverified"] as const;
 
-export type LoopRelevanceVerdict = (typeof LOOP_RELEVANCE_VERDICTS)[number];
+export type LoopVerdict = (typeof LOOP_VERDICTS)[number];
 
-export const loopRelevanceVerdictSchema = z.enum(LOOP_RELEVANCE_VERDICTS);
+/**
+ * The evidence tier of a verdict (ADR-0120 decision 5). `stored_state`: the stored state was not
+ * ambiguous, so no read ran. `live_read`: a live read in this run gave the state.
+ */
+export const LOOP_EVIDENCE_TIERS = ["stored_state", "live_read"] as const;
 
-/** The live read behind the verdict. `none`: no live read was available. */
-export const LOOP_RELEVANCE_SOURCES = [
-  "live_github_read",
-  "live_railway_read",
-  "live_mcp_read",
-  "none",
-] as const;
-
-export type LoopRelevanceSource = (typeof LOOP_RELEVANCE_SOURCES)[number];
-
-export const loopRelevanceSourceSchema = z.enum(LOOP_RELEVANCE_SOURCES);
+export type LoopEvidenceTier = (typeof LOOP_EVIDENCE_TIERS)[number];
 
 /** Provider titles have no length limit at ingest. */
-export const BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX = 300;
+export const BRIEFING_LOOP_TITLE_MAX = 300;
 
-export const briefingLoopRelevanceSchema = z.object({
-  documentId: z.string().min(1),
-  verdict: loopRelevanceVerdictSchema,
-  source: loopRelevanceSourceSchema,
-  /** The provider state token (`open`, `merged`). It shapes phrasing; it never closes a loop. */
-  observedState: z.string().max(80).nullable(),
-  objectTitle: z.string().max(BRIEFING_LOOP_RELEVANCE_OBJECT_TITLE_MAX).nullable(),
-  objectUrl: z.url().nullable(),
-  /** One line of cited evidence for the composer. */
-  detail: z.string().min(1).max(300),
+/** The mails of one loop that the item names. A thread of alerts can point many times. */
+export const BRIEFING_LOOP_DOCUMENTS_MAX = 20;
+
+const briefingLoopFieldsSchema = z.object({
+  evidence: z.enum(LOOP_EVIDENCE_TIERS),
+  source: sourceIdentitySchema,
+  /** The object kind, for example `pull_request` or `deployment_target`. */
+  kind: z.string().min(1).max(64),
+  /** The last stored state. `null` only for a thing with no stored row whose read failed. */
+  stateCategory: z.enum(OBJECT_STATE_CATEGORIES).nullable(),
+  /** The provider token (`open`, `merged`, `failure`). It shapes phrasing only. */
+  nativeState: z.string().max(80).nullable(),
+  /** ISO time of the fact that set the state: the provider time, else the delivery time. */
+  stateAt: z.iso.datetime({ offset: true }).nullable(),
+  title: z.string().max(BRIEFING_LOOP_TITLE_MAX).nullable(),
+  url: z.url({ protocol: /^https$/ }).nullable(),
+  /** The priority mails that point to the thing. Empty for a todo-only loop. */
+  documentIds: z.array(z.string().min(1)).max(BRIEFING_LOOP_DOCUMENTS_MAX),
 });
 
-export type BriefingLoopRelevance = z.infer<typeof briefingLoopRelevanceSchema>;
+const loopVerdictSchema = z.enum(LOOP_VERDICTS);
+
+/**
+ * A `closed` item holds a closing category by type, so a reader needs no second closure rule. An
+ * `open` item never holds a closing category: `verifyLoops` gives `open` only for `active` or
+ * `failed`. An `unverified` item can hold a closing category whose closure proof failed.
+ */
+export const briefingLoopSchema = z.discriminatedUnion("verdict", [
+  briefingLoopFieldsSchema.extend({
+    verdict: loopVerdictSchema.extract(["closed"]),
+    stateCategory: z.enum(LOOP_CLOSING_STATE_CATEGORIES),
+  }),
+  briefingLoopFieldsSchema.extend({
+    verdict: loopVerdictSchema.extract(["open"]),
+    stateCategory: z
+      .enum(OBJECT_STATE_CATEGORIES)
+      .exclude(LOOP_CLOSING_STATE_CATEGORIES)
+      .nullable(),
+  }),
+  briefingLoopFieldsSchema.extend({ verdict: loopVerdictSchema.extract(["unverified"]) }),
+]);
+
+export type BriefingLoop = z.infer<typeof briefingLoopSchema>;
 
 /**
  * `email`, `day_of_week`, and `integration_activity` are always present (empty, not
@@ -338,7 +359,7 @@ export const GATHER_INPUTS = [
   "integration_activity",
   "deploy_status",
   "github_merged",
-  "loop_relevance",
+  "loops",
   "official_warnings",
 ] as const;
 

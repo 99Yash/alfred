@@ -51,10 +51,11 @@ import { reduceVercelEvent } from "./vercel-reducer";
 
 /**
  * Integration object-state store (ADR-0062). Consumers use {@link ObjectStateStore}, never the
- * tables. Only the per-provider webhook reducers write state, through `applyEvent`.
+ * tables. Only the per-provider reducers write state, through `applyEvents`: a webhook receipt
+ * through `applyEvent`, and a verified pull or a loop read as a typed fact.
  */
 
-/** What a provider reducer emits for one webhook delivery. */
+/** What a provider reducer emits for one fact: a webhook delivery or a verified read. */
 export interface ObjectStateDelta {
   kind: string;
   externalId: string;
@@ -62,7 +63,10 @@ export interface ObjectStateDelta {
   nativeState: string;
   /** Verified push or verified pull. No default, so every new producer must name its source. */
   closureSource: ClosureSource;
-  /** Provider-clock time. When present it orders the row; else `deliveredAt` does. */
+  /**
+   * Provider-clock time. It orders the fact against a row that also has a provider time. Against a
+   * row with none, or when absent, the receipt time orders it.
+   */
   providerEventTime?: Date | undefined;
   title?: string | undefined;
   url?: string | undefined;
@@ -88,8 +92,15 @@ export interface ObjectState {
   title: string | null;
   url: string | null;
   repo: string | null;
-  /** Last delivery that advanced the state, for freshness reports. */
+  /** Receipt time of the last fact that the store applied, for freshness reports. */
   stateDeliveredAt: Date | null;
+  /**
+   * Provider-clock time of the newest applied fact for the current native state. It is `null` when
+   * no fact since the last change of the native state carried a provider time. A fact with no
+   * provider time that sets a new native state clears it, so it never times an older state. The
+   * recency guard compares it only with the provider time of another fact.
+   */
+  providerEventAt: Date | null;
 }
 
 interface ApplyEventArgs {
@@ -104,6 +115,19 @@ interface ApplyEventArgs {
   deliveredAt: DeliveryInstant;
 }
 
+/** One fact for {@link ObjectStateStore.applyEvents}: an event and its receipt time. */
+type ObjectStateFact = Pick<ApplyEventArgs, "event" | "deliveredAt">;
+
+interface ApplyEventsArgs {
+  userId: string;
+  facts: readonly ObjectStateFact[];
+  /**
+   * Runs last, inside the same transaction, after every fold. A throw rolls back every fold. The
+   * loop verifier records its run here (ADR-0120 decision 7).
+   */
+  inTransaction?: (tx: DbTransaction) => Promise<void>;
+}
+
 interface ObjectListFilter {
   kind?: string;
   stateCategory?: StateCategory;
@@ -114,6 +138,15 @@ interface ObjectListFilter {
 
 export interface ObjectStateStore {
   applyEvent(args: ApplyEventArgs): Promise<void>;
+  /**
+   * Fold many facts in one transaction (ADR-0120 decision 7). Each fact goes through the same
+   * guards as {@link applyEvent}. The recency guard refuses an older fact. A fact that it accepts
+   * writes the row also when the state does not change, because it moves `stateDeliveredAt`
+   * forward: a reader takes that as proof that the state was read again. Thus a repeated fact is
+   * idempotent, but it is not a no-op. All object rows lock in one identity order, so two calls
+   * cannot deadlock.
+   */
+  applyEvents(args: ApplyEventsArgs): Promise<void>;
   resolveByKey(
     userId: string,
     provider: ObjectStateProvider,
@@ -163,6 +196,14 @@ export interface ObjectStateStore {
   ): Promise<ReadonlyMap<string, ObjectState>>;
   /** Current state by `(provider, kind, externalId)`, or `null`. */
   getByIdentity(userId: string, identity: ObjectIdentity): Promise<ObjectState | null>;
+  /**
+   * Batched `getByIdentity` in one query, keyed by the identity objects that the caller passed. An
+   * identity with no row has no entry. Empty input skips the database.
+   */
+  getByIdentities(
+    userId: string,
+    identities: readonly ObjectIdentity[],
+  ): Promise<ReadonlyMap<ObjectIdentity, ObjectState>>;
   list(
     userId: string,
     provider: ObjectStateProvider,
@@ -255,6 +296,7 @@ function rowToObjectState(row: IntegrationObject): ObjectState {
     url: row.url,
     repo: row.repo,
     stateDeliveredAt: row.stateDeliveredAt,
+    providerEventAt: row.providerEventAt,
   };
 }
 
@@ -266,6 +308,11 @@ function objectIdentityWhere(userId: string, identity: ObjectIdentity) {
     eq(integrationObjects.kind, identity.kind),
     eq(integrationObjects.externalId, identity.externalId),
   );
+}
+
+/** One string for an identity, so a batched read can match its rows to the identities asked. */
+function identityLookupKey(identity: ObjectIdentity): string {
+  return JSON.stringify([identity.provider, identity.kind, identity.externalId]);
 }
 
 /**
@@ -302,12 +349,21 @@ type LockedIdentityRow = IntegrationObject & {
  * Code-unit order, not `localeCompare`: collation can rank distinct strings equal and break the
  * lock order.
  */
-function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
-  if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+function compareIdentity(a: PendingDelta, b: PendingDelta): number {
+  if (a.provider !== b.provider) return a.provider < b.provider ? -1 : 1;
 
-  if (a.externalId === b.externalId) return 0;
+  if (a.delta.kind !== b.delta.kind) return a.delta.kind < b.delta.kind ? -1 : 1;
 
-  return a.externalId < b.externalId ? -1 : 1;
+  if (a.delta.externalId === b.delta.externalId) return 0;
+
+  return a.delta.externalId < b.delta.externalId ? -1 : 1;
+}
+
+/** One reduced delta, with the provider and the receipt time of its fact. */
+interface PendingDelta {
+  provider: ObjectStateProvider;
+  delta: ObjectStateDelta;
+  deliveredAt: DeliveryInstant;
 }
 
 /**
@@ -315,20 +371,27 @@ function compareIdentity(a: ObjectStateDelta, b: ObjectStateDelta): number {
  * Phase 2 locks key rows after the loop, in `inKeyLockOrder`. A key upsert takes only
  * `FOR KEY SHARE` on its parent object, which does not conflict with `FOR NO KEY UPDATE`, so no
  * wait crosses phases. `sort` is stable, so two deltas for one identity keep their order and the
- * later one wins. `applyEvent` is the only app writer of either table.
+ * later one wins. `applyEvents` is the only app writer of either table; `applyEvent` calls it.
  */
-function inLockOrder(deltas: readonly ObjectStateDelta[]): ObjectStateDelta[] {
+function inLockOrder(deltas: readonly PendingDelta[]): PendingDelta[] {
   return deltas.toSorted(compareIdentity);
 }
 
 /** One deferred key upsert, bound to the object its delta resolved. */
-type PendingKeyUpsert = Readonly<Pick<IntegrationObjectKey, "keyKind" | "keyValue" | "objectId">>;
+type PendingKeyUpsert = Readonly<
+  Pick<IntegrationObjectKey, "keyKind" | "keyValue" | "objectId"> & {
+    provider: ObjectStateProvider;
+  }
+>;
 
 /**
- * Code-unit order over `(keyKind, keyValue)`, for the same reason as `compareIdentity`. No
- * `objectId` tie-break: equal keys keep the fold order, so the last folded delta wins the row.
+ * Code-unit order over `(provider, keyKind, keyValue)`, the conflict target of one user's upsert,
+ * for the same reason as `compareIdentity`. No `objectId` tie-break: equal keys keep the fold
+ * order, so the last folded delta wins the row.
  */
 function compareKeyUpsert(a: PendingKeyUpsert, b: PendingKeyUpsert): number {
+  if (a.provider !== b.provider) return a.provider < b.provider ? -1 : 1;
+
   if (a.keyKind !== b.keyKind) return a.keyKind < b.keyKind ? -1 : 1;
 
   if (a.keyValue === b.keyValue) return 0;
@@ -342,20 +405,32 @@ function inKeyLockOrder(upserts: readonly PendingKeyUpsert[]): PendingKeyUpsert[
 }
 
 export const objectStateStore: ObjectStateStore = {
-  async applyEvent(args) {
-    const { provider } = args.event;
-    const deltas = reduce(args.event);
+  applyEvent(args) {
+    return objectStateStore.applyEvents({
+      userId: args.userId,
+      facts: [{ event: args.event, deliveredAt: args.deliveredAt }],
+    });
+  },
 
-    if (deltas.length === 0) return;
+  async applyEvents(args) {
+    const deltas: PendingDelta[] = args.facts.flatMap((fact) => {
+      // The lexical comparison below needs the fixed-width shape, so parse, not trust.
+      const deliveredAt = deliveryInstantSchema.parse(fact.deliveredAt);
 
-    // The lexical comparison below needs the fixed-width shape, so parse, not trust.
-    const deliveredAt = deliveryInstantSchema.parse(args.deliveredAt);
+      return reduce(fact.event).map((delta) => ({
+        provider: fact.event.provider,
+        delta,
+        deliveredAt,
+      }));
+    });
+
+    if (deltas.length === 0 && !args.inTransaction) return;
 
     await db().transaction(async (tx) => {
       // Key upserts lock a second table, so they wait for phase 2.
       const pendingKeys: PendingKeyUpsert[] = [];
 
-      for (const delta of inLockOrder(deltas)) {
+      for (const { provider, delta, deliveredAt } of inLockOrder(deltas)) {
         // No kind def means no absorbing policy, so the guard would fail open.
         if (!getObjectKindDef(provider, delta.kind)) continue;
 
@@ -416,7 +491,7 @@ export const objectStateStore: ObjectStateStore = {
             existing = await lockIdentityRow(tx, args.userId, identity);
 
             if (!existing) {
-              throw new Error("[object-state] applyEvent conflicted with a row it cannot read");
+              throw new Error("[object-state] applyEvents conflicted with a row it cannot read");
             }
 
             objectId = existing.id;
@@ -426,21 +501,24 @@ export const objectStateStore: ObjectStateStore = {
         }
 
         if (existing) {
-          // Recency: provider clock first, then receipt clock at microsecond precision (#1093,
-          // #1200). A null provider time on the row yields to a timestamped delta. `>=`, not `>`: a
-          // retried fold of the same receipt must re-apply, so the fold stays idempotent.
+          // Recency (#1093, #1200). The provider clock orders two facts only when both carry a
+          // provider time, and the receipt clock at microsecond precision breaks a tie. When either
+          // side has no provider time, the receipt clock alone orders them, so the guard never
+          // compares two clocks. Thus a read with a provider time does not beat a later webhook
+          // with none. `>=`, not `>`: a retried fold of the same receipt must re-apply, so the fold
+          // stays idempotent.
           const existingDelivered =
             existing.stateDeliveredAtExact === null
               ? null
               : deliveryInstantSchema.parse(existing.stateDeliveredAtExact);
 
+          const receiptIsNewer = existingDelivered === null || deliveredAt >= existingDelivered;
+
           const isNewer =
-            eventTime === null
-              ? existingDelivered === null || deliveredAt >= existingDelivered
-              : existing.providerEventAt === null ||
-                eventTime.getTime() > existing.providerEventAt.getTime() ||
-                (eventTime.getTime() === existing.providerEventAt.getTime() &&
-                  (existingDelivered === null || deliveredAt >= existingDelivered));
+            eventTime !== null && existing.providerEventAt !== null
+              ? eventTime.getTime() > existing.providerEventAt.getTime() ||
+                (eventTime.getTime() === existing.providerEventAt.getTime() && receiptIsNewer)
+              : receiptIsNewer;
 
           // The kind declares which states are final. CI runs and deploys declare none (#1093).
           const wouldLeaveAbsorbingState =
@@ -448,6 +526,12 @@ export const objectStateStore: ObjectStateStore = {
             isAbsorbingState(provider, delta.kind, existing.stateCategory);
 
           if (isNewer && !wouldLeaveAbsorbingState) {
+            // `providerEventAt` stays with the native state that it timed. A fact with no provider
+            // time that sets a new native state clears it, and one that keeps the state keeps it.
+            const providerEventAt =
+              eventTime ??
+              (delta.nativeState === existing.nativeState ? existing.providerEventAt : null);
+
             await tx
               .update(integrationObjects)
               .set({
@@ -458,7 +542,7 @@ export const objectStateStore: ObjectStateStore = {
                 repo: delta.repo ?? existing.repo,
                 attributes: { ...toRecord(existing.attributes), ...delta.attributes },
                 stateDeliveredAt: deliveryInstantValue(deliveredAt),
-                ...(eventTime === null ? {} : { providerEventAt: eventTime }),
+                providerEventAt,
               })
               .where(eq(integrationObjects.id, objectId));
           }
@@ -466,7 +550,7 @@ export const objectStateStore: ObjectStateStore = {
 
         // Keys are additive identity facts, so they upsert regardless of event order.
         for (const key of delta.keys) {
-          pendingKeys.push({ keyKind: key.keyKind, keyValue: key.keyValue, objectId });
+          pendingKeys.push({ provider, keyKind: key.keyKind, keyValue: key.keyValue, objectId });
         }
       }
 
@@ -478,7 +562,7 @@ export const objectStateStore: ObjectStateStore = {
           .values({
             userId: args.userId,
             objectId: pending.objectId,
-            provider,
+            provider: pending.provider,
             keyKind: pending.keyKind,
             keyValue: pending.keyValue,
           })
@@ -492,6 +576,8 @@ export const objectStateStore: ObjectStateStore = {
             set: { objectId: pending.objectId },
           });
       }
+
+      await args.inTransaction?.(tx);
     });
   },
 
@@ -670,6 +756,39 @@ export const objectStateStore: ObjectStateStore = {
     if (!row) return null;
 
     return rowToObjectState(row);
+  },
+
+  async getByIdentities(userId, identities) {
+    if (identities.length === 0) return new Map();
+
+    const rows = await db()
+      .select()
+      .from(integrationObjects)
+      .where(
+        and(
+          eq(integrationObjects.userId, userId),
+          or(
+            ...identities.map((identity) =>
+              and(
+                eq(integrationObjects.provider, identity.provider),
+                eq(integrationObjects.kind, identity.kind),
+                eq(integrationObjects.externalId, identity.externalId),
+              ),
+            ),
+          ),
+        ),
+      );
+
+    const byLookupKey = new Map(rows.map((row) => [identityLookupKey(row), row]));
+    const byIdentity = new Map<ObjectIdentity, ObjectState>();
+
+    for (const identity of identities) {
+      const row = byLookupKey.get(identityLookupKey(identity));
+
+      if (row) byIdentity.set(identity, rowToObjectState(row));
+    }
+
+    return byIdentity;
   },
 
   async list(userId, provider, filter) {

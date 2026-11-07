@@ -23,6 +23,12 @@ export const VERIFIED_PULL_EVENT_TYPE = "deployment_status";
  */
 export const GITHUB_MERGED_PULL_READ_EVENT_TYPE = "merged_pull_read";
 
+/**
+ * Synthetic GitHub read (ADR-0120 decision 5): the state of one pull request, from the REST read of
+ * `verifyLoops`. It carries the full identity, so it can mint the row when no webhook did (case 3).
+ */
+export const GITHUB_PULL_REQUEST_READ_EVENT_TYPE = "pull_request_read";
+
 /** The one synthetic event an owner-reviewed MCP health pull may fold. */
 export const MCP_APPROVED_HEALTH_EVENT_TYPE = "mcp.approved_health";
 
@@ -59,6 +65,16 @@ export function approvedMcpHealthExternalId(input: {
   return `${input.connectionId}|${input.loopKey}` as ApprovedMcpHealthExternalId;
 }
 
+/**
+ * The connection of an id that {@link approvedMcpHealthExternalId} minted. `null` for a string of
+ * another shape, for example a stored row from an older format.
+ */
+export function approvedMcpHealthConnectionId(externalId: string): string | null {
+  const [connectionId, loopKey, ...rest] = externalId.split("|");
+
+  return connectionId && loopKey && rest.length === 0 ? connectionId : null;
+}
+
 /** What one read proved. A `null` read mints nothing and never closes a loop (ADR-0048-D). */
 export interface VerifiedPullReading {
   status: DeploymentStatus;
@@ -78,6 +94,22 @@ export type ObjectStateEvent =
         /** The existing row's external id, found through its `pull_request_url` key. */
         externalId: string;
         mergedAt: Date;
+        title: string;
+        /** Canonical, as `canonicalizeGithubPullRequestUrl` gives it. */
+        url: string;
+        repoFullName: string;
+        number: number;
+      };
+    }
+  | {
+      provider: "github";
+      eventType: typeof GITHUB_PULL_REQUEST_READ_EVENT_TYPE;
+      payload: {
+        /** GitHub's numeric id, the external id of the row. */
+        githubId: number;
+        nativeState: "open" | "closed" | "merged";
+        /** The merge or close time. `null` for an open pull request. */
+        providerEventTime: Date | null;
         title: string;
         /** Canonical, as `canonicalizeGithubPullRequestUrl` gives it. */
         url: string;
@@ -132,6 +164,12 @@ export type VercelPullEvent = Extract<VerifiedPullEvent, { provider: "vercel" }>
 export type GithubMergedPullReadEvent = Extract<
   ObjectStateEvent,
   { eventType: typeof GITHUB_MERGED_PULL_READ_EVENT_TYPE }
+>;
+
+/** The pull request read member. The loop verifier builds this, never the union. */
+export type GithubPullRequestReadEvent = Extract<
+  ObjectStateEvent,
+  { eventType: typeof GITHUB_PULL_REQUEST_READ_EVENT_TYPE }
 >;
 
 /** The MCP health member. The health producer and the reducer take this, never the union. */

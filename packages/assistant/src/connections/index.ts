@@ -74,11 +74,13 @@ export {
 } from "./hosted-endpoint";
 
 export {
+  approvedMcpHealthConnectionId,
   approvedMcpHealthExternalId,
+  candidateIdentity,
   deliveryInstantNow,
   deliveryInstantOf,
   deliveryInstantSchema,
-  firstClosingObject,
+  identityProbeFromGatedLinks,
   MCP_APPROVED_HEALTH_EVENT_TYPE,
   MCP_APPROVED_HEALTH_KEY_KIND,
   MCP_APPROVED_HEALTH_KIND,

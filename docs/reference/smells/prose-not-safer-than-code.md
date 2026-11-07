@@ -41,3 +41,4 @@ A check cannot compare a claim with the sequences that the code permits. The cam
 - #1539 `LenientLeaf` doc: "`check-types` catches a strict leaf"; `.refine` and a transform arm pass `check-types`.
 - #1665 official-warnings/geometry.ts: the comment said no feed area crosses the antimeridian, but GDACS is global and a Fiji ring matched a place in the Indian Ocean
 - #1672 contracts/src/briefing.ts said every producer clips the activity title while the Railway and Vercel producers did not; agent.ts named list_activity for verified-pull items it never returns
+- #1690 The store doc and ADR-0120 decision 7 said that a repeated fact is a duplicate no-op. The recency guard is >=, so each repeated read writes the row again.

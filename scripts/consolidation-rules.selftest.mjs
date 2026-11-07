@@ -1469,8 +1469,8 @@ const LINE_CASES = [
   {
     name: "unowned-live-confirmation-proof — the one site that takes the read owns the token",
     caught: false,
-    code: `      : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");`,
-    file: "packages/assistant/src/briefings/gather.ts",
+    code: `    outcome.evidence === "live_read" ? "live_confirmation" : "stored_projection";`,
+    file: "packages/assistant/src/knowledge/loop-items.ts",
   },
   {
     name: "unowned-live-confirmation-proof — the registry declaring the vocabulary owns it too",

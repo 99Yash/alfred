@@ -38,7 +38,7 @@ import {
   briefingClosedLoopSchema,
   briefingConnectionNoticeSchema,
   briefingGatherSchema,
-  briefingLoopRelevanceSchema,
+  briefingLoopSchema,
   dayShapeSchema,
   deliveryAlertSchema,
   ianaTimezoneSchema,
@@ -46,7 +46,7 @@ import {
   type BriefingClosedLoop,
   type BriefingConnectionNotice,
   type BriefingGather,
-  type BriefingLoopRelevance,
+  type BriefingLoop,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
@@ -99,8 +99,12 @@ export const dailyBriefingStateSchema = z.object({
   briefingId: z.string().optional(),
   quietDay: z.boolean().optional(),
   closedLoops: z.array(briefingClosedLoopSchema).default([]),
-  /** Non-closing relevance verdicts for the live priority loops. */
-  loopRelevance: z.array(briefingLoopRelevanceSchema).default([]),
+  /**
+   * The verdict of each loop (ADR-0120 decision 8). A run persisted before this field stored
+   * `loopRelevance` and has no `loops`. It then reads as no loops: no mail drops and no loop
+   * reads as closed, because absence never closes a loop.
+   */
+  loops: z.array(briefingLoopSchema).default([]),
   /** The gathered day shape. Compose reads it, so the agent does not repeat the GitHub read. */
   dayShape: dayShapeSchema.optional(),
   /**
@@ -127,9 +131,11 @@ export const dailyBriefingStateSchema = z.object({
    * for each entry that `provenanceAudience` gives to the composer, for an input that the composer
    * reads (`COMPOSER_READS` in `agent/agent.ts`). Send renders one row per integration for the
    * blocking entries; a delivery alert for the same integration takes that row. Absent on an older
-   * run, which states nothing.
+   * run, which states nothing. A run persisted before ADR-0120 slice 2 names the input
+   * `loop_relevance`, which the enum no longer holds. An unreadable list reads as absent, so that
+   * run resumes and states nothing.
    */
-  provenance: briefingGatherSchema.shape.provenance,
+  provenance: briefingGatherSchema.shape.provenance.catch(undefined),
   composed: z
     .object({
       subject: z.string(),
@@ -251,7 +257,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   let gather: BriefingGather;
   let suppressedByInstruction: BriefingInstructionSuppression[] = [];
   let closedLoops: BriefingClosedLoop[] = [];
-  let loopRelevance: BriefingLoopRelevance[] = [];
+  let loops: BriefingLoop[] = [];
 
   try {
     // Cheap deterministic gather over the same window. Feeds suppression and the surface;
@@ -275,7 +281,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     }
 
     closedLoops = gathered.closedLoops;
-    loopRelevance = gathered.loopRelevance;
+    loops = gathered.loops;
     await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });
   } catch (err) {
     await markBriefingFailed(begun.row.id);
@@ -326,7 +332,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       activitySince: activityWindow.start.toISOString(),
       quietDay,
       closedLoops,
-      loopRelevance,
+      loops,
       dayShape: gather.day_shape,
       calendar: gather.calendar,
       officialWarnings: gather.official_warnings,
@@ -394,6 +400,9 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
 
   // One notice per connection, written by the composer; send adds the name and the link.
   const brokenConnections = listStateBrokenConnections(ctx.state);
+  // A step does not parse its stored state at load. Parse it here, so a run persisted before
+  // ADR-0120 slice 2 gives the composer no loops and no provenance, not an undefined list.
+  const { loops, provenance } = dailyBriefingStateSchema.parse(ctx.state);
 
   try {
     const compose = async (
@@ -411,13 +420,12 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         timezone,
         runId: ctx.runId,
         stepId: "compose",
-        closedLoops: ctx.state.closedLoops,
-        loopRelevance: ctx.state.loopRelevance,
+        loops,
         dayShape: ctx.state.dayShape,
         calendar: ctx.state.calendar,
         officialWarnings: ctx.state.officialWarnings,
         brokenConnections,
-        provenance: ctx.state.provenance,
+        provenance,
         openAskViolations,
         missingConnectionNotices,
       });

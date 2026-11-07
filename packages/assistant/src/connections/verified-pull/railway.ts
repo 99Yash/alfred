@@ -63,9 +63,14 @@ const railwayDeploymentsSchema = z.object({
 interface RailwayReadSession {
   connectionId: string;
   prepared: McpPreparedToolCall;
+  /** The caller's abort for every call of the session. */
+  signal: AbortSignal | undefined;
 }
 
-async function prepareRailwayRead(userId: string): Promise<RailwayReadSession | null> {
+async function prepareRailwayRead(
+  userId: string,
+  signal: AbortSignal | undefined,
+): Promise<RailwayReadSession | null> {
   const connections = await listOwnedConnections(userId);
 
   const connection = connections.find(
@@ -82,21 +87,23 @@ async function prepareRailwayRead(userId: string): Promise<RailwayReadSession | 
 
   return {
     connectionId: connection.id,
-    prepared: await getMcpConnectionManager().prepareToolCall(connection.id),
+    prepared: await getMcpConnectionManager().prepareToolCall(connection.id, signal),
+    signal,
   };
 }
 
 async function readRailwayTool<Schema extends z.ZodType>(
-  connectionId: string,
-  prepared: McpPreparedToolCall,
+  read: RailwayReadSession,
   remoteName: "list-projects" | "list-services" | "list-deployments",
   args: Record<string, string | number>,
   schema: Schema,
 ): Promise<z.infer<Schema> | null> {
+  const { connectionId, prepared } = read;
+
   const envelope = await prepared.call(
     { kind: "mcp", connectionId, remoteName, catalogRevision: prepared.catalog.revision },
     args,
-    { result: "structured" },
+    { result: "structured", ...(read.signal ? { signal: read.signal } : {}) },
   );
 
   if (envelope.outcome !== "completed" || envelope.truncation) return null;
@@ -112,7 +119,7 @@ export async function readRailwayDeploymentStatus(
   target: RailwayPullTarget,
 ): Promise<VerifiedPullReading | null> {
   try {
-    const read = await prepareRailwayRead(userId);
+    const read = await prepareRailwayRead(userId, undefined);
     const reading = read ? await readRailwayDeploymentStatusFromSession(read, target) : null;
 
     return reading === "absent" ? null : reading;
@@ -144,8 +151,7 @@ async function readRailwayDeploymentStatusFromSession(
 ): Promise<VerifiedPullRead> {
   // `prepared.call` checks these against the live schema and throws on drift.
   const parsed = await readRailwayTool(
-    read.connectionId,
-    read.prepared,
+    read,
     "list-deployments",
     {
       projectId: target.projectId,
@@ -255,20 +261,13 @@ async function resolveRailwayTargetNames(
 ): Promise<Map<string, RailwayTargetNames>> {
   const byId = new Map<string, RailwayTargetNames>();
 
-  const projects = await readRailwayTool(
-    read.connectionId,
-    read.prepared,
-    "list-projects",
-    {},
-    railwayProjectsSchema,
-  );
+  const projects = await readRailwayTool(read, "list-projects", {}, railwayProjectsSchema);
 
   if (!projects) return byId;
 
   for (const project of projects.projects) {
     const services = await readRailwayTool(
-      read.connectionId,
-      read.prepared,
+      read,
       "list-services",
       { projectId: project.id },
       railwayServicesSchema,
@@ -304,17 +303,11 @@ export async function discoverRailwayTargets(
   limit: number = MAX_VERIFIED_PULL_TARGETS,
 ): Promise<RailwayPullTarget[]> {
   try {
-    const read = await prepareRailwayRead(userId);
+    const read = await prepareRailwayRead(userId, undefined);
 
     if (!read) return [];
 
-    const projects = await readRailwayTool(
-      read.connectionId,
-      read.prepared,
-      "list-projects",
-      {},
-      railwayProjectsSchema,
-    );
+    const projects = await readRailwayTool(read, "list-projects", {}, railwayProjectsSchema);
 
     if (!projects) return [];
 
@@ -322,8 +315,7 @@ export async function discoverRailwayTargets(
 
     for (const project of projects.projects) {
       const services = await readRailwayTool(
-        read.connectionId,
-        read.prepared,
+        read,
         "list-services",
         { projectId: project.id },
         railwayServicesSchema,

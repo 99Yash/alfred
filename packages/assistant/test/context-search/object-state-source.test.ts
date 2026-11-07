@@ -29,6 +29,7 @@ function objectState(overrides: Partial<ObjectState> = {}): ObjectState {
     url: "https://github.com/o/r/pull/101",
     repo: "o/r",
     stateDeliveredAt: new Date("2026-06-02T00:00:00Z"),
+    providerEventAt: null,
     ...overrides,
   };
 }

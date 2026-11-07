@@ -37,3 +37,4 @@ The compiler holds a map after someone writes it. To decide that one is necessar
 - #1665 official-warnings/sachet.ts readCap: null meant no match, link outside Sachet, and unreadable shape; the null was cached and never counted as unread
 - #1665 agent/tools.ts list_official_warnings: null (no feed read), undefined (old run) and an empty read all gave the model []
 - #1672 knowledge/activity.ts skipped an unparsable payload with only a warn while coverage still said live; briefings/provenance.ts connectSlug returned null for two different states
+- #1690 verifyLoops kept five states in one readFailed boolean: a read fault, the cap, no reader, no plan, and a commit fault. Now a union of six reasons.

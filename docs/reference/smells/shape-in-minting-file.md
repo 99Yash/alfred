@@ -36,3 +36,5 @@ The move came in #1118, which removed the per-module `types.ts` files.
 Placement follows ownership, not file type. A file-exists gate or a literal ban fires on correct code.
 
 ## Hits
+
+- #1690 mcpConnectionIdOf in knowledge/loop-items.ts parsed the MCP health external id away from its mint in object-state/events.ts. Now approvedMcpHealthConnectionId sits beside the mint.

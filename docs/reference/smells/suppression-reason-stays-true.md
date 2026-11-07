@@ -31,3 +31,5 @@ When the reason stops being true, change the reason or delete the directive.
 A check cannot read whether a reason is still true. The unused-directive check reads whether a directive suppresses a report, not its reason text.
 
 ## Hits
+
+- #1690 The gather.ts disable reason said that every import moves behind readActivity and verifyLoops, but the same import brought verifyApprovedMcpHealth, which stays a fold.

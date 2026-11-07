@@ -201,7 +201,7 @@ Queues: `chat-memory`, `conversation-compaction`. Surface: `apps/web/src/routes/
 ```mermaid
 flowchart LR
   TICK["briefing.tick<br/>hourly repeatable"] --> ORCH["daily-briefing.ts"]
-  ORCH --> G["gather.ts<br/>closure ladder: dropClosedLoops →<br/>reconcileEvidence → firstClosingObject →<br/>assertClosure (proof: stored_projection or live_confirmation)"]
+  ORCH --> G["gather.ts<br/>verifyLoops (knowledge/loops.ts):<br/>store first, live read when ambiguous →<br/>dropClosedLoops (every pointed thing closed)"]
   G --> Q{quiet morning?}
   Q -->|yes| SUP[suppressed — no compose, no model call]
   Q -->|no| C["compose.ts"]

@@ -58,6 +58,8 @@ interface VercelProjectDeployments {
 
 interface VercelReadSession {
   client: VercelClient;
+  /** The caller's abort for every call of the session. */
+  signal: AbortSignal | undefined;
   projects: readonly VercelProjectRef[];
   /**
    * Projects of a repo the scan missed, by lowercased `owner/repo`, or `null` after a fault. One
@@ -84,14 +86,18 @@ function linksRepo(project: VercelProjectRef, repo: string): boolean {
 }
 
 /** `null` for no grant or a refused grant; the driver treats both the same. */
-async function openVercelRead(userId: string): Promise<VercelReadSession | null> {
+async function openVercelRead(
+  userId: string,
+  signal: AbortSignal | undefined,
+): Promise<VercelReadSession | null> {
   try {
     // No retry: a gather waits on this, and the next gather tries again (as ADR-0104).
     const client = vercelClientForUser({ userId, retry: "none" });
-    const listed = await client.projects({ limit: VERCEL_PROJECT_SCAN_LIMIT });
+    const listed = await client.projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, signal });
 
     return {
       client,
+      signal,
       projects: listed.map(toProjectRef),
       repoProjects: new Map(),
       deployments: new Map(),
@@ -155,7 +161,11 @@ function readProjectDeployments(
   if (cached) return cached;
 
   const pending = session.client
-    .deployments({ projectId: project.projectId, limit: VERCEL_DEPLOYMENT_READ_LIMIT })
+    .deployments({
+      projectId: project.projectId,
+      limit: VERCEL_DEPLOYMENT_READ_LIMIT,
+      signal: session.signal,
+    })
     .then((deployments) => {
       const readings: VercelDeploymentReading[] = [];
       const unknownStateTargets = new Set<string>();
@@ -233,7 +243,11 @@ function lookupRepoProjects(
   if (cached) return cached;
 
   const pending = session.client
-    .projects({ limit: VERCEL_PROJECT_SCAN_LIMIT, repoUrl: `https://github.com/${repoFullName}` })
+    .projects({
+      limit: VERCEL_PROJECT_SCAN_LIMIT,
+      repoUrl: `https://github.com/${repoFullName}`,
+      signal: session.signal,
+    })
     .then((listed) => listed.map(toProjectRef).filter((project) => linksRepo(project, repo)))
     .catch((err: unknown) => {
       logger.warn({ err }, "[vercel.verify] repo project lookup failed");
@@ -318,7 +332,7 @@ export async function readVercelDeploymentStatus(
   target: VercelPullTarget,
 ): Promise<VerifiedPullReading | null> {
   try {
-    const session = await openVercelRead(userId);
+    const session = await openVercelRead(userId, undefined);
     const reading = session ? await readVercelDeploymentStatusFromSession(session, target) : null;
 
     return reading === "absent" ? null : reading;
@@ -333,7 +347,7 @@ export async function discoverVercelTargets(
   limit: number = MAX_VERIFIED_PULL_TARGETS,
 ): Promise<VercelPullTarget[]> {
   try {
-    const session = await openVercelRead(userId);
+    const session = await openVercelRead(userId, undefined);
 
     if (!session) return [];
 

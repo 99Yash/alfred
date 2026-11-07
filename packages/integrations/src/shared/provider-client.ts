@@ -46,6 +46,8 @@ export interface ProviderRequest {
    * (an idempotency key, or a full replace). Optional because absence is the safe answer.
    */
   idempotent?: true | undefined;
+  /** Caller abort. The transport combines it with the shared timeout. */
+  signal?: AbortSignal | undefined;
 }
 
 export interface ProviderClient {
@@ -82,7 +84,10 @@ export function defineProviderClient(config: ProviderClientConfig): ProviderClie
       const url = buildUrl(config.baseUrl, path, request.query, fixedQuery);
 
       const send = () =>
-        authedFetch({ headers }, { url, method: request.method, body: request.body });
+        authedFetch(
+          { headers },
+          { url, method: request.method, body: request.body, signal: request.signal },
+        );
 
       // The method decides eligibility: a POST that times out after it arrived must not be re-sent.
       const policy = config.retry === "none" ? undefined : config.retry;

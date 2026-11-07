@@ -40,3 +40,4 @@ const rail = (
 - #1665 ADR-0117: the quiet-morning line still said only the ADR-0100 input changes the rule after warnings joined the gate
 - #1672 connections/ingestion/receipt-payload-reaper.ts and docs/reference/auth.md still named the deleted gatherIntegrationActivity receipt read as a briefing reader
 - #1672 ADR-0117 still described the deleted gatherIntegrationActivity receipt read and five unavailable causes, and day-shape.test.ts still tested the receipt fallback
+- #1690 After applyEvents became the writer, store.ts prose still named applyEvent and the webhook reducer as the only writer. ADR-0118 and decisions.md still said that verifyLoops was not built.

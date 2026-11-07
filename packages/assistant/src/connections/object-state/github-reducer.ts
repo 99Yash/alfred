@@ -3,7 +3,11 @@ import {
   canonicalizeGithubPullRequestUrl,
   canonicalizeGithubTargetId,
 } from "@alfred/contracts";
-import { GITHUB_MERGED_PULL_READ_EVENT_TYPE, type ObjectStateEvent } from "./events";
+import {
+  GITHUB_MERGED_PULL_READ_EVENT_TYPE,
+  GITHUB_PULL_REQUEST_READ_EVENT_TYPE,
+  type ObjectStateEvent,
+} from "./events";
 import type { ObjectStateDelta } from "./store";
 
 type GithubFoldEvent = Extract<ObjectStateEvent, { provider: "github" }>;
@@ -17,6 +21,11 @@ type MergedPullReadPayload = Extract<
   { eventType: typeof GITHUB_MERGED_PULL_READ_EVENT_TYPE }
 >["payload"];
 
+type PullRequestReadPayload = Extract<
+  GithubFoldEvent,
+  { eventType: typeof GITHUB_PULL_REQUEST_READ_EVENT_TYPE }
+>["payload"];
+
 /**
  * GitHub reducer (ADR-0062). Pure. Webhooks and the verified read are the only state sources, so a
  * model-proposed key can never fake a merge. An empty array is a no-op.
@@ -26,6 +35,8 @@ type MergedPullReadPayload = Extract<
  *   ordered by the suite's `updated_at` (#1093). `neutral` and `stale` fold nothing.
  * - `merged_pull_read`: a merge that the GitHub pull read, on a row a webhook minted. It gives
  *   `merged`, ordered by the provider's `merged_at` (ADR-0062 amendment 2026-10-27).
+ * - `pull_request_read`: the state that the loop verifier read (ADR-0120 decision 5). It holds the
+ *   full identity, so it mints the row when no webhook did. A merge or a close orders by its time.
  */
 export function reduceGithubEvent(event: GithubFoldEvent): ObjectStateDelta[] {
   switch (event.eventType) {
@@ -35,6 +46,8 @@ export function reduceGithubEvent(event: GithubFoldEvent): ObjectStateDelta[] {
       return reduceCheckSuite(event.payload);
     case GITHUB_MERGED_PULL_READ_EVENT_TYPE:
       return reduceMergedPullRead(event.payload);
+    case GITHUB_PULL_REQUEST_READ_EVENT_TYPE:
+      return reducePullRequestRead(event.payload);
     default:
       return assertNever(event, "GitHub event type");
   }
@@ -109,6 +122,24 @@ function reduceMergedPullRead(payload: MergedPullReadPayload): ObjectStateDelta[
       url: payload.url,
       repo: payload.repoFullName,
       attributes: { number: payload.number },
+      keys: [{ keyKind: "pull_request_url", keyValue: payload.url }],
+    },
+  ];
+}
+
+/** The same identity, url key, and attributes as the webhook delta, so both name one row. */
+function reducePullRequestRead(payload: PullRequestReadPayload): ObjectStateDelta[] {
+  return [
+    {
+      kind: "pull_request",
+      externalId: String(payload.githubId),
+      nativeState: payload.nativeState,
+      closureSource: "verified_pull",
+      providerEventTime: payload.providerEventTime ?? undefined,
+      title: payload.title,
+      url: payload.url,
+      repo: payload.repoFullName,
+      attributes: { github_id: payload.githubId, number: payload.number },
       keys: [{ keyKind: "pull_request_url", keyValue: payload.url }],
     },
   ];

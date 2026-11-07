@@ -1,27 +1,16 @@
 import type {
   BriefingClosedLoop,
   BriefingGather,
-  BriefingLoopRelevance,
+  BriefingLoop,
   BriefingSlot,
   CalendarContribution,
   DayShape,
   IanaTimezone,
-  LoopClosingStateCategory,
-  ObjectStateProvider,
-  StateCategory,
   GatherInput,
   GatherProvenance,
   WeatherContribution,
 } from "@alfred/contracts";
-import {
-  closesOpenAsk,
-  closureCandidate,
-  getObjectDef,
-  isNotificationSender,
-  mailboxLabel,
-  OBJECT_STATE_PROVIDERS,
-  parseGmailDocumentMetadata,
-} from "@alfred/contracts";
+import { mailboxLabel, parseGmailDocumentMetadata } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, emailTriage } from "@alfred/db/schemas";
 import { integrations } from "@alfred/integrations";
@@ -34,17 +23,12 @@ import {
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
-  firstClosingObject,
   objectStateStore,
-  proposeReconcileCandidates,
   readBriefingBrokenConnections,
-  reconcileEvidence,
   type ActivityWindow,
   type ObjectState,
-  type ReconcileCandidates,
-  type ReconcileResult,
 } from "@alfred/assistant/connections";
-// oxlint-disable-next-line no-restricted-imports -- #1684 rows 1, 3 and 8: the GitHub merged read and the deploy status reads move behind readActivity and verifyLoops
+// oxlint-disable-next-line no-restricted-imports -- #1684 rows 1, 3 and 8: the GitHub merged read and the deploy status reads move behind readActivity and verifyLoops; the approved MCP health read stays a fold before verifyLoops until a later ADR-0120 slice (decision 6, amended)
 import {
   gatherGithubMergedPullRequests,
   gatherVerifiedPulls,
@@ -63,7 +47,10 @@ import {
   readUserLocation,
   standingInstructions,
   type ActiveStandingInstruction,
+  type ExtraLoopMail,
   type UserLocation,
+  verifyLoops,
+  type VerifyLoopsResult,
 } from "../knowledge";
 import {
   deriveEffectiveTriage,
@@ -78,12 +65,6 @@ import {
   weekdayIndex,
   type LocalDateKey,
 } from "@alfred/assistant/time";
-import {
-  assessLoopRelevance,
-  liveNativeStateReader,
-  type ApprovedLoopState,
-  type LiveNativeStateReader,
-} from "./relevance";
 import {
   readBriefingActivityWindow,
   scorePriorityEmailDemand,
@@ -171,11 +152,15 @@ export interface BriefingDigest {
   githubMerged: GithubMergedReadOutcome;
   /** Priority items dropped because a standing instruction matched the sender. */
   suppressedByInstruction: BriefingInstructionSuppression[];
-  /** Items whose work object reached a terminal state (ADR-0062). Feeds the evening recap. */
+  /**
+   * Items whose every thing is `closed` (ADR-0120 decision 8). Feeds the open-ask guard and the
+   * `briefings.closed_loops` column. The composer recap reads `loops` through `list_loops`.
+   */
   closedLoops: BriefingClosedLoop[];
-  loopRelevance: BriefingLoopRelevance[];
-  /** `unavailable` when the whole relevance pass faulted (ADR-0117 decision 1). */
-  loopRelevanceProvenance: StatedProvenance;
+  /** One item for each loop of the verify set (`verifyLoops`). */
+  loops: BriefingLoop[];
+  /** `unavailable` when `verifyLoops` faulted (ADR-0117 decision 1). */
+  loopsProvenance: StatedProvenance;
   totalPriority: number;
   totalSuppressed: number;
 }
@@ -242,6 +227,8 @@ export interface GatherBriefingDigestArgs {
   activityWindow: ActivityWindow;
   /** Cap per bucket. */
   maxPerBucket?: number;
+  /** The abort of the whole gather. It stops the live loop reads when another input fails. */
+  signal: AbortSignal;
 }
 
 export interface GatherBriefingArgs {
@@ -267,10 +254,10 @@ export interface GatherBriefingArgs {
 export interface GatherBriefingWithSuppressionAuditResult {
   gather: BriefingGather;
   suppressedByInstruction: BriefingInstructionSuppression[];
-  /** Loops dropped because their work object reached a terminal state (ADR-0062). */
+  /** Priority mails dropped because every thing that they point to is `closed` (ADR-0120). */
   closedLoops: BriefingClosedLoop[];
-  /** Check-before-remind verdicts (#1194). */
-  loopRelevance: BriefingLoopRelevance[];
+  /** The verdict of each loop (ADR-0120 decision 8). */
+  loops: BriefingLoop[];
 }
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -309,8 +296,6 @@ export async function gatherBriefingDigest(
         confidence: emailTriage.confidence,
         rationale: emailTriage.rationale,
         title: documents.title,
-        // Only for the CI `head_sha` regex; it never leaves this function.
-        content: documents.content,
         authoredAt: documents.authoredAt,
         sourceThreadId: documents.sourceThreadId,
         metadata: documents.metadata,
@@ -350,11 +335,8 @@ export async function gatherBriefingDigest(
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];
-  // Every triaged row, so a Railway failure triaged as `fyi` still reaches verified pull.
   // Every triaged row, including `fyi`, so a failure notice triaged as `fyi` still triggers a live read.
   const triggerItems: VerifiedPullTriggerItem[] = [];
-  // Buckets stay uncapped until reconciliation, so closed loops do not take visible slots.
-  const keyCandidates: ReconcileCandidates<"about">[] = [];
 
   // Items whose instruction state is `unknown` for a rank effect. They keep the model verdict.
   let instructionUnknownItems = 0;
@@ -423,14 +405,6 @@ export async function gatherBriefingDigest(
       threadId: r.sourceThreadId,
       mailbox: r.accountId ? (identity.mailboxByAccountId.get(r.accountId) ?? null) : null,
     });
-
-    // Propose keys here, while the body is in hand, so content never reaches the resolve phase.
-    const candidates = proposeReconcileCandidates(
-      { id: r.documentId, text: { subject: r.title ?? "", content: r.content } },
-      { reading: "about", sender: from },
-    );
-
-    if (candidates) keyCandidates.push(candidates);
   }
 
   if (instructionUnknownItems > 0) {
@@ -440,16 +414,17 @@ export async function gatherBriefingDigest(
     );
   }
 
-  // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. It runs
-  // before reconciliation, so the stored target state is current when a failure mail reconciles.
-  // Its verdicts go into activity, not into the email buckets. The GitHub read folds the window's
-  // merges the same way, so a review-request mail for a merged PR reconciles closed. Neither throws.
+  // The time of the loop run. `windowEnd` can be a frozen watermark or the end of the local day.
+  const loopClock = new Date();
+
+  // Verified pull (#1094, #1192): a triaged deploy failure triggers a live status read. Its
+  // verdicts go into activity, not into the email buckets. The GitHub read folds the window's
+  // merges, so a stored pull request is current when `verifyLoops` reads it. Neither throws.
   // The merged read covers the activity window, not the email window: it is activity, and it is
   // the silence evidence of that window. It reads merge times in `[start, end]`. The record reads
   // the acts whose delivery arrived in `[start - G, end - G)` (`readActivityEvents`), and the gap
   // proof compares each merge time with the gap bounds, so the read can prove a gap after `start`
-  // only. The email window can start earlier. A mail from that earlier time still reconciles: the
-  // webhook or an earlier briefing's read folded its merge into the store.
+  // only. ADR-0120 slices 3 and 6 move both reads out of the gather.
   const [verifiedPull, githubMerged] = await Promise.all([
     gatherVerifiedPulls({
       userId: args.userId,
@@ -462,13 +437,14 @@ export async function gatherBriefingDigest(
     }),
   ]);
 
-  // Approved MCP health reads run before reconciliation. They add candidates; they never close.
-  const priorityLoops = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
+  // The approved MCP health reads fold before `verifyLoops`, and their keys point the mail at the
+  // folded thing. They never close by themselves: `verifyLoops` gives the verdict.
+  const priorityItems = PRIORITY_CATEGORIES.flatMap((category) => buckets[category]);
 
   const approvedHealth = await verifyApprovedMcpHealth(
     {
       userId: args.userId,
-      loops: priorityLoops,
+      loops: priorityItems,
     },
     {
       callApprovedHealthRead: (input) =>
@@ -486,45 +462,32 @@ export async function gatherBriefingDigest(
     },
   );
 
-  const candidatesByLoop = new Map(keyCandidates.map((candidate) => [candidate.id, candidate]));
+  const itemsById = new Map(priorityItems.map((item) => [item.documentId, item]));
 
-  for (const result of approvedHealth) {
-    if (!result.candidate) continue;
-    const proposed = candidatesByLoop.get(result.documentId);
+  const extraMails = approvedHealth.flatMap((result): ExtraLoopMail[] => {
+    const item = itemsById.get(result.documentId);
 
-    candidatesByLoop.set(result.documentId, {
-      id: result.documentId,
-      keys: [...(proposed?.keys ?? []), result.candidate],
-      probe: proposed?.probe ?? null,
-    });
-  }
+    if (!result.candidate || !item) return [];
 
-  const reconciliationCandidates = [...candidatesByLoop.values()];
-
-  // Drop items whose work object is closed (ADR-0062). Unknown state stays live.
-  // Relevance then runs on the survivors, before the per-bucket cap (#1194).
-  const reconciliation = await dropClosedLoops(args.userId, buckets, reconciliationCandidates);
-
-  logSoftEdgeLoops(buckets, reconciliation.reconciled);
-
-  const approvedStates = new Map<string, ApprovedLoopState>();
-  const unverifiedDetails = new Map<string, string>();
-
-  for (const result of approvedHealth) {
-    if (result.state && result.candidate) {
-      approvedStates.set(result.documentId, { state: result.state, detail: result.detail });
-    } else if (!result.state) {
-      unverifiedDetails.set(result.documentId, result.detail);
-    }
-  }
-
-  const relevance = await assessLoopRelevance({
-    userId: args.userId,
-    loops: PRIORITY_CATEGORIES.flatMap((category) => buckets[category]),
-    reconciled: reconciliation.reconciled,
-    approvedStates,
-    unverifiedDetails,
+    return [
+      {
+        documentId: item.documentId,
+        occurredAt: item.authoredAt ?? loopClock,
+        category: item.category,
+        keys: [result.candidate],
+      },
+    ];
   });
+
+  const verified = await readLoops({
+    userId: args.userId,
+    clock: loopClock,
+    signal: args.signal,
+    extraMails,
+  });
+
+  // Buckets stay uncapped until here, so closed loops do not take visible slots.
+  const closedLoops = dropClosedLoops(buckets, verified.closedMails);
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -544,129 +507,59 @@ export async function gatherBriefingDigest(
     verifiedPull,
     githubMerged,
     suppressedByInstruction,
-    closedLoops: reconciliation.closedLoops,
-    loopRelevance: relevance.value,
-    loopRelevanceProvenance: relevance.provenance,
+    closedLoops,
+    loops: verified.loops.value,
+    loopsProvenance: verified.loops.provenance,
     totalPriority,
     totalSuppressed,
   };
 }
 
-/**
- * Count the live loops that only a soft edge links to a provider: the sender is a provider's
- * notification sender, and no key or labeled identity resolved (ADR-0109). A loop with only a
- * `nomination` counts. The runtime closure verifier is deferred until one of these loops names an
- * object that a read can close, so this log line is its trigger. It logs a gather with no such loop too, so the series shows the pass ran.
- */
-function logSoftEdgeLoops(
-  buckets: Record<PriorityCategory, BriefingItem[]>,
-  reconciled: ReconcileResult<"about">,
-): void {
-  const byProvider: Partial<Record<ObjectStateProvider, number>> = {};
-  const documentIds: string[] = [];
+/** `verifyLoops`, with a fault as a blind input: no loop, and no mail drops. */
+async function readLoops(args: {
+  userId: string;
+  clock: Date;
+  signal: AbortSignal;
+  extraMails: readonly ExtraLoopMail[];
+}): Promise<{
+  loops: Sourced<BriefingLoop[]>;
+  closedMails: VerifyLoopsResult["closedMails"];
+}> {
+  try {
+    const result = await verifyLoops(args);
 
-  for (const item of PRIORITY_CATEGORIES.flatMap((category) => buckets[category])) {
-    // A nomination is a soft edge, so only another match counts as a hard edge.
-    const linked = reconciled.get(item.documentId) ?? [];
+    return {
+      loops: { value: result.loops, provenance: [live("loops")] },
+      closedMails: result.closedMails,
+    };
+  } catch (err) {
+    logger.warn({ err, userId: args.userId }, "[briefing.gather] verifyLoops failed");
 
-    if (linked.some((object) => object.key.match !== "nomination")) continue;
-
-    const providers = OBJECT_STATE_PROVIDERS.filter((provider) =>
-      isNotificationSender(provider, item.from),
-    );
-
-    if (providers.length === 0) continue;
-
-    documentIds.push(item.documentId);
-
-    for (const provider of providers) byProvider[provider] = (byProvider[provider] ?? 0) + 1;
+    return {
+      loops: { value: [], provenance: [readFailed("loops", "The loop check failed.")] },
+      closedMails: new Map(),
+    };
   }
-
-  logger.info(
-    { softEdgeLoops: documentIds.length, byProvider, documentIds },
-    "[briefing.gather] soft-edge loops with no hard edge",
-  );
 }
 
 /**
- * Drop priority items whose work object is closed, and return them for the evening recap.
- * Unresolved, ambiguous, or non-closing keys keep the loop live.
- * A kind with `closesAskFrom: "live_confirmation"` (a Railway target, ADR-0103) needs a live
- * read first. A missing reader or a failed read keeps the ask.
+ * Drop each priority item whose mail points to at least one thing when every such thing is
+ * `closed` (ADR-0120 decision 8), and return the dropped items. An `open` or `unverified` thing, or
+ * a thing with no checked item, keeps the item: absence and a failed read never close a loop.
  */
-async function dropClosedLoops(
-  userId: string,
+function dropClosedLoops(
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  candidates: readonly ReconcileCandidates<"about">[],
-): Promise<{
-  closedLoops: BriefingClosedLoop[];
-  reconciled: ReconcileResult<"about">;
-}> {
-  if (candidates.length === 0) return { closedLoops: [], reconciled: new Map() };
-
-  const reconciled = await reconcileEvidence({ userId, subjects: candidates });
-
+  closedMails: VerifyLoopsResult["closedMails"],
+): BriefingClosedLoop[] {
   const closedLoops: BriefingClosedLoop[] = [];
-
-  // One live read per distinct object. A failure resolves to null, so the ask stays.
-  const liveByObject = new Map<string, Promise<StateCategory | null>>();
-
-  const confirmLive = (
-    state: ObjectState,
-    read: LiveNativeStateReader,
-  ): Promise<StateCategory | null> => {
-    const objectRef = `${state.provider}:${state.kind}:${state.externalId}`;
-    const pending = liveByObject.get(objectRef);
-
-    if (pending) return pending;
-
-    // An unknown token and an archived issue both normalize to non-closing.
-    const confirmation = read(userId)
-      .then((nativeState) => getObjectDef(state.provider).normalize(state.kind, nativeState))
-      .catch((err: unknown) => {
-        logger.warn(
-          { err },
-          `[briefing.gather] live closure confirmation failed object=${objectRef}`,
-        );
-
-        return null;
-      });
-
-    liveByObject.set(objectRef, confirmation);
-
-    return confirmation;
-  };
-
-  const assertClosure = async (state: ObjectState): Promise<LoopClosingStateCategory | null> => {
-    const candidate = closureCandidate(state.provider, state.kind, state.stateCategory);
-
-    if (!candidate) return null;
-
-    // Pass the proof this branch holds, never `candidate.proof`: that is the demand,
-    // and passing it back would admit every kind.
-    if (candidate.proof === "stored_projection")
-      return closesOpenAsk(state.provider, state.kind, state.stateCategory, "stored_projection");
-
-    const read = liveNativeStateReader(state);
-
-    // Stored state is not proof for this kind and there is no reader: keep the ask.
-    if (!read) return null;
-
-    const live = await confirmLive(state, read);
-
-    return live === null
-      ? null
-      : closesOpenAsk(state.provider, state.kind, live, "live_confirmation");
-  };
 
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      const closed = firstClosingObject(reconciled.get(item.documentId));
-      const asserted = closed ? await assertClosure(closed.state) : null;
+      const closing = closedMails.get(item.documentId);
 
-      if (!closed || !asserted) {
+      if (!closing) {
         kept.push(item);
         continue;
       }
@@ -675,17 +568,17 @@ async function dropClosedLoops(
         documentId: item.documentId,
         category,
         subject: item.subject,
-        objectTitle: closed.state.title,
-        objectUrl: closed.state.url,
-        stateCategory: asserted,
-        nativeState: closed.state.nativeState,
+        objectTitle: closing.title,
+        objectUrl: closing.url,
+        stateCategory: closing.stateCategory,
+        nativeState: closing.nativeState,
       });
     }
 
     buckets[category] = kept;
   }
 
-  return { closedLoops, reconciled };
+  return closedLoops;
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
@@ -708,7 +601,7 @@ export async function gatherBriefingWithSuppressionAudit(
   const weatherDeadline = AbortSignal.timeout(WEATHER_DEADLINE_MS);
 
   // When a read below fails, `Promise.all` rejects and the gather stops. This controller then stops
-  // the warnings feed reads, so they do not run on to their own deadline.
+  // the warnings feed reads and the live loop reads, so they do not run on to their own deadline.
   const gatherCancel = new AbortController();
 
   const placeRead = readUserLocation({
@@ -725,6 +618,7 @@ export async function gatherBriefingWithSuppressionAudit(
         windowStart: args.windowStart,
         windowEnd,
         activityWindow,
+        signal: gatherCancel.signal,
       }),
       gatherCalendarContribution({
         userId: args.userId,
@@ -832,7 +726,7 @@ export async function gatherBriefingWithSuppressionAudit(
     ]),
     deploy_status: mergeInputProvenance("deploy_status", verifiedPull.provenance),
     github_merged: [githubMergedProvenance(githubMerged)],
-    loop_relevance: digest.loopRelevanceProvenance,
+    loops: digest.loopsProvenance,
   } satisfies Record<GatherInput, StatedProvenance>;
 
   const provenance = boundProvenance(args.userId, Object.values(provenanceByInput).flat());
@@ -862,7 +756,7 @@ export async function gatherBriefingWithSuppressionAudit(
     },
     suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
-    loopRelevance: digest.loopRelevance,
+    loops: digest.loops,
   };
 }
 

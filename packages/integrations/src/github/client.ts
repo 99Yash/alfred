@@ -66,6 +66,7 @@ const issueSchema = z.object({
 const MAX_ISSUE_BODY_CHARS = 20_000;
 
 const pullRequestSchema = z.object({
+  id: z.number().int().positive(),
   number: z.number(),
   title: z.string(),
   html_url: z.string(),
@@ -121,6 +122,8 @@ export interface PullRequestBatch {
 }
 
 export interface PullRequestDetail {
+  /** GitHub's numeric id. The webhook keys the `integration_objects` row by it. */
+  githubId: number;
   number: number;
   title: string;
   url: string;
@@ -186,15 +189,18 @@ export function createGithubClient(options: GithubClientOptions) {
     owner: string;
     repo: string;
     number: number;
+    signal?: AbortSignal | undefined;
   }): Promise<PullRequestDetail> {
     const { owner, repo, number } = args;
     const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`;
 
     const pr = await client.json(pullRequestSchema, path, {
       label: `repos/${owner}/${repo}/pulls/${number}`,
+      signal: args.signal,
     });
 
     return {
+      githubId: pr.id,
       number: pr.number,
       title: pr.title,
       url: pr.html_url,
@@ -267,10 +273,12 @@ export function createGithubClient(options: GithubClientOptions) {
 
     /**
      * GitHub has no batch PR read, so fan out. Best effort: a 404 lands in `failed`
-     * and the rest still return.
+     * and the rest still return. After `signal` aborts, each read that is left fails fast into
+     * `failed`, so the reads that completed still return.
      */
     async getPullRequests(
       items: ReadonlyArray<{ owner: string; repo: string; number: number }>,
+      options: { signal?: AbortSignal | undefined } = {},
     ): Promise<PullRequestBatch> {
       const fetched: (PullRequestDetail | undefined)[] = Array.from({ length: items.length });
       const failed: PullRequestBatchFailure[] = [];
@@ -279,7 +287,7 @@ export function createGithubClient(options: GithubClientOptions) {
         PULL_REQUEST_BATCH_CONCURRENCY,
         async ({ item, index }) => {
           try {
-            fetched[index] = await getPullRequest(item);
+            fetched[index] = await getPullRequest({ ...item, signal: options.signal });
           } catch (err) {
             failed.push({ ...item, error: toMessage(err) });
           }

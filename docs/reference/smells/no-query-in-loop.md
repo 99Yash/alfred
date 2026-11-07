@@ -46,3 +46,4 @@ AST: a query on a `db()` or transaction handle awaited inside a loop body or an 
 
 - #1126 packages/assistant/src/connections/object-state/reconcile.ts: two queries for each candidate key in `reconcileEvidence`; fixed with one `inArray` query for each key group.
 - #1672 knowledge/activity.ts correlated an array subquery on observations.source, so Postgres ran it once per row, with no time floor and no limit
+- #1690 loop-set.ts read one row for each open todo, and readAndCommit read one row for each fact after the fold. Now objectStateStore.getByIdentities reads them in one query.

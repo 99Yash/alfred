@@ -11,6 +11,7 @@ import {
   type IdentityAttribute,
   type ObjectIdentityDecl,
   type ObjectStateProvider,
+  type ProviderLink,
 } from "@alfred/contracts";
 import type { KeyProposal, KeyProposalReading, ReconcileSubject } from "./adapter";
 import type { ObjectStateRef, ObjectStateStore } from "./store";
@@ -94,10 +95,27 @@ export function proposeIdentityProbe<Reading extends KeyProposalReading>(
 
   if (providers.length === 0) return null;
 
+  const links = collectProviderLinks(`${subject.text.subject}\n${subject.text.content}`).filter(
+    (link) => providers.includes(link.provider),
+  );
+
+  return identityProbeFromGatedLinks(links, proposal.reading);
+}
+
+/**
+ * The probe for links that already passed the sender gate. This function does not apply the gate:
+ * the caller must keep only the links whose sender passes `isNotificationSender` for the link's
+ * provider, as {@link proposeIdentityProbe} does under `about`. The stored links of an ADR-0120
+ * `email_interpretation` row are gated at write time. Pure. `null` when no link holds a labeled or
+ * a strong value.
+ */
+export function identityProbeFromGatedLinks<Reading extends KeyProposalReading>(
+  links: readonly ProviderLink[],
+  reading: Reading,
+): IdentityProbe<Reading> | null {
   const references: IdentityReference[] = [];
 
-  for (const link of collectProviderLinks(`${subject.text.subject}\n${subject.text.content}`)) {
-    if (!providers.includes(link.provider)) continue;
+  for (const link of links) {
     const labels = LINK_LABELS.get(link.provider);
 
     const labeled = link.values.flatMap(({ label, value }) =>
@@ -113,7 +131,7 @@ export function proposeIdentityProbe<Reading extends KeyProposalReading>(
     }
   }
 
-  return references.length > 0 ? { references, reading: proposal.reading } : null;
+  return references.length > 0 ? { references, reading } : null;
 }
 
 /**
