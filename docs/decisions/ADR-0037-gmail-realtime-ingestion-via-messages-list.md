@@ -75,3 +75,17 @@ fetch failed with a retryable fault. A 404 (the message was deleted) and a
 per-input status (400, 413, 422) do not hold it, because they fail the same way
 on every run. Before this change both paths moved the cursor to their
 high-water mark, and the catch-up sweep could never see the add record again.
+
+**Amended 2026-11-07 (uncovered-receipt follow-up).** The 5m search index has a
+second miss mode: it can omit a message that is seconds old, and the 30s burst
+dedup (ADR-0032) then silently drops every retriggering push that would have
+polled again — a prod study (Nov 2026) found author→ingest delays of 30s to 5+min
+with classification still ≤10s. Each poll now reads its burst back from
+`event_receipts` at the end: the highest receipt `historyId` delivered inside a
+60s window whose id the final cursor did not pass names the miss, and the
+`gmail.poll_recent` worker schedules one follow-up poll 30s later under its own
+dedup id (a re-add inside the first job's TTL window would be swallowed). The
+follow-up never spawns one, so a change no recent poll can cover (an old
+message's label event, a down gap) falls back to the sweep instead of looping
+every 30s. Receipts stay the audit trail and gap detection (ADR-0090) is
+unchanged; the dedup rule stays on the catalog entry (ADR-0119).

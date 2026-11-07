@@ -3,6 +3,14 @@ import { z } from "zod";
 /** Realtime polls collapse push bursts. History polls use active-job dedup instead. */
 export const GMAIL_POLL_DEDUP_TTL_MS = 30_000;
 
+/**
+ * How far back a realtime poll counts receipts as part of its burst. The burst dedup drops a
+ * retriggering push's poll, so a receipt landed inside this window is the only trace of its
+ * change; the poll re-reads receipts at the end, and a cursor that ended below the highest
+ * receipt id schedules one follow-up poll.
+ */
+export const GMAIL_RECENT_PUSH_WINDOW_MS = 60_000;
+
 /** The sweep considers every active Gmail cursor on each run. */
 export const GMAIL_POLL_SWEEP_INTERVAL_MS = 5 * 60_000;
 

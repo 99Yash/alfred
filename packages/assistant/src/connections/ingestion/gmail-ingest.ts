@@ -25,7 +25,7 @@ import {
   type GmailWatchState,
 } from "@alfred/integrations/google";
 import { installGmailWatch } from "@alfred/integrations/google/internal";
-import { and, eq, inArray, max, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, max, sql } from "drizzle-orm";
 import {
   hasIngestableAttachments,
   ingestGmailMediaAttachments,
@@ -37,7 +37,7 @@ import {
 import { observeDocumentAskCarrier } from "../document-asks";
 import { logger } from "@alfred/logging";
 import type { JobInput } from "@alfred/assistant/queue-jobs";
-import type { GmailPollHistoryReason } from "./gmail-delivery-policy";
+import { GMAIL_RECENT_PUSH_WINDOW_MS, type GmailPollHistoryReason } from "./gmail-delivery-policy";
 import type { ingestionQueue } from "./queue";
 
 /**
@@ -995,6 +995,12 @@ export interface PollRecentResult {
   errors: number;
   cursorBefore: string | null;
   cursorAfter: string | null;
+  /**
+   * Highest receipt `historyId` delivered inside the recent-push window that `cursorAfter` did
+   * not pass, or `null` when the poll covered its burst (or no recent receipt exists). The
+   * worker schedules the follow-up from this.
+   */
+  uncoveredPushHistoryId: string | null;
   insertedDocumentIds: string[];
   /**
    * The only deferred-embed path: equals `insertedDocumentIds`, so Voyage stays off tag latency
@@ -1015,10 +1021,18 @@ export interface PollRecentResult {
  * updates in seconds, not `history.list`, which can lag the push by minutes. Moves the cursor
  * forward only. Does not embed; the caller triages first, then indexes. The `poll-fallback` sweep
  * through `pollGmailHistory` catches what this misses.
+ *
+ * It also reports an uncovered push: the highest receipt id delivered inside the recent window
+ * (the burst dedup drops that push's retriggering poll) that the final cursor did not pass. The
+ * `gmail.poll_recent` worker schedules the one follow-up such a poll may spawn.
  */
 export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentResult> {
   const mailbox = args.deps?.mailbox ?? gmailMailbox({ credentialId: args.credentialId });
   const scheduleMediaIngest = args.deps?.scheduleMediaIngest;
+
+  // Receipts delivered just before the poll start can still name the change its burst should
+  // have covered; the recency window guards against counting stale receipts instead.
+  const pollStartedAt = new Date();
 
   // Independent reads, so run them together.
   const [cred, state] = await Promise.all([
@@ -1169,6 +1183,24 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     });
   }
 
+  // The burst dedup leaves each push receipt as the only trace of a change no other poll will
+  // report (#560b). A receipt inside the recent window whose id the cursor never passed names a
+  // change this poll should have covered — a message the search index filed after the list read.
+  let uncoveredPushHistoryId: string | null = null;
+
+  const recentPushHistoryId = await loadRecentReceiptHistoryId(
+    args.credentialId,
+    new Date(pollStartedAt.getTime() - GMAIL_RECENT_PUSH_WINDOW_MS),
+  );
+
+  if (
+    cursorAfter &&
+    recentPushHistoryId &&
+    compareHistoryIds(recentPushHistoryId, cursorAfter) > 0
+  ) {
+    uncoveredPushHistoryId = recentPushHistoryId;
+  }
+
   return {
     listed: refs.length,
     inserted,
@@ -1177,6 +1209,7 @@ export async function pollGmailRecent(args: PollRecentArgs): Promise<PollRecentR
     errors,
     cursorBefore,
     cursorAfter,
+    uncoveredPushHistoryId,
     insertedDocumentIds,
     unembeddedDocumentIds: insertedDocumentIds,
     triageDocumentIds,
@@ -1287,6 +1320,35 @@ async function loadHighestReceiptHistoryId(credentialId: string): Promise<string
     })
     .from(typedEventReceipts)
     .where(eq(typedEventReceipts.credentialId, credentialId));
+
+  return rows[0]?.historyId ?? null;
+}
+
+/**
+ * Highest pushed historyId from receipts delivered since `since`, read at poll end: a receipt the
+ * burst dedup replaced with no poll is still the only trace of its change.
+ */
+async function loadRecentReceiptHistoryId(
+  credentialId: string,
+  since: Date,
+): Promise<string | null> {
+  const { typedEventReceipts } = await import("@alfred/db/schemas");
+
+  const rows = await db()
+    .select({
+      // Delivery order is not revision order. Validate the text, then compare exactly as numeric.
+      historyId: max(sql<string>`CASE
+        WHEN ${typedEventReceipts.historyId} ~ '^[0-9]+$'
+        THEN ${typedEventReceipts.historyId}::numeric
+      END`),
+    })
+    .from(typedEventReceipts)
+    .where(
+      and(
+        eq(typedEventReceipts.credentialId, credentialId),
+        gt(typedEventReceipts.deliveredAt, since),
+      ),
+    );
 
   return rows[0]?.historyId ?? null;
 }
