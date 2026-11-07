@@ -24,12 +24,17 @@ import type { ThingOutcome } from "./loops";
 export type ClosedLoopItem = Extract<BriefingLoop, { verdict: "closed" }>;
 
 export interface LoopItems {
-  /** One checked item for each thing. */
+  /**
+   * One checked item for each thing. A `closed` thing that no mail points to is here only when the
+   * fact that closed it is in the window (decision 8): a todo of a thing that closed long ago is
+   * not news. A closed thing with a mail stays, because `list_emails_since` reads the mails from
+   * the store and this item is how the composer knows that the mail is closed.
+   */
   loops: BriefingLoop[];
   /**
    * Each mail whose every thing is `closed`, with the item of its first thing. It reads every mail
-   * of each thing, with no cap. A thing with no checked item counts as not closed, so its mails
-   * stay.
+   * of each thing, with no cap, and it holds a thing that closed before the window too. A thing
+   * with no checked item counts as not closed, so its mails stay.
    */
   closedMails: Map<string, ClosedLoopItem>;
 }
@@ -39,6 +44,7 @@ export async function toLoopItems(args: {
   userId: string;
   things: readonly LoopThing[];
   outcomes: ReadonlyMap<LoopThing, ThingOutcome>;
+  windowStart: Date;
 }): Promise<LoopItems> {
   const { userId } = args;
   const serverIds = await readMcpServerIds(userId, args.things);
@@ -54,7 +60,13 @@ export async function toLoopItems(args: {
       pointed.set(documentId, [...(pointed.get(documentId) ?? []), closing]);
     }
 
-    if (item) loops.push(item);
+    if (!item) continue;
+
+    if (closing && thing.documentIds.size === 0 && !closedInWindow(closing, args.windowStart)) {
+      continue;
+    }
+
+    loops.push(item);
   }
 
   const closedMails = new Map<string, ClosedLoopItem>();
@@ -67,6 +79,11 @@ export async function toLoopItems(args: {
   }
 
   return { loops, closedMails };
+}
+
+/** An item with no state time cannot show that it closed in the window. */
+function closedInWindow(item: ClosedLoopItem, windowStart: Date): boolean {
+  return item.stateAt !== null && new Date(item.stateAt) >= windowStart;
 }
 
 /** The checked item of one thing, or `null` when it has no source or the contract rejects it. */

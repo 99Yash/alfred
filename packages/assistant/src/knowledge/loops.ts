@@ -128,7 +128,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
     readThisRun,
   });
 
-  const { loops, closedMails } = await toLoopItems({ userId, things, outcomes });
+  const { loops, closedMails } = await toLoopItems({ userId, things, outcomes, windowStart });
 
   logger.info(
     {
