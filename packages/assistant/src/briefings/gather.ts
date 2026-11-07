@@ -50,6 +50,7 @@ import {
   type ExtraLoopMail,
   type UserLocation,
   verifyLoops,
+  type VerifyLoopsResult,
 } from "../knowledge";
 import {
   deriveEffectiveTriage,
@@ -476,7 +477,7 @@ export async function gatherBriefingDigest(
   const verified = await readLoops({ userId: args.userId, clock: loopClock, extraMails });
 
   // Buckets stay uncapped until here, so closed loops do not take visible slots.
-  const closedLoops = dropClosedLoops(buckets, verified.value);
+  const closedLoops = dropClosedLoops(buckets, verified.closedMails);
 
   for (const category of PRIORITY_CATEGORIES) {
     buckets[category] = buckets[category].slice(0, maxPerBucket);
@@ -497,8 +498,8 @@ export async function gatherBriefingDigest(
     githubMerged,
     suppressedByInstruction,
     closedLoops,
-    loops: verified.value,
-    loopsProvenance: verified.provenance,
+    loops: verified.loops.value,
+    loopsProvenance: verified.loops.provenance,
     totalPriority,
     totalSuppressed,
   };
@@ -509,47 +510,45 @@ async function readLoops(args: {
   userId: string;
   clock: Date;
   extraMails: readonly ExtraLoopMail[];
-}): Promise<Sourced<BriefingLoop[]>> {
+}): Promise<{
+  loops: Sourced<BriefingLoop[]>;
+  closedMails: VerifyLoopsResult["closedMails"];
+}> {
   try {
     const result = await verifyLoops(args);
 
-    return { value: result.loops, provenance: [live("loops")] };
+    return {
+      loops: { value: result.loops, provenance: [live("loops")] },
+      closedMails: result.closedMails,
+    };
   } catch (err) {
     logger.warn({ err, userId: args.userId }, "[briefing.gather] verifyLoops failed");
 
-    return { value: [], provenance: [readFailed("loops", "The loop check failed.")] };
+    return {
+      loops: { value: [], provenance: [readFailed("loops", "The loop check failed.")] },
+      closedMails: new Map(),
+    };
   }
 }
 
 /**
  * Drop each priority item whose mail points to at least one thing when every such thing is
- * `closed` (ADR-0120 decision 8), and return the dropped items for the evening recap. An `open` or
- * `unverified` thing keeps the item: absence and a failed read never close a loop.
+ * `closed` (ADR-0120 decision 8), and return the dropped items. An `open` or `unverified` thing, or
+ * a thing with no checked item, keeps the item: absence and a failed read never close a loop.
  */
 function dropClosedLoops(
   buckets: Record<PriorityCategory, BriefingItem[]>,
-  loops: readonly BriefingLoop[],
+  closedMails: VerifyLoopsResult["closedMails"],
 ): BriefingClosedLoop[] {
-  const loopsByDocument = new Map<string, BriefingLoop[]>();
-
-  for (const loop of loops) {
-    for (const documentId of loop.documentIds) {
-      loopsByDocument.set(documentId, [...(loopsByDocument.get(documentId) ?? []), loop]);
-    }
-  }
-
   const closedLoops: BriefingClosedLoop[] = [];
 
   for (const category of PRIORITY_CATEGORIES) {
     const kept: BriefingItem[] = [];
 
     for (const item of buckets[category]) {
-      const pointed = loopsByDocument.get(item.documentId) ?? [];
-      const closing = pointed.flatMap(closingStateOf);
-      const first = closing[0];
+      const closing = closedMails.get(item.documentId);
 
-      // `first` is absent exactly when the mail points to nothing.
-      if (!first || closing.length !== pointed.length) {
+      if (!closing) {
         kept.push(item);
         continue;
       }
@@ -558,10 +557,10 @@ function dropClosedLoops(
         documentId: item.documentId,
         category,
         subject: item.subject,
-        objectTitle: first.title,
-        objectUrl: first.url,
-        stateCategory: first.stateCategory,
-        nativeState: first.nativeState,
+        objectTitle: closing.title,
+        objectUrl: closing.url,
+        stateCategory: closing.stateCategory,
+        nativeState: closing.nativeState,
       });
     }
 
@@ -569,11 +568,6 @@ function dropClosedLoops(
   }
 
   return closedLoops;
-}
-
-/** A `closed` loop, narrowed by its verdict. Its type holds the closing category. */
-function closingStateOf(loop: BriefingLoop): Extract<BriefingLoop, { verdict: "closed" }>[] {
-  return loop.verdict === "closed" ? [loop] : [];
 }
 
 export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {

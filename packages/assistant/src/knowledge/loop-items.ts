@@ -20,43 +20,97 @@ import type { ThingOutcome } from "./loops";
 
 /** The items of `verifyLoops` (ADR-0120 decision 8): one checked `BriefingLoop` for each thing. */
 
+/** A `closed` item. Its type holds the closing category. */
+export type ClosedLoopItem = Extract<BriefingLoop, { verdict: "closed" }>;
+
+export interface LoopItems {
+  /** One checked item for each thing. */
+  loops: BriefingLoop[];
+  /**
+   * Each mail whose every thing is `closed`, with the item of its first thing. It reads every mail
+   * of each thing, with no cap. A thing with no checked item counts as not closed, so its mails
+   * stay.
+   */
+  closedMails: Map<string, ClosedLoopItem>;
+}
+
 /** Decision 8. An item that the contract rejects is dropped and logged, never repaired. */
-export async function toLoopItems(
-  userId: string,
-  things: readonly LoopThing[],
-  outcomes: ReadonlyMap<LoopThing, ThingOutcome>,
-): Promise<BriefingLoop[]> {
-  const serverIds = await readMcpServerIds(userId, things);
-  const items: BriefingLoop[] = [];
+export async function toLoopItems(args: {
+  userId: string;
+  things: readonly LoopThing[];
+  outcomes: ReadonlyMap<LoopThing, ThingOutcome>;
+}): Promise<LoopItems> {
+  const { userId } = args;
+  const serverIds = await readMcpServerIds(userId, args.things);
+  const loops: BriefingLoop[] = [];
+  // Each mail, and for each thing that it points to the closed item or `null`.
+  const pointed = new Map<string, (ClosedLoopItem | null)[]>();
 
-  for (const { thing, outcome } of mergeByObject(things, outcomes)) {
-    const source = sourceOf(thing.provider, outcome.state, serverIds);
+  for (const { thing, outcome } of mergeByObject(args.things, args.outcomes)) {
+    const item = checkedItem(userId, thing, outcome, serverIds);
+    const closing = item?.verdict === "closed" ? item : null;
 
-    if (!source) continue;
-
-    const { state } = outcome;
-
-    const parsed = briefingLoopSchema.safeParse({
-      verdict: verdictOf(outcome),
-      evidence: outcome.evidence,
-      source,
-      kind: thing.kind,
-      stateCategory: state?.stateCategory ?? null,
-      nativeState: state?.nativeState ?? null,
-      stateAt: state ? (factTime(state)?.toISOString() ?? null) : null,
-      title: state?.title ? sanitizeErrorMessage(state.title, BRIEFING_LOOP_TITLE_MAX) : null,
-      url: httpsUrlOrNull(state?.url ?? thing.keyUrl),
-      documentIds: [...thing.documentIds].slice(0, BRIEFING_LOOP_DOCUMENTS_MAX),
-    });
-
-    if (parsed.success) {
-      items.push(parsed.data);
-    } else {
-      logger.warn({ userId, issues: parsed.error.issues }, "[loops] contract rejected an item");
+    for (const documentId of thing.documentIds) {
+      pointed.set(documentId, [...(pointed.get(documentId) ?? []), closing]);
     }
+
+    if (item) loops.push(item);
   }
 
-  return items;
+  const closedMails = new Map<string, ClosedLoopItem>();
+
+  for (const [documentId, closings] of pointed) {
+    const closed = closings.filter((closing) => closing !== null);
+    const [first] = closed;
+
+    if (first && closed.length === closings.length) closedMails.set(documentId, first);
+  }
+
+  return { loops, closedMails };
+}
+
+/** The checked item of one thing, or `null` when it has no source or the contract rejects it. */
+function checkedItem(
+  userId: string,
+  thing: LoopThing,
+  outcome: ThingOutcome,
+  serverIds: ReadonlyMap<string, string>,
+): BriefingLoop | null {
+  const { state } = outcome;
+  const source = sourceOf(thing.provider, state, serverIds);
+
+  if (!source) {
+    logger.warn(
+      { userId, provider: thing.provider, kind: thing.kind, objectId: state?.objectId ?? null },
+      "[loops] thing has no source; no item, and its mails stay",
+    );
+
+    return null;
+  }
+
+  const parsed = briefingLoopSchema.safeParse({
+    verdict: verdictOf(outcome),
+    evidence: outcome.evidence,
+    source,
+    kind: thing.kind,
+    stateCategory: state?.stateCategory ?? null,
+    nativeState: state?.nativeState ?? null,
+    stateAt: state ? (factTime(state)?.toISOString() ?? null) : null,
+    title: state?.title ? sanitizeErrorMessage(state.title, BRIEFING_LOOP_TITLE_MAX) : null,
+    url: httpsUrlOrNull(state?.url ?? thing.keyUrl),
+    documentIds: [...thing.documentIds].slice(0, BRIEFING_LOOP_DOCUMENTS_MAX),
+  });
+
+  if (!parsed.success) {
+    logger.warn(
+      { userId, issues: parsed.error.issues },
+      "[loops] contract rejected an item; its mails stay",
+    );
+
+    return null;
+  }
+
+  return parsed.data;
 }
 
 /**

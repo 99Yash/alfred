@@ -15,7 +15,7 @@ import {
   type LoopVerifierRead,
 } from "@alfred/assistant/connections/verified-pull";
 import { findAmbiguous } from "./loop-ambiguity";
-import { toLoopItems } from "./loop-items";
+import { toLoopItems, type ClosedLoopItem } from "./loop-items";
 import {
   collectThings,
   readLoopMails,
@@ -69,6 +69,11 @@ export interface ExtraLoopMail {
 export interface VerifyLoopsResult {
   /** One item for each loop, newest evidence first. */
   loops: BriefingLoop[];
+  /**
+   * The mails that the gather drops: each mail whose every thing is `closed`, with the item of its
+   * first thing. An item caps its mails at 20, so the drop reads this map, not `loops`.
+   */
+  closedMails: ReadonlyMap<string, ClosedLoopItem>;
   windowStart: Date;
   /** Stored rows whose payload this build cannot parse. Their mails point to nothing. */
   unreadableRows: number;
@@ -123,7 +128,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
     readThisRun,
   });
 
-  const loops = await toLoopItems(userId, things, outcomes);
+  const { loops, closedMails } = await toLoopItems({ userId, things, outcomes });
 
   logger.info(
     {
@@ -140,7 +145,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
     "[loops] verified",
   );
 
-  return { loops, windowStart, unreadableRows: mailRead.unreadable };
+  return { loops, closedMails, windowStart, unreadableRows: mailRead.unreadable };
 }
 
 /** Decision 4: the last committed run, at least 3 days back. The first run reads 30 days. */
