@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { getPath, getStringPath } from "@alfred/contracts";
+import { eventTypeName, getPath, getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { unsealedTestSecret } from "./support/unsealed-secret";
-import { documents, ingestionState, integrationCredentials, user } from "@alfred/db/schemas";
+import {
+  documents,
+  eventReceipts,
+  ingestionState,
+  integrationCredentials,
+  user,
+} from "@alfred/db/schemas";
 import { findUnembeddedDocumentIds } from "@alfred/corpus";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -530,6 +536,177 @@ describe("pollGmailRecent → gmail.media_ingest scheduling (DB-backed)", { skip
       sweepCandidates.includes(attRow.id),
       "embed_sweep candidate query must cover gmail_attachment rows",
     );
+  });
+});
+
+/**
+ * A fresh push receipt is the trace of the change the burst dedup silenced. A poll that ended
+ * below it reports `uncoveredPushHistoryId` so the worker schedules the follow-up.
+ */
+async function seedReceipt(args: {
+  userId: string;
+  credentialId: string;
+  historyId: string;
+  deliveredAgoMs: number;
+}): Promise<void> {
+  await db()
+    .insert(eventReceipts)
+    .values({
+      provider: "google",
+      providerDeliveryId: `push-${randomUUID()}`,
+      credentialId: args.credentialId,
+      userId: args.userId,
+      eventType: eventTypeName("gmail", "message_received"),
+      historyId: args.historyId,
+      processingStatus: "completed",
+      deliveredAt: new Date(Date.now() - args.deliveredAgoMs),
+    });
+}
+
+describe("pollGmailRecent → uncoveredPushHistoryId (DB-backed)", { skip: SKIP }, () => {
+  test("a receipt above the cursor after the poll names the uncovered push", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const messageId = `msg-${randomUUID()}`;
+    const threadId = `thr-${randomUUID()}`;
+
+    await seedReceipt({ userId, credentialId, historyId: "3000", deliveredAgoMs: 1_000 });
+
+    const result = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () =>
+            makePollMessage({
+              id: messageId,
+              threadId,
+              attachmentId: `att-${randomUUID()}`,
+              filename: "uncovered.pdf",
+              historyId: "2000",
+            }),
+        },
+      },
+    });
+
+    assert.equal(result.cursorAfter, "2000", "the poll advanced to the listed message");
+    assert.equal(
+      result.uncoveredPushHistoryId,
+      "3000",
+      "the receipt the cursor never passed names the missed change",
+    );
+  });
+
+  test("a receipt the cursor already passed is covered", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const messageId = `msg-${randomUUID()}`;
+    const threadId = `thr-${randomUUID()}`;
+
+    await seedReceipt({ userId, credentialId, historyId: "1500", deliveredAgoMs: 1_000 });
+
+    const result = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () =>
+            makePollMessage({
+              id: messageId,
+              threadId,
+              attachmentId: `att-${randomUUID()}`,
+              filename: "covered.pdf",
+              historyId: "2000",
+            }),
+        },
+      },
+    });
+
+    assert.equal(result.cursorAfter, "2000");
+    assert.equal(result.uncoveredPushHistoryId, null, "the poll's cursor passed the receipt");
+  });
+
+  test("a stale receipt outside the recent-push window is not the uncovered push", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const messageId = `msg-${randomUUID()}`;
+    const threadId = `thr-${randomUUID()}`;
+
+    // Delivered 70s ago: outside GMAIL_RECENT_PUSH_WINDOW_MS (60s), an old burst, not this one.
+    await seedReceipt({ userId, credentialId, historyId: "3000", deliveredAgoMs: 70_000 });
+
+    const result = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () =>
+            makePollMessage({
+              id: messageId,
+              threadId,
+              attachmentId: `att-${randomUUID()}`,
+              filename: "covered.pdf",
+              historyId: "2000",
+            }),
+        },
+      },
+    });
+
+    assert.equal(result.cursorAfter, "2000");
+    assert.equal(
+      result.uncoveredPushHistoryId,
+      null,
+      "a stale receipt does not schedule a follow-up",
+    );
+  });
+
+  test("a non-numeric receipt historyId cannot name the uncovered push", async () => {
+    const userId = await seedUser();
+    const credentialId = await seedGoogleCredential(userId);
+    const messageId = `msg-${randomUUID()}`;
+    const threadId = `thr-${randomUUID()}`;
+
+    await seedReceipt({ userId, credentialId, historyId: "not-a-history", deliveredAgoMs: 1_000 });
+
+    const result = await pollGmailRecent({
+      credentialId,
+      window: "5m",
+      maxMessages: 10,
+      deps: {
+        mailbox: {
+          listMessages: async () => ({
+            messages: [{ id: messageId, threadId }],
+            nextPageToken: undefined,
+          }),
+          getMessage: async () =>
+            makePollMessage({
+              id: messageId,
+              threadId,
+              attachmentId: `att-${randomUUID()}`,
+              filename: "covered.pdf",
+              historyId: "2000",
+            }),
+        },
+      },
+    });
+
+    assert.equal(result.cursorAfter, "2000");
+    assert.equal(result.uncoveredPushHistoryId, null, "only numeric history ids compare");
   });
 });
 

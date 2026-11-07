@@ -150,8 +150,19 @@ export const ingestionWorker = ingestionQueue.consume({
       logger.info(
         `[ingestion:worker] gmail.poll_recent credential=${data.credentialId} ` +
           `listed=${result.listed} inserted=${result.inserted} skipped=${result.skipped} ` +
-          `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"}`,
+          `ignored=${result.ignored} errors=${result.errors} cursor=${result.cursorBefore ?? "?"}->${result.cursorAfter ?? "?"} ` +
+          `uncoveredPush=${result.uncoveredPushHistoryId ?? "-"} followUp=${data.followUp ?? false}`,
       );
+
+      // One follow-up after the burst dedup window: the index can file a message seconds after
+      // the poll read, and the silenced retriggers of its burst carry no poll of their own. The
+      // follow-up never spawns one, so a change no recent poll covers falls back to the sweep.
+      if (!data.followUp && result.uncoveredPushHistoryId) {
+        await ingestionQueue.add("gmail.poll_recent", {
+          credentialId: data.credentialId,
+          followUp: true,
+        });
+      }
 
       if (hasGmailPostInsertSideEffects(result)) {
         await publishGmailDocumentsIngested({

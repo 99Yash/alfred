@@ -43,11 +43,26 @@ export const ingestionQueue = defineQueue({
       credential.extend({
         /** Pub/Sub push historyId, for gap detection (#560b). */
         pushHistoryId: z.string().optional(),
+        /**
+         * The one follow-up a poll that ended below its burst's receipts schedules (ingest-lag
+         * fix). A depth-0 poll may spawn it; the follow-up never spawns one, so a push that no
+         * recent poll can cover falls back to the sweep.
+         */
+        followUp: z.boolean().optional(),
       }),
       // A TTL dedup collapses push bursts. Not a static `jobId`: BullMQ keeps completed jobs, so a
-      // reused id is a silent no-op for hours.
+      // reused id is a silent no-op for hours. The follow-up needs its own id: the depth-0 job's
+      // dedup key still covers the window the follow-up adds inside.
       (d) => ({
-        deduplication: { id: `gmail.poll_recent.${d.credentialId}`, ttl: GMAIL_POLL_DEDUP_TTL_MS },
+        deduplication: {
+          id: d.followUp
+            ? `gmail.poll_recent.followup.${d.credentialId}`
+            : `gmail.poll_recent.${d.credentialId}`,
+          ttl: GMAIL_POLL_DEDUP_TTL_MS,
+        },
+        // Runs after the dedup window, giving Gmail's search index a beat to file the message
+        // the first list missed (ADR-0037).
+        ...(d.followUp ? { delay: GMAIL_POLL_DEDUP_TTL_MS } : {}),
       }),
     ),
 
