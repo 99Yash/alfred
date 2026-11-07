@@ -86,7 +86,7 @@ function mergeByObject(
 
     for (const documentId of thing.documentIds) known.thing.documentIds.add(documentId);
 
-    if (known.outcome.readFailed && !outcome.readFailed) known.outcome = outcome;
+    if (known.outcome.unverified !== null && outcome.unverified === null) known.outcome = outcome;
   });
 
   return [...merged.values()];
@@ -99,7 +99,7 @@ function mergeByObject(
 function verdictOf(outcome: ThingOutcome): BriefingLoop["verdict"] {
   const { state } = outcome;
 
-  if (outcome.readFailed || !state) return "unverified";
+  if (outcome.unverified !== null || !state) return "unverified";
 
   if (state.stateCategory === "active" || state.stateCategory === "failed") return "open";
 

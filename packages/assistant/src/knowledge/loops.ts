@@ -1,9 +1,4 @@
-import type {
-  BriefingLoop,
-  LoopEvidenceTier,
-  ObjectIdentity,
-  TriageCategory,
-} from "@alfred/contracts";
+import type { BriefingLoop, LoopEvidenceTier, TriageCategory } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { loopVerificationRuns } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
@@ -80,12 +75,27 @@ export interface VerifyLoopsResult {
   unreadableRows: number;
 }
 
+/** Why no fact of this run backs a thing whose stored state is ambiguous. */
+type UnverifiedReason =
+  /** The kind has no live reader. */
+  | "no_reader"
+  /** The reader cannot name a target for the row or the key. */
+  | "no_target"
+  /** The cap of the run admitted no read for the thing. */
+  | "over_cap"
+  /** The read faulted, or it proved no state. */
+  | "read_failed"
+  /** The commit transaction failed. */
+  | "commit_failed"
+  /** The commit kept no row for the fact. */
+  | "fact_refused";
+
 /** What one thing became in this run. */
 export interface ThingOutcome {
   state: ObjectState | null;
   evidence: LoopEvidenceTier;
-  /** `true`: a read was due and gave no fact, or the commit failed. */
-  readFailed: boolean;
+  /** `null`: the state is the verdict. Else the reason that the thing is `unverified`. */
+  unverified: UnverifiedReason | null;
 }
 
 export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsResult> {
@@ -116,6 +126,7 @@ export async function verifyLoops(args: VerifyLoopsArgs): Promise<VerifyLoopsRes
       things: things.length,
       ambiguous: ambiguous.size,
       verdicts: countVerdicts(loops),
+      unverified: countUnverified(outcomes),
     },
     "[loops] verified",
   );
@@ -158,6 +169,7 @@ async function readAndCommit(args: {
   things: readonly LoopThing[];
   ambiguous: ReadonlySet<LoopThing>;
 }): Promise<Map<LoopThing, ThingOutcome>> {
+  const outcomes = new Map<LoopThing, ThingOutcome>();
   const batches = new Map<LoopVerifier, LoopReadBatch>();
   const planned: PlannedRead[] = [];
   // The distinct targets of each batch. Two things can name one target, so one read serves both.
@@ -172,15 +184,25 @@ async function readAndCommit(args: {
     return batch;
   };
 
+  const unverified = (thing: LoopThing, reason: UnverifiedReason): void => {
+    outcomes.set(thing, { state: thing.state, evidence: "stored_state", unverified: reason });
+  };
+
   // `things` is newest evidence first, so the cap keeps the newest.
   for (const thing of args.things) {
-    if (!args.ambiguous.has(thing)) continue;
+    if (!args.ambiguous.has(thing)) {
+      outcomes.set(thing, { state: thing.state, evidence: "stored_state", unverified: null });
+      continue;
+    }
 
     const verifier = thing.state
       ? loopVerifierFor(thing.state.provider, thing.state.kind)
       : (thing.keyRead?.verifier ?? null);
 
-    if (!verifier) continue;
+    if (!verifier) {
+      unverified(thing, "no_reader");
+      continue;
+    }
 
     const batch = batchOf(verifier);
 
@@ -190,12 +212,18 @@ async function readAndCommit(args: {
         ? batch.planKey(thing.keyRead.key)
         : null;
 
-    if (targetId === null) continue;
+    if (targetId === null) {
+      unverified(thing, "no_target");
+      continue;
+    }
 
     const ids = idsByBatch.get(batch) ?? new Set<string>();
 
     if (!ids.has(targetId)) {
-      if (liveReads >= MAX_LIVE_READS) continue;
+      if (liveReads >= MAX_LIVE_READS) {
+        unverified(thing, "over_cap");
+        continue;
+      }
 
       ids.add(targetId);
       liveReads += 1;
@@ -214,18 +242,19 @@ async function readAndCommit(args: {
   );
 
   const readByThing = new Map<LoopThing, LoopVerifierRead>();
-  const facts = new Map<string, LoopVerifierRead>();
 
   for (const { thing, batch, targetId } of planned) {
     const read = readsByBatch.get(batch)?.get(targetId);
 
-    if (!read) continue;
-
-    readByThing.set(thing, read);
-    facts.set(identityRef(read.identity), read);
+    if (read) {
+      readByThing.set(thing, read);
+    } else {
+      unverified(thing, "read_failed");
+    }
   }
 
-  const outcomes = new Map<LoopThing, ThingOutcome>();
+  // One fact for each target. Two things that name one target share one read.
+  const facts = new Set(readByThing.values());
   let committed = true;
 
   try {
@@ -233,7 +262,7 @@ async function readAndCommit(args: {
 
     await objectStateStore.applyEvents({
       userId: args.userId,
-      facts: [...facts.values()].map((read) => ({ event: read.fact, deliveredAt })),
+      facts: [...facts].map((read) => ({ event: read.fact, deliveredAt })),
       inTransaction: async (tx) => {
         await tx.insert(loopVerificationRuns).values({
           userId: args.userId,
@@ -251,38 +280,51 @@ async function readAndCommit(args: {
   }
 
   // The rows after the fold. The recency guard can refuse an older fact, so the row is the truth.
-  const after = new Map<string, ObjectState | null>();
+  const after = new Map<LoopVerifierRead, ObjectState | null>();
 
   if (committed) {
     await Promise.all(
-      [...facts.entries()].map(async ([ref, read]) => {
-        after.set(ref, await objectStateStore.getByIdentity(args.userId, read.identity));
+      [...facts].map(async (read) => {
+        after.set(read, await objectStateStore.getByIdentity(args.userId, read.identity));
       }),
     );
   }
 
-  for (const thing of args.things) {
-    if (!args.ambiguous.has(thing)) {
-      outcomes.set(thing, { state: thing.state, evidence: "stored_state", readFailed: false });
+  for (const [thing, read] of readByThing) {
+    if (!committed) {
+      unverified(thing, "commit_failed");
       continue;
     }
 
-    const read = readByThing.get(thing);
-    const state = read ? after.get(identityRef(read.identity)) : undefined;
+    const state = after.get(read) ?? null;
 
-    outcomes.set(
-      thing,
-      state
-        ? { state, evidence: "live_read", readFailed: false }
-        : { state: thing.state, evidence: "stored_state", readFailed: true },
-    );
+    if (state === null) {
+      unverified(thing, "fact_refused");
+      continue;
+    }
+
+    outcomes.set(thing, { state, evidence: "live_read", unverified: null });
   }
 
   return outcomes;
 }
 
-function identityRef(identity: ObjectIdentity): string {
-  return JSON.stringify([identity.provider, identity.kind, identity.externalId]);
+/** The reasons of the `unverified` things, for the run log. */
+function countUnverified(outcomes: ReadonlyMap<LoopThing, ThingOutcome>) {
+  const counts = {
+    no_reader: 0,
+    no_target: 0,
+    over_cap: 0,
+    read_failed: 0,
+    commit_failed: 0,
+    fact_refused: 0,
+  } satisfies Record<UnverifiedReason, number>;
+
+  for (const { unverified } of outcomes.values()) {
+    if (unverified !== null) counts[unverified] += 1;
+  }
+
+  return counts;
 }
 
 function countVerdicts(loops: readonly BriefingLoop[]) {
