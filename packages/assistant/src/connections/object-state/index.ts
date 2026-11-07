@@ -8,7 +8,7 @@ export {
 
 export { objectStateStore, type ObjectState, type ObjectStateStore } from "./store";
 
-export { type CandidateKey, type ClosureReading } from "./adapter";
+export { candidateIdentity, type CandidateKey, type ClosureReading } from "./adapter";
 
 export { identityProbeFromGatedLinks } from "./identity-containment";
 

@@ -76,6 +76,7 @@ export {
 export {
   approvedMcpHealthConnectionId,
   approvedMcpHealthExternalId,
+  candidateIdentity,
   deliveryInstantNow,
   deliveryInstantOf,
   deliveryInstantSchema,

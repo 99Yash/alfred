@@ -14,6 +14,7 @@ import { observationFamilyHeads, observations, todos } from "@alfred/db/schemas"
 import { logger } from "@alfred/logging";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import {
+  candidateIdentity,
   identityProbeFromGatedLinks,
   objectStateStore,
   reconcileEvidence,
@@ -215,7 +216,15 @@ export async function collectThings(args: {
 
     const builtIn = linked.filter((object) => isBuiltInObjectStateProvider(object.state.provider));
     const authoritative = builtIn.length > 0 ? builtIn : linked;
-    const resolvedKeys = new Set(linked.map((object) => keyRef(object.key)));
+
+    // The candidate keys that resolved. A link proved by identity or nomination is no key.
+    const resolvedKeys = new Set(
+      linked.flatMap(({ key }) =>
+        key.match === "exact" || key.match === "prefix"
+          ? [candidateIdentity({ ...key, match: key.match })]
+          : [],
+      ),
+    );
 
     for (const { state } of authoritative) {
       if (!isLoopKind(state.provider, state.kind)) continue;
@@ -229,13 +238,15 @@ export async function collectThings(args: {
     // Case 3: an exact key with a reader and no row. A mail with a built-in thing still adds it,
     // because one mail can be about more than one thing.
     for (const key of mail.storedKeys) {
-      if (key.match !== "exact" || resolvedKeys.has(keyRef(key))) continue;
+      if (key.match !== "exact") continue;
+
+      const ref = candidateIdentity({ ...key, reading: "about" });
+
+      if (resolvedKeys.has(ref)) continue;
 
       const reader = loopVerifierForKey(key.provider, key.keyKind);
 
       if (!reader || !isLoopKind(key.provider, reader.kind)) continue;
-
-      const ref = keyRef(key);
 
       const thing = byKey.get(ref) ?? {
         provider: key.provider,
@@ -302,10 +313,6 @@ function newThing(state: ObjectState): LoopThing {
     documentIds: new Set(),
     newestMailAt: null,
   };
-}
-
-function keyRef(key: { provider: string; keyKind: string; keyValue: string }): string {
-  return JSON.stringify([key.provider, key.keyKind, key.keyValue]);
 }
 
 /** The time of the fact that set the state: the provider time, else the delivery time. */
