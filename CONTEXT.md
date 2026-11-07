@@ -386,6 +386,29 @@ The structured, exact-keyed, reducer-computed sibling of _semantic user-memory_.
 
 **Extraction front-door.** The propose-only capture layer that turns inbound emails and docs into typed candidate keys (→ object-state) and work-signals (→ semantic user-memory). One front-door, two sinks. Architecture deferred. (ADR-0063)
 
+## Sources, facts, pointers, and loops (ADR-0122, proposed)
+
+**Source.** One place that Alfred hears from, named by a `SourceIdentity`: a built-in integration or a custom MCP server. It declares the things that it owns and how to read them.
+_Avoid_: provider (as a key), `ObjectStateProvider`
+
+**Fact.** One statement from the source that owns a thing: this thing was in this state at this time. Only a fact sets the state of a thing.
+_Avoid_: event (alone), delivery
+
+**Pointer.** One statement from any evidence that a thing, or a condition in the user's words, touches the user. It names its targets and does not resolve them.
+_Avoid_: link, `email_interpretation`, about row
+
+**Condition.** A pointer target with no thing: a closing condition in the user's words, for example "until the landlord replies".
+_Avoid_: commitment, ask
+
+**Loop.** One thing or one condition that an `opens` pointer names and that nothing has closed. Alfred derives it on each run; it is not a record and not a work item.
+_Avoid_: open loop record, ask row
+
+**Loop proof.** The verdict of one loop (`open`, `closed`, `unverified`) with the pointers that opened it and the causes of the verdict.
+_Avoid_: loop item, `BriefingLoop`
+
+**Check log.** The record of each change of a loop proof, one family for each loop key.
+_Avoid_: run log
+
 ## m12 scope (locked 2026-05-11)
 
 **Authoring + dispatch only. Execution deferred to m13.**
