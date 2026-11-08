@@ -105,20 +105,54 @@ export interface SearchResult {
   items: GithubSearchHit[];
 }
 
-const PULL_REQUEST_BATCH_CONCURRENCY = 5;
+const BATCH_READ_CONCURRENCY = 5;
 
-export interface PullRequestBatchFailure {
+interface BatchReadItem {
   owner: string;
   repo: string;
   number: number;
+}
+
+export interface BatchReadFailure extends BatchReadItem {
   error: string;
 }
 
 export interface PullRequestBatch {
   items: PullRequestDetail[];
-  failed: PullRequestBatchFailure[];
+  failed: BatchReadFailure[];
   /** Sums `items` only; failed items are not counted. */
   totals: Pick<PullRequestDetail, "additions" | "deletions" | "changedFiles" | "commits">;
+}
+
+export interface IssueBatch {
+  items: IssueDetail[];
+  failed: BatchReadFailure[];
+}
+
+/**
+ * GitHub has no batch read for pulls or issues, so fan out. Best effort: a 404 lands in `failed`
+ * and the rest still return, in the caller's order. After `signal` aborts, each read that is left
+ * fails fast into `failed`, so the reads that completed still return.
+ */
+async function readEach<T>(
+  items: ReadonlyArray<BatchReadItem>,
+  readOne: (item: BatchReadItem) => Promise<T>,
+): Promise<{ items: T[]; failed: BatchReadFailure[] }> {
+  const fetched: (T | undefined)[] = Array.from({ length: items.length });
+  const failed: BatchReadFailure[] = [];
+  await mapConcurrent(
+    items.map((item, index) => ({ item, index })),
+    BATCH_READ_CONCURRENCY,
+    async ({ item, index }) => {
+      try {
+        fetched[index] = await readOne(item);
+      } catch (err) {
+        failed.push({ ...item, error: toMessage(err) });
+      }
+    },
+  );
+
+  return { items: fetched.filter((value): value is T => value !== undefined), failed };
 }
 
 export interface PullRequestDetail {
@@ -219,6 +253,38 @@ export function createGithubClient(options: GithubClientOptions) {
     };
   }
 
+  /** Returns the body and comment count, which search omits. */
+  async function getIssue(args: {
+    owner: string;
+    repo: string;
+    number: number;
+    signal?: AbortSignal | undefined;
+  }): Promise<IssueDetail> {
+    const { owner, repo, number } = args;
+    const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
+
+    const issue = await client.json(issueSchema, path, {
+      label: `repos/${owner}/${repo}/issues/${number}`,
+      signal: args.signal,
+    });
+
+    const labels = (issue.labels ?? []).filter((label) => label.length > 0);
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      url: issue.html_url,
+      state: issue.state,
+      repository: repositoryFromUrl(issue.repository_url) ?? `${owner}/${repo}`,
+      author: issue.user?.login ?? null,
+      labels,
+      comments: issue.comments ?? 0,
+      createdAt: issue.created_at,
+      closedAt: issue.closed_at ?? null,
+      body: (issue.body ?? "").slice(0, MAX_ISSUE_BODY_CHARS),
+    };
+  }
+
   return {
     /** For resolving `author:@me`. */
     async connectedLogin(): Promise<string | null> {
@@ -271,30 +337,14 @@ export function createGithubClient(options: GithubClientOptions) {
 
     getPullRequest,
 
-    /**
-     * GitHub has no batch PR read, so fan out. Best effort: a 404 lands in `failed`
-     * and the rest still return. After `signal` aborts, each read that is left fails fast into
-     * `failed`, so the reads that completed still return.
-     */
+    /** Reads each pull request concurrently. See {@link readEach} for the failure contract. */
     async getPullRequests(
-      items: ReadonlyArray<{ owner: string; repo: string; number: number }>,
+      items: ReadonlyArray<BatchReadItem>,
       options: { signal?: AbortSignal | undefined } = {},
     ): Promise<PullRequestBatch> {
-      const fetched: (PullRequestDetail | undefined)[] = Array.from({ length: items.length });
-      const failed: PullRequestBatchFailure[] = [];
-      await mapConcurrent(
-        items.map((item, index) => ({ item, index })),
-        PULL_REQUEST_BATCH_CONCURRENCY,
-        async ({ item, index }) => {
-          try {
-            fetched[index] = await getPullRequest({ ...item, signal: options.signal });
-          } catch (err) {
-            failed.push({ ...item, error: toMessage(err) });
-          }
-        },
+      const { items: ok, failed } = await readEach(items, (item) =>
+        getPullRequest({ ...item, signal: options.signal }),
       );
-      // Keep the caller's order.
-      const ok = fetched.filter((pr): pr is PullRequestDetail => pr !== undefined);
 
       return {
         items: ok,
@@ -311,30 +361,14 @@ export function createGithubClient(options: GithubClientOptions) {
       };
     },
 
-    /** Returns the body and comment count, which search omits. */
-    async getIssue(args: { owner: string; repo: string; number: number }): Promise<IssueDetail> {
-      const { owner, repo, number } = args;
-      const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`;
+    getIssue,
 
-      const issue = await client.json(issueSchema, path, {
-        label: `repos/${owner}/${repo}/issues/${number}`,
-      });
-
-      const labels = (issue.labels ?? []).filter((label) => label.length > 0);
-
-      return {
-        number: issue.number,
-        title: issue.title,
-        url: issue.html_url,
-        state: issue.state,
-        repository: repositoryFromUrl(issue.repository_url) ?? `${owner}/${repo}`,
-        author: issue.user?.login ?? null,
-        labels,
-        comments: issue.comments ?? 0,
-        createdAt: issue.created_at,
-        closedAt: issue.closed_at ?? null,
-        body: (issue.body ?? "").slice(0, MAX_ISSUE_BODY_CHARS),
-      };
+    /** Reads each issue concurrently. See {@link readEach} for the failure contract. */
+    async getIssues(
+      items: ReadonlyArray<BatchReadItem>,
+      options: { signal?: AbortSignal | undefined } = {},
+    ): Promise<IssueBatch> {
+      return readEach(items, (item) => getIssue({ ...item, signal: options.signal }));
     },
   };
 }

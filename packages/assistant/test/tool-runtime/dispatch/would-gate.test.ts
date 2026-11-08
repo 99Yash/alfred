@@ -10,15 +10,18 @@ import { clearToolRegistryForTests } from "@alfred/assistant/tool-runtime";
 
 import { registerBuiltinTools } from "../../../src/tool-runtime/builtin-tools";
 import { listRegisteredTools } from "../../../src/tool-runtime/internal/registry";
-import { toolCallWouldGate, toolRequiresApproval } from "../../../src/tool-runtime/approval-rule";
+import {
+  forecastToolApproval,
+  toolRequiresApproval,
+} from "../../../src/tool-runtime/approval-rule";
 import type { ResolvedPolicy } from "../../../src/action-policies/resolve";
 
 /**
- * `toolCallWouldGate` keeps gated calls out of the concurrent batch. It mirrors the
+ * `forecastToolApproval` keeps gated calls out of the concurrent batch. It mirrors the
  * policy mode and the static risk tier. DB-free: `system.*` resolves to autonomy without a read.
  * Register the builtins first. An empty registry makes every assertion pass vacuously.
  */
-describe("toolCallWouldGate", () => {
+describe("forecastToolApproval", () => {
   const userId = "test-would-gate-user";
 
   before(() => {
@@ -37,13 +40,13 @@ describe("toolCallWouldGate", () => {
     );
 
     for (const name of ["system.read_user_context", "system.spawn_sub_agent", "system.load_tool"]) {
-      assert.equal(await toolCallWouldGate(userId, name), false, name);
+      assert.equal(await forecastToolApproval(userId, name), "none", name);
     }
   });
 
   test("unknown tool names never gate", async () => {
-    assert.equal(await toolCallWouldGate(userId, "bogus.not_a_tool"), false);
-    assert.equal(await toolCallWouldGate(userId, "list_events"), false);
+    assert.equal(await forecastToolApproval(userId, "bogus.not_a_tool"), "none");
+    assert.equal(await forecastToolApproval(userId, "list_events"), "none");
   });
 });
 
@@ -73,7 +76,7 @@ function policy(defaultMode: ResolvedPolicy["defaultMode"]): ResolvedPolicy {
  * a `resolveRiskTier` tool (the hint has no validated input) and a `fast_path` tool,
  * which returns before the gate. A `question` tool stages under both modes (ADR-0099).
  */
-describe("toolCallWouldGate mirrors the dispatch gate for every registered tool", () => {
+describe("forecastToolApproval mirrors the dispatch gate for every registered tool", () => {
   after(() => {
     clearToolRegistryForTests();
     clearPolicyCacheForTests();
@@ -91,15 +94,18 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
 
       for (const tool of tools) {
         const expected =
-          tool.resolvesRiskTier || tool.staging === "question" || tool.staging === "confirm"
-            ? true
-            : toolRequiresApproval(
-                await resolvePolicyMode(MIRROR_USER_ID, tool.name),
-                tool.riskTier,
-              );
+          tool.staging === "question" || tool.staging === "confirm"
+            ? "always"
+            : tool.resolvesRiskTier ||
+                toolRequiresApproval(
+                  await resolvePolicyMode(MIRROR_USER_ID, tool.name),
+                  tool.riskTier,
+                )
+              ? "waivable"
+              : "none";
 
         assert.equal(
-          await toolCallWouldGate(MIRROR_USER_ID, tool.name),
+          await forecastToolApproval(MIRROR_USER_ID, tool.name),
           expected,
           `${tool.name} (riskTier=${tool.riskTier}, defaultMode=${defaultMode})`,
         );
@@ -107,13 +113,16 @@ describe("toolCallWouldGate mirrors the dispatch gate for every registered tool"
     });
   }
 
-  /** A `false` here would let the concurrent batch stage a second approval card. */
+  /** A `none` here would let the concurrent batch stage a second approval card. */
   test("system.activate_workflow gates — the ADR-0069 high-tier floor outranks system autonomy", async () => {
     clearToolRegistryForTests();
     registerBuiltinTools();
     clearPolicyCacheForTests();
     _primePolicyCacheForTests(policy("autonomy"));
 
-    assert.equal(await toolCallWouldGate(MIRROR_USER_ID, "system.activate_workflow"), true);
+    assert.equal(
+      await forecastToolApproval(MIRROR_USER_ID, "system.activate_workflow"),
+      "waivable",
+    );
   });
 });

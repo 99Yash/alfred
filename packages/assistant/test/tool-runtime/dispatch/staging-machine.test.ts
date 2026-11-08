@@ -26,7 +26,7 @@ import {
   _setIntegrationAvailabilityReaderForTests,
   dispatchToolCall,
 } from "../../../src/tool-runtime/internal/dispatch";
-import { toolCallWouldGate } from "../../../src/tool-runtime/approval-rule";
+import { forecastToolApproval } from "../../../src/tool-runtime/approval-rule";
 import { _setStagingStoreForTests } from "../../../src/tool-runtime/internal/dispatch/staging-store";
 import { defaultActionPolicy } from "@alfred/assistant/action-policies";
 import {
@@ -540,7 +540,7 @@ describe("dispatch staging machine (DB-free)", () => {
   });
 
   test("the live-chat hint keeps dynamic Calendar risk in the serial approval lane", async () => {
-    assert.equal(await toolCallWouldGate(USER_ID, "calendar.create_event"), true);
+    assert.equal(await forecastToolApproval(USER_ID, "calendar.create_event"), "waivable");
   });
 
   test("a Calendar invite becomes high, stages, and resumes with every attendee", async () => {

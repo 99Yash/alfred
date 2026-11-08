@@ -635,6 +635,11 @@ export const TOOL_LABELS = {
     done: "Read an issue",
     title: "read an issue",
   },
+  "github.get_issues": {
+    running: "Reading issues",
+    done: "Read issues",
+    title: "read several issues",
+  },
   "github.request": {
     running: "Querying the GitHub API",
     done: "Queried the GitHub API",
@@ -755,6 +760,7 @@ export const TOOL_CATEGORIES = {
   "github.get_pull_request": "source",
   "github.get_pull_requests": "source",
   "github.get_issue": "source",
+  "github.get_issues": "source",
   "github.request": "source",
 
   "vercel.list_projects": "source",

@@ -315,7 +315,14 @@ export const INTEGRATIONS = {
     sourceRoutes: ["ingest"],
     credential: { shape: "github_app" },
     passthrough: { transport: "rest" },
-    actions: ["search", "get_pull_request", "get_pull_requests", "get_issue", "request"],
+    actions: [
+      "search",
+      "get_pull_request",
+      "get_pull_requests",
+      "get_issue",
+      "get_issues",
+      "request",
+    ],
     summaryBlurb: "the user's GitHub issues and pull requests",
     // Without the login, the boss asked "which repo?" about the user's own work.
     identityInSummary: true,

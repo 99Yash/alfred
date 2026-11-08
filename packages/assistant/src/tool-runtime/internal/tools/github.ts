@@ -4,6 +4,7 @@ import {
   assertNever,
   GITHUB_SEARCH_WINDOWS,
   githubGetIssueInput,
+  githubGetIssuesInput,
   githubGetPullRequestInput,
   githubGetPullRequestsInput,
   githubSearchDateTime,
@@ -116,13 +117,18 @@ export const githubTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. 'What did I ship this week' → state:'all', activeWithinDays:7 — one search, never one per state. Each item carries createdAt, mergedAt, closedAt, state and merged, so read those to say which event happened when. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call.",
+      "Search the user's GitHub issues and pull requests by author, state, type, and time window. Returns an exact total count plus the matching items. Use the structured fields for type/author/state/recency — anything you put in `query` (author:, is:, state:) is folded into them automatically. 'How many PRs did I merge today' → type:'pr', state:'merged', mergedWithinDays:1. 'My open issues' → type:'issue', state:'open'. 'What did I ship this week' → state:'all', activeWithinDays:7 — one search, never one per state. Each item carries createdAt, mergedAt, closedAt, state and merged, so read those to say which event happened when. type defaults to pr; author defaults to @me ONLY for an unscoped search — a repo:/org:-scoped search is NOT narrowed to your items unless you set author:'@me'. For diff stats on the hits, pass them all to github.get_pull_requests in one call; for issue bodies, pass them all to github.get_issues in one call.",
     discovery: {
       aliases: ["search GitHub", "find pull requests", "find issues"],
       tags: ["github", "code", "development"],
       entities: ["pull request", "pr", "issue", "repository"],
       verbs: ["search", "find", "list", "count"],
-      relatedTools: ["github.get_pull_requests", "github.get_pull_request", "github.get_issue"],
+      relatedTools: [
+        "github.get_pull_requests",
+        "github.get_pull_request",
+        "github.get_issues",
+        "github.get_issue",
+      ],
     },
     inputSchema: githubSearchInput,
     execute: async (input, ctx) => {
@@ -212,13 +218,13 @@ export const githubTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Fetch one issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata).",
+      "Fetch ONE issue by owner/repo/number. Returns the issue body, labels, and comment count (search returns only the title and metadata). For two or more issues (every hit of a search, a set to read) use github.get_issues once instead of calling this per issue.",
     discovery: {
       aliases: ["get issue", "read GitHub issue", "issue details"],
       tags: ["github", "code", "development"],
       entities: ["issue", "ticket"],
       verbs: ["get", "read", "inspect"],
-      relatedTools: ["github.search"],
+      relatedTools: ["github.search", "github.get_issues"],
     },
     inputSchema: githubGetIssueInput,
     execute: async (input, ctx) =>
@@ -227,6 +233,30 @@ export const githubTools: readonly RegisteredTool[] = [
         repo: input.repo,
         number: input.issue_number,
       }),
+  }),
+  liveTool({
+    integration: "github",
+    action: "get_issues",
+    riskTier: "no_risk",
+    replay: "safe",
+    description:
+      "Fetch SEVERAL issues in one call — pass every owner/repo/issue_number (or each hit's url) from a search as `items`. Returns each issue's body, labels, and comment count, and lists any item that could not be fetched under `failed`. This is the way to read the bodies of a set of issues: one search, then one call here — never one github.get_issue per hit.",
+    discovery: {
+      aliases: ["get issues", "read issues", "read GitHub issues", "issue bodies"],
+      tags: ["github", "code", "development"],
+      entities: ["issue", "ticket"],
+      verbs: ["get", "read", "inspect"],
+      relatedTools: ["github.search", "github.get_issue"],
+    },
+    inputSchema: githubGetIssuesInput,
+    execute: async (input, ctx) =>
+      ctx.integrations.github.getIssues(
+        input.items.map((item) => ({
+          owner: item.owner,
+          repo: item.repo,
+          number: item.issue_number,
+        })),
+      ),
   }),
   liveTool({
     integration: "github",

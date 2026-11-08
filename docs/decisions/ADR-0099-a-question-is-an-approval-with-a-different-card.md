@@ -60,7 +60,7 @@ The rejected alternative was a `questionCount` field written by the tool and com
 
 ## The gate hint
 
-`toolCallWouldGate` returns `true` for the question arm. The batch dispatcher therefore serializes a question the way it serializes a gated write. A question in the concurrent bucket would park the turn beside a free call whose result the turn cannot receive until the wake.
+`forecastToolApproval` returns `always` for the question arm, so chat full autonomy does not move it out of the serial lane. The batch dispatcher therefore serializes a question the way it serializes a gated write. A question in the concurrent bucket would park the turn beside a free call whose result the turn cannot receive until the wake.
 
 ## Alternatives
 

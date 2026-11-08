@@ -54,7 +54,11 @@ import {
   type StagingRow,
 } from "./staging-store";
 import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
-import type { RejectedToolResult, UnansweredQuestionsToolResult } from "../adapter";
+import type {
+  DeferredDispatch,
+  RejectedToolResult,
+  UnansweredQuestionsToolResult,
+} from "../adapter";
 import {
   callerLabel,
   questionToolInput,
@@ -84,7 +88,7 @@ import {
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../../context";
-import { toolCallWouldGate, toolRequiresApproval } from "../../approval-rule";
+import { forecastToolApproval, toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
   NO_TOOL_EFFECTS,
@@ -103,6 +107,8 @@ type DispatchToolCallRoundAdapter = Parameters<typeof registerToolCallRoundAdapt
 export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAdapter["dispatch"]>>;
 
 type DispatchResult = ToolCallDispatchResult;
+
+const DEFERRED: DeferredDispatch = { kind: "deferred" };
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 
@@ -275,8 +281,14 @@ function unavailableToolResult(args: {
   };
 }
 
-/** A stage either settles the call with a result or continues with the next state. */
-type DispatchStageOutcome<Next> = DispatchResult | { readonly continueWith: Next };
+/**
+ * A stage either settles the call with a result or continues with the next state. A stage
+ * defers only when `deferIfGated` is set.
+ */
+type DispatchStageOutcome<Next> =
+  | DispatchResult
+  | DeferredDispatch
+  | { readonly continueWith: Next };
 
 type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
 
@@ -296,6 +308,8 @@ interface ResolvedDispatch {
   tool: RegisteredTool;
   integration: IntegrationSlug;
   workflowCapabilities: NonNullable<ToolCallDispatchArgs["requiredCapabilities"]>;
+  /** Return `deferred` instead of a write that would stage a card. Only the round sets it. */
+  deferIfGated: boolean;
 }
 
 interface ValidatedDispatch extends ResolvedDispatch {
@@ -314,12 +328,37 @@ interface SuppressedDispatch extends ValidatedDispatch {
  * Approval resume uses this same entry point.
  */
 export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<DispatchResult> {
+  const result = await runDispatchStages(args, false);
+
+  // Only `deferIfGated` defers, and this entry point never sets it.
+  if (result.kind === "deferred") {
+    throw new Error(`[dispatch] ${args.toolName} deferred without deferIfGated`);
+  }
+
+  return result;
+}
+
+/**
+ * The round's parallel entry point under chat full autonomy. It runs the call as
+ * `dispatchToolCall` does, but returns `deferred` before any write if the live gate would stage
+ * a card. A switch to Review mid-round then cannot stage two cards beside each other.
+ */
+function dispatchToolCallUnlessGated(
+  args: ToolCallDispatchArgs,
+): Promise<DispatchResult | DeferredDispatch> {
+  return runDispatchStages(args, true);
+}
+
+async function runDispatchStages(
+  args: ToolCallDispatchArgs,
+  deferIfGated: boolean,
+): Promise<DispatchResult | DeferredDispatch> {
   const registry = await resolveRegistryStage(args);
 
   if (!isContinue(registry)) return registry;
 
   // A saved claim must become a card even when a deploy changed the input schema.
-  const resumed = await resumeSavedStagingStage(registry.continueWith);
+  const resumed = await resumeSavedStagingStage({ ...registry.continueWith, deferIfGated });
 
   if (!isContinue(resumed)) return resumed;
 
@@ -340,9 +379,10 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
 }
 
 /** Stage 1: find the tool, then check the workflow envelope, availability, and the active surface. */
-const resolveRegistryStage: DispatchStage<ToolCallDispatchArgs, ResolvedDispatch> = async (
-  args,
-) => {
+const resolveRegistryStage: DispatchStage<
+  ToolCallDispatchArgs,
+  Omit<ResolvedDispatch, "deferIfGated">
+> = async (args) => {
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
     recordRejection({
@@ -487,6 +527,9 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
   if (unavailableRun) return unavailableRun;
 
   if (isInterruptedClaim(row)) {
+    // A restage can write a card, so the serial lane owns it.
+    if (resolved.deferIfGated) return DEFERRED;
+
     // The claim itself proves that a write may have started, even if replay classification changed.
     const restage = await restageInterruptedCall(row, resolved);
 
@@ -511,7 +554,9 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
 
   switch (row.status) {
     case "pending":
-      if (row.requiresApproval) return waitForStagingApproval(row, args, arm, false);
+      if (row.requiresApproval) {
+        return resolved.deferIfGated ? DEFERRED : waitForStagingApproval(row, args, arm, false);
+      }
 
       return continueWith(resolved);
     case "approved": {
@@ -760,12 +805,14 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
  * The chat thread's full-autonomy flag (ADR-0069 amendment). Read live, not from a run snapshot,
  * so a switch mid-turn applies to the next call. No thread means a background run: `false`.
  */
-async function readFullAutonomy(args: ToolCallDispatchArgs): Promise<boolean> {
-  if (args.approvalThreadId === undefined) return false;
+async function readFullAutonomy(
+  run: Pick<ToolCallDispatchArgs, "userId" | "approvalThreadId">,
+): Promise<boolean> {
+  if (run.approvalThreadId === undefined) return false;
 
   return stagingStore().readThreadFullAutonomy({
-    userId: args.userId,
-    threadId: args.approvalThreadId,
+    userId: run.userId,
+    threadId: run.approvalThreadId,
   });
 }
 
@@ -859,6 +906,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     !arm.forcesApproval && policyRequiresApproval && (await readFullAutonomy(args));
 
   const requiresApproval = arm.forcesApproval || (policyRequiresApproval && !fullAutonomy);
+
+  // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
+  if (requiresApproval && suppressed.deferIfGated) return DEFERRED;
 
   if (fullAutonomy) {
     logger.info(
@@ -1127,7 +1177,9 @@ async function waitForStagingApproval(
 
 const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
   dispatch: dispatchToolCall,
-  wouldWaitForApproval: toolCallWouldGate,
+  dispatchUnlessGated: dispatchToolCallUnlessGated,
+  forecastApproval: forecastToolApproval,
+  readFullAutonomy,
   executionLane(toolName) {
     if (!isToolName(toolName)) return null;
 
