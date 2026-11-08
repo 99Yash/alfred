@@ -68,7 +68,7 @@ const MODEL_ROUTES = {
     reasoning: "none",
   },
   compactor: {
-    legs: [() => anthropicLeg("claude-sonnet-4-6")],
+    legs: [() => anthropicLeg("claude-haiku-5-5")],
     reasoning: "none",
   },
   compactorFallback: {
