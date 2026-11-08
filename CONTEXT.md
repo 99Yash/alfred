@@ -400,6 +400,9 @@ _Avoid_: sender list, trusted sender
 **Pointer.** One statement from any evidence that a thing, or a condition in the user's words, touches the user. It names its targets and does not resolve them.
 _Avoid_: link, `email_interpretation`, about row
 
+**Grounded target.** A pointer target that a check tied to its evidence: a declared spelling occurs in the text, or a source read found the thing. Only a grounded target from a model can be written.
+_Avoid_: verified target, resolved target
+
 **Condition.** A pointer target with no thing: a closing condition in the user's words, for example "until the landlord replies".
 _Avoid_: commitment, ask
 

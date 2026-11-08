@@ -1,6 +1,6 @@
 # ADR-0122 — Each source declares what it can tell, a state is a projection of facts, a pointer says what touches the user, and each loop verdict carries its proof
 
-**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a.
+**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind.
 
 **Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider.
 
@@ -168,6 +168,92 @@ The writers:
 
 **At triage, the classifier states the targets (owner decision, 2026-11-07).** The classifier reads the mail already. It gives each target as a source, a kind, the identity values, a role, and a stance. Code keeps a target only when the source declares the kind and one declared spelling of the identity occurs in the text (ADR-0109 rule 2: "no grounding, no row"). Thus a Linear, Sentry, or ClickUp mail gets real targets with no vendor grammar. The vendor regexes go away after a back-test on the prod mail of the last 30 days shows that the classifier finds the same targets.
 
+### 3a. One typed writer for pointers, with types from the source declaration
+
+Amended with the owner on 2026-11-08. Four writers make pointers (decision 3). Each writer must not spell a thing or a key in its own way. Thus one function writes every pointer, and its types come from the declarations of decision 1.
+
+**The identity of a kind is a zod schema.** Today the kinds in `INTEGRATION_OBJECT_DEFS` have a lifecycle, but no typed identity. Slice 1 adds it:
+
+```ts
+github: { source: { kinds: {
+  pull_request: {
+    identity: {
+      schema: z.object({ owner: z.string(), repo: z.string(), number: z.number().int() }),
+      spellings: ["https://github.com/{owner}/{repo}/pull/{number}", "{owner}/{repo}#{number}"],
+    },
+    // lifecycle, states (decision 1)
+  },
+}}}
+```
+
+**The types and the parsers come from that schema.** No writer declares a second interface:
+
+```ts
+type IdentityOf<S, K> = z.infer<Sources[S]["kinds"][K]["identity"]["schema"]>;
+
+// One arm for each pair of a source and a kind. A check on `source` and `kind` narrows `identity`.
+type BuiltInThingRef = { [S in BuiltInSource]:
+  { [K in KindOf<S>]: { source: S; kind: K; identity: IdentityOf<S, K> } }[KindOf<S>] }[BuiltInSource];
+type ThingRef = BuiltInThingRef | McpThingRef;
+
+const thingRefSchema = /* the same union as a zod discriminated union, built from the registry */;
+
+thing("github", "pull_request", { owner: "acme", repo: "api", number: 12 }); // compiles
+thing("github", "pull_request", { id: 12 });   // compile error: not the declared identity
+thing("github", "issue", { key: "X-1" });      // compile error: GitHub declares no `issue`
+```
+
+`thingKey(ref)` is the only function that builds the key of a thing and a `LoopKey`. It reads the attributes in their declared order. No writer spells a key by hand.
+
+**Three routes, one writer.** The proof is different for each route, because the trust is different:
+
+| Route | Writers | What proves the target |
+| --- | --- | --- |
+| Code | own-act `ingest`, todo `sources` | The compiler. Code builds the `ThingRef`. |
+| Model | triage classifier, chat `track` | The model output schema is `thingRefSchema`. After the parse, a grounding step must pass. |
+| Custom MCP | the MCP `ingest` mapping | A zod schema that Alfred builds at run time from the reviewed mapping, and parses at the boundary. |
+
+**A brand makes grounding a required step.** A brand is a type tag that only one function can add. Only the two grounding functions return a `Grounded` target:
+
+```ts
+type Grounded<T> = T & { readonly [grounded]: "text" | "read" };
+
+groundInText(text: string, target: PointerTarget): Grounded<PointerTarget> | null;
+// a declared spelling of the identity occurs in the evidence (ADR-0109 rule 2)
+groundByRead(target: PointerTarget): Promise<Grounded<PointerTarget> | null>;
+// `source.read` finds the thing; for chat, where the words name no spelling
+```
+
+```ts
+writePointer<E extends EvidenceKind>(p: {
+  from: EvidenceRef<E>;               // "mail" | "chat" | "act" | "todo"
+  at: Date;
+  targets: NonEmpty<TargetFor<E>>;    // mail and chat: Grounded<PointerTarget>; act and todo: PointerTarget
+}): Promise<PointerRef>;
+```
+
+- A triage call that skips the grounding step does not compile.
+- `writePointer` builds the family key from the evidence, for example `pointer:gmail:<messageId>`. It writes through `appendObservationFamilyMember` with `dedup: "head"`.
+- A target that fails grounding is dropped. If no target is left, the writer still records the evidence with an empty target list. Thus `verifyLoops` gives the cause `no_thing`, and the drop is visible.
+
+Example, the Linear mail:
+
+```ts
+const out = classifierOutputSchema.parse(raw);   // targets: ThingRef[] from the model
+const targets = out.targets.flatMap((t) => groundInText(mail.text, t) ?? []);
+// ENG-482 passes (spelling "{key}"). acme/api#12 passes (the URL is in the mail).
+// An invented github/pull_request #13 returns null and is dropped.
+await writePointer({ from: { kind: "mail", id: messageId }, at: mail.date, targets });
+```
+
+**The read side fails closed.** `verifyLoops` parses each stored pointer with `pointerSchema`, which comes from the same registry. A target that the current schema rejects gives the cause `no_thing`, not an error. This target can come from an older deploy, or from an MCP mapping that changed (decision 1). One bad target never stops the read of the other targets.
+
+Why:
+
+- **One declaration, one place to change.** A new kind or a new identity field changes the declaration only. Then the compiler finds each writer that builds the old shape.
+- **The compiler proves the shape, and the brand proves the order of steps.** Neither one proves that the model chose the right thing. The grounding check proves that the thing occurs in the evidence, and the back-test of slice 6 measures the misses.
+- **An MCP source stays open.** Its arm is `Record<string, string | number>` after the parse, because no compiler sees its declaration. A built-in source never has this weaker arm.
+
 ### 4. A loop is a view of what pointers hold open; it is not a work item
 
 A **loop** is one thing or one condition that at least one `opens` pointer names, and that no later fact or event has closed. The loop has no table. `verifyLoops` derives it from pointers and facts on each run.
@@ -254,12 +340,12 @@ ADR-0120 decision 9 stays, on the new types. `loops.open()` gives the loop set. 
 
 Each slice keeps the product working. The order is a strangler, not a big-bang rewrite.
 
-1. **Source declarations, no change in behavior.** Put `kinds`, `mail.domains`, `read`, and `coverage` on the `INTEGRATIONS` entries. Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
+1. **Source declarations, no change in behavior.** Put `kinds`, `mail.domains`, `read`, and `coverage` on the `INTEGRATIONS` entries. Give each kind its identity schema and spellings, and derive `ThingRef`, `thingRefSchema`, and `thingKey` from them (decision 3a). Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
 2. **Facts.** Each `ingest` and `read` gives `Fact`. Write the fact rows, make `integration_objects` a projection, and migrate each existing version to a fact. Prove that a replay gives the same rows. Parse the `Authentication-Results` header at the Gmail ingest boundary into the document metadata, and backfill it from the stored `raw` message. A service mail is a fact only with `dmarc=pass` for a seed domain (decision 1a).
-3. **Pointers.** Write pointer rows at triage from the current keys and links. Backfill them from `email_interpretation`, and make todos a pointer source. Remove `email_interpretation`.
+3. **Pointers.** Add `writePointer`, `groundInText`, `groundByRead`, and `pointerSchema` (decision 3a). Write pointer rows at triage from the current keys and links. Backfill them from `email_interpretation`, and make todos a pointer source. Remove `email_interpretation`.
 4. **`verifyLoops` with proof.** Add the pure `decide`, `LoopProof`, and the check log. Make the source reads the needs. Move the verified pulls and the MCP health read into `source.read` as mappings. `list_loops` returns proofs.
 5. **One gather.** Remove `deploy_status` and `github_merged`. Count day shape from activity. Remove the `#1684` lint carve-outs in `briefings/`.
-6. **The classifier states the targets.** Add the containment check and the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`. Add `claims` to the targets, and add the domain observations that `verifyLoops` learns and revokes (decision 1a).
+6. **The classifier states the targets.** The output schema is `thingRefSchema`, and `groundInText` is the containment check. Add the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`. Add `claims` to the targets, and add the domain observations that `verifyLoops` learns and revokes (decision 1a).
 7. **Conditions.** Add the chat `track` tool, condition pointers, and the matcher.
 8. **Code Mode.** Add the host functions of decision 7.
 
@@ -289,6 +375,9 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 
 ## Residual risk
 
+- **A spelling can match by chance.** A short spelling, for example `{key}` for a Linear issue, can occur in text that is not about the thing. The grounding step proves presence in the text, not meaning. The back-test of slice 6 measures this.
+- **The type of a derived union can grow large.** One arm for each pair of a source and a kind can slow the compiler. If it does, the writer can take the arms of one source at a time.
+
 - **The classifier can miss a target.** The containment check stops a false target, not a missed one. The back-test of slice 6 measures the misses before the regexes go.
 - **A matched event can close a condition loop by mistake.** The proof shows the rationale and the cited text, so the owner can see it. A new `opens` pointer opens the loop again.
 - **The projection migration is large.** Each version of each row becomes a fact. A replay that does not give the same rows blocks slice 2.
@@ -308,3 +397,4 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **(f) Make each loop a todo.** The user would see and edit a record that Alfred derives. A todo stays the work item, and it is one source of pointers.
 - **(g) A list of official sender addresses for each source.** Nobody knows all the addresses in advance, and they change. The list also lets a relay that copies an address pass (decision 1a).
 - **(h) The owner confirms each learned domain.** The owner chose autonomous learning on 2026-11-08. The proof of each learned domain is stored, and one conflict revokes it.
+- **(i) A hand-written identity type for each source, or a string key.** A second type drifts from the declaration, and a string key lets each writer spell it in its own way. Decision 3a derives both from one schema.
