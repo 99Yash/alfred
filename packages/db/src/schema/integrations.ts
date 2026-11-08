@@ -170,6 +170,9 @@ export const eventReceipts = pgTable(
       sql`(${t.rawKind} IS NULL) = (${t.eventType} NOT LIKE '%.raw')`,
     ),
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
+    // `backfillReceiptDocuments` filters `provider` alone and orders by
+    // `delivered_at ASC` every sweep; without this index the planner seq-scans.
+    index("event_receipts_provider_delivered_idx").on(t.provider, t.deliveredAt),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
     // Partial, so the retention reaper scans only live bodies, not the whole table.

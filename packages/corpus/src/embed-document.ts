@@ -4,7 +4,7 @@ import { db } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
 import { buildEmbedFailureSet, EMBED_SUCCESS_RESET } from "@alfred/db/helpers";
 import { chunks, documents, type Document } from "@alfred/db/schemas";
-import { and, desc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { and, eq, isNull, notExists, sql } from "drizzle-orm";
 import { parseDocumentMetadata } from "@alfred/contracts";
 import { chunkMetadata } from "./chunk-metadata";
 import { chunkPages, chunkText, type Chunk, type PageInput } from "./chunker";
@@ -322,11 +322,16 @@ export async function findUnembeddedDocumentIds(opts: {
 
   if (opts.source) filters.push(eq(documents.source, opts.source));
 
+  // `DESC NULLS LAST` matches `documents_embed_sweep_idx` (drizzle writes DESC
+  // NULLS LAST for `.desc()`), so the planner streams an ordered index scan
+  // toward the LIMIT. A plain `desc` is DESC NULLS FIRST in Postgres, which
+  // does not match the index order and made the planner fall back to a
+  // parallel seq scan plus sort — the sweep walk dominated prod DB time.
   const rows = await db()
     .select({ id: documents.id })
     .from(documents)
     .where(and(...filters))
-    .orderBy(desc(documents.ingestedAt))
+    .orderBy(sql`${documents.ingestedAt} DESC NULLS LAST`)
     .limit(limit);
 
   return rows.map((r) => r.id);
