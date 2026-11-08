@@ -9,6 +9,7 @@ import type {
 } from "@alfred/contracts";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
+import type { ApprovalForecast } from "../approval-rule";
 import type { ToolCallDispatchArgs } from "../index";
 import type { RegisteredTool, ToolEffects } from "./registry";
 
@@ -114,9 +115,25 @@ export type ToolCallDispatchResult =
     }
   | { kind: "feature_disabled"; result: FeatureDisabledToolResult };
 
+/**
+ * A call that `dispatchUnlessGated` did not run, because the live gate would stage a card.
+ * It wrote no row. The round dispatches it again in its serial lane.
+ */
+export interface DeferredDispatch {
+  kind: "deferred";
+}
+
 export interface ToolCallRoundAdapter {
   dispatch(args: ToolCallDispatchArgs): Promise<ToolCallDispatchResult>;
-  wouldWaitForApproval(userId: string, toolName: string): Promise<boolean>;
+  /** Like `dispatch`, but returns `deferred` before any write when the call would stage a card. */
+  dispatchUnlessGated(
+    args: ToolCallDispatchArgs,
+  ): Promise<ToolCallDispatchResult | DeferredDispatch>;
+  forecastApproval(userId: string, toolName: string): Promise<ApprovalForecast>;
+  /** The chat thread's full-autonomy flag, read live. No thread reads as `false`. */
+  readFullAutonomy(
+    run: Pick<ToolCallDispatchArgs, "userId" | "approvalThreadId">,
+  ): Promise<boolean>;
   executionLane(toolName: string): NonNullable<RegisteredTool["executionLane"]> | null;
   artifactStreamMode(toolName: string): NonNullable<RegisteredTool["artifactStream"]> | null;
 }

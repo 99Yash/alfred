@@ -4,11 +4,12 @@ import type { ToolName } from "@alfred/contracts";
 
 import type {
   ProposedToolCall,
+  ToolCallDispatchArgs,
   ToolCallRoundOutcome,
   ToolCallRun,
   ToolSurfaceSource,
 } from "../index";
-import type { ToolCallDispatchResult, ToolCallRoundAdapter } from "./adapter";
+import type { DeferredDispatch, ToolCallDispatchResult, ToolCallRoundAdapter } from "./adapter";
 import type { ToolEffects } from "./registry";
 import { completedToolCall, toolResultMessage } from "./result-routing";
 import {
@@ -46,22 +47,46 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
   let activeNames = [...input.activeNames];
 
   try {
-    const dispatch = async (call: Call): Promise<ToolCallDispatchResult> => {
-      await input.onCallStarted?.(call, activeNames);
-      const result = await adapter.dispatch({ ...input.run, ...call, activeTools: activeNames });
+    // A deferred call dispatches twice. Announce it once.
+    const started = new Set<Call>();
 
-      if (result.kind === "inactive_tool") {
-        recordRoundToolActivation(input.run, result.result.recovery.toolName, "inactive_bounce");
-        activeNames = restoreSurface({
-          kind: "exact",
-          names: [...activeNames, result.result.recovery.toolName],
-        });
+    const prepare = async (call: Call): Promise<ToolCallDispatchArgs> => {
+      if (!started.has(call)) {
+        started.add(call);
+        await input.onCallStarted?.(call, activeNames);
       }
 
-      return result;
+      return { ...input.run, ...call, activeTools: activeNames };
     };
 
-    const results = await dispatchGatedConcurrent(input.calls, input.run.userId, adapter, dispatch);
+    // An inactive bounce folds the tool into the surface for the reissue.
+    const restoreBouncedTool = (result: ToolCallDispatchResult | DeferredDispatch): void => {
+      if (result.kind !== "inactive_tool") return;
+
+      recordRoundToolActivation(input.run, result.result.recovery.toolName, "inactive_bounce");
+      activeNames = restoreSurface({
+        kind: "exact",
+        names: [...activeNames, result.result.recovery.toolName],
+      });
+    };
+
+    const via =
+      <Result extends ToolCallDispatchResult | DeferredDispatch>(
+        send: (args: ToolCallDispatchArgs) => Promise<Result>,
+      ) =>
+      async (call: Call): Promise<Result> => {
+        const result = await send(await prepare(call));
+        restoreBouncedTool(result);
+
+        return result;
+      };
+
+    const dispatch: RoundDispatch<Call> = {
+      run: via((args) => adapter.dispatch(args)),
+      runUnlessGated: via((args) => adapter.dispatchUnlessGated(args)),
+    };
+
+    const results = await dispatchGatedConcurrent(input.calls, input.run, adapter, dispatch);
 
     const staged = results.find(
       (result): result is Extract<ToolCallDispatchResult, { kind: "staged" }> =>
@@ -142,45 +167,72 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
   }
 }
 
+/** The round's two dispatch paths. Both announce the call once and fold an inactive bounce. */
+interface RoundDispatch<Call extends ProposedToolCall> {
+  run(call: Call): Promise<ToolCallDispatchResult>;
+  runUnlessGated(call: Call): Promise<ToolCallDispatchResult | DeferredDispatch>;
+}
+
 /**
  * Free calls run at once, same-lane calls run in model order, and gated calls run
- * one at a time last, so a round stages at most one approval card (ADR-0040).
- * On resume the whole batch re-dispatches; finished calls short-circuit on
+ * one at a time last, so a round stages at most one approval card (ADR-0040). A gated or
+ * deferred lane call runs in that serial loop, after the rest of its lane.
+ * Under chat full autonomy a `waivable` call joins the free calls, read once per round. Dispatch
+ * still reads the flag live for each call, and defers a call that would stage a card after a
+ * switch to Review. A deferred call wrote no row, and it runs again in the serial lane
+ * (ADR-0069). On resume the whole batch re-dispatches; finished calls short-circuit on
  * `(runId, toolCallId)`.
  */
 async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
   calls: readonly Call[],
-  userId: string,
+  run: ToolCallRun,
   adapter: ToolCallRoundAdapter,
-  dispatch: (call: Call) => Promise<ToolCallDispatchResult>,
+  dispatch: RoundDispatch<Call>,
 ): Promise<Array<ToolCallDispatchResult | undefined>> {
-  const gateFlags = await Promise.all(
-    calls.map((call) => adapter.wouldWaitForApproval(userId, call.toolName)),
+  const forecasts = await Promise.all(
+    calls.map((call) => adapter.forecastApproval(run.userId, call.toolName)),
+  );
+
+  const waived = forecasts.includes("waivable") && (await adapter.readFullAutonomy(run));
+
+  const serial = forecasts.map(
+    (forecast) => forecast === "always" || (forecast === "waivable" && !waived),
   );
 
   const results: Array<ToolCallDispatchResult | undefined> = Array.from({ length: calls.length });
+  const deferred = new Set<number>();
+
+  const record = (index: number, result: ToolCallDispatchResult | DeferredDispatch): void => {
+    if (result.kind === "deferred") {
+      deferred.add(index);
+
+      return;
+    }
+
+    results[index] = result;
+  };
+
+  // A `waivable` call in this group may defer, so it goes through `runUnlessGated`.
+  const runConcurrent = (index: number, call: Call) =>
+    forecasts[index] === "none" ? dispatch.run(call) : dispatch.runUnlessGated(call);
 
   const independent = calls.flatMap((call, index) =>
-    gateFlags[index] || adapter.executionLane(call.toolName)
+    serial[index] || adapter.executionLane(call.toolName)
       ? []
-      : [
-          dispatch(call).then((result) => {
-            results[index] = result;
-          }),
-        ],
+      : [runConcurrent(index, call).then((result) => record(index, result))],
   );
 
   const lanes = new Map<string, Promise<void>>();
 
   for (const [index, call] of calls.entries()) {
-    if (gateFlags[index]) continue;
+    if (serial[index]) continue;
     const lane = adapter.executionLane(call.toolName);
 
     if (!lane) continue;
     const prior = lanes.get(lane) ?? Promise.resolve();
 
     const next = prior.then(async () => {
-      results[index] = await dispatch(call);
+      record(index, await runConcurrent(index, call));
     });
 
     lanes.set(lane, next);
@@ -188,9 +240,10 @@ async function dispatchGatedConcurrent<Call extends ProposedToolCall>(
 
   await Promise.all([...independent, ...lanes.values()]);
 
+  // Model order, so a deferred call keeps its place among the gated calls.
   for (const [index, call] of calls.entries()) {
-    if (!gateFlags[index]) continue;
-    const result = await dispatch(call);
+    if (!serial[index] && !deferred.has(index)) continue;
+    const result = await dispatch.run(call);
     results[index] = result;
 
     if (result.kind === "staged") break;

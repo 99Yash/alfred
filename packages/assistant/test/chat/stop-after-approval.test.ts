@@ -51,7 +51,9 @@ async function withExecutingRound<T>(dispatched: string[], fn: () => Promise<T>)
         editedByUser: false,
       };
     },
-    wouldWaitForApproval: () => Promise.resolve(false),
+    dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+    forecastApproval: () => Promise.resolve("none"),
+    readFullAutonomy: () => Promise.resolve(false),
     executionLane: () => null,
     artifactStreamMode: () => null,
   };

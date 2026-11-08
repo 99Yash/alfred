@@ -1,6 +1,6 @@
 # ADR-0069 — High-`riskTier` tools always confirm: a hard approval floor the autonomy toggle cannot override (reverses ADR-0034 alt-(f); supersedes ADR-0050's "no structural risk gate")
 
-**Decision.** A `riskTier: 'high'` tool **always** stages for human approval, regardless of the user's resolved policy mode. The dispatcher gate becomes `requiresApproval = policyMode === 'gated' || riskTier === 'high'` (`toolRequiresApproval` in `dispatch/index.ts`, the single definition shared by the live gate and the `toolCallWouldGate` scheduling hint). `riskTier` — previously a display-only UX hint (ADR-0034) — becomes **load-bearing** for the `high` tier. Everything below `high` (`no_risk`/`low`/`medium`) stays purely policy-driven; the autonomy toggle still silences those. The set of high-tier tools today: `gmail.send_draft`, `railway.redeploy`, `vercel.redeploy`.
+**Decision.** A `riskTier: 'high'` tool **always** stages for human approval, regardless of the user's resolved policy mode. The dispatcher gate becomes `requiresApproval = policyMode === 'gated' || riskTier === 'high'` (`toolRequiresApproval` in `dispatch/index.ts`, the single definition shared by the live gate and the `forecastToolApproval` scheduling hint). `riskTier` — previously a display-only UX hint (ADR-0034) — becomes **load-bearing** for the `high` tier. Everything below `high` (`no_risk`/`low`/`medium`) stays purely policy-driven; the autonomy toggle still silences those. The set of high-tier tools today: `gmail.send_draft`, `railway.redeploy`, `vercel.redeploy`.
 
 **Why.** ADR-0034 alt-(f) rejected hardcoded risk gates as paternalism, and ADR-0050 reaffirmed it ("the user owns the policy"). That stance was sized when the write surface was the user's _own_ reversible-ish outbound (send a draft) — ADR-0001's single-user framing ("don't let the system protect future-you from current-you") squarely applied. **Railway changed the threat model.** A Railway _workspace_ token cannot be scoped down — it is full workspace write — so `railway.redeploy` can re-run a deployment on a _shared team's production service_. That is no longer only the user's blast radius, which is the precise premise alt-(f) rested on. The global "Auto" composer toggle (a chat-convenience control: stop nagging me about reads) flips `defaultMode` to autonomy globally; under the old gate it would silently authorize unattended production redeploys. The risk-tier floor closes that mismatch: the toggle's _apparent_ scope (convenience) can no longer quietly grant its _real_ blast radius (irreversible infra mutation). This is also the industry norm for destructive actions.
 
@@ -105,10 +105,22 @@ apply.
   low- and medium-risk tools, rather than only the high-tier floor.
 - A row that already waits for approval keeps waiting when the owner turns the flag on. ADR-0034
   says that a pending row can gain a gate but never lose one. The owner approves that card.
-- The predictors do not read the flag. `toolCallWouldGate` keeps its over-report, so the batch
-  scheduler still runs gated calls one at a time. Otherwise a mid-batch switch to Review would
-  make parallel siblings collide (409 `wake_mismatch`). `toolAlwaysWaitsForApproval` and the
-  connected summary also ignore it. Under full autonomy the model then skips its own confirm
+- The predictors do not read the flag. `forecastToolApproval` keeps its over-report and splits
+  a gated call into `waivable` (policy, tier, or a dynamic tier) and `always` (the `confirm` and
+  `question` arms).
+- Amended 2026-11-08: the batch scheduler reads the flag one time per round, and only when a call
+  is `waivable` and the run has an `approvalThreadId`. When the flag is on, a `waivable` call runs
+  in parallel with the free calls. Before, every `waivable` call ran in the serial lane, so a
+  full-autonomy batch of 20 GitHub reads took 20 chained round trips. The live read in dispatch
+  still decides each call. A parallel call that would stage a card returns `deferred` before the
+  staging upsert, so it writes no row and no card. This includes a switch to Review in the
+  middle of the round. A saved pending card and an interrupted claim also defer. The round then
+  dispatches each deferred call again in the serial lane, in model order, so a round still
+  stages at most one card (no 409 `wake_mismatch`). `always` calls stay in the serial lane. A
+  side effect: under full autonomy, `waivable` writes (high tier included) now run in parallel,
+  not in model order, as `autonomy`-policy writes already did. Calls in one `executionLane` keep
+  their order.
+- `toolAlwaysWaitsForApproval` and the connected summary also ignore the flag. Under full autonomy the model then skips its own confirm
   question, and that is the intent. After a switch back to Review, the worst case is a second
   confirm.
 

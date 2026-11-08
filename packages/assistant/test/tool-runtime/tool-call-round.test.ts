@@ -116,7 +116,9 @@ describe("executeToolCallRound", () => {
     await withAdapters(
       {
         dispatch: () => Promise.reject(new Error("empty rounds do not dispatch")),
-        wouldWaitForApproval: () => Promise.resolve(false),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: () => Promise.resolve("none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
@@ -149,7 +151,9 @@ describe("executeToolCallRound", () => {
 
           return executed({ id: args.toolCallId });
         },
-        wouldWaitForApproval: () => Promise.resolve(false),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: () => Promise.resolve("none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
@@ -193,7 +197,9 @@ describe("executeToolCallRound", () => {
 
           return executed({ id: args.toolCallId });
         },
-        wouldWaitForApproval: () => Promise.resolve(false),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: () => Promise.resolve("none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: (name) =>
           name.startsWith("system.append_artifact") ? "artifact_mutation" : null,
         artifactStreamMode: () => null,
@@ -240,7 +246,10 @@ describe("executeToolCallRound", () => {
 
           return staged(`stage-${args.toolCallId}`);
         },
-        wouldWaitForApproval: (_userId, name) => Promise.resolve(name.startsWith("gmail.")),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: (_userId, name) =>
+          Promise.resolve(name.startsWith("gmail.") ? "waivable" : "none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
@@ -295,7 +304,9 @@ describe("executeToolCallRound", () => {
 
           return Promise.resolve(result);
         },
-        wouldWaitForApproval: () => Promise.resolve(false),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: () => Promise.resolve("none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
@@ -330,7 +341,9 @@ describe("executeToolCallRound", () => {
               ? executed({ ok: false, status: "not_found" })
               : executed({ ok: true }, true),
           ),
-        wouldWaitForApproval: () => Promise.resolve(false),
+        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
+        forecastApproval: () => Promise.resolve("none"),
+        readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
