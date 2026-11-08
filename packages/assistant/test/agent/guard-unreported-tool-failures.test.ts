@@ -64,12 +64,16 @@ interface Recorder {
   published: Array<{ kind: string; payload: Record<string, unknown> }>;
 }
 
+/** The reply check is a model call, so every test fixes its verdict. */
+const claimsSuccess: GuardUnreportedToolFailuresDeps["judgeReply"] = async () => "claims_success";
+
 /** Treats every tool name except an explicit `no_risk` allowlist as mutating. */
 function recorder(readOnly: string[] = []): Recorder {
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
   const deps: GuardUnreportedToolFailuresDeps = {
-    isMutating: (name) => !readOnly.includes(name),
+    isWrite: async (_ctx, call) => !readOnly.includes(call.toolName),
+    judgeReply: claimsSuccess,
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload });
     },
@@ -227,6 +231,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 
@@ -246,6 +251,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 
@@ -283,6 +289,7 @@ describe("guardUnreportedToolFailures", () => {
     const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async (event) => {
         published.push({ kind: event.kind, payload: event.payload });
       },
@@ -307,6 +314,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 

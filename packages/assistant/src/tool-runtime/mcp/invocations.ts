@@ -99,6 +99,57 @@ export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): bo
 }
 
 /**
+ * Whether the tool the caller selected reads, judged at the revision it named, not the current one.
+ * A call that failed because the catalog moved still gets an answer. The rule matches
+ * {@link isReadOnlyMcpToolIdentity}: a literal `readOnlyHint`, and no review that says otherwise.
+ * Not an approval input: the gate reads only the current revision.
+ */
+export async function isSelectedMcpToolReadOnly(
+  input: ResolveMcpToolIdentityInput,
+  runner: DbRunner = db(),
+): Promise<boolean> {
+  const descriptorHashExpr = sql<
+    string | null
+  >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+
+  const [row] = await runner
+    .select({
+      readOnly: sql<boolean>`coalesce(
+        ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
+      )`,
+      effectClass: mcpToolPolicy.effectClass,
+    })
+    .from(mcpCatalogRevisions)
+    .innerJoin(
+      mcpConnections,
+      and(
+        eq(mcpConnections.id, mcpCatalogRevisions.connectionId),
+        eq(mcpConnections.userId, input.userId),
+      ),
+    )
+    .leftJoin(
+      mcpToolPolicy,
+      and(
+        eq(mcpToolPolicy.userId, input.userId),
+        eq(mcpToolPolicy.connectionId, mcpCatalogRevisions.connectionId),
+        eq(mcpToolPolicy.remoteName, input.remoteName),
+        eq(mcpToolPolicy.descriptorHash, descriptorHashExpr),
+      ),
+    )
+    .where(
+      and(
+        eq(mcpCatalogRevisions.connectionId, input.connectionId),
+        eq(mcpCatalogRevisions.revisionHash, input.catalogRevision),
+      ),
+    )
+    .limit(1);
+
+  if (row?.readOnly !== true) return false;
+
+  return row.effectClass === null || row.effectClass === "read";
+}
+
+/**
  * Resolve one selected MCP tool's identity in one query (runs on every `mcp.call`).
  * Stale revision, missing descriptor, or foreign connection gives `unresolved`.
  * The policy join also checks `userId`, so a cross-user row never downgrades.
