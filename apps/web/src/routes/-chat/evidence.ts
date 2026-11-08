@@ -202,6 +202,23 @@ function githubStateBadge(item: JsonObject): EvidenceBadge | undefined {
   return undefined;
 }
 
+/** One GitHub issue or pull request: a search hit, or an item of `github.get_issues`. */
+function githubItemRow(item: JsonObject): EvidenceRow | null {
+  const title = toNonEmptyString(item.title);
+
+  if (!title) return null;
+  const number = toFiniteNumber(item.number);
+  const url = toNonEmptyString(item.url);
+
+  return {
+    key: url ?? String(number ?? title),
+    title: number ? `#${number} ${title}` : title,
+    href: url,
+    meta: toNonEmptyString(item.repository),
+    badge: githubStateBadge(item),
+  };
+}
+
 /** Drive MIME type to a short kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
@@ -384,22 +401,12 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
 
         return parsed.data.totalCount > shown ? parsed.data.totalCount - shown : undefined;
       },
-      row: (item) => {
-        const title = toNonEmptyString(item.title);
-
-        if (!title) return null;
-        const number = toFiniteNumber(item.number);
-        const url = toNonEmptyString(item.url);
-
-        return {
-          key: url ?? String(number ?? title),
-          title: number ? `#${number} ${title}` : title,
-          href: url,
-          meta: toNonEmptyString(item.repository),
-          badge: githubStateBadge(item),
-        };
-      },
+      row: githubItemRow,
     },
+  ],
+  [
+    "github.get_issues",
+    { arrayKey: "items", faviconDomain: INTEGRATIONS.github.domain, row: githubItemRow },
   ],
   [
     "github.get_pull_requests",

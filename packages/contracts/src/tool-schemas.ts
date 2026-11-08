@@ -760,6 +760,22 @@ export const githubGetIssueInput = withGithubItemUrl(
     .strict(),
 );
 
+/** `github.get_issues` batch cap: one page of search results, as for pull requests. */
+export const GITHUB_ISSUE_BATCH_MAX = 25;
+
+export const githubGetIssuesInput = coerceJsonArrayFields(
+  ["items"],
+  z
+    .object({
+      items: z
+        .array(githubGetIssueInput)
+        .min(1)
+        .max(GITHUB_ISSUE_BATCH_MAX)
+        .describe("The issues to fetch, each as owner + repo + issue_number (or its url)."),
+    })
+    .strict(),
+);
+
 /* ── gmail ────────────────────────────────────────────────────────────── */
 
 export const gmailSearchHitSchema = z
@@ -2129,6 +2145,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "github.get_pull_request": githubGetPullRequestInput,
   "github.get_pull_requests": githubGetPullRequestsInput,
   "github.get_issue": githubGetIssueInput,
+  "github.get_issues": githubGetIssuesInput,
   "github.request": restPassthroughInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
