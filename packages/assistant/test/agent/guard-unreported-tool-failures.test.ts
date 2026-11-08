@@ -65,14 +65,17 @@ interface Recorder {
 }
 
 /** The reply check is a model call, so every test fixes its verdict. */
-const claimsSuccess: GuardUnreportedToolFailuresDeps["judgeReply"] = async () => "claims_success";
+const claimsSuccess: GuardUnreportedToolFailuresDeps["judgeReply"] = async () => ({
+  verdict: "claims_success",
+  note: "",
+});
 
-/** Treats every tool name except an explicit `no_risk` allowlist as mutating. */
+/** Treats every failed call as a write, except calls of the tools named in `readOnly`. */
 function recorder(readOnly: string[] = []): Recorder {
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
   const deps: GuardUnreportedToolFailuresDeps = {
-    isWrite: async (_ctx, call) => !readOnly.includes(call.toolName),
+    selectWrites: async (_ctx, calls) => calls.filter((call) => !readOnly.includes(call.toolName)),
     judgeReply: claimsSuccess,
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload });

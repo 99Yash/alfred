@@ -1,5 +1,7 @@
 import type { TranscriptMessage } from "@alfred/ai";
+import { sanitizeVoice } from "@alfred/ai/voice";
 import {
+  humanizeToolName,
   INTEGRATION_SLUGS,
   isActionTool,
   mcpCallInput,
@@ -25,7 +27,12 @@ import {
   type StepContext,
   type StepResult,
 } from "@alfred/assistant/execution";
-import { closeNarrationSegment, interruptChatRun, type ChatRunState } from "./chat-turn-state";
+import {
+  closeNarrationSegment,
+  interruptChatRun,
+  type ChatRunState,
+  type ToolCallLogEntry,
+} from "./chat-turn-state";
 import { judgeFailedWriteReport } from "./failed-write-report";
 
 /**
@@ -65,6 +72,31 @@ function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome):
   );
 }
 
+/** Publish one `chat.delta` on the current segment, with the step's replay fence. */
+async function publishSegmentDelta(
+  ctx: StepContext<ChatRunState>,
+  state: ChatRunState,
+  publish: typeof publishEvent,
+  text: string,
+): Promise<void> {
+  state.deltaSeq += 1;
+  await publish({
+    untransacted: true,
+    userId: ctx.userId,
+    kind: "chat.delta",
+    payload: {
+      runId: ctx.runId,
+      threadId: state.threadId,
+      messageId: state.messageId,
+      seq: state.deltaSeq,
+      attempt: ctx.attempt,
+      fromSeq: ctx.state.deltaSeq,
+      text,
+      segmentIndex: state.segmentIndex,
+    },
+  });
+}
+
 /**
  * Move a rejected answer into narration, then publish an empty `chat.delta` on the new segment.
  * The client advances segments only on a higher-segment delta, so without it the
@@ -82,22 +114,7 @@ async function closePrematureAnswerSegment(
   });
 
   if (!closed) return false;
-  state.deltaSeq += 1;
-  await publish({
-    untransacted: true,
-    userId: ctx.userId,
-    kind: "chat.delta",
-    payload: {
-      runId: ctx.runId,
-      threadId: state.threadId,
-      messageId: state.messageId,
-      seq: state.deltaSeq,
-      attempt: ctx.attempt,
-      fromSeq: ctx.state.deltaSeq,
-      text: "",
-      segmentIndex: state.segmentIndex,
-    },
-  });
+  await publishSegmentDelta(ctx, state, publish, "");
 
   return true;
 }
@@ -177,11 +194,12 @@ export async function guardSpawnedChildren(
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };
 }
 
-type ToolCallLogEntry = ChatRunState["toolCallsLog"][number];
-
 export interface GuardUnreportedToolFailuresDeps {
-  /** Whether this failed call may have been a write. Judged per call, not per tool name. */
-  isWrite: (ctx: StepContext<ChatRunState>, call: ToolCallLogEntry) => Promise<boolean>;
+  /** The failed calls that may have been writes. Judged per call, not per tool name. */
+  selectWrites: (
+    ctx: StepContext<ChatRunState>,
+    calls: readonly ToolCallLogEntry[],
+  ) => Promise<ToolCallLogEntry[]>;
   judgeReply: typeof judgeFailedWriteReport;
   publish: typeof publishEvent;
 }
@@ -191,60 +209,63 @@ export interface GuardUnreportedToolFailuresDeps {
  * selected remote tool at the revision the call named. A call with no staging row or
  * no parseable input stays a write: guessing "read" would hide a failure.
  */
-async function isWriteCall(ctx: StepContext<ChatRunState>, call: ToolCallLogEntry) {
-  if (call.toolName !== "mcp.call") return isActionTool(call.toolName);
+async function selectWriteCalls(
+  ctx: StepContext<ChatRunState>,
+  calls: readonly ToolCallLogEntry[],
+): Promise<ToolCallLogEntry[]> {
+  const mcpCallIds = calls.filter((c) => c.toolName === "mcp.call").map((c) => c.toolCallId);
 
-  const [row] = await db()
-    .select({ input: actionStagings.proposedInput, decidedInput: actionStagings.decidedInput })
-    .from(actionStagings)
-    .where(
-      and(
-        eq(actionStagings.userId, ctx.userId),
-        eq(actionStagings.runId, ctx.runId),
-        eq(actionStagings.toolCallId, call.toolCallId),
-      ),
-    )
-    .limit(1);
+  const rows =
+    mcpCallIds.length > 0
+      ? await db()
+          .select({
+            toolCallId: actionStagings.toolCallId,
+            input: actionStagings.proposedInput,
+            decidedInput: actionStagings.decidedInput,
+          })
+          .from(actionStagings)
+          .where(
+            and(
+              eq(actionStagings.userId, ctx.userId),
+              eq(actionStagings.runId, ctx.runId),
+              inArray(actionStagings.toolCallId, mcpCallIds),
+            ),
+          )
+      : [];
 
-  // The broker reads the same pair, so this names the tool that ran.
-  const parsed = mcpCallInput.safeParse(row?.decidedInput ?? row?.input);
+  const writes: ToolCallLogEntry[] = [];
 
-  if (!parsed.success) return true;
+  for (const call of calls) {
+    if (call.toolName !== "mcp.call") {
+      if (isActionTool(call.toolName)) writes.push(call);
+      continue;
+    }
 
-  return !(await isSelectedMcpToolReadOnly({ userId: ctx.userId, ...parsed.data }));
+    const row = rows.find((r) => r.toolCallId === call.toolCallId);
+    // The broker reads the same pair, so this names the tool that ran.
+    const parsed = mcpCallInput.safeParse(row?.decidedInput ?? row?.input);
+
+    // One read per failed `mcp.call`. A turn has few, and each names its own revision.
+    const isRead =
+      parsed.success && (await isSelectedMcpToolReadOnly({ userId: ctx.userId, ...parsed.data }));
+
+    if (!isRead) writes.push(call);
+  }
+
+  return writes;
 }
 
 const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = {
-  isWrite: isWriteCall,
+  selectWrites: selectWriteCalls,
   judgeReply: judgeFailedWriteReport,
   publish: publishEvent,
 };
 
-/** Open a paragraph on the kept answer, live and in state, so the note does not run on. */
-async function openAddendumParagraph(
-  ctx: StepContext<ChatRunState>,
-  state: ChatRunState,
-  publish: typeof publishEvent,
-): Promise<void> {
-  const separator = "\n\n";
+/** Code supplies the fact when the model gives no note: which actions did not happen. */
+function fallbackFailureNote(failed: readonly ToolCallLogEntry[]): string {
+  const actions = [...new Set(failed.map((call) => humanizeToolName(call.toolName)))];
 
-  state.assistantText += separator;
-  state.deltaSeq += 1;
-  await publish({
-    untransacted: true,
-    userId: ctx.userId,
-    kind: "chat.delta",
-    payload: {
-      runId: ctx.runId,
-      threadId: state.threadId,
-      messageId: state.messageId,
-      seq: state.deltaSeq,
-      attempt: ctx.attempt,
-      fromSeq: ctx.state.deltaSeq,
-      text: separator,
-      segmentIndex: state.segmentIndex,
-    },
-  });
+  return `I couldn't ${actions.join(", or ")}. Nothing changed there.`;
 }
 
 function nonExecutionRecoveredByLaterSuccess(
@@ -264,7 +285,9 @@ function nonExecutionRecoveredByLaterSuccess(
  * Honesty guard (#346): a failed write must not finalize under a "done" reply.
  * Notes each failed write once. Failed reads are skipped, judged per call.
  * The reply is replaced only when it claims a failed write succeeded. Otherwise it stays
- * the answer: one that already reports the failure finalizes, and a silent one gets a note.
+ * the answer: one that reports the failure finalizes as is, and a silent one gets a
+ * short note appended here. No second model turn runs, so the kept answer cannot move
+ * into narration through a later tool call.
  */
 export async function guardUnreportedToolFailures(
   ctx: StepContext<ChatRunState>,
@@ -282,11 +305,7 @@ export async function guardUnreportedToolFailures(
       !state.notedFailureToolCallIds.includes(t.toolCallId),
   );
 
-  const unreported: ToolCallLogEntry[] = [];
-
-  for (const call of candidates) {
-    if (await guardDeps.isWrite(ctx, call)) unreported.push(call);
-  }
+  const unreported = candidates.length > 0 ? await guardDeps.selectWrites(ctx, candidates) : [];
 
   if (unreported.length === 0) return null;
 
@@ -295,16 +314,10 @@ export async function guardUnreportedToolFailures(
     ...unreported.map((t) => t.toolCallId),
   ];
 
-  const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
-
-  const failedFact =
-    `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
-    "Hide the mechanism (tool names, error details), never the outcome.";
-
   // With no answer on screen there is nothing to keep, so skip the check.
-  const verdict =
+  const judged =
     state.assistantText.trim().length === 0
-      ? "claims_success"
+      ? ({ verdict: "claims_success", note: "" } as const)
       : await guardDeps.judgeReply({
           userId: ctx.userId,
           runId: ctx.runId,
@@ -313,33 +326,29 @@ export async function guardUnreportedToolFailures(
           failed: unreported,
         });
 
-  if (verdict === "reports_failure") return null;
+  if (judged?.verdict === "reports_failure") return null;
 
-  if (verdict === "silent") {
-    // The answer stays in `content`. The next turn appends to this segment.
-    await openAddendumParagraph(ctx, state, guardDeps.publish);
+  // A failed check keeps the answer too: losing it is the worse error.
+  if (judged === null || judged.verdict === "silent") {
+    const note = sanitizeVoice(judged?.note.trim() || fallbackFailureNote(unreported));
+    const addendum = `\n\n${note}`;
 
-    const note =
-      `${failedFact} Your reply above stays on screen as written. Do not repeat, restate, or summarize it. ` +
-      "Write only a short closing note, in user terms: what you couldn't do and the best next step. " +
-      "If the reply above implies a failed attempt succeeded, correct that first. " +
-      "If a later successful tool result completed the user's goal another way, say so instead.";
+    state.assistantText += addendum;
+    await publishSegmentDelta(ctx, state, guardDeps.publish, addendum);
 
-    return {
-      kind: "next",
-      state,
-      transcript: appendSystemNote(transcript, note),
-      nextStep: "chat-turn",
-    };
+    return null;
   }
 
   await closePrematureAnswerSegment(ctx, state, guardDeps.publish);
 
+  const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
+
   const note =
-    `${failedFact} Your previous reply is withdrawn because it presents a failed attempt as done; the user no longer sees it as the answer. ` +
+    `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
+    "Your previous reply is withdrawn because it presents a failed attempt as done; the user no longer sees it as the answer. " +
     "Write the complete reply again. Restate in full everything from it that is still true, and do not point to it ('above', 'as I said'). " +
     "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
-    "Otherwise, say plainly what you couldn't do and the best next step.";
+    "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.";
 
   return {
     kind: "next",

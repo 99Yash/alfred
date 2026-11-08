@@ -1,47 +1,56 @@
 import { meteredGenerateObject, route } from "@alfred/ai";
-import { humanizeToolName } from "@alfred/contracts";
+import { collapseWhitespace, humanizeToolName } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { z } from "zod";
-import type { ChatRunState } from "./chat-turn-state";
+import type { ToolCallLogEntry } from "./chat-turn-state";
 
 /**
  * How a finished reply treats the writes that failed this turn. The honesty guard (#346)
  * keeps the reply unless it claims a failed write succeeded.
- * - `claims_success`: it says or implies a failed write happened. Replace it.
+ * - `claims_success`: it says a failed write happened. Replace it.
  * - `reports_failure`: it already tells the user each write did not happen. Keep it as is.
- * - `silent`: it does not mention them. Keep it and add a short note.
+ * - `silent`: it does not mention them. Keep it and append `note`.
  */
-const failedWriteReportSchema = z.object({
+const failedWriteVerdictSchema = z.object({
   verdict: z.enum(["claims_success", "reports_failure", "silent"]),
+  // Loose on purpose: the guard falls back to its own sentence when this is empty.
+  note: z.string(),
 });
 
-export type FailedWriteReport = z.infer<typeof failedWriteReportSchema>["verdict"];
-
-type ToolCallLogEntry = ChatRunState["toolCallsLog"][number];
+export type FailedWriteVerdict = z.infer<typeof failedWriteVerdictSchema>;
 
 const JUDGE_TIMEOUT_MS = 10_000;
 
-/** Enough to see a closing "Done." on a long report, and the opening summary. */
+/** The verdict plus one or two short sentences. */
+const JUDGE_MAX_OUTPUT_TOKENS = 200;
+
+/** Enough for the opening summary of a long report. */
 const REPLY_HEAD_CHARS = 6_000;
 
+/** Enough for a closing "Done." line, where a success claim usually sits. */
 const REPLY_TAIL_CHARS = 2_000;
 
+/** A tool's input and error each fit in one line. More adds tokens, not evidence. */
 const PREVIEW_CHARS = 300;
 
 const JUDGE_SYSTEM_PROMPT = [
   "You check one assistant reply against a list of actions that failed during the same turn.",
   "Each failed action did NOT happen. Decide how the reply treats them, as a whole:",
-  "- claims_success: the reply says or implies that at least one failed action was done (for example 'I've archived it', 'Sent.', 'Created the event').",
+  "- claims_success: the reply states that at least one failed action was done (for example 'I've archived it', 'Sent.', 'Created the event').",
   "- reports_failure: the reply makes no such claim, and it tells the user that every failed action did not happen or could not be done.",
   "- silent: the reply makes no such claim, and it does not tell the user about at least one failed action.",
-  "A reply that reports other work (findings, summaries, answers) and never mentions a failed action is silent, not claims_success.",
-  "If unsure between claims_success and another verdict, choose claims_success.",
+  "A reply that reports other work (findings, summaries, answers) and never mentions a failed action is silent.",
+  "If unsure between claims_success and silent, choose silent.",
+  "For silent only, write note: one or two short sentences that the assistant appends to its reply.",
+  "The note tells the user, in plain words, which action it could not complete and the best next step.",
+  "If the reply implies a failed action was done, the note says plainly that it was not done.",
+  "No tool names, no error codes, no apology, no dashes. For other verdicts, note is an empty string.",
 ].join("\n");
 
-function clip(text: string | undefined, max: number): string {
-  if (!text) return "";
+function preview(text: string | undefined): string {
+  const flat = collapseWhitespace(text ?? "");
 
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+  return flat.length > PREVIEW_CHARS ? `${flat.slice(0, PREVIEW_CHARS)}…` : flat;
 }
 
 function replyExcerpt(reply: string): string {
@@ -51,9 +60,8 @@ function replyExcerpt(reply: string): string {
 }
 
 /**
- * Ask the cheap model how the reply treats the failed writes. Never throws: on any
- * failure it returns `silent`, and the guard then keeps the reply and asks for a note
- * that must also correct a false claim.
+ * Ask the cheap model how the reply treats the failed writes, and for a silent reply,
+ * the note to append. Returns `null` on any failure; the guard then appends its own note.
  */
 export async function judgeFailedWriteReport(args: {
   userId: string;
@@ -61,12 +69,12 @@ export async function judgeFailedWriteReport(args: {
   threadId: string;
   reply: string;
   failed: readonly ToolCallLogEntry[];
-}): Promise<FailedWriteReport> {
+}): Promise<FailedWriteVerdict | null> {
   const actions = args.failed
     .map((call) => {
       const lines = [`- ${humanizeToolName(call.toolName)}`];
-      const input = clip(call.argsPreview, PREVIEW_CHARS);
-      const error = clip(call.resultPreview, PREVIEW_CHARS);
+      const input = preview(call.argsPreview);
+      const error = preview(call.resultPreview);
 
       if (input) lines.push(`  input: ${input}`);
 
@@ -80,12 +88,12 @@ export async function judgeFailedWriteReport(args: {
     const result = await meteredGenerateObject(
       {
         model: route("cheap").model(),
-        schema: failedWriteReportSchema,
-        schemaName: "failed_write_report",
+        schema: failedWriteVerdictSchema,
+        schemaName: "failed_write_verdict",
         instructions: JUDGE_SYSTEM_PROMPT,
         prompt: `Failed actions:\n${actions}\n\nReply:\n${replyExcerpt(args.reply)}`,
         temperature: 0,
-        maxOutputTokens: 50,
+        maxOutputTokens: JUDGE_MAX_OUTPUT_TOKENS,
         abortSignal: AbortSignal.timeout(JUDGE_TIMEOUT_MS),
       },
       {
@@ -97,10 +105,10 @@ export async function judgeFailedWriteReport(args: {
       },
     );
 
-    return result.output.verdict;
+    return result.output;
   } catch (err) {
     logger.warn({ err, runId: args.runId }, "[chat-turn] failed-write report check failed");
 
-    return "silent";
+    return null;
   }
 }

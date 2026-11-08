@@ -90,12 +90,26 @@ export type McpToolIdentityUnresolvedReason =
 
 type ResolvedMcpToolIdentity = Extract<McpToolIdentityResolution, { status: "resolved" }>;
 
+/** The descriptor hash a catalog revision records for one remote tool. */
+function descriptorHashOf(remoteName: string) {
+  return sql<string | null>`${mcpCatalogRevisions.descriptorHashes} ->> ${remoteName}`;
+}
+
+/** Only a literal `true` counts as a read-only claim. */
+function readOnlyHintOf(remoteName: string) {
+  return sql<boolean>`coalesce(
+    ${mcpCatalogRevisions.readOnlyHints} -> ${remoteName} = 'true'::jsonb, false
+  )`;
+}
+
+/** A published `readOnlyHint`, and no review that classes the tool as anything but a read. */
+function readOnlyClaimHolds(readOnly: boolean, effectClass: string | undefined): boolean {
+  return readOnly && (effectClass === undefined || effectClass === "read");
+}
+
 /** The exact descriptor/policy pair that may authorize a fixed read. */
 export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): boolean {
-  return (
-    identity.readOnly === true &&
-    (identity.policy === undefined || identity.policy.effectClass === "read")
-  );
+  return readOnlyClaimHolds(identity.readOnly, identity.policy?.effectClass);
 }
 
 /**
@@ -108,15 +122,11 @@ export async function isSelectedMcpToolReadOnly(
   input: ResolveMcpToolIdentityInput,
   runner: DbRunner = db(),
 ): Promise<boolean> {
-  const descriptorHashExpr = sql<
-    string | null
-  >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+  const descriptorHashExpr = descriptorHashOf(input.remoteName);
 
   const [row] = await runner
     .select({
-      readOnly: sql<boolean>`coalesce(
-        ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
-      )`,
+      readOnly: readOnlyHintOf(input.remoteName),
       effectClass: mcpToolPolicy.effectClass,
     })
     .from(mcpCatalogRevisions)
@@ -144,9 +154,9 @@ export async function isSelectedMcpToolReadOnly(
     )
     .limit(1);
 
-  if (row?.readOnly !== true) return false;
+  if (!row) return false;
 
-  return row.effectClass === null || row.effectClass === "read";
+  return readOnlyClaimHolds(row.readOnly === true, row.effectClass ?? undefined);
 }
 
 /**
@@ -158,9 +168,7 @@ export async function resolveMcpToolIdentity(
   input: ResolveMcpToolIdentityInput,
   runner: DbRunner = db(),
 ): Promise<McpToolIdentityResolution> {
-  const descriptorHashExpr = sql<
-    string | null
-  >`${mcpCatalogRevisions.descriptorHashes} ->> ${input.remoteName}`;
+  const descriptorHashExpr = descriptorHashOf(input.remoteName);
 
   // Alias of the same table that ignores the descriptor hash.
   const anyReviewedPolicy = alias(mcpToolPolicy, "any_reviewed_policy");
@@ -173,10 +181,7 @@ export async function resolveMcpToolIdentity(
       },
       revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
-      // Only a literal `true` counts as a read-only claim.
-      readOnly: sql<boolean>`coalesce(
-        ${mcpCatalogRevisions.readOnlyHints} -> ${input.remoteName} = 'true'::jsonb, false
-      )`,
+      readOnly: readOnlyHintOf(input.remoteName),
       // `exists`, not a join: one row per historic review would multiply the result.
       reviewed: exists(
         runner
