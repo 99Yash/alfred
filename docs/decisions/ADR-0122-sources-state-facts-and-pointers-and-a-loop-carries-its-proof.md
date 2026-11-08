@@ -1,6 +1,6 @@
 # ADR-0122 — Each source declares what it can tell, a state is a projection of facts, a pointer says what touches the user, and each loop verdict carries its proof
 
-**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed.
+**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed. A late integration closes open loops through a map when Alfred reads, a key alias, and one run on connect, with no sweep.
 
 **Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider.
 
@@ -281,6 +281,14 @@ The rules:
 - **`thingKey` handles both arms.** For an open thing, the key is the domain, the kind, and the identity values in sorted order of their names.
 - **A later declaration needs no migration.** Pointers keep their targets unresolved (decision 3). When a declaration appears for the domain, for example after the owner connects Jira, `verifyLoops` maps the open ref to the declared kind when it reads. It uses the `mail.domains` of the source and the identity schema of the kind. Old pointers then resolve with no backfill. An open ref that does not parse against the declared schema stays open.
 
+**A late integration: map when Alfred reads, never rewrite (owner decision, 2026-11-08).** The owner can connect a service after its mail arrives. That must be enough to close the loops that are still open, at a cost that does not grow with the mail history.
+
+- **Only the loop set gets work.** The loop set has a limit (decision 4). A loop that a mail fact already closed is not in the set. A loop that is older than the window is not in the set. Neither one gets a read. A loop that is open or `unverified` and in the window gets one `source.read` on the next run, within the run cap.
+- **A loop keeps its first key.** A connection changes the key of a thing. Before: `atlassian.net / issue / PROJ-91`. After: `jira / issue / {key: PROJ-91}`. If the `LoopKey` changed too, the check log of the old key would stop at `open` with no closure, and a second loop would start. Thus, the first time that `verifyLoops` maps an open ref for a loop in the set, it appends one alias entry to the check log: the open key, the declared key, and the `runId`. Later verdicts keep the first key. Only loops in the set get an alias.
+- **`decide` reads facts through the alias.** The mail facts from before the connection are under the open key, and the read facts after it are under the declared key. `decide` reads both through the alias, which adds one index lookup. The old rows of the open key stay. Nothing rewrites them.
+- **One run when a source connects.** When the owner connects a source, Alfred runs `verifyLoops` one time for the loops whose open refs map to the domains of that source. The loops then close at once, not at the next briefing. The reads are the same reads that the next run would do.
+- **No sweep.** Alfred does not rewrite old pointers, and it does not merge old rows of `integration_objects`. That work grows with the history and touches loops that nobody reads.
+
 Why:
 
 - **No source is first class for the pointer.** The owner does not connect every service that sends mail. A connection adds a read and better types, but the question "does this touch me?" comes from the evidence, not from the connection.
@@ -292,7 +300,7 @@ A **loop** is one thing or one condition that at least one `opens` pointer names
 
 A **work item** is the glossary word for a piece of work that the user can see and change, with a status. Today the only work item is a todo. A loop is not a work item (owner decision, 2026-11-07): Alfred derives a loop, and the user does not edit it. A todo is one source of pointers. When the user marks a todo done, that closes the todo, never the thing (ADR-0120 decision 5.4).
 
-The **`LoopKey`** names a loop: the `ThingRef` of its subject thing, or the family key of its condition pointer. It goes on every row, every log line, and the Langfuse span of a loop.
+The **`LoopKey`** names a loop: the `ThingRef` of its subject thing, or the family key of its condition pointer. It goes on every row, every log line, and the Langfuse span of a loop. A loop keeps its first `LoopKey` when a late integration maps its open ref, and the check log holds the alias (decision 3b).
 
 The loop set is bounded as ADR-0120 decision 4 says, with one change. A loop enters the set when an `opens` pointer from any source is in the window, or when a pointer has no end (an open todo, or a condition before its `until`). The triage category no longer decides.
 
@@ -407,6 +415,9 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 
 ## Residual risk
 
+- **A loop outside the window is not read again after a late integration.** If the owner connects a service three weeks after a mail, a loop from that mail can stay `unverified`. A new pointer to the same thing brings it back into the set.
+- **An alias that maps wrong joins the facts of two things.** The mapping parses the open identity against the declared schema, and the domain must be a domain of the source. A wrong alias shows in the proof, because the proof cites the facts of both keys.
+
 - **The model can give one open thing two kinds.** The closed list `OPEN_KINDS` limits this, but `issue` and `other` can still split one thing. The back-test of slice 6 counts the splits.
 - **A stated category for an open thing comes from a model.** Only a mail from the authenticated domain of the thing makes it a fact. A wrong category from that mail can close a loop. A later mail from the same domain corrects it through the recency guard.
 
@@ -435,3 +446,4 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **(i) A hand-written identity type for each source, or a string key.** A second type drifts from the declaration, and a string key lets each writer spell it in its own way. Decision 3a derives both from one schema.
 - **(j) Keep only the targets of declared kinds.** A mail from a service that the owner did not connect would open no loop. The owner decided on 2026-11-08 that a pointer must not depend on a connection (decision 3b).
 - **(k) A free word for the open kind.** One thing could get two keys and give two loops. A closed list is the cost of one key.
+- **(l) A sweep that rewrites old pointers and merges old rows when a source connects.** Its cost grows with the history, and most of the rows belong to loops that are closed or outside the window. The owner rejected it on 2026-11-08.
