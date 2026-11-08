@@ -403,6 +403,9 @@ _Avoid_: link, `email_interpretation`, about row
 **Grounded target.** A pointer target that a check tied to its evidence: a declared spelling occurs in the text, or a source read found the thing. Only a grounded target from a model can be written.
 _Avoid_: verified target, resolved target
 
+**Open thing.** A thing of a kind that no source declares, keyed by its domain, a kind from a closed list, and identity values that occur in the evidence. It needs no connection. A later declaration takes it over when Alfred reads.
+_Avoid_: unknown thing, untracked object
+
 **Condition.** A pointer target with no thing: a closing condition in the user's words, for example "until the landlord replies".
 _Avoid_: commitment, ask
 
