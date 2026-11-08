@@ -114,6 +114,7 @@ export async function getPrice(provider: string, model: string): Promise<PriceLo
 /** Used only when the DB row has no window, so a fresh checkout boots before the first price sync. */
 const FALLBACK_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
   ["anthropic/claude-sonnet-4-6", 1_000_000],
+  ["anthropic/claude-haiku-5-5", 1_000_000],
   ["anthropic/claude-opus-4-8", 1_000_000],
   ["google/gemini-2.5-flash", 1_048_576],
   ["google/gemini-2.5-flash-lite", 1_048_576],

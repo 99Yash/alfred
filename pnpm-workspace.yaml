@@ -7,8 +7,9 @@ packages:
 overrides:
   # AI SDK 7.0.99 and OpenAI 4.0.74 ship several releases apart but use adjacent
   # provider type identities. Keep the V4 contract on one copy so Alfred can
-  # pass model handles between ai, ai-retry, and provider adapters.
-  "@ai-sdk/provider": 4.0.18
+  # pass model handles between ai, ai-retry, and provider adapters. 4.0.37 is the
+  # exact pin @ai-sdk/provider-utils@5.0.76 (via @ai-sdk/anthropic@4.0.99) declares.
+  "@ai-sdk/provider": 4.0.37
   "@types/pg": ^8.23.1
   exact-mirror: 1.0.0
 
@@ -25,10 +26,10 @@ allowBuilds:
   protobufjs: false
 
 catalog:
-  "@ai-sdk/anthropic": ^4.0.53
+  "@ai-sdk/anthropic": ^4.0.99
   "@ai-sdk/google": ^4.0.69
   "@ai-sdk/openai": ^4.0.74
-  "@ai-sdk/provider": ^4.0.18
+  "@ai-sdk/provider": ^4.0.37
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
   # The workspace ships a `normalize: 'typebox'` workaround on every Elysia
@@ -104,12 +105,13 @@ catalog:
 # below is a version this workspace chose on purpose. Add the new version and
 # drop the version it replaced; never widen an entry to a range.
 minimumReleaseAgeExclude:
-  - "@ai-sdk/anthropic@4.0.53"
+  - "@ai-sdk/anthropic@4.0.99"
   - "@ai-sdk/gateway@4.0.80"
   - "@ai-sdk/google@4.0.69"
   - "@ai-sdk/openai@4.0.74"
   - "@ai-sdk/provider-utils@5.0.40"
   - "@ai-sdk/provider-utils@5.0.47"
-  - "@ai-sdk/provider@4.0.18"
+  - "@ai-sdk/provider-utils@5.0.76"
+  - "@ai-sdk/provider@4.0.37"
   - ai@7.0.99
   - zod@4.6.5
