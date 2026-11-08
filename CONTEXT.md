@@ -394,6 +394,9 @@ _Avoid_: provider (as a key), `ObjectStateProvider`
 **Fact.** One statement from the source that owns a thing: this thing was in this state at this time. Only a fact sets the state of a thing.
 _Avoid_: event (alone), delivery
 
+**Mail authority.** The rule that a mail is a fact only when Gmail reports `dmarc=pass` for a seed or learned domain of the source. Alfred learns a domain when reads confirm the claims of its mail, and one conflict revokes it.
+_Avoid_: sender list, trusted sender
+
 **Pointer.** One statement from any evidence that a thing, or a condition in the user's words, touches the user. It names its targets and does not resolve them.
 _Avoid_: link, `email_interpretation`, about row
 

@@ -1,6 +1,6 @@
 # ADR-0122 — Each source declares what it can tell, a state is a projection of facts, a pointer says what touches the user, and each loop verdict carries its proof
 
-**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof).
+**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a.
 
 **Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider.
 
@@ -49,8 +49,8 @@ Each source has one declaration. A built-in source declares it on its `INTEGRATI
 interface SourceDecl {
   /** The things that this source owns, and how each one lives and dies. */
   kinds: Record<KindName, KindDecl>;
-  /** Whose mail is this source speaking. Only that mail can be a fact (ADR-0120 decision 2). */
-  senders?: DomainSet;
+  /** Seed domains whose signed mail can be a fact (decision 1a). Learned domains extend it. */
+  mail?: { domains: RegistrableDomain[] };
   /** Turn one stored receipt into statements. Code for a built-in; a reviewed mapping for MCP. */
   ingest?: Ingest;      // receipt → { facts, acts, pointers }
   /** Read the current state of one thing now. */
@@ -71,7 +71,38 @@ Why this shape:
 
 - **The "what" is data, the "how" is a function, and each one has one place.** A kind, its lifecycle, its identity, and its state map are data that a reader can check without a network call. Only `ingest` and `read` touch a provider, and each one returns the same shapes (decision 2).
 - **A custom MCP server fits with no new code.** Its `ingest` and its `read` are reviewed mappings over a read-only tool: a tool, the argument template from the identity, the path to the items, the fields, and the state map. This is the current `mcp_health_mapping` shape, made general. The owner decided on a mapping, not a model read, on 2026-11-07.
+- **A mapping is pinned to the shape of its tool.** The tool of a custom MCP server can change. Each mapping stores the `descriptorHash` of its tool, as `mcp_health_mapping` does today, and runs only while the current catalog has the same hash. When the hash changes, the read gives `read_failed` with the reason `mapping_stale` (decision 5). Thus a changed tool gives `unverified` with a visible cause, never a wrong state. To repair the mapping, a model writes a new mapping from the new tool schema. Alfred runs the new mapping on a thing that has a confirmed fact. If the result is the same state, Alfred uses the new mapping with no confirmation. If not, Alfred asks the owner.
 - **An identity declares its spellings.** Example: the GitHub pull request identity is `{owner, repo, number}`, and its spellings are the URL `https://github.com/{owner}/{repo}/pull/{number}` and the short form `{owner}/{repo}#{number}`. A spelling is data. It replaces the vendor regexes of `loop-key.ts` and `github-adapter.ts` (decision 3).
+
+### 1a. A mail is a fact only when its domain is authenticated, and Alfred learns new domains from confirmed claims
+
+Amended with the owner on 2026-11-08. A list of sender addresses goes stale: a vendor adds addresses, sends from subdomains, and moves domains. Nobody knows all the official addresses in advance.
+
+A mail is a fact (`via: "service_mail"`) only when both checks pass:
+
+1. **Gmail reports `dmarc=pass`, and the From domain is under a domain of the source.** DMARC is the check that the domain in the From address is the domain that signed or sent the mail. Gmail writes the result in the `Authentication-Results` header. A domain of the source is a seed domain from `mail.domains` or a learned domain. A subdomain of either domain also passes.
+2. **The mail names a thing of a kind that the source declares**, with a declared spelling of its identity (decision 3).
+
+A mail that fails a check is not lost. It becomes a pointer, and the target can carry the state that the mail claims (decision 3).
+
+Why:
+
+- **A missed domain is safe, and a wrong domain is not.** A missed official mail becomes a pointer. The loop still opens, and `verifyLoops` gets the state from `source.read`, or gives `unverified` with a cause. A wrong mail that passes can close a loop with a false state. Thus this check gives precision, and reads and learned domains give coverage.
+- **One domain covers all the addresses of a vendor.** `linear.app` covers `notifications@linear.app`, `noreply@linear.app`, and `mail.linear.app` with no list of addresses.
+- **DMARC, not DKIM alone.** DKIM is the signature of a domain on the mail. It can pass for the shared domain of a mail provider, for example `sendgrid.net`, that thousands of senders use. DMARC passes only when the signature or the sender agrees with the From domain.
+- **A relay cannot pass as the vendor.** This closes the ADR-0120 residual risk "a relay that copies the domain of the service could set a state".
+- **The data is already stored.** Ingest gets each message with `format: "full"` and stores it as `raw` (`connections/ingestion/gmail-ingest.ts`). That message holds the `Authentication-Results` header. No code reads the header today.
+
+**Alfred learns a new domain with no confirmation from the owner (owner decision, 2026-11-08).**
+
+- **A claim.** A mail with `dmarc=pass` from a domain that the source does not have can still name a thing of the source and state its native state. The pointer target keeps that state as `claims`.
+- **A confirmation.** `verifyLoops` reads the thing. The read confirms the claim when it gives the claimed state, and the provider time of that state is not after the mail.
+- **A conflict.** The read gives another state, and the provider time of that state is before the mail. The mail claimed a state that the thing did not have.
+- **Learn.** After 3 confirmations on at least 2 different things, with no conflict, Alfred records the domain as learned for that source. The record is an observation family for each source and domain, with `dedup: "head"`. Its head is `learned` or `revoked`, and it cites the facts that confirmed or conflicted.
+- **Revoke.** One conflict revokes the domain. To learn it again, the domain needs 3 new confirmations after the revocation. A revocation deletes no fact. A newer read wins over an old mail fact through the recency guard of decision 2.
+- **A source with no `read` cannot learn.** For a thing that only mail tracks (ADR-0120 decision 2, the Voyage AI case), the authenticated From domain is the source. That source needs no list of domains.
+
+Each mail fact records the domain that passed and the basis of that domain (`seed` or `learned`). Thus a `LoopProof` can show "closed by a mail from `linear.app` (learned on 11-12)".
 
 ### 2. A fact is an event, and the state of a thing is a projection of its facts
 
@@ -112,7 +143,8 @@ type Pointer = {
 
 type PointerTarget =
   | { kind: "thing"; role: "subject" | "mentioned"; stance: "opens" | "closes" | "mentions";
-      keys: Key[]; links: Link[] }                           // unresolved (ADR-0120 decision 3 stays)
+      keys: Key[]; links: Link[];                            // unresolved (ADR-0120 decision 3 stays)
+      claims?: NativeState }                                 // the state the evidence states (decision 1a)
   | { kind: "condition"; stance: "opens"; text: string;      // the user's words
       watch: { from?: Identity; sources?: SourceIdentity[] }; until?: Date };
 ```
@@ -121,6 +153,7 @@ Why each field exists:
 
 - **`targets` is a list, because one mail names many things.** The Linear mail names ENG-482 (`subject`, `opens`) and PR #12 (`mentioned`).
 - **The targets stay unresolved.** A pointer stores what the evidence names, not the row that it matched at that time. A row that does not exist yet can match later, and the links of a thing change after the mail.
+- **`claims` keeps what a mail says that is not yet a fact.** A mail that fails the check of decision 1a can still state "ENG-482 is In Review". The claim never sets a state. `verifyLoops` compares it with a read, and the result confirms or conflicts with the domain of the mail (decision 1a).
 - **`stance` replaces the triage category as the opener.** Today only a loud mail can open a loop, and no mail can close one. A receipt mail `closes`, and a "you are mentioned" mail `mentions`. The triage label stays the loudness of the mail. It is not the meaning of the mail for the loop.
 - **`condition` is the case with no thing.** "Tell me when the landlord replies" is a condition with `watch.from` set to the landlord's identity. "Rotate the Railway credentials" is a condition with `watch.sources` set to Railway.
 
@@ -173,7 +206,7 @@ type LoopProof = {
 type Cause =
   | { kind: "fact"; fact: FactRef; via: Fact["via"] }
   | { kind: "ambiguous"; case: "mail_newer" | "source_blind" | "no_row" }  // ADR-0120 decision 5
-  | { kind: "read_failed"; reason: "no_reader" | "no_target" | "over_cap" | "fault" | "refused" }
+  | { kind: "read_failed"; reason: "no_reader" | "no_target" | "over_cap" | "fault" | "refused" | "mapping_stale" }
   | { kind: "matched_event"; event: EventRef; rationale: string; cited: string[] }
   | { kind: "no_thing"; target: PointerTarget }     // the pointer named nothing that resolves
   | { kind: "user_word"; pointer: PointerRef };
@@ -221,12 +254,12 @@ ADR-0120 decision 9 stays, on the new types. `loops.open()` gives the loop set. 
 
 Each slice keeps the product working. The order is a strangler, not a big-bang rewrite.
 
-1. **Source declarations, no change in behavior.** Put `kinds`, `senders`, `read`, and `coverage` on the `INTEGRATIONS` entries. Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
-2. **Facts.** Each `ingest` and `read` gives `Fact`. Write the fact rows, make `integration_objects` a projection, and migrate each existing version to a fact. Prove that a replay gives the same rows.
+1. **Source declarations, no change in behavior.** Put `kinds`, `mail.domains`, `read`, and `coverage` on the `INTEGRATIONS` entries. Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
+2. **Facts.** Each `ingest` and `read` gives `Fact`. Write the fact rows, make `integration_objects` a projection, and migrate each existing version to a fact. Prove that a replay gives the same rows. Parse the `Authentication-Results` header at the Gmail ingest boundary into the document metadata, and backfill it from the stored `raw` message. A service mail is a fact only with `dmarc=pass` for a seed domain (decision 1a).
 3. **Pointers.** Write pointer rows at triage from the current keys and links. Backfill them from `email_interpretation`, and make todos a pointer source. Remove `email_interpretation`.
 4. **`verifyLoops` with proof.** Add the pure `decide`, `LoopProof`, and the check log. Make the source reads the needs. Move the verified pulls and the MCP health read into `source.read` as mappings. `list_loops` returns proofs.
 5. **One gather.** Remove `deploy_status` and `github_merged`. Count day shape from activity. Remove the `#1684` lint carve-outs in `briefings/`.
-6. **The classifier states the targets.** Add the containment check and the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`.
+6. **The classifier states the targets.** Add the containment check and the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`. Add `claims` to the targets, and add the domain observations that `verifyLoops` learns and revokes (decision 1a).
 7. **Conditions.** Add the chat `track` tool, condition pointers, and the matcher.
 8. **Code Mode.** Add the host functions of decision 7.
 
@@ -238,8 +271,9 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 | Database | Add the source columns to `integration_objects` and `observations`. The MCP rows stop packing the connection id in `externalId`. Add the fact, pointer, and loop-check observation kinds. Repoint `integration_object_relations` at `integration_objects`. |
 | Object state | The 8-member event union and the 4 reducers become `ingest` parsers and one reducer. `OBJECT_STATE_ADAPTERS`, `VERIFIED_PULLS`, and `LOOP_VERIFIERS` go away. The GitHub backfill script changes. |
 | Activity (ADR-0118) | `OBSERVATION_REDUCERS`, `ACTIVITY_SOURCES`, and `SilenceEvidence` merge into the source declaration. Coverage no longer needs an inbound webhook source. |
+| Gmail ingest | Parse the `Authentication-Results` header into the document metadata (decision 1a). No code reads it today. |
 | Triage | `object-links.ts` becomes the pointer writer. The classify output gets targets. The todo object comes from the pointer. `runEmailTriageCloseLoopTodos` stops closing todos on the `payment` label. |
-| MCP | The health mapping becomes a general read and ingest mapping, with the presets of ADR-0118 decision 5. |
+| MCP | The health mapping becomes a general read and ingest mapping, with the presets of ADR-0118 decision 5. Each mapping stays pinned to the `descriptorHash` of its tool. A changed tool gives `mapping_stale`, and a new mapping that a model writes is used only when it gives the same state for a thing with a confirmed fact (decision 1). |
 | Briefing | `gather.ts`, `provenance.ts`, `list_loops`, the composer prose, `read.ts` `deriveLoopKey`, `open-ask-guard.ts`, and day shape. |
 | Chat | The new `track` tool. |
 | Context Search | `object-state-source.ts`, `documents-source.ts`, and `object-ref.ts` use `ThingRef`. |
@@ -259,6 +293,9 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **A matched event can close a condition loop by mistake.** The proof shows the rationale and the cited text, so the owner can see it. A new `opens` pointer opens the loop again.
 - **The projection migration is large.** Each version of each row becomes a fact. A replay that does not give the same rows blocks slice 2.
 - **A two-step link walk can miss a deeper chain.** The bound keeps the reads small. A longer chain needs a new decision.
+- **A vendor without DMARC gives no mail facts.** Some vendors publish no DMARC record, or sign only with the domain of their mail provider. Their mail stays a pointer, and their things need reads. This is the safe direction.
+- **A learned domain can rest on weak proof.** A domain that claims only the common state, for example `open`, gets confirmations easily. The rule of 2 different things limits this, and one conflict revokes the domain. A newer read always wins over a mail fact.
+- **A repaired MCP mapping is checked on one thing only.** A new mapping can give the right state for that thing and a wrong state for another. The next conflict with a mail claim or a newer read shows it.
 - **A source with no `coverage` is always blind.** Each of its things needs a live read when its state is old, so the run cap limits these sources first.
 
 ## Rejected alternatives
@@ -269,3 +306,5 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **(d) Keep `integration_objects` written in place, with a separate fact log.** Two records of one state can disagree, and nothing proves that the log is complete.
 - **(e) A model live read for custom MCP sources.** A reviewed mapping is repeatable and costs no model call. The ADR-0109 model read stays only for soft edges.
 - **(f) Make each loop a todo.** The user would see and edit a record that Alfred derives. A todo stays the work item, and it is one source of pointers.
+- **(g) A list of official sender addresses for each source.** Nobody knows all the addresses in advance, and they change. The list also lets a relay that copies an address pass (decision 1a).
+- **(h) The owner confirms each learned domain.** The owner chose autonomous learning on 2026-11-08. The proof of each learned domain is stored, and one conflict revokes it.
