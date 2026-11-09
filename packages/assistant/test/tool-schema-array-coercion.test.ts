@@ -48,6 +48,15 @@ const FIXTURES = {
     },
     arrayFields: ["items"],
   },
+  "github.get_issues": {
+    base: {
+      items: [
+        { owner: "99Yash", repo: "alfred", issue_number: 1016 },
+        { owner: "99Yash", repo: "alfred", issue_number: 1002 },
+      ],
+    },
+    arrayFields: ["items"],
+  },
   "gmail.send_draft": {
     base: {
       to: ["a@example.com"],

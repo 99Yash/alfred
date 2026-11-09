@@ -244,10 +244,15 @@ type ObjectSchema<O> = Parameters<typeof Output.object<O>>[0]["schema"];
  */
 type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-// The start callbacks name the output type, and {@link GenerateTextArgs} types them for no output.
+// The start and step-error callbacks name the output type, and {@link GenerateTextArgs} types them for no output.
 type ObjectRequestArgs = OmitEach<
   GenerateTextArgs,
-  "output" | "onStart" | "experimental_onStart" | "onStepStart" | "experimental_onStepStart"
+  | "output"
+  | "onStart"
+  | "experimental_onStart"
+  | "onStepStart"
+  | "experimental_onStepStart"
+  | "onStepError"
 >;
 
 interface ObjectOutputOptions<O> {
