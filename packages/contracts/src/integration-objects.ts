@@ -246,9 +246,7 @@ export function vercelDeploymentOutcome(
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /** Excludes `mcp`, so an MCP result cannot override a provider's own verdict. */
-export function isBuiltInObjectStateProvider(
-  provider: string,
-): provider is Exclude<ObjectStateProvider, "mcp"> {
+export function isBuiltInObjectStateProvider(provider: string): provider is BuiltInSourceSlug {
   return provider !== "mcp" && isObjectStateProvider(provider);
 }
 
@@ -282,7 +280,7 @@ type SourceDeclOf<P extends ObjectStateProvider> = P extends BuiltInSourceSlug
 export type ObjectKindOf<P extends ObjectStateProvider> = keyof SourceDeclOf<P>["kinds"] & string;
 
 /** The object state that a provider declares (ADR-0122 decision 1). */
-export function getObjectDef(provider: ObjectStateProvider): SourceDecl {
+export function sourceDeclOf(provider: ObjectStateProvider): SourceDecl {
   return provider === "mcp" ? MCP_HEALTH_SOURCE : INTEGRATIONS[provider].source;
 }
 
@@ -294,7 +292,7 @@ export function getObjectKindDef(
   provider: ObjectStateProvider,
   kind: string,
 ): ObjectKindDef | null {
-  const kinds: Readonly<Record<string, ObjectKindDef>> = getObjectDef(provider).kinds;
+  const kinds: Readonly<Record<string, ObjectKindDef>> = sourceDeclOf(provider).kinds;
 
   if (!Object.prototype.hasOwnProperty.call(kinds, kind)) return null;
 
@@ -433,7 +431,7 @@ export function identityValueForms(
 
 /** True when `domain` is one of the provider's declared {@link SourceDecl.domains}. */
 function isProviderDomain(provider: ObjectStateProvider, domain: string): boolean {
-  return getObjectDef(provider).domains.some((base) => isDomainOrSubdomain(domain, base));
+  return sourceDeclOf(provider).domains.some((base) => isDomainOrSubdomain(domain, base));
 }
 
 /** True when a mail from `from` may be `about` an object of this provider. */
@@ -562,7 +560,7 @@ export function linkNamesObject(
   url: string,
   attributes: Readonly<Record<string, string>>,
 ): boolean {
-  const decl = getObjectDef(provider).kinds[kind]?.identity;
+  const decl = sourceDeclOf(provider).kinds[kind]?.identity;
   const link = parseProviderLink(url);
 
   if (!decl || !identityProvesLink(decl) || link?.provider !== provider) return false;

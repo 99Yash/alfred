@@ -9,6 +9,7 @@ import { GOOGLE_SCOPE, type GoogleFeature, type GoogleScope } from "../google-sc
 import {
   DEPLOYMENT_STATE_CATEGORIES,
   LOOP_CLOSING_STATE_CATEGORIES,
+  PULL_REQUEST_STATE_CATEGORIES,
   type SourceDecl,
 } from "../object-kind";
 import { typedKeys } from "../records";
@@ -58,6 +59,11 @@ interface SourceEntryBase extends EntryBase {
   /**
    * The things this source owns and how each one lives and dies (ADR-0122 decision 1). Absent: no
    * row of `integration_objects` belongs to this source. Set to what is built today.
+   *
+   * Declaring it makes the slug a built-in object-state provider (`ObjectStateProvider`). The slug
+   * then joins every table keyed by that type, and it leaves the providers that an MCP health
+   * mapping may name (`mcp.ts`). A stored mapping row for the slug then fails
+   * `mcpHealthMappingDefinitionSchema`, and the verified pull skips it with a warning.
    */
   readonly source?: SourceDecl;
 }
@@ -349,7 +355,7 @@ export const INTEGRATIONS = {
           closesAskFrom: "stored_projection",
           absorbing: ["resolved"],
           todoIdentity: true,
-          states: { merged: "resolved", closed: "abandoned", open: "active" },
+          states: PULL_REQUEST_STATE_CATEGORIES,
         },
         // An attempt never closes an ask. Only its target does.
         ci_attempt: {

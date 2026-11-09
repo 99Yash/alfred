@@ -106,7 +106,7 @@ describe("github reducer (pure)", () => {
   });
 });
 
-describe("github registry normalize", () => {
+describe("github states map", () => {
   test("merged → resolved, closed → abandoned, open → active", () => {
     assert.equal(stateCategoryOf("github", "pull_request", "merged"), "resolved");
     assert.equal(stateCategoryOf("github", "pull_request", "closed"), "abandoned");

@@ -1,6 +1,6 @@
 import {
   collectProviderLinks,
-  getObjectDef,
+  sourceDeclOf,
   getStringPath,
   identityAttributes,
   identityProvesLink,
@@ -54,7 +54,7 @@ interface IdentityKind {
 
 /** Every kind that declares an identity, in registry order. */
 const IDENTITY_KINDS: readonly IdentityKind[] = OBJECT_STATE_PROVIDERS.flatMap((provider) =>
-  Object.entries(getObjectDef(provider).kinds).flatMap(([kind, def]) =>
+  Object.entries(sourceDeclOf(provider).kinds).flatMap(([kind, def]) =>
     def.identity ? [{ provider, kind, decl: def.identity }] : [],
   ),
 );

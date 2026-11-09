@@ -2,6 +2,7 @@ import {
   assertNever,
   canonicalizeGithubPullRequestUrl,
   canonicalizeGithubTargetId,
+  type PullRequestState,
 } from "@alfred/contracts";
 import {
   GITHUB_MERGED_PULL_READ_EVENT_TYPE,
@@ -149,7 +150,7 @@ function reducePullRequestRead(payload: PullRequestReadPayload): ObjectStateDelt
 function pullRequestNativeState(
   action: string | null,
   merged: boolean | undefined,
-): "open" | "merged" | "closed" | null {
+): PullRequestState | null {
   switch (action) {
     case "opened":
     case "reopened":

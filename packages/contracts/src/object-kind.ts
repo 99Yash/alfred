@@ -129,3 +129,15 @@ export const DEPLOYMENT_STATE_CATEGORIES = {
   failure: "failed",
   pending: "active",
 } as const satisfies Record<DeploymentStatus, StateCategory>;
+
+const PULL_REQUEST_STATES = ["open", "merged", "closed"] as const;
+
+/** The token that the GitHub reducer collapses a pull request's action and `merged` flag to. */
+export type PullRequestState = (typeof PULL_REQUEST_STATES)[number];
+
+/** Merged resolves. Closed without a merge is abandoned, and a reopen makes it active again. */
+export const PULL_REQUEST_STATE_CATEGORIES = {
+  open: "active",
+  merged: "resolved",
+  closed: "abandoned",
+} as const satisfies Record<PullRequestState, StateCategory>;

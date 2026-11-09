@@ -109,6 +109,7 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
 
   const rows = await db()
     .select({
+      id: mcpHealthMapping.id,
       connectionId: mcpHealthMapping.connectionId,
       remoteName: mcpHealthMapping.remoteName,
       descriptorHash: mcpHealthMapping.descriptorHash,
@@ -141,10 +142,23 @@ async function listCurrentMappings(userId: string): Promise<readonly CurrentMcpH
 
   const mappings: CurrentMcpHealthMapping[] = [];
 
-  for (const row of rows) {
+  for (const { id, ...row } of rows) {
     const parsed = mcpHealthMappingDefinitionSchema.safeParse(row.definition);
 
-    if (!parsed.success) continue;
+    // An approved row can stop parsing when its slug gains a registry `source`. Say so, and skip it.
+    if (!parsed.success) {
+      logger.warn(
+        {
+          mappingId: id,
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.map(String).join("."),
+            message: issue.message,
+          })),
+        },
+        "[mcp.health] stored mapping does not parse; skipped",
+      );
+      continue;
+    }
 
     mappings.push({ ...row, definition: parsed.data });
   }

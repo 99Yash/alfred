@@ -396,11 +396,19 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - `ObjectStateProvider` is now derived: each registry slug with a `source`, plus `mcp`. The `mcp` kind stays as `MCP_HEALTH_SOURCE` in `integration-objects.ts`.
 - The Railway entry now tells the truth about its object state. Its `sourceRoutes` stays `tools_only`, because the activity record has no Railway rows, and the coverage of ADR-0118 reads that field.
 
+The built shape is different from the shape of decision 1:
+
+- **`SourceDecl` has `domains`, `kinds`, and `prefixableKeys`.** It has no `ingest`, `read`, or `coverage` yet. Later slices add them when they have a reader.
+- **`prefixableKeys` is not in decision 1.** It gives the minimum prefix length for each key kind that allows a short lookup, for example a 7-hex commit sha. It moved from the removed `INTEGRATION_OBJECT_DEFS`.
+- **There is no `KindDecl` and no `preset`.** A kind is one flat `ObjectKindDef`. It holds the lifecycle fields (`closesAskOn`, `closesAskFrom`, `absorbing`, `todoIdentity`), the `states` map, and an optional `identity`. Decision 1 puts the lifecycle in a nested `lifecycle` field.
+- **The `identity` of a kind is optional, and it is the ADR-0109 link declaration.** It is `{ uniqueKey }` or `{ tuple }` of attributes, each with an optional `linkLabel`. Only Railway `deployment_target` and Vercel `deployment_attempt` declare one. Decision 1 makes `identity` required.
+
 Left for part 2 and later slices:
 
-- **Part 2.** The `SourceIdentity` columns on `integration_objects`. The MCP rows move to their `mcp_servers.id` and stop packing the connection id in `externalId`. Then `ObjectStateProvider` and `MCP_HEALTH_SOURCE` go. The `preset` of a kind (ADR-0118 decision 5) lands with these rows, because they are its first reader.
+- **Part 2 ([#1728](https://github.com/99Yash/alfred/issues/1728)).** The `SourceIdentity` columns on `integration_objects`. The MCP rows move to their `mcp_servers.id` and stop packing the connection id in `externalId`. Then `ObjectStateProvider` and `MCP_HEALTH_SOURCE` go. The `preset` of a kind (ADR-0118 decision 5) lands with these rows, because they are its first reader.
 - **The identity schema, the spellings, `ThingRef`, `thingRefSchema`, and `thingKey` (decision 3a).** They land with slice 2, because `Fact.thing` is their first reader. The `knip` gate rejects an export with no reader.
 - **An open question for slice 2.** The stored `externalId` of a pull request is the GitHub numeric id. The identity of decision 3a is `{owner, repo, number}`. Slice 2 must decide whether `thingKey` replaces the stored key or resolves through `integration_object_keys`.
+- **An open question for slice 2: two meanings of `identity`.** Decision 3a puts `identity: { schema, spellings }` on every kind. The built `ObjectKindDef.identity` is the optional ADR-0109 link declaration, with the same field name. Slice 2 must decide one of these options. It can extend the ADR-0109 declaration with `schema` and `spellings`. Or it can give one of the two fields a new name.
 - **A name change.** The field is `domains`, not `mail.domains`, because the same list also gates the hosts of provider links.
 
 ## Where this touches the rest of the app
