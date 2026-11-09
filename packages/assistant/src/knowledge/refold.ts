@@ -16,7 +16,7 @@ import {
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { DbTransaction } from "@alfred/db";
-import { projectGmailKindProfiles } from "./gmail-kind-fold";
+import { computeGmailKindChecksum } from "./gmail-kind-fold";
 import { foldGmailProjectionRun } from "./gmail-projection-run";
 import { requireEntityIdNamespace } from "./namespace";
 import { liveObservationHeadJoin } from "./observations";
@@ -29,10 +29,9 @@ import { userIdentity } from "@alfred/assistant/settings";
  * Re-fold the active Gmail kind projection over new observations and, when safe,
  * activate it. Runs per user after live capture and from the scheduled sweep.
  *
- * Auto-activation needs frozen logic: the fold is recomputed at the active run's
- * own watermark, inside a rolled-back transaction, and must match its stored
- * checksum. The stored checksum covers kinds only, so edges do not take part in
- * this gate. A mismatch blocks, and a human re-activates. This path never makes the
+ * Auto-activation needs frozen logic: the kind checksum is recomputed at the
+ * active run's own watermark, with no write, and must match its stored checksum.
+ * The stored checksum covers kinds only, so edges do not take part in this gate. A mismatch blocks, and a human re-activates. This path never makes the
  * first activation. Adding or removing a Google account also changes the input and
  * blocks; that fails closed.
  */
@@ -100,11 +99,9 @@ export async function refoldActiveGmailKindProjection(
     return { status: "blocked", reason: "unverifiable-active-run" };
   }
 
-  const recomputedChecksum = await recomputeChecksumAtWatermark({
+  const { checksum: recomputedChecksum } = await computeGmailKindChecksum({
     userId,
-    runId: active.activeRunId,
-    projectionVersion: active.activeVersion,
-    gmailWatermark: activeGmailWatermark,
+    gmailHighWatermark: activeGmailWatermark,
     excludeEmailValues,
   });
 
@@ -156,48 +153,6 @@ export async function refoldActiveGmailKindProjection(
     profileCount: completed.profileCount,
     checksum: completed.checksum,
   };
-}
-
-/**
- * Thrown to roll back the checksum recompute. It reuses the active run's ids, so
- * the upsert hits that run's own rows, and the DB ends unchanged.
- */
-class RefoldChecksumProbe extends Error {
-  readonly checksum: string;
-  constructor(checksum: string) {
-    super("rollback: refold checksum probe");
-    this.checksum = checksum;
-  }
-}
-
-async function recomputeChecksumAtWatermark(args: {
-  readonly userId: string;
-  readonly runId: string;
-  readonly projectionVersion: number;
-  readonly gmailWatermark: ProjectionCursorValue;
-  readonly excludeEmailValues: readonly string[];
-}): Promise<string> {
-  try {
-    await db().transaction(async (tx) => {
-      const projected = await projectGmailKindProfiles(
-        {
-          userId: args.userId,
-          projectionRunId: args.runId,
-          projectionVersion: args.projectionVersion,
-          gmailHighWatermark: args.gmailWatermark,
-          excludeEmailValues: args.excludeEmailValues,
-        },
-        tx,
-      );
-
-      throw new RefoldChecksumProbe(projected.checksum);
-    });
-  } catch (err) {
-    if (err instanceof RefoldChecksumProbe) return err.checksum;
-    throw err;
-  }
-
-  throw new Error("[user-model.refold] checksum probe did not roll back");
 }
 
 async function loadProjectionRun(userId: string, runId: string): Promise<ProjectionRun | null> {
