@@ -44,8 +44,8 @@
 #                   10 min (REVIEW.md), so a healthy wait writes a line in time.
 #                   0 turns the watchdog off.
 #   DRY_RUN         default 0
-#   ENGINE          which CLI runs a phase: `claude` (default) or `opencode`.
-#                   This is the FALLBACK; a per-phase override wins.
+#   ENGINE          which CLI runs a phase: `claude` (default), `opencode`, or
+#                   `codex`. This is the FALLBACK; a per-phase override wins.
 #                   `opencode` is NOT equivalent, and three differences matter:
 #                     1. It has no `--max-budget-usd`. MAX_BUDGET_USD and
 #                        REVIEW_BUDGET_USD are IGNORED, so MAX_ITER is the only
@@ -69,8 +69,27 @@
 #                     REVIEW phase to `opencode` is allowed and gives up the
 #                     fan-out — the header says so rather than the operator
 #                     discovering it three rounds in.
+#                   `codex` (`codex exec`) differs the same way on budgets: it
+#                   takes no per-run USD cap, so MAX_ITER is again the only
+#                   ceiling. It loads AGENTS.md, and layers its own
+#                   ~/.codex/config.toml on top. It runs sandboxed — see SANDBOX.
+#   CODEX_MODEL     model for a codex phase, unless that phase's `<PHASE>_MODEL`
+#                   override names a codex model explicitly. Default
+#                   `gpt-5.6-sol`. NOT `gpt-6-sol`: that id is refused under
+#                   `auth_mode = "chatgpt"` ("not supported when using Codex with
+#                   a ChatGPT account") and is absent from
+#                   ~/.codex/models_cache.json. On an API-key login, override
+#                   this.
+#   CODEX_EFFORT    codex `model_reasoning_effort`. Default `high`. The key lives
+#                   in ~/.codex/config.toml, which is where it is read from when
+#                   unset here.
+#   SANDBOX         codex sandbox policy: `workspace-write` (default) or
+#                   `danger-full-access`. A push phase needs network for `git
+#                   push` and `gh pr create`; if one fails on a network refusal,
+#                   that is this knob.
 #   MODEL           model for an opencode phase, as `provider/model`. Default
-#                   `opencode/muse-spark-1.3-contributor-free`. Ignored by `claude`.
+#                   `opencode/muse-spark-1.3-contributor-free`. Ignored by
+#                   `claude`.
 #                   `DESIGN_MODEL` / `IMPLEMENT_MODEL` / `REVIEW_MODEL` /
 #                   `REVISE_MODEL` override it per phase, for the same reason the
 #                   engines are per-phase: the review fan-out and the mechanical
@@ -87,6 +106,14 @@ DRY_RUN="${DRY_RUN:-0}"
 ITEM="${ITEM:-}"
 ENGINE="${ENGINE:-claude}"
 MODEL="${MODEL:-opencode/muse-spark-1.3-contributor-free}"
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-sol}"
+CODEX_EFFORT="${CODEX_EFFORT:-high}"
+SANDBOX="${SANDBOX:-workspace-write}"
+
+case "$SANDBOX" in
+  workspace-write|danger-full-access) ;;
+  *) echo "unknown SANDBOX $SANDBOX — expected workspace-write or danger-full-access" >&2; exit 1 ;;
+esac
 
 # Phase name (upper-cased) -> the override var that names it, so the resolution
 # below is a table lookup rather than four hand-copied blocks that can drift.
@@ -131,11 +158,11 @@ resolve_engine() { # phase -> sets RESOLVED_ENGINE / RESOLVED_MODEL, echoes labe
   override="$(phase_override "$phase" ENGINE)"
   RESOLVED_ENGINE="${override:-$ENGINE}"
   case "$RESOLVED_ENGINE" in
-    claude|opencode) ;;
+    claude|opencode|codex) ;;
     *)
       echo "unknown engine '$RESOLVED_ENGINE' for phase '$phase'" \
         "(from $(printf '%s' "$phase" | tr '[:lower:]' '[:upper:]')_ENGINE / ENGINE)" \
-        "— expected claude or opencode" >&2
+        "— expected claude, opencode, or codex" >&2
       exit 1
       ;;
   esac
@@ -144,13 +171,22 @@ resolve_engine() { # phase -> sets RESOLVED_ENGINE / RESOLVED_MODEL, echoes labe
     exit 1
   }
   RESOLVED_MODEL="$(phase_override "$phase" MODEL)"
-  RESOLVED_MODEL="${RESOLVED_MODEL:-$MODEL}"
+  if [[ "$RESOLVED_ENGINE" == "codex" ]]; then
+    # A codex phase's model comes from CODEX_MODEL, because the $MODEL default is
+    # an opencode model id that codex would refuse. A phase-level `<PHASE>_MODEL`
+    # override still wins, so one implement phase can name a codex model directly.
+    RESOLVED_MODEL="${RESOLVED_MODEL:-$CODEX_MODEL}"
+  else
+    RESOLVED_MODEL="${RESOLVED_MODEL:-$MODEL}"
+  fi
   RESOLVED_LABEL=""
   # An `if`, not a trailing `[[ ]] &&`. As the function's last statement that
   # list makes the function return 1 for a `claude` phase, and `set -e` kills the
   # whole run on a return value that means nothing.
   if [[ "$RESOLVED_ENGINE" == "opencode" ]]; then
     RESOLVED_LABEL=" ($RESOLVED_MODEL, no budget cap)"
+  elif [[ "$RESOLVED_ENGINE" == "codex" ]]; then
+    RESOLVED_LABEL=" ($RESOLVED_MODEL, effort $CODEX_EFFORT, sandbox $SANDBOX, no budget cap)"
   fi
 }
 
@@ -445,9 +481,10 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   # so the iteration banner names the engine that will actually execute.
   resolve_engine "$phase"
 
-  # An opencode phase ignores iter_budget — it has no --max-budget-usd — so
-  # advertising the number next to it would be a claim the run cannot honor.
-  if [[ "$RESOLVED_ENGINE" == "opencode" ]]; then
+  # An opencode or codex phase ignores iter_budget — neither takes a
+  # --max-budget-usd — so advertising the number next to either would be a claim
+  # the run cannot honor.
+  if [[ "$RESOLVED_ENGINE" == "opencode" || "$RESOLVED_ENGINE" == "codex" ]]; then
     budget_label="no budget cap"
   else
     budget_label="\$$iter_budget"
@@ -494,9 +531,20 @@ for ((i = 1; i <= MAX_ITER; i++)); do
   ' < "$fifo" > "$render_fifo" &
   TAP_PID=$!
 
-  # Two engines, two event schemas. `claude` streams `stream_event`/`assistant`/
-  # `result`; `opencode --format json` streams `text`/`tool_use`/`step_finish` with
-  # the payload under `.part`. One filter reads both so the console looks the same.
+  # Three engines, and only two of them share an event schema. `claude` streams
+  # `stream_event`/`assistant`/`result`; `opencode --format json` streams
+  # `text`/`tool_use`/`step_finish` with the payload under `.part`. One filter
+  # reads both so the console looks the same.
+  #
+  # `codex` is NOT run through that filter. Its `--json` event schema is not
+  # something this script should be coupled to for cosmetics, so codex runs on
+  # its plain-text stdout, which already narrates its own progress, and `cat`
+  # carries it through. Same FIFOs, same liveness property, no guessed jq paths.
+  # The stream tap upstream only keys on the JSON `result` event, so a codex
+  # phase records no limit reason and `limit_reason` stays silent for it.
+  if [[ "$RESOLVED_ENGINE" == "codex" ]]; then
+    cat < "$render_fifo" &
+  else
   jq -j --unbuffered '
         if .type == "stream_event" then
           ( .event
@@ -521,6 +569,7 @@ for ((i = 1; i <= MAX_ITER; i++)); do
                                          | tostring | .[0:100])\n" )
         else empty end
       ' < "$render_fifo" &
+  fi
   JQ_PID=$!
 
   set +e
@@ -541,6 +590,29 @@ for ((i = 1; i <= MAX_ITER; i++)); do
           --model "$RESOLVED_MODEL" \
           --auto \
           --format json > "$fifo" &
+      ;;
+    codex)
+      # Same no-budget-flag caveat as opencode: MAX_ITER is the only ceiling.
+      #
+      # `--add-dir` is the load-bearing flag. A phase's working root is the repo,
+      # but the item file and state.json it MUST write live in .campaign/, and a
+      # workspace-write sandbox refuses writes outside that root without it — so
+      # a phase would fail at its LAST step, after the thinking was already paid
+      # for and the code already written. `-c approval_policy=never` matches the
+      # unattended posture the other two engines take (bypassPermissions /
+      # --auto): the loop has nobody to answer a prompt, and a blocked prompt is
+      # indistinguishable from a hang.
+      #
+      # `--ephemeral` mirrors claude's --no-session-persistence: one phase per
+      # process, nothing carried between iterations.
+      printf '%s' "$prompt" | codex exec \
+          -C "$REPO_ROOT" \
+          --model "$RESOLVED_MODEL" \
+          -c "model_reasoning_effort=$CODEX_EFFORT" \
+          -c "approval_policy=never" \
+          -s "$SANDBOX" \
+          --add-dir "$CAMPAIGN_DIR" \
+          --ephemeral > "$fifo" &
       ;;
   esac
   CHILD_PID=$!
