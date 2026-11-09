@@ -2,8 +2,9 @@ import {
   assertNever,
   type ClosureSource,
   enumGuard,
-  getObjectDef,
+  sourceDeclOf,
   getObjectKindDef,
+  stateCategoryOf,
   isAbsorbingState,
   isObjectStateProvider,
   OBJECT_STATE_CATEGORIES,
@@ -435,7 +436,7 @@ export const objectStateStore: ObjectStateStore = {
         if (!getObjectKindDef(provider, delta.kind)) continue;
 
         // An unknown native token is a no-op, never a guessed state.
-        const stateCategory = getObjectDef(provider).normalize(delta.kind, delta.nativeState);
+        const stateCategory = stateCategoryOf(provider, delta.kind, delta.nativeState);
 
         if (!stateCategory) continue;
 
@@ -677,7 +678,7 @@ export const objectStateStore: ObjectStateStore = {
   async resolveByKeyPrefix(userId, provider, keyKind, keyPrefix) {
     // The registry declares prefixable keys. Else a prefix like `"https:/"` would match every PR
     // URL.
-    const minPrefixLength = getObjectDef(provider).prefixableKeys[keyKind];
+    const minPrefixLength = sourceDeclOf(provider).prefixableKeys[keyKind];
 
     if (minPrefixLength === undefined || keyPrefix.length < minPrefixLength) return null;
 

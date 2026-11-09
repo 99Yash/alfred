@@ -6,6 +6,12 @@
 
 import { enumGuard } from "../guards";
 import { GOOGLE_SCOPE, type GoogleFeature, type GoogleScope } from "../google-scopes";
+import {
+  DEPLOYMENT_STATE_CATEGORIES,
+  LOOP_CLOSING_STATE_CATEGORIES,
+  PULL_REQUEST_STATE_CATEGORIES,
+  type SourceDecl,
+} from "../object-kind";
 import { typedKeys } from "../records";
 
 // Hand-written on purpose: each `kind` arm's field set is the contract.
@@ -50,6 +56,16 @@ export function hasSourceRoute(routes: SourceRoutes, route: SourceRoute): boolea
 interface SourceEntryBase extends EntryBase {
   /** Set to what is built today, not to the plan. */
   readonly sourceRoutes: SourceRoutes;
+  /**
+   * The things this source owns and how each one lives and dies (ADR-0122 decision 1). Absent: no
+   * row of `integration_objects` belongs to this source. Set to what is built today.
+   *
+   * Declaring it makes the slug a built-in object-state provider (`ObjectStateProvider`). The slug
+   * then joins every table keyed by that type, and it leaves the providers that an MCP health
+   * mapping may name (`mcp.ts`). A stored mapping row for the slug then fails
+   * `mcpHealthMappingDefinitionSchema`, and the verified pull skips it with a warning.
+   */
+  readonly source?: SourceDecl;
 }
 
 /** A provider that has a page and a brand but no wired credential store yet. */
@@ -327,6 +343,40 @@ export const INTEGRATIONS = {
     // Without the login, the boss asked "which repo?" about the user's own work.
     identityInSummary: true,
     domain: "github.com",
+    // Reducers collapse a PR to `open`/`merged`/`closed`, and CI to `success`/`failure`/`pending`.
+    source: {
+      // Gates the GitHub `about` keys (object-state adapter) and the soft-edge count. GitHub
+      // declares no identity, so identity containment never reads it (ADR-0109).
+      domains: ["github.com"],
+      kinds: {
+        // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.
+        pull_request: {
+          closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
+          closesAskFrom: "stored_projection",
+          absorbing: ["resolved"],
+          todoIdentity: true,
+          states: PULL_REQUEST_STATE_CATEGORIES,
+        },
+        // An attempt never closes an ask. Only its target does.
+        ci_attempt: {
+          closesAskOn: [],
+          closesAskFrom: "stored_projection",
+          absorbing: [],
+          todoIdentity: true,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+        },
+        // State is the latest attempt's outcome. A later failure reopens.
+        ci_target: {
+          closesAskOn: ["resolved"],
+          // A check-suite delivery carries `updated_at`, so rows order by provider time.
+          closesAskFrom: "stored_projection",
+          absorbing: [],
+          todoIdentity: false,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+        },
+      },
+      prefixableKeys: { head_sha: 7 },
+    },
   },
   vercel: {
     kind: "provider",
@@ -340,9 +390,40 @@ export const INTEGRATIONS = {
     actions: ["list_projects", "list_deployments", "redeploy", "request"],
     summaryBlurb: "the user's Vercel projects and deployments",
     domain: "vercel.com",
+    // GitHub is only the transport of the dispatch. The payload is Vercel's state. The kind
+    // names reuse Railway's.
+    source: {
+      domains: ["vercel.com"],
+      kinds: {
+        // The fallback when a dispatch has no branch or environment. Never closes an ask.
+        deployment_attempt: {
+          closesAskOn: [],
+          closesAskFrom: "stored_projection",
+          absorbing: [],
+          todoIdentity: true,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+          // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed. No
+          // segment labels the id, so the link only nominates. An attempt never closes anyway.
+          identity: { uniqueKey: { attribute: "deployment_id", droppedPrefix: "dpl_" } },
+        },
+        // Empty `closesAskOn`: the failure mail names an attempt, and an attempt never
+        // closes. Its tuple (repo, branch, environment) is weak, so it cannot link by
+        // containment (ADR-0109). Restore `["resolved"]` when evidence can name it (#1357).
+        deployment_target: {
+          closesAskOn: [],
+          // The dispatch carries Vercel's own state, so nothing reorders into a false close.
+          closesAskFrom: "stored_projection",
+          absorbing: [],
+          todoIdentity: false,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+        },
+      },
+      prefixableKeys: {},
+    },
   },
   // Sentry, Notion, Railway and Polylane (and Linear) are `planned` here but connect through MCP.
-  // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
+  // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093). Railway also
+  // owns object state: a verified pull reads its deployments through the Railway MCP server.
   sentry: {
     kind: "provider",
     status: "planned",
@@ -366,6 +447,40 @@ export const INTEGRATIONS = {
     brand: "railway",
     sourceRoutes: ["tools_only"],
     actions: [],
+    source: {
+      // Failure mails come from `notify.railway.app` and link to `railway.com`.
+      domains: ["railway.app", "railway.com"],
+      kinds: {
+        // Like `ci_attempt`: an attempt never closes an ask.
+        deployment_attempt: {
+          closesAskOn: [],
+          closesAskFrom: "stored_projection",
+          absorbing: [],
+          todoIdentity: true,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+        },
+        // The build-failure mail names this target (ADR-0062 amendment 2026-10-20).
+        deployment_target: {
+          closesAskOn: ["resolved"],
+          // Only a pull writes this row, so a stored `success` can be older than the
+          // failure the mail reports. A live read must confirm the recovery.
+          closesAskFrom: "live_confirmation",
+          absorbing: [],
+          todoIdentity: false,
+          states: DEPLOYMENT_STATE_CATEGORIES,
+          // One project has many services in one environment, so only all three are unique. The
+          // build-log link is `/project/<p>/service/<s>?id=<d>&environmentId=<e>`.
+          identity: {
+            tuple: [
+              { attribute: "project_id", linkLabel: "project" },
+              { attribute: "service_id", linkLabel: "service" },
+              { attribute: "environment_id", linkLabel: "environmentId" },
+            ],
+          },
+        },
+      },
+      prefixableKeys: {},
+    },
   },
   polylane: {
     kind: "provider",

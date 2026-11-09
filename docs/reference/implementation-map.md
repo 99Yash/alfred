@@ -310,7 +310,8 @@ flowchart LR
 | `connections/object-state/activity-consumer.ts` | One consumer per inbound source |
 | `connections/object-state/store.ts` | `applyEvent` — the state store with recency/absorbing guards |
 | `connections/object-state/*-reducer.ts`, `*-adapter.ts` | One reducer + adapter per provider (GitHub, Vercel, Railway, MCP) |
-| `contracts/src/integration-objects.ts` | `INTEGRATION_OBJECT_DEFS` registry (browser-safe) |
+| `contracts/src/integration-objects.ts` | Readers over the kinds that each source declares on its `INTEGRATIONS` entry: `sourceDeclOf`, `stateCategoryOf`, `closesOpenAsk` (browser-safe) |
+| `contracts/src/object-kind.ts` | The kind vocabulary: `ObjectKindDef`, `SourceDecl`, state categories, closure proofs (browser-safe) |
 
 Tables: `integration_objects`, `integration_object_keys`,
 `integration_object_relations` (FKs the dead `entities` table; nothing writes it),

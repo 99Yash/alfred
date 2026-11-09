@@ -106,6 +106,7 @@ When 3 `verified_inference` closes share one shape, the verifier drafts a templa
 
 - The registry field is `ObjectKindDef.identity`. It is `{ uniqueKey }` or `{ tuple }` with 2 or more attributes, so the type rejects one attribute that is not a key. Each attribute can declare a `droppedPrefix` and a `linkLabel`.
 - The provider domains are data: `IntegrationObjectDef.domains`. `isNotificationSender` reads them for the sender gate, and `collectProviderLinks` reads them for link hosts. The object-state registry holds them, not the ADR-0093 integration entry, because Railway is a `planned` entry there.
+  - **Amended 2026-11-09 (ADR-0122 slice 1, part 1).** The provider domains are now `source.domains` on the `INTEGRATIONS` entry. `IntegrationObjectDef` is removed. The old reason does not apply: a `planned` entry can carry `source`, because `status` tells about the credential store, not about object state.
 - `proposeReconcileCandidates` returns the adapter keys and an identity probe. `reconcileEvidence` resolves the probe with one query for each declared kind. The query stops before the next chunk when the caller aborts.
 - `railway-mail.ts` and `sentry-issue-url.ts` are deleted. The Railway adapter proposes nothing. The Sentry adapter proposes only `short_id`. The Sentry reducer stores a permalink only when `linkNamesObject` finds the issue id after `/issues/`.
 

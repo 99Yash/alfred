@@ -3,7 +3,7 @@ import {
   canonicalizeGithubTargetId,
   collectGithubPullRequestUrls,
   deriveLoopEntityRef,
-  INTEGRATION_OBJECT_DEFS,
+  INTEGRATIONS,
   isNotificationSender,
 } from "@alfred/contracts";
 import { keyIdentity } from "./adapter";
@@ -29,7 +29,7 @@ const HEAD_SHA_RE = /\b[0-9a-f]{40}\b/gi;
  * 7 hex, as Git and GitHub mail use. Read from the registry, which the store's prefix lookup also
  * reads.
  */
-const MIN_ABBREVIATED_SHA_LENGTH = INTEGRATION_OBJECT_DEFS.github.prefixableKeys.head_sha;
+const MIN_ABBREVIATED_SHA_LENGTH = INTEGRATIONS.github.source.prefixableKeys.head_sha;
 
 /**
  * The short sha at the end of an Actions failure subject, e.g. `Run failed: ... (efd2e98)`. Only a

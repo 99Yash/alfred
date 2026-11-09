@@ -1,7 +1,7 @@
 import {
   canonicalizeGithubPullRequestUrl,
-  type INTEGRATION_OBJECT_DEFS,
   keyGuard,
+  type ObjectKindOf,
   type ObjectIdentity,
   type ObjectStateProvider,
   parseGithubPullRequestUrl,
@@ -273,17 +273,14 @@ function deploymentTargetVerifier<E extends VerifiedPullEvent, Target, Session, 
   });
 }
 
-type RegisteredObjectKinds<Provider extends ObjectStateProvider> =
-  keyof (typeof INTEGRATION_OBJECT_DEFS)[Provider]["kinds"];
-
 type LoopVerifierTable = {
   readonly [Provider in ObjectStateProvider]: {
-    readonly [Kind in RegisteredObjectKinds<Provider>]: LoopVerifier | null;
+    readonly [Kind in ObjectKindOf<Provider>]: LoopVerifier | null;
   };
 };
 
 /**
- * The reader for each object kind. Typed from `INTEGRATION_OBJECT_DEFS`, so a new kind does not
+ * The reader for each object kind. Typed from the kinds each source declares, so a new kind does not
  * compile until it names a reader or an explicit `null`. For a deploy, the thing is the target:
  * an attempt never resolves.
  */

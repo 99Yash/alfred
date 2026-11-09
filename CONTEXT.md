@@ -378,7 +378,7 @@ The structured, exact-keyed, reducer-computed sibling of _semantic user-memory_.
 
 **Reducer.** A per-provider, pure, idempotent, replayable `applyEvent(provider, event)` that folds webhook and event deliveries into object-state. The irreducibly per-provider part — there is deliberately no generic reducer.
 
-**Registry (`IntegrationObjectDef`).** The typed, per-provider source of truth in `@alfred/contracts` declaring a provider's object kinds, key kinds, state normalization, and readable surfaces. Enforces at the type/API layer the constraints Postgres cannot. Generalizes the ADR-0053 tool catalog.
+**Source declaration (`SourceDecl`).** The typed source of truth in `@alfred/contracts` that declares the object kinds of a source, its domains, its prefixable key kinds, and the `states` map of each kind. A built-in source declares it as `source` on its `INTEGRATIONS` entry (ADR-0122 decision 1). Enforces at the type/API layer the constraints Postgres cannot. Generalizes the ADR-0053 tool catalog.
 
 **Loop-opener.** The inbound item that starts an open loop in the briefing (v1: a GitHub Actions CI-failure email). It carries a matching key such as `head_sha` but often no direct object id — which is what the key sidecar exists to bridge.
 

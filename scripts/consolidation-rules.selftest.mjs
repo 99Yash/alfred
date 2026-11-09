@@ -1473,10 +1473,16 @@ const LINE_CASES = [
     file: "packages/assistant/src/knowledge/loop-items.ts",
   },
   {
-    name: "unowned-live-confirmation-proof — the registry declaring the vocabulary owns it too",
+    name: "unowned-live-confirmation-proof — the leaf declaring the vocabulary owns it too",
     caught: false,
     code: `export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;`,
-    file: "packages/contracts/src/integration-objects.ts",
+    file: "packages/contracts/src/object-kind.ts",
+  },
+  {
+    name: "unowned-live-confirmation-proof — a source declaring a kind on the registry owns it",
+    caught: false,
+    code: `        closesAskFrom: "live_confirmation",`,
+    file: "packages/contracts/src/integrations/registry.ts",
   },
   {
     name: "unowned-live-confirmation-proof — a docstring naming the token is prose, not an assertion",

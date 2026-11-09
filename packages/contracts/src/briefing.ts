@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { attentionBandSchema } from "./attention";
-import { LOOP_CLOSING_STATE_CATEGORIES, OBJECT_STATE_CATEGORIES } from "./integration-objects";
+import { LOOP_CLOSING_STATE_CATEGORIES, OBJECT_STATE_CATEGORIES } from "./object-kind";
 import { sourceIdentitySchema } from "./source-identity";
 import { triageCategorySchema } from "./triage";
 import { isIntegrationSlug, LIVE_PROVIDER_SLUGS } from "./integrations";

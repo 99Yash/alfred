@@ -305,9 +305,10 @@ export const RULES = [
     // COMPARISON, and its own selftest records the four-argument registry call
     // as the intended form, so the argument's VALUE is outside its reach.
     //
-    // The token is therefore owned rather than free. Two files may write it:
-    // the registry that declares the vocabulary, and the one site that takes
-    // the read (`verifyLoops`, ADR-0120). A second confirmation site adds itself
+    // The token is therefore owned rather than free. Three files may write it:
+    // the leaf that declares the vocabulary, the integration registry where a
+    // source declares its kinds (ADR-0122 decision 1), and the one site that
+    // takes the read (`verifyLoops`, ADR-0120). A second confirmation site adds itself
     // here, which keeps every site that may assert a live proof readable in
     // one place. That is the only witness the registry's DEMAND has.
     //
@@ -316,7 +317,8 @@ export const RULES = [
     re: /["'`]live_confirmation["'`]/,
     severity: "gate",
     owners: [
-      "packages/contracts/src/integration-objects.ts",
+      "packages/contracts/src/object-kind.ts",
+      "packages/contracts/src/integrations/registry.ts",
       "packages/assistant/src/knowledge/loop-items.ts",
     ],
     fix: "Pass the proof you actually hold to closesOpenAsk(provider, kind, category, proof) from @alfred/contracts. A reader over a stored integration_objects row holds `stored_projection`; only a caller that just took a live provider read of THIS object may name `live_confirmation`. If you mean to nominate a candidate for a consumer that will go get the read, call closureCandidate(provider, kind, category) and hand on its `proof` instead of naming one. A new site that genuinely takes the read joins this rule's `owners`; a one-off states the read it holds in a `// drift-ok:` marker.",

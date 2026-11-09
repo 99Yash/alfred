@@ -1,26 +1,29 @@
 /**
- * Object-state registry (ADR-0062): each provider's object kinds, key kinds, and
- * how a native state maps to a `StateCategory`. `satisfies` forces a complete
- * definition per provider, which Postgres cannot check.
+ * Object state (ADR-0062): the readers over the kinds that each source declares on its registry
+ * entry (ADR-0122 decision 1), and the canonical keys of each kind. The vocabulary of a kind is in
+ * `./object-kind`.
  */
 
-import { z } from "zod";
 import { emailDomain, isDomainOrSubdomain, normalizeDomain } from "./domain";
 import { enumGuard, parseEmailAddress } from "./guards";
-import { OBJECT_STATE_PROVIDERS, type ObjectStateProvider } from "./object-state-vocabulary";
+import { INTEGRATIONS } from "./integrations/registry";
+import {
+  LOOP_CLOSING_STATE_CATEGORIES,
+  type ClosureProof,
+  type DeploymentStatus,
+  type IdentityAttribute,
+  type LoopClosingStateCategory,
+  type ObjectIdentityDecl,
+  type ObjectKindDef,
+  type SourceDecl,
+  type StateCategory,
+} from "./object-kind";
+import {
+  OBJECT_STATE_PROVIDERS,
+  type BuiltInSourceSlug,
+  type ObjectStateProvider,
+} from "./object-state-vocabulary";
 import { canonicalizeIdentityValue } from "./user-model";
-
-export const OBJECT_STATE_CATEGORIES = ["active", "resolved", "failed", "abandoned"] as const;
-
-export type StateCategory = (typeof OBJECT_STATE_CATEGORIES)[number];
-
-/**
- * Categories that may close an open ask. `failed` is out: it usually opens a CI loop.
- * Each kind narrows this, so decide closure with {@link closesOpenAsk}, not this tuple.
- */
-export const LOOP_CLOSING_STATE_CATEGORIES = ["resolved", "abandoned"] as const;
-
-export type LoopClosingStateCategory = (typeof LOOP_CLOSING_STATE_CATEGORIES)[number];
 
 /**
  * How a producer knows an object state (#1094). Text evidence is not a member:
@@ -30,85 +33,11 @@ export const OBJECT_STATE_CLOSURE_SOURCES = ["verified_push", "verified_pull"] a
 
 export type ClosureSource = (typeof OBJECT_STATE_CLOSURE_SOURCES)[number];
 
-/**
- * The reading a kind needs before it may assert a closure (ADR-0103).
- * - `stored_projection`: the stored row is enough.
- * - `live_confirmation`: the row only nominates. A pull-only row can be older than the failure
- *   an email reports (`railway.deployment_target`).
- * A sync reader with no IO can only pass `stored_projection`.
- */
-export const CLOSURE_PROOFS = ["stored_projection", "live_confirmation"] as const;
-
-export type ClosureProof = (typeof CLOSURE_PROOFS)[number];
-
 /** A live read satisfies every kind. */
 const PROOF_STRENGTH = {
   stored_projection: 0,
   live_confirmation: 1,
 } satisfies Record<ClosureProof, number>;
-
-/**
- * Lifecycle policy per kind, because it differs per kind, not per provider (#1093).
- * - `closesAskOn`: categories that close an open ask.
- * - `closesAskFrom`: the weakest reading that may assert them. No default, on purpose.
- * - `absorbing`: categories no later delivery may leave (a merged PR).
- *   Kinds that close by succession (CI runs, deployments) declare `[]`.
- */
-export interface ObjectKindDef {
-  readonly closesAskOn: readonly LoopClosingStateCategory[];
-  readonly closesAskFrom: ClosureProof;
-  readonly absorbing: readonly StateCategory[];
-  /**
-   * True when one identity names one piece of work, so a todo may carry it as a source ref: a
-   * live todo merges on it and a resolved todo suppresses it (ADR-0092 A1). A target (a branch, a
-   * service) fails again and again, so one dismissed todo would hide the next failure. Each declares
-   * `false`. No default, on purpose.
-   */
-  readonly todoIdentity: boolean;
-  /** Links evidence to a row of this kind with no grammar (ADR-0109 rule 2). Absent: it cannot. */
-  readonly identity?: ObjectIdentityDecl;
-}
-
-/** One attribute of `integration_objects.attributes` that names the object. */
-export const identityAttributeSchema = z
-  .strictObject({
-    attribute: z.string().min(1),
-    /** A prefix the provider removes in its links (Vercel `dpl_`). The bare value then also counts. */
-    droppedPrefix: z.string().min(1).optional(),
-    /**
-     * The path segment or query parameter that precedes the value in a provider link: `service` in
-     * `/service/<id>`, `environmentId` in `?environmentId=<id>`. It tells which kind the value
-     * names. Absent: the value may sit anywhere in the link, so the link only nominates the object.
-     */
-    linkLabel: z.string().min(1).optional(),
-  })
-  .readonly();
-
-export type IdentityAttribute = z.infer<typeof identityAttributeSchema>;
-
-/**
- * The identity a kind declares (ADR-0109 rule 2). Two or more strong values, or one value the
- * provider guarantees unique. The tuple schema also rejects repeated attribute names.
- * All values must occur in one provider link. A link proves the object only when each value has a
- * `linkLabel` (see {@link identityProvesLink}).
- */
-export const objectIdentityDeclSchema = z.union([
-  z.strictObject({ uniqueKey: identityAttributeSchema }).readonly(),
-  z
-    .strictObject({
-      tuple: z
-        .tuple([identityAttributeSchema, identityAttributeSchema], identityAttributeSchema)
-        .refine(
-          (attributes) =>
-            new Set(attributes.map(({ attribute }) => attribute)).size === attributes.length,
-          { message: "identity tuple attributes must be distinct" },
-        )
-        .readonly(),
-    })
-    .readonly(),
-]);
-
-export type ObjectIdentityDecl = z.infer<typeof objectIdentityDeclSchema>;
 
 export function identityAttributes(decl: ObjectIdentityDecl): readonly IdentityAttribute[] {
   return "uniqueKey" in decl ? [decl.uniqueKey] : decl.tuple;
@@ -121,20 +50,6 @@ export function identityAttributes(decl: ObjectIdentityDecl): readonly IdentityA
  */
 export function identityProvesLink(decl: ObjectIdentityDecl): boolean {
   return identityAttributes(decl).every((attribute) => attribute.linkLabel !== undefined);
-}
-
-export interface IntegrationObjectDef {
-  /**
-   * Domains that send this provider's notification mail and serve its links. A mail from one may
-   * be `about` an object of the provider, and only a link on one can name an identity. A subdomain
-   * also counts.
-   */
-  readonly domains: readonly string[];
-  readonly kinds: Readonly<Record<string, ObjectKindDef>>;
-  /** Minimum prefix length per key kind that allows abbreviated lookup (a 7-hex sha). Absent means exact only. */
-  readonly prefixableKeys: Readonly<Record<string, number>>;
-  /** Map a native state token for one kind. `null` for an unknown token, which never closes. */
-  normalize(kind: string, nativeState: string): StateCategory | null;
 }
 
 const GITHUB_PULL_REQUEST_URL_RE =
@@ -286,27 +201,6 @@ export function canonicalizeVercelTargetId(input: {
   return `${base}#${environment}`;
 }
 
-const DEPLOYMENT_STATUSES = ["success", "failure", "pending"] as const;
-
-/** A deployment's verdict, from a Vercel dispatch or a verified Railway/Vercel pull. */
-export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
-
-/** Narrows a stored `nativeState` value to a declared deployment status. */
-export const isDeploymentStatus = enumGuard(DEPLOYMENT_STATUSES);
-
-const DEPLOYMENT_STATE_CATEGORIES = {
-  success: "resolved",
-  failure: "failed",
-  pending: "active",
-} as const satisfies Record<DeploymentStatus, StateCategory>;
-
-/** Railway and Vercel `normalize`: both deployment kinds, one token table. */
-function normalizeDeploymentStatus(kind: string, nativeState: string): StateCategory | null {
-  if (kind !== "deployment_attempt" && kind !== "deployment_target") return null;
-
-  return isDeploymentStatus(nativeState) ? DEPLOYMENT_STATE_CATEGORIES[nativeState] : null;
-}
-
 /**
  * Vercel dispatch action to outcome. Any other action, from any dispatcher, means nothing.
  * Vercel's list is `vercel/repository-dispatch` `types.ts`, plus `ready` from its GitHub docs.
@@ -352,176 +246,42 @@ export function vercelDeploymentOutcome(
 export const isObjectStateProvider = enumGuard(OBJECT_STATE_PROVIDERS);
 
 /** Excludes `mcp`, so an MCP result cannot override a provider's own verdict. */
-export function isBuiltInObjectStateProvider(
-  provider: string,
-): provider is Exclude<ObjectStateProvider, "mcp"> {
+export function isBuiltInObjectStateProvider(provider: string): provider is BuiltInSourceSlug {
   return provider !== "mcp" && isObjectStateProvider(provider);
 }
 
 /**
- * The registry. Reducers collapse provider payloads to these native tokens:
- * a PR to `open`/`merged`/`closed`, CI and deployments to `success`/`failure`/`pending`.
+ * Owner-reviewed MCP connections (#1196). One generic kind: a new MCP service adds a
+ * `mcp_health_mapping` row, not code. The mapping emits canonical tokens. It leaves this file when
+ * the MCP rows take a `SourceIdentity` and a kind preset (ADR-0118 decisions 2 and 5).
  */
-export const INTEGRATION_OBJECT_DEFS = {
-  github: {
-    // Gates the GitHub `about` keys (object-state adapter) and the soft-edge count. GitHub
-    // declares no identity, so identity containment never reads it (ADR-0109).
-    domains: ["github.com"],
-    kinds: {
-      // Merged absorbs: it can never reopen. Closed-unmerged does not, so a real reopen lands.
-      pull_request: {
-        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
-        closesAskFrom: "stored_projection",
-        absorbing: ["resolved"],
-        todoIdentity: true,
-      },
-      // An attempt never closes an ask. Only its target does.
-      ci_attempt: {
-        closesAskOn: [],
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: true,
-      },
-      // State is the latest attempt's outcome. A later failure reopens.
-      ci_target: {
-        closesAskOn: ["resolved"],
-        // A check-suite delivery carries `updated_at`, so rows order by provider time.
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: false,
-      },
-    },
-    prefixableKeys: { head_sha: 7 },
-    normalize(kind, nativeState) {
-      if (kind === "pull_request") {
-        switch (nativeState) {
-          case "merged":
-            return "resolved";
-          case "closed":
-            return "abandoned";
-          case "open":
-            return "active";
-          default:
-            return null;
-        }
-      }
-
-      // Explicit kinds, so a new kind does not inherit this mapping by accident.
-      if (kind === "ci_attempt" || kind === "ci_target") {
-        switch (nativeState) {
-          case "success":
-            return "resolved";
-          case "failure":
-            return "failed";
-          case "pending":
-            return "active";
-          default:
-            return null;
-        }
-      }
-
-      return null;
+const MCP_HEALTH_SOURCE = {
+  // MCP identities come only from an owner-approved live read, never from mail.
+  domains: [],
+  kinds: {
+    connection_health: {
+      closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
+      // Every fold is a live authenticated read, so the row is current.
+      closesAskFrom: "stored_projection",
+      absorbing: [],
+      todoIdentity: false,
+      states: { active: "active", resolved: "resolved", failed: "failed", abandoned: "abandoned" },
     },
   },
-  railway: {
-    // Failure mails come from `notify.railway.app` and link to `railway.com`.
-    domains: ["railway.app", "railway.com"],
-    kinds: {
-      // Like `ci_attempt`: an attempt never closes an ask.
-      deployment_attempt: {
-        closesAskOn: [],
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: true,
-      },
-      // The build-failure mail names this target (ADR-0062 amendment 2026-10-20).
-      deployment_target: {
-        closesAskOn: ["resolved"],
-        // Only a pull writes this row, so a stored `success` can be older than the
-        // failure the mail reports. A live read must confirm the recovery.
-        closesAskFrom: "live_confirmation",
-        absorbing: [],
-        todoIdentity: false,
-        // One project has many services in one environment, so only all three are unique. The
-        // build-log link is `/project/<p>/service/<s>?id=<d>&environmentId=<e>`.
-        identity: {
-          tuple: [
-            { attribute: "project_id", linkLabel: "project" },
-            { attribute: "service_id", linkLabel: "service" },
-            { attribute: "environment_id", linkLabel: "environmentId" },
-          ],
-        },
-      },
-    },
-    prefixableKeys: {},
-    normalize: normalizeDeploymentStatus,
-  },
-  /**
-   * Vercel deployments, relayed as GitHub `repository_dispatch` (#1167). GitHub is
-   * only the transport. The payload is Vercel's state. Kind names reuse Railway's.
-   */
-  vercel: {
-    domains: ["vercel.com"],
-    kinds: {
-      // The fallback when a dispatch has no branch or environment. Never closes an ask.
-      deployment_attempt: {
-        closesAskOn: [],
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: true,
-        // The failure mail links `vercel.com/<team>/<project>/<id>` with the `dpl_` removed. No
-        // segment labels the id, so the link only nominates. An attempt never closes anyway.
-        identity: { uniqueKey: { attribute: "deployment_id", droppedPrefix: "dpl_" } },
-      },
-      // Empty `closesAskOn`: the failure mail names an attempt, and an attempt never
-      // closes. Its tuple (repo, branch, environment) is weak, so it cannot link by
-      // containment (ADR-0109). Restore `["resolved"]` when evidence can name it (#1357).
-      deployment_target: {
-        closesAskOn: [],
-        // The dispatch carries Vercel's own state, so nothing reorders into a false close.
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: false,
-      },
-    },
-    prefixableKeys: {},
-    normalize: normalizeDeploymentStatus,
-  },
-  /**
-   * Owner-reviewed MCP connections (#1196). One generic kind: a new MCP service adds
-   * a `mcp_health_mapping` row, not code. The mapping emits canonical tokens.
-   */
-  mcp: {
-    // MCP identities come only from an owner-approved live read, never from mail.
-    domains: [],
-    kinds: {
-      connection_health: {
-        closesAskOn: LOOP_CLOSING_STATE_CATEGORIES,
-        // Every fold is a live authenticated read, so the row is current.
-        closesAskFrom: "stored_projection",
-        absorbing: [],
-        todoIdentity: false,
-      },
-    },
-    prefixableKeys: {},
-    normalize(kind, nativeState) {
-      if (kind !== "connection_health") return null;
+  prefixableKeys: {},
+} as const satisfies SourceDecl;
 
-      switch (nativeState) {
-        case "active":
-        case "resolved":
-        case "failed":
-        case "abandoned":
-          return nativeState;
-        default:
-          return null;
-      }
-    },
-  },
-} as const satisfies Record<ObjectStateProvider, IntegrationObjectDef>;
+/** What a provider declares, with its literal kind names. */
+type SourceDeclOf<P extends ObjectStateProvider> = P extends BuiltInSourceSlug
+  ? (typeof INTEGRATIONS)[P]["source"]
+  : typeof MCP_HEALTH_SOURCE;
 
-export function getObjectDef(provider: ObjectStateProvider): IntegrationObjectDef {
-  return INTEGRATION_OBJECT_DEFS[provider];
+/** The kinds that a provider declares, so a table keyed by kind stays complete. */
+export type ObjectKindOf<P extends ObjectStateProvider> = keyof SourceDeclOf<P>["kinds"] & string;
+
+/** The object state that a provider declares (ADR-0122 decision 1). */
+export function sourceDeclOf(provider: ObjectStateProvider): SourceDecl {
+  return provider === "mcp" ? MCP_HEALTH_SOURCE : INTEGRATIONS[provider].source;
 }
 
 /**
@@ -532,11 +292,27 @@ export function getObjectKindDef(
   provider: ObjectStateProvider,
   kind: string,
 ): ObjectKindDef | null {
-  const kinds: Readonly<Record<string, ObjectKindDef>> = getObjectDef(provider).kinds;
+  const kinds: Readonly<Record<string, ObjectKindDef>> = sourceDeclOf(provider).kinds;
 
   if (!Object.prototype.hasOwnProperty.call(kinds, kind)) return null;
 
   return kinds[kind] ?? null;
+}
+
+/**
+ * The category of a native state token for one kind. `null` for an undeclared kind or token, which
+ * never closes. `nativeState` is open text, so a prototype key must read as undeclared.
+ */
+export function stateCategoryOf(
+  provider: ObjectStateProvider,
+  kind: string,
+  nativeState: string,
+): StateCategory | null {
+  const states = getObjectKindDef(provider, kind)?.states;
+
+  if (!states || !Object.prototype.hasOwnProperty.call(states, nativeState)) return null;
+
+  return states[nativeState] ?? null;
 }
 
 /**
@@ -653,9 +429,9 @@ export function identityValueForms(
   return isStrongIdentityValue(value) ? [value] : null;
 }
 
-/** True when `domain` is one of the provider's {@link IntegrationObjectDef.domains}. */
+/** True when `domain` is one of the provider's declared {@link SourceDecl.domains}. */
 function isProviderDomain(provider: ObjectStateProvider, domain: string): boolean {
-  return getObjectDef(provider).domains.some((base) => isDomainOrSubdomain(domain, base));
+  return sourceDeclOf(provider).domains.some((base) => isDomainOrSubdomain(domain, base));
 }
 
 /** True when a mail from `from` may be `about` an object of this provider. */
@@ -784,7 +560,7 @@ export function linkNamesObject(
   url: string,
   attributes: Readonly<Record<string, string>>,
 ): boolean {
-  const decl = getObjectDef(provider).kinds[kind]?.identity;
+  const decl = sourceDeclOf(provider).kinds[kind]?.identity;
   const link = parseProviderLink(url);
 
   if (!decl || !identityProvesLink(decl) || link?.provider !== provider) return false;
