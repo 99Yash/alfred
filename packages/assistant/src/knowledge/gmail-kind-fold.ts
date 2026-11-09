@@ -10,6 +10,7 @@ import {
   type ProjectionProvenance,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
+import { makeEntityNodeInsert } from "@alfred/db/helpers";
 import { db } from "@alfred/db";
 import {
   entityProfiles,
@@ -22,6 +23,7 @@ import type { DbTransaction } from "@alfred/db";
 import { liveObservationHeadJoin } from "./observations";
 import { classifyEntityKind, type GmailPayloadSignals } from "./entity-kind-classifier";
 import { ensureEntityNode, recordEntityIdentity } from "./entities";
+import { requireEntityIdNamespace } from "./namespace";
 
 export interface ProjectGmailKindProfilesArgs {
   readonly userId: string;
@@ -58,43 +60,37 @@ interface ProfileChecksumRow {
   readonly bestGuess: string | null;
 }
 
+/** The fold's inputs that decide its content. The run ids only tag the rows it writes. */
+type GmailKindFoldInput = Pick<
+  ProjectGmailKindProfilesArgs,
+  "userId" | "gmailHighWatermark" | "excludeEmailValues"
+>;
+
+/** One profile the fold will write, decided before any write. */
+interface PlannedKindProfile {
+  readonly acc: IdentityAccumulator;
+  /** The stable HMAC id `ensureEntityNode` writes for this identity. */
+  readonly entityId: string;
+  readonly classification: EntityKindClassification;
+}
+
+/**
+ * Fold kinds into `entity_profiles` for one run, and mint the stable node and
+ * identity for each profile. The checksum comes from the same plan that
+ * {@link computeGmailKindChecksum} reads, so the writer and the refold drift gate
+ * cannot disagree.
+ */
 export async function projectGmailKindProfiles(
   args: ProjectGmailKindProfilesArgs,
   tx: DbTransaction | "own",
 ): Promise<ProjectGmailKindProfilesResult> {
   const run = async (ex: DbTransaction): Promise<ProjectGmailKindProfilesResult> => {
-    const conds: SQL[] = [
-      eq(observations.userId, args.userId),
-      eq(observations.source, "gmail"),
-      eq(observations.kind, "email_message"),
-    ];
-
-    const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
-
-    if (watermarkCond) conds.push(watermarkCond);
-
-    const rows = await ex
-      .select({ observation: observations })
-      .from(observations)
-      .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
-      .where(and(...conds))
-      .orderBy(asc(observations.occurredAt), asc(observations.id));
-
-    const excludedEmails = new Set(
-      args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
-    );
-
-    const identities = collectIdentities(
-      rows.map((row) => row.observation),
-      excludedEmails,
-    );
-
-    const checksumRows: ProfileChecksumRow[] = [];
+    const plan = await planGmailKindProfiles(args, ex);
     const projectionName = args.projectionName ?? USER_MODEL_PROJECTION_NAME;
     const computedAt = args.computedAt ?? new Date();
 
-    for (const acc of [...identities.values()].toSorted(compareAccumulators)) {
-      const node = await ensureEntityNode(
+    for (const { acc, entityId, classification } of plan) {
+      await ensureEntityNode(
         { userId: args.userId, identity: acc.identity, firstSeenAt: acc.firstSeenAt },
         ex,
       );
@@ -102,19 +98,13 @@ export async function projectGmailKindProfiles(
       await recordEntityIdentity(
         {
           userId: args.userId,
-          entityId: node.id,
+          entityId,
           identity: acc.identity,
           source: "gmail",
           validFrom: acc.firstSeenAt,
         },
         ex,
       );
-
-      const classification = classifyEntityKind({
-        identity: acc.identity,
-        displayNames: displayNamesByStrength(acc.displayNameCounts),
-        payloadSignals: acc.payloadSignals,
-      });
 
       const provenance: ProjectionProvenance = {
         observationIds: [...acc.observationIds].toSorted(),
@@ -129,7 +119,7 @@ export async function projectGmailKindProfiles(
           projectionName,
           projectionVersion: args.projectionVersion,
           projectionRunId: args.projectionRunId,
-          entityId: node.id,
+          entityId,
           displayName: displayNameFor(acc),
           kind: classification.kind,
           lastSeenAt: acc.lastSeenAt,
@@ -152,17 +142,73 @@ export async function projectGmailKindProfiles(
             computedAt,
           },
         });
-
-      checksumRows.push(checksumRow(node.id, classification));
     }
 
-    return {
-      profileCount: checksumRows.length,
-      checksum: checksumFor(checksumRows),
-    };
+    return planResult(plan);
   };
 
   return tx === "own" ? db().transaction(run) : run(tx);
+}
+
+/**
+ * The kind checksum and profile count that {@link projectGmailKindProfiles} would
+ * produce for `args`, with no write. The refold drift gate reads this. One select;
+ * the entity ids come from the HMAC, so no node has to exist.
+ */
+export async function computeGmailKindChecksum(
+  args: GmailKindFoldInput,
+): Promise<ProjectGmailKindProfilesResult> {
+  return planResult(await planGmailKindProfiles(args, db()));
+}
+
+async function planGmailKindProfiles(
+  args: GmailKindFoldInput,
+  ex: Pick<DbTransaction, "select">,
+): Promise<PlannedKindProfile[]> {
+  const conds: SQL[] = [
+    eq(observations.userId, args.userId),
+    eq(observations.source, "gmail"),
+    eq(observations.kind, "email_message"),
+  ];
+
+  const watermarkCond = gmailHighWatermarkCondition(args.gmailHighWatermark);
+
+  if (watermarkCond) conds.push(watermarkCond);
+
+  const rows = await ex
+    .select({ observation: observations })
+    .from(observations)
+    .innerJoin(observationFamilyHeads, liveObservationHeadJoin())
+    .where(and(...conds))
+    .orderBy(asc(observations.occurredAt), asc(observations.id));
+
+  const excludedEmails = new Set(
+    args.excludeEmailValues?.map((value) => value.toLowerCase()) ?? [],
+  );
+
+  const identities = collectIdentities(
+    rows.map((row) => row.observation),
+    excludedEmails,
+  );
+
+  const secret = requireEntityIdNamespace();
+
+  return [...identities.values()].toSorted(compareAccumulators).map((acc) => ({
+    acc,
+    entityId: makeEntityNodeInsert(secret, args.userId, acc.identity, acc.firstSeenAt).id,
+    classification: classifyEntityKind({
+      identity: acc.identity,
+      displayNames: displayNamesByStrength(acc.displayNameCounts),
+      payloadSignals: acc.payloadSignals,
+    }),
+  }));
+}
+
+function planResult(plan: readonly PlannedKindProfile[]): ProjectGmailKindProfilesResult {
+  return {
+    profileCount: plan.length,
+    checksum: checksumFor(plan.map((p) => checksumRow(p.entityId, p.classification))),
+  };
 }
 
 function collectIdentities(
