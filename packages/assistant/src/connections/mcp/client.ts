@@ -719,7 +719,7 @@ export class McpRawClient {
 
     if (!jsonArgs.success) {
       throw new McpClientError(
-        "invalid_arguments",
+        "arguments_rejected",
         `Arguments for MCP tool '${tool.name}' must be a JSON object`,
       );
     }
@@ -728,7 +728,7 @@ export class McpRawClient {
 
     if (!validated.valid) {
       throw new McpClientError(
-        "invalid_arguments",
+        "arguments_rejected",
         `Arguments for MCP tool '${tool.name}' failed its imported schema: ${validated.errorMessage}`,
       );
     }
