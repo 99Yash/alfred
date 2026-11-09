@@ -5,10 +5,10 @@ packages:
 # Keep pnpm settings here, not in package.json#pnpm. pnpm 11 ignores the
 # package.json location, so Corepack/global pnpm must see the same overrides.
 overrides:
-  # AI SDK 7.0.99 and OpenAI 4.0.74 ship several releases apart but use adjacent
-  # provider type identities. Keep the V4 contract on one copy so Alfred can
-  # pass model handles between ai, ai-retry, and provider adapters. 4.0.37 is the
-  # exact pin @ai-sdk/provider-utils@5.0.76 (via @ai-sdk/anthropic@4.0.99) declares.
+  # Keep the V4 contract on one copy so Alfred can pass model handles between ai,
+  # ai-retry, and provider adapters. ai 7.0.165, gateway, anthropic, openai and google
+  # all sit on @ai-sdk/provider-utils@5.0.76, which pins @ai-sdk/provider 4.0.37.
+  # Bump them together: a second provider-utils copy splits the `ToolSet` type.
   "@ai-sdk/provider": 4.0.37
   "@types/pg": ^8.23.1
   exact-mirror: 1.0.0
@@ -27,8 +27,8 @@ allowBuilds:
 
 catalog:
   "@ai-sdk/anthropic": ^4.0.99
-  "@ai-sdk/google": ^4.0.69
-  "@ai-sdk/openai": ^4.0.74
+  "@ai-sdk/google": ^4.0.114
+  "@ai-sdk/openai": ^4.0.111
   "@ai-sdk/provider": ^4.0.37
   # Elysia + its sibling packages are pinned to exact versions, and
   # exact-mirror is pinned via the workspace `overrides` block above.
@@ -63,7 +63,7 @@ catalog:
   # entry constrains this one. (Until then, code-mode's exact `ai` peer moved in
   # lockstep and chose this line for us.) Bump to the newest version that clears
   # pnpm's 24-hour release-age floor, never past it.
-  ai: 7.0.99
+  ai: 7.0.165
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
@@ -106,12 +106,10 @@ catalog:
 # drop the version it replaced; never widen an entry to a range.
 minimumReleaseAgeExclude:
   - "@ai-sdk/anthropic@4.0.99"
-  - "@ai-sdk/gateway@4.0.80"
-  - "@ai-sdk/google@4.0.69"
-  - "@ai-sdk/openai@4.0.74"
-  - "@ai-sdk/provider-utils@5.0.40"
-  - "@ai-sdk/provider-utils@5.0.47"
+  - "@ai-sdk/gateway@4.0.138"
+  - "@ai-sdk/google@4.0.114"
+  - "@ai-sdk/openai@4.0.111"
   - "@ai-sdk/provider-utils@5.0.76"
   - "@ai-sdk/provider@4.0.37"
-  - ai@7.0.99
+  - ai@7.0.165
   - zod@4.6.5

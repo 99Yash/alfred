@@ -28,11 +28,11 @@ const result = await generateText({
 
 const window = await resolveContextWindowById("anthropic", "claude-haiku-5-5");
 
-const lastStep = result.steps[result.steps.length - 1];
+const lastStep = result.steps.at(-1);
 
 console.log({
   text: JSON.stringify(result.text.slice(0, 120)),
-  modelId: lastStep.response.modelId,
+  modelId: lastStep?.response.modelId,
   stopReason: result.finishReason,
   usage: result.usage,
   fallbackWindow: window,

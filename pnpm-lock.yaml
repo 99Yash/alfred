@@ -10,11 +10,11 @@ catalogs:
       specifier: ^4.0.99
       version: 4.0.99
     '@ai-sdk/google':
-      specifier: ^4.0.69
-      version: 4.0.69
+      specifier: ^4.0.114
+      version: 4.0.114
     '@ai-sdk/openai':
-      specifier: ^4.0.74
-      version: 4.0.74
+      specifier: ^4.0.111
+      version: 4.0.111
     '@elysiajs/cors':
       specifier: 1.4.2
       version: 1.4.2
@@ -55,8 +55,8 @@ catalogs:
       specifier: ^4.7.0
       version: 4.7.0
     ai:
-      specifier: 7.0.99
-      version: 7.0.99
+      specifier: 7.0.165
+      version: 7.0.165
     ai-retry:
       specifier: ^2.4.0
       version: 2.4.0
@@ -241,7 +241,7 @@ importers:
         version: 4.0.99(zod@4.6.5)
       '@ai-sdk/google':
         specifier: 'catalog:'
-        version: 4.0.69(zod@4.6.5)
+        version: 4.0.114(zod@4.6.5)
       '@alfred/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -256,13 +256,13 @@ importers:
         version: 19.2.18
       ai:
         specifier: 'catalog:'
-        version: 7.0.99(zod@4.6.5)
+        version: 7.0.165(zod@4.6.5)
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
       evalite:
         specifier: 1.0.0-beta.16
-        version: 1.0.0-beta.16(ai@7.0.99(zod@4.6.5))
+        version: 1.0.0-beta.16(ai@7.0.165(zod@4.6.5))
       tsdown:
         specifier: 'catalog:'
         version: 0.15.12(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.3)(oxc-resolver@11.24.2)(supports-color@8.1.1)(typescript@7.0.2)
@@ -464,10 +464,10 @@ importers:
         version: 4.0.99(zod@4.6.5)
       '@ai-sdk/google':
         specifier: 'catalog:'
-        version: 4.0.69(zod@4.6.5)
+        version: 4.0.114(zod@4.6.5)
       '@ai-sdk/openai':
         specifier: 'catalog:'
-        version: 4.0.74(zod@4.6.5)
+        version: 4.0.111(zod@4.6.5)
       '@ai-sdk/provider':
         specifier: 4.0.37
         version: 4.0.37
@@ -506,10 +506,10 @@ importers:
         version: 1.43.0
       ai:
         specifier: 'catalog:'
-        version: 7.0.99(zod@4.6.5)
+        version: 7.0.165(zod@4.6.5)
       ai-retry:
         specifier: 'catalog:'
-        version: 2.4.0(@ai-sdk/provider-utils@5.0.76(zod@4.6.5))(@ai-sdk/provider@4.0.37)(@opentelemetry/api@1.9.1)(ai@7.0.99(zod@4.6.5))(zod@4.6.5)
+        version: 2.4.0(@ai-sdk/provider-utils@5.0.76(zod@4.6.5))(@ai-sdk/provider@4.0.37)(@opentelemetry/api@1.9.1)(ai@7.0.165(zod@4.6.5))(zod@4.6.5)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(kysely@0.29.4)(pg@8.22.0)
@@ -586,7 +586,7 @@ importers:
         version: 2.0.0
       ai:
         specifier: 'catalog:'
-        version: 7.0.99(zod@4.6.5)
+        version: 7.0.165(zod@4.6.5)
       ajv:
         specifier: 8.20.0
         version: 8.20.0
@@ -610,7 +610,7 @@ importers:
         version: 5.11.2
       files-sdk:
         specifier: ^2.0.0
-        version: 2.2.3(@aws-sdk/client-s3@3.1106.0)(@aws-sdk/s3-presigned-post@3.1106.0)(@aws-sdk/s3-request-presigner@3.1106.0)(@opentelemetry/api@1.9.1)(ai@7.0.99(zod@4.6.5))(fastify@5.11.2)(hono@4.13.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(zod@4.6.5)
+        version: 2.2.3(@aws-sdk/client-s3@3.1106.0)(@aws-sdk/s3-presigned-post@3.1106.0)(@aws-sdk/s3-request-presigner@3.1106.0)(@opentelemetry/api@1.9.1)(ai@7.0.165(zod@4.6.5))(fastify@5.11.2)(hono@4.13.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(zod@4.6.5)
       graphql:
         specifier: ^17.0.2
         version: 17.0.2
@@ -659,7 +659,7 @@ importers:
         version: 17.4.2
       evalite:
         specifier: 1.0.0-beta.16
-        version: 1.0.0-beta.16(ai@7.0.99(zod@4.6.5))
+        version: 1.0.0-beta.16(ai@7.0.165(zod@4.6.5))
       tsx:
         specifier: ^4.21.0
         version: 4.23.11
@@ -1006,32 +1006,20 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/gateway@4.0.80':
-    resolution: {integrity: sha512-6t+07o8lSthpKf64Xb1qHWR2bWvJ3Fd2oFvS9fQc45p31bi2OUqan246e/ojAmZpWCiMPjKyQ4TBr4MYytnTiQ==}
+  '@ai-sdk/gateway@4.0.138':
+    resolution: {integrity: sha512-7a/LGqioUyU2CmjRjMwnX4WR5V4vP3+YdPZEAbh7CH9OXf1GcPSsiySsHxNbqiDlDnL+KdqPvWeipIR7u/VFHA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/google@4.0.69':
-    resolution: {integrity: sha512-clIivD3RQwutykzKQ8CV+BXIA6EX3xcrfJyXXvAni2SlR9JVATSRbu+JFK/j25a330aZ6WiDwbGyD/u951qXOg==}
+  '@ai-sdk/google@4.0.114':
+    resolution: {integrity: sha512-8LHlrbu7FFYjQAXCmg60dfc619zu7GhPTTMSs+tLjGh+aFHAFp3HqxGuCQ9zqgLywu+h1bDOrZgizCkExGecjA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/openai@4.0.74':
-    resolution: {integrity: sha512-w8/lTBdxf3FR2sP2i7ihQkQhO7eHPL6dHw80sVW28IeoMIi8UhcNCFUkSniO0tANP67R0X/im8ejXPPf1fZUQw==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider-utils@5.0.40':
-    resolution: {integrity: sha512-zsXPwSAQ9mRJ2hvyITaLOYUyuGrBmzFhJXOg4mllGmla1PfNxZcm4GwqMiV2xQaDgcgBMdUGxXkp9xekZZNIkg==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider-utils@5.0.47':
-    resolution: {integrity: sha512-NZQ1hMxY6Hd4ZiinjpU5HUOsyCHiTFkHw7AiM1EVN+Cd3kNTi47flZWNvFwGqnBojntB1+2eBRTeHRuVLtPhEg==}
+  '@ai-sdk/openai@4.0.111':
+    resolution: {integrity: sha512-r6aLB/7MlBlD4c/Ep7oAam7NbEDzShFXAmz68DyFj+JTIPvWR6Il8mPI2yw82kCtxeXLbL48dW+8p/IQANKoWQ==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -4501,8 +4489,8 @@ packages:
       '@opentelemetry/api':
         optional: true
 
-  ai@7.0.99:
-    resolution: {integrity: sha512-Ov+3j/nSajaVH5hO8C94wN9wisG5tAJ8HWsLV9d/+nlzrRGUh3oYO3Kp1fRyUNWjAWLSpGLHLPaHCdfxb307Vg==}
+  ai@7.0.165:
+    resolution: {integrity: sha512-cEeORsLF+9+fNzvo4nQo9hxgQoEfupjc9Xmq6OM2NGUwQQQdkHxByBdFoqnNfBE0H+qwhGQaZejvbCFFD84tBA==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -7717,41 +7705,23 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/gateway@4.0.80(zod@4.6.5)':
+  '@ai-sdk/gateway@4.0.138(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.37
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.6.5)
+      '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
       '@vercel/oidc': 3.2.0
       zod: 4.6.5
 
-  '@ai-sdk/google@4.0.69(zod@4.6.5)':
+  '@ai-sdk/google@4.0.114(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.37
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.6.5)
+      '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/openai@4.0.74(zod@4.6.5)':
+  '@ai-sdk/openai@4.0.111(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.37
-      '@ai-sdk/provider-utils': 5.0.47(zod@4.6.5)
-      zod: 4.6.5
-
-  '@ai-sdk/provider-utils@5.0.40(zod@4.6.5)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.37
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.1
-      undici: 7.29.0
-      zod: 4.6.5
-
-  '@ai-sdk/provider-utils@5.0.47(zod@4.6.5)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.37
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.1
-      undici: 7.29.0
+      '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
       zod: 4.6.5
 
   '@ai-sdk/provider-utils@5.0.76(zod@4.6.5)':
@@ -10758,20 +10728,20 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai-retry@2.4.0(@ai-sdk/provider-utils@5.0.76(zod@4.6.5))(@ai-sdk/provider@4.0.37)(@opentelemetry/api@1.9.1)(ai@7.0.99(zod@4.6.5))(zod@4.6.5):
+  ai-retry@2.4.0(@ai-sdk/provider-utils@5.0.76(zod@4.6.5))(@ai-sdk/provider@4.0.37)(@opentelemetry/api@1.9.1)(ai@7.0.165(zod@4.6.5))(zod@4.6.5):
     dependencies:
       '@ai-sdk/provider': 4.0.37
       '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
-      ai: 7.0.99(zod@4.6.5)
+      ai: 7.0.165(zod@4.6.5)
       zod: 4.6.5
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
 
-  ai@7.0.99(zod@4.6.5):
+  ai@7.0.165(zod@4.6.5):
     dependencies:
-      '@ai-sdk/gateway': 4.0.80(zod@4.6.5)
+      '@ai-sdk/gateway': 4.0.138(zod@4.6.5)
       '@ai-sdk/provider': 4.0.37
-      '@ai-sdk/provider-utils': 5.0.40(zod@4.6.5)
+      '@ai-sdk/provider-utils': 5.0.76(zod@4.6.5)
       zod: 4.6.5
 
   ajv-formats@2.1.1(ajv@8.20.0):
@@ -11442,7 +11412,7 @@ snapshots:
   etag@1.8.1:
     optional: true
 
-  evalite@1.0.0-beta.16(ai@7.0.99(zod@4.6.5)):
+  evalite@1.0.0-beta.16(ai@7.0.165(zod@4.6.5)):
     dependencies:
       '@fastify/static': 8.3.0
       '@fastify/websocket': 11.2.0
@@ -11459,7 +11429,7 @@ snapshots:
       table: 6.9.0
       tinyrainbow: 3.1.1
     optionalDependencies:
-      ai: 7.0.99(zod@4.6.5)
+      ai: 7.0.165(zod@4.6.5)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -11625,7 +11595,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  files-sdk@2.2.3(@aws-sdk/client-s3@3.1106.0)(@aws-sdk/s3-presigned-post@3.1106.0)(@aws-sdk/s3-request-presigner@3.1106.0)(@opentelemetry/api@1.9.1)(ai@7.0.99(zod@4.6.5))(fastify@5.11.2)(hono@4.13.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(zod@4.6.5):
+  files-sdk@2.2.3(@aws-sdk/client-s3@3.1106.0)(@aws-sdk/s3-presigned-post@3.1106.0)(@aws-sdk/s3-request-presigner@3.1106.0)(@opentelemetry/api@1.9.1)(ai@7.0.165(zod@4.6.5))(fastify@5.11.2)(hono@4.13.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@8.1.1)(zod@4.6.5):
     dependencies:
       aws4fetch: 1.0.20
       commander: 15.0.0
@@ -11637,7 +11607,7 @@ snapshots:
       '@aws-sdk/s3-request-presigner': 3.1106.0
       '@modelcontextprotocol/sdk': 1.30.0(supports-color@8.1.1)(zod@4.6.5)
       '@opentelemetry/api': 1.9.1
-      ai: 7.0.99(zod@4.6.5)
+      ai: 7.0.165(zod@4.6.5)
       fastify: 5.11.2
       hono: 4.13.1
       react: 19.3.0
