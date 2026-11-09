@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
-import { closesOpenAsk, type EventTypeForSource, getObjectDef } from "@alfred/contracts";
+import { closesOpenAsk, type EventTypeForSource, stateCategoryOf } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -108,11 +108,10 @@ describe("github reducer (pure)", () => {
 
 describe("github registry normalize", () => {
   test("merged → resolved, closed → abandoned, open → active", () => {
-    const def = getObjectDef("github");
-    assert.equal(def.normalize("pull_request", "merged"), "resolved");
-    assert.equal(def.normalize("pull_request", "closed"), "abandoned");
-    assert.equal(def.normalize("pull_request", "open"), "active");
-    assert.equal(def.normalize("pull_request", "garbage"), null);
+    assert.equal(stateCategoryOf("github", "pull_request", "merged"), "resolved");
+    assert.equal(stateCategoryOf("github", "pull_request", "closed"), "abandoned");
+    assert.equal(stateCategoryOf("github", "pull_request", "open"), "active");
+    assert.equal(stateCategoryOf("github", "pull_request", "garbage"), null);
   });
 
   test("a pull request closes an ask on merged/closed, never on failed", () => {

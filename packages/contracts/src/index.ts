@@ -42,6 +42,8 @@ export * from "./attachment-content-references";
 
 export * from "./integration-objects";
 
+export * from "./object-kind";
+
 export * from "./object-state-vocabulary";
 
 export * from "./url-family";

@@ -4,6 +4,7 @@ import {
   enumGuard,
   getObjectDef,
   getObjectKindDef,
+  stateCategoryOf,
   isAbsorbingState,
   isObjectStateProvider,
   OBJECT_STATE_CATEGORIES,
@@ -435,7 +436,7 @@ export const objectStateStore: ObjectStateStore = {
         if (!getObjectKindDef(provider, delta.kind)) continue;
 
         // An unknown native token is a no-op, never a guessed state.
-        const stateCategory = getObjectDef(provider).normalize(delta.kind, delta.nativeState);
+        const stateCategory = stateCategoryOf(provider, delta.kind, delta.nativeState);
 
         if (!stateCategory) continue;
 

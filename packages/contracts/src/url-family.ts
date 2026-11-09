@@ -14,11 +14,13 @@ import {
   collectLinkParts,
   identityAttributes,
   isLinkIdValue,
+  type LinkParts,
+} from "./integration-objects";
+import {
   OBJECT_STATE_CATEGORIES,
   objectIdentityDeclSchema,
-  type LinkParts,
   type ObjectIdentityDecl,
-} from "./integration-objects";
+} from "./object-kind";
 
 const SLOT_NAME_RE = /^[a-z][a-z0-9_]*$/;
 

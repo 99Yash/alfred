@@ -1,10 +1,6 @@
 import { z } from "zod";
-import {
-  closesOpenAsk,
-  isObjectStateProvider,
-  OBJECT_STATE_CATEGORIES,
-  type LoopClosingStateCategory,
-} from "./integration-objects";
+import { closesOpenAsk, isObjectStateProvider } from "./integration-objects";
+import { OBJECT_STATE_CATEGORIES, type LoopClosingStateCategory } from "./object-kind";
 import { objectIdentitySchema } from "./object-identity";
 import { identityRefSchema } from "./user-model";
 
