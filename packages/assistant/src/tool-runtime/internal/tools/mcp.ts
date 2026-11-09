@@ -14,6 +14,7 @@ import {
 import { AppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
+  McpClientError,
   needsMcpReauthorization,
   searchMcpToolsLocal,
   type ExternalToolRef,
@@ -128,6 +129,18 @@ export const mcpTools: readonly RegisteredTool[] = [
         // Only errors that escape the broker reach here; ambiguous outcomes keep their barrier.
         if (needsMcpReauthorization(error)) {
           throw new AppError("mcp_reauth_required", { cause: error });
+        }
+
+        // A generic "try again" makes the model resend the same call, so these two name the next step.
+        if (error instanceof McpClientError) {
+          // The broker already published the live catalog, so a new search returns a current ref.
+          if (error.code === "catalog_stale") {
+            throw new AppError("mcp_catalog_stale", { cause: error });
+          }
+
+          if (error.code === "arguments_rejected") {
+            throw new AppError("mcp_arguments_rejected", { cause: error });
+          }
         }
 
         throw error;

@@ -906,7 +906,7 @@ describe("McpRawClient calls", () => {
       catalogRevision: catalog.revision,
     };
 
-    await assertMcpError(client.callTool(ref, { query: 42 }), "invalid_arguments");
+    await assertMcpError(client.callTool(ref, { query: 42 }), "arguments_rejected");
     assert.equal(protocol.calls.length, 0, "invalid model output must not reach the server");
 
     const result = await client.callTool(ref, { query: "hello" });

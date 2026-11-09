@@ -230,6 +230,18 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The MCP server asked for a new OAuth consent: no refresh token, a revoked grant, or a missing scope.",
     fix: { kind: "reconnect", integration: "mcp" },
   },
+  mcp_catalog_stale: {
+    message:
+      "This MCP server's tool list changed after you selected this tool, so the ref is out of date and fails every time. Run system.search_tools or mcp.list_tools again and call mcp.call with the new ref.",
+    why: "The ref's catalogRevision is not the live revision. The first call after a client start loads the live catalog, so a ref read from an older stored catalog goes stale.",
+    fix: { kind: "correct_input" },
+  },
+  mcp_arguments_rejected: {
+    message:
+      "These arguments do not match this MCP tool's schema, so the server was not called. Call mcp.inspect_tool with the same ref to read the exact schema, then call mcp.call again with only the properties it lists.",
+    why: "The arguments failed the tool's imported JSON Schema before delivery. Search results do not carry the full schema, so the model guessed a property name.",
+    fix: { kind: "correct_input" },
+  },
   mcp_effect_not_applied: {
     message: "You confirmed that this MCP operation did not apply. It was not repeated.",
     why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",
