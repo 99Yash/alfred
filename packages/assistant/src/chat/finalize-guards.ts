@@ -315,16 +315,17 @@ export async function guardUnreportedToolFailures(
   ];
 
   // With no answer on screen there is nothing to keep, so skip the check.
-  const judged =
-    state.assistantText.trim().length === 0
-      ? ({ verdict: "claims_success", note: "" } as const)
-      : await guardDeps.judgeReply({
-          userId: ctx.userId,
-          runId: ctx.runId,
-          threadId: state.threadId,
-          reply: state.assistantText,
-          failed: unreported,
-        });
+  const hadReply = state.assistantText.trim().length > 0;
+
+  const judged = !hadReply
+    ? ({ verdict: "claims_success", note: "" } as const)
+    : await guardDeps.judgeReply({
+        userId: ctx.userId,
+        runId: ctx.runId,
+        threadId: state.threadId,
+        reply: state.assistantText,
+        failed: unreported,
+      });
 
   if (judged?.verdict === "reports_failure") return null;
 
@@ -343,10 +344,15 @@ export async function guardUnreportedToolFailures(
 
   const names = [...new Set(unreported.map((t) => t.toolName))].join(", ");
 
+  // With no reply there is nothing to withdraw or restate.
+  const withdrawal = hadReply
+    ? "Your previous reply is withdrawn because it presents a failed attempt as done; the user no longer sees it as the answer. " +
+      "Write the complete reply again. Restate in full everything from it that is still true, and do not point to it ('above', 'as I said'). "
+    : "";
+
   const note =
     `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
-    "Your previous reply is withdrawn because it presents a failed attempt as done; the user no longer sees it as the answer. " +
-    "Write the complete reply again. Restate in full everything from it that is still true, and do not point to it ('above', 'as I said'). " +
+    withdrawal +
     "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
     "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.";
 
