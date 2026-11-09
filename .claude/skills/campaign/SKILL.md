@@ -51,9 +51,9 @@ phase that reads the whole artifact. `/campaign` with no argument continues the
 existing campaign. In both cases, the session then starts the driver in the
 background, monitors the log, and reports the result. It does not do the phase work.
 
-The driver is a Ralph loop: pick the next `(item, phase)`, spawn a fresh `claude -p`
-or `opencode run`, stream it, verify state moved, repeat. Each iteration gets its
-own window, so the budget is structural rather than aspirational.
+The driver is a Ralph loop: pick the next `(item, phase)`, spawn a fresh `claude -p`,
+`opencode run`, or `codex exec`, stream it, verify state moved, repeat. Each
+iteration gets its own window, so the budget is structural rather than aspirational.
 
 **Models.** Use these unless the owner names others:
 
@@ -62,9 +62,13 @@ own window, so the budget is structural rather than aspirational.
   `CLAUDE_CODE_EFFORT_LEVEL=high` in the environment.
 - `opencode` phases: `MODEL='meta/muse-spark-1.3#high'`. A per-phase override is
   `<PHASE>_MODEL`, for example `REVISE_MODEL`.
+- `codex` phases: `CODEX_MODEL` defaults to `gpt-5.6-sol` at `CODEX_EFFORT=high`
+  (`gpt-6-sol` is refused on a ChatGPT-auth login). A phase can instead set
+  `<PHASE>_MODEL` to a codex model id. A `git push` or `gh pr create` that dies on
+  a network refusal calls for `SANDBOX=danger-full-access`.
 - Keep review on `claude`, because only `claude` runs the three review lanes as
   real subagents. The write phases can go to `opencode` (`REVISE_ENGINE=opencode`,
-  and so on).
+  and so on) or `codex` (`REVISE_ENGINE=codex`).
 
 ```bash
 # the standard launch: review on claude, revise on opencode
