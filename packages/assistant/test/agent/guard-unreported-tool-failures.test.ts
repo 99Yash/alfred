@@ -64,12 +64,19 @@ interface Recorder {
   published: Array<{ kind: string; payload: Record<string, unknown> }>;
 }
 
-/** Treats every tool name except an explicit `no_risk` allowlist as mutating. */
+/** The reply check is a model call, so every test fixes its verdict. */
+const claimsSuccess: GuardUnreportedToolFailuresDeps["judgeReply"] = async () => ({
+  verdict: "claims_success",
+  note: "",
+});
+
+/** Treats every failed call as a write, except calls of the tools named in `readOnly`. */
 function recorder(readOnly: string[] = []): Recorder {
   const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
   const deps: GuardUnreportedToolFailuresDeps = {
-    isMutating: (name) => !readOnly.includes(name),
+    selectWrites: async (_ctx, calls) => calls.filter((call) => !readOnly.includes(call.toolName)),
+    judgeReply: claimsSuccess,
     publish: async (event) => {
       published.push({ kind: event.kind, payload: event.payload });
     },
@@ -227,6 +234,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 
@@ -246,6 +254,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 
@@ -283,6 +292,7 @@ describe("guardUnreportedToolFailures", () => {
     const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async (event) => {
         published.push({ kind: event.kind, payload: event.payload });
       },
@@ -307,6 +317,7 @@ describe("guardUnreportedToolFailures", () => {
     });
 
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], {
+      judgeReply: claimsSuccess,
       publish: async () => {},
     });
 

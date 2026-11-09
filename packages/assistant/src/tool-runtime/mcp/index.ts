@@ -16,6 +16,7 @@ export {
 } from "./broker";
 
 export {
+  isSelectedMcpToolReadOnly,
   mcpUnresolvedInvocationGate,
   reconcileInflightInvocations,
   resolveMcpToolIdentity,

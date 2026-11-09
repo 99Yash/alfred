@@ -51,6 +51,8 @@ const toolCallLogSchema = z.object({
   segmentIndex: z.number().int().nonnegative().default(0),
 } satisfies Record<keyof ChatMessageToolCall | "nonExecution", z.ZodType>);
 
+export type ToolCallLogEntry = z.infer<typeof toolCallLogSchema>;
+
 const narrationSegmentSchema = z.object({
   index: z.number().int().nonnegative(),
   text: z.string(),
