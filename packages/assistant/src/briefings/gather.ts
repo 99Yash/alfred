@@ -131,6 +131,11 @@ export interface BriefingItem {
   threadId: string | null;
   /** Account email of the connection that holds the thread; null when no credential names it. */
   mailbox: string | null;
+  /**
+   * Gmail filed this mail as spam (`SPAM` label at ingest or the last label reconcile), yet
+   * triage kept it in a priority bucket. The briefing acknowledges the filing (rule 20).
+   */
+  inSpam: boolean;
 }
 
 export interface BriefingDigest {
@@ -404,6 +409,7 @@ export async function gatherBriefingDigest(
       authoredAt: r.authoredAt,
       threadId: r.sourceThreadId,
       mailbox: r.accountId ? (identity.mailboxByAccountId.get(r.accountId) ?? null) : null,
+      inSpam: (meta.labelIds ?? []).includes("SPAM"),
     });
   }
 
@@ -661,6 +667,7 @@ export async function gatherBriefingWithSuppressionAudit(
       documentId: item.documentId,
       threadId: item.threadId ?? "",
       ...(item.mailbox ? { mailbox: item.mailbox } : {}),
+      ...(item.inSpam ? { inSpam: true } : {}),
       subject: item.subject?.trim() || "(no subject)",
       sender: mailboxLabel(item.from) ?? "Unknown sender",
       snippet: item.snippet ?? item.rationale ?? "",

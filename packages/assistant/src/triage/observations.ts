@@ -139,6 +139,12 @@ export interface Observations {
   /** A null `userContext` means unknown, not absent. Else a total read failure looks normal. */
   userContextReadFailed: boolean;
   gmail: GmailSignals;
+  /**
+   * Envelope observation (ADR-0066 signal-1 seam): a received mail whose To/Cc headers name no
+   * address — the sender never addressed the user (Bcc-style delivery), a strong bulk/phishing
+   * prior. Never a category by itself; readers combine it with the spam verdict and the body.
+   */
+  noRecipientAddress: boolean;
   content: ContentFlags;
 }
 
@@ -159,6 +165,11 @@ export interface AssembleObservationsArgs {
   userContext?: UserContextLine | null | undefined;
   userContextReadFailed?: boolean | undefined;
   labelIds: readonly string[];
+  /**
+   * A received mail whose To/Cc headers name no address (ADR-0066 signal-1 seam). Optional so
+   * evals and smokes can skip it; `gatherObservations` always passes it.
+   */
+  noRecipientAddress?: boolean | undefined;
   /** Subject + body + headers, any case. */
   signalText: string;
 }
@@ -181,6 +192,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     userContext: args.userContext ?? null,
     userContextReadFailed: args.userContextReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
+    noRecipientAddress: args.noRecipientAddress ?? false,
     content: extractContentFlags(args.signalText),
   };
 }

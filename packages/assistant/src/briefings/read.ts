@@ -68,6 +68,11 @@ export interface EmailListItem {
   receivedAtLocal: string | null;
   /** `UNREAD` label present. Null when no labels were captured, so read-state is unknown. */
   unread: boolean | null;
+  /**
+   * Gmail itself filed the mail as spam (`SPAM` label at ingest or the last label reconcile).
+   * Null when no labels were captured, so the filing is unknown (older rows).
+   */
+  inSpam: boolean | null;
   threadId: string | null;
   /**
    * This loop went out in a recent sent briefing. Matches on thread id or
@@ -305,6 +310,7 @@ export async function listEmailsSinceWatermark(
       receivedAtLocal:
         args.timezone && receiptInstant ? inZone(args.timezone).format(receiptInstant) : null,
       unread: unreadFromLabels(meta?.labelIds),
+      inSpam: spamFromLabels(meta?.labelIds),
       threadId: r.sourceThreadId,
       previouslySurfaced: surfacedByThread || surfacedByLoop,
       attentionBand: toTriageCategory(r.triageCategory)
@@ -322,6 +328,11 @@ function toTriageCategory(category: string | null): TriageCategory | null {
 /** Null when the row has no `labelIds` (older rows), so read-state is unknown. */
 function unreadFromLabels(labelIds: readonly string[] | undefined): boolean | null {
   return labelIds ? labelIds.includes("UNREAD") : null;
+}
+
+/** Null when the row has no `labelIds` (older rows), so the spam filing is unknown. */
+function spamFromLabels(labelIds: readonly string[] | undefined): boolean | null {
+  return labelIds ? labelIds.includes("SPAM") : null;
 }
 
 /**

@@ -70,6 +70,7 @@ import {
   policyAuthority,
   senderContextSchema,
   triageCategorySchema,
+  isNonEmptyString,
   type AccountPersona,
   type GmailDocumentMetadata,
   type SenderContext,
@@ -1148,6 +1149,12 @@ export async function gatherObservations(args: {
   const meta = args.document.metadata;
   const labelIds = meta.labelIds ?? [];
 
+  // Envelope observation (ADR-0066 signal-1 seam): a received mail whose To/Cc headers name no
+  // address arrived Bcc-style — the sender never addressed the user. Sent mail is its own
+  // direction, so it never sets this.
+  const noRecipientAddress =
+    !meta.isSent && !isNonEmptyString(meta.to) && !isNonEmptyString(meta.cc);
+
   const isHumanSender = args.senderContext.effectiveAuthor === "person";
 
   const [thread, senderKindEnabled, suppressions, userContext, sender] = await Promise.all([
@@ -1237,6 +1244,7 @@ export async function gatherObservations(args: {
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
     labelIds,
+    noRecipientAddress,
     signalText,
   });
 
