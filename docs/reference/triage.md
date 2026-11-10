@@ -2,6 +2,8 @@
 
 Terminology: see [`glossary.md`](./glossary.md).
 
+This page records the built pipeline. The settled target is [`docs/theory/triage.md`](../theory/triage.md) (ADR-0121, proposed). Read it before you add a rule or a floor.
+
 Per ADR-0025 #1 alfred classifies every newly-ingested Gmail message into one of ten categories: `urgent`, `action_needed`, `follow_up`, `awaiting_reply`, `meeting`, `fyi`, `done`, `payment`, `newsletter`, `marketing`. Each category maps to an `Alfred/<Name>` Gmail label that gets written back to the message.
 
 The pipeline:

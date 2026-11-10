@@ -30,6 +30,7 @@ Alfred is a personal assistant.
 
 ## References
 
+- [Theory: start here](./docs/theory/README.md) — the vision, the user lifecycle, and the design principles. Read it before you add a prompt rule, a floor, a table, or a parser, or before you open an ADR.
 - [Review checklist](./docs/reference/review-checklist.md) — only the rules that no gate enforces — and [structural review](./docs/reference/structural-review.md). The checklist is generated from [smells](./docs/reference/smells/README.md): one file per rule with Bad and Good code and the PRs where review found it. A review records each hit with `node scripts/smells.mjs hit`.
 - [Enforced rules](./docs/reference/enforced-rules.md) — generated catalog of every gate rule; run `pnpm rules:catalog` after you change a rule
 - [Gate design](./docs/reference/gate-design.md) — which kind of check a new rule gets (types, then type-aware lint, then an AST rule, then regex), and the review-only queue
