@@ -51,7 +51,7 @@ The model weighs these:
 - The **triage profile**: a short text about who Yash is, who is important to him, what he cares about, and what is noise to him. The memory system keeps it current from chats, long-term memory, and cold-start research. Triage only reads it. Yash can see and edit it.
 - Facts about the sender, when Alfred has them.
 - What Yash did, for example a reply to this sender.
-- The mail itself.
+- The mail itself: its text and its **mail facts**. These are the headers as Gmail recorded them at arrival (who sent it, to whom, and if it passed authentication), Gmail's labels (`SPAM` included), and the presence of an invite or attachments. Code copies the facts and does not interpret them. The model first writes down if the mail is genuine and addressed to Yash. Then it asks what it costs Yash to ignore it. A fake mail stays quiet unless Yash owns the obligation.
 
 The evidence has no fixed rank. The model uses these principles:
 

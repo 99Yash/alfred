@@ -30,7 +30,11 @@ import {
 import { serverEnv } from "@alfred/env/server";
 import { NoObjectGeneratedError } from "ai";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
-import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
+import {
+  TRIAGE_CATEGORIES,
+  type MailFacts,
+  type TriageCategory,
+} from "@alfred/integrations/google";
 import { z } from "zod";
 import { addDays, formatDay, inZone } from "@alfred/assistant/time";
 import {
@@ -77,7 +81,22 @@ export { MAX_RATIONALE_LEN, truncateRationale };
 /** Which rubric test (rule 16) decided the todo call. In contracts so the row can store it. */
 export { TODO_DECISION_OUTCOMES, type TodoDecisionOutcome };
 
+/**
+ * The model's read of whether the mail is real and meant for the user, from the mail facts.
+ * It goes in the trace and the rationale only; no column stores it and no floor reads it.
+ */
+const triageLegitimacySchema = z.object({
+  verdict: z.enum(["genuine", "doubtful", "fake"]),
+  /** No `.max()`: an over-long basis must not fail the parse. The prompt asks for under 200 chars. */
+  basis: z.string().min(1),
+});
+
 export const triageClassificationSchema = z.object({
+  /**
+   * The FIRST key, so the model commits to it before the category (`@ai-sdk/google` keeps key
+   * order). Optional like the other model-only fields; rule 22 asks for it on every mail.
+   */
+  legitimacy: triageLegitimacySchema.optional(),
   category: z.enum(TRIAGE_CATEGORIES),
   /**
    * [0, 1]. Below 0.5 the label still applies but is flagged as "alfred wasn't sure".
@@ -251,9 +270,9 @@ How to use the Observations block:
 - Known contact = the sender is in the user's contacts. A direct ask from a known contact is more likely a real awaiting_reply/action_needed.
 - Sender relationship (when present) describes the user's correspondence history WITH this sender: significance (strong/moderate/weak, or \`unscored\` when there IS history but it has not been scored yet — then judge from reciprocity, do NOT treat \`unscored\` as cold), reciprocity (two-way / you reached out / one-way inbound — the user never replied), same-org, and the user's own role. \`no prior contact on record\` means a cold sender with NO history. This is the ONLY way to judge whether a real PERSON is waiting on the user (todo rubric 16b): a weak / one-way / no-prior-contact sender is a cold contact, NOT a real stakeholder, however the email is phrased; a two-way relationship (even \`unscored\`) is a real one. Never infer a relationship beyond what this line states. It does NOT change the category — a cold ask is still an honest awaiting_reply; it only gates the todo.
 - Sender kind (when present) is an active user-model projection's confident non-person classification for the sender address: \`group\` means a distribution list/shared mailbox; \`service\` means automated or product-originated mail. Absence of this line means no active/confident projection opinion. When present, do NOT treat the address as a known person or infer a personal relationship from display name alone.
-- Gmail signals (categories, IMPORTANT, STARRED) are Gmail's own priors — lean on them when they align.
-- Gmail's spam/trash filing is a THIRD PARTY'S VERDICT, not a hint and not a fact: \`spam=true\` means Gmail itself judged the mail unsolicited (rule 20). A spam-filed message is never 'awaiting_reply' and never 'follow_up', however direct its phrasing. It can still be 'urgent'/'action_needed', but only under rule 20's exception — an obligation the user already owns. \`trash=true\` means the user already deleted it — same read, weaker signal.
-- Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; calendar → meeting; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
+- Mail facts are the stored message as Gmail recorded it at arrival, verbatim: who sent it (From, Reply-To, Return-Path), to whom (To, Cc, Delivered-To), whether the sender is who it claims (Authentication-Results: spf, dkim, dmarc), bulk markers (List-Id, List-Unsubscribe, Precedence, Auto-Submitted), a sender's own reason header when present (for example X-GitHub-Reason: why this sender says the user got the mail), Gmail's labelIds (CATEGORY_*, IMPORTANT, STARRED, SPAM, TRASH), whether a calendar invite part is attached, and attachment names. Before the category, judge whether the mail is genuine and really addressed to the user: a failed or missing authentication, a Reply-To on another domain, or a user absent from To and Cc (a Bcc-style send) count against it. Weigh the facts together; no single one decides.
+- Gmail's spam/trash filing is a THIRD PARTY'S VERDICT, not a hint and not a fact: \`SPAM\` in labelIds means Gmail itself judged the mail unsolicited (rule 20). A spam-filed message is never 'awaiting_reply' and never 'follow_up', however direct its phrasing. It can still be 'urgent'/'action_needed', but only under rule 20's exception — an obligation the user already owns. \`TRASH\` in labelIds means the user already deleted it — same read, weaker signal.
+- Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
 
 Rules:
 1. Pick exactly one category — the dominant one if multiple apply.
@@ -262,7 +281,7 @@ Rules:
 4. Reply-shape (continued): prefer 'follow_up' over 'awaiting_reply' when the sender is nudging on an existing thread, not opening a new ask. "Any update?" / "Just circling back" → follow_up.
 5. Closure: prefer 'done' over 'fyi' when the message explicitly marks something as finished/shipped/resolved/succeeded. 'fyi' is for informational items that don't close a loop. Closure means the USER'S underlying request/loop is resolved — NOT that an intermediate actor reported finishing a sub-step. Creating, filing, or opening a task/ticket (even one phrased "Done. Created …") OPENS a loop; it is never closure.
 6. Promo split: prefer 'marketing' over 'newsletter' for unsolicited promotional blasts, sales pitches, cold outbound, public product launches, brand events, webinars, and keynotes. 'newsletter' is for subscribed editorial/digest content the user opted into.
-7. Meeting gate: choose 'meeting' only when the user is a participant (or likely participant) in a LIVE personal/work calendar-style meeting AND there is a concrete scheduling/attendance action for them — an invite to accept, a time to confirm, availability to answer, or an imminent join. The words "meeting", "event", "offsite", "standup", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves. A meeting that ALREADY happened (its notes/recap/minutes/summary), a prep/agenda brief for a meeting, and an event merely ANNOUNCED for the future with no invite or set date are NOT 'meeting' → they are 'fyi' (a recap that explicitly closes a loop may be 'done'). A calendar meeting the user attends arrives from a real organizer or a calendar invite, not as a task-tracker/product-notification relay.
+7. Meeting gate: choose 'meeting' only when the user is a participant (or likely participant) in a LIVE personal/work calendar-style meeting AND there is a concrete scheduling/attendance action for them — an invite to accept, a time to confirm, availability to answer, or an imminent join. A mail whose \`legitimacy\` is 'fake' or 'doubtful' (rule 22) is never 'meeting'. The words "meeting", "event", "offsite", "standup", "conference", "webinar", "keynote", "AGM", or "annual general meeting" are NOT enough by themselves. A meeting that ALREADY happened (its notes/recap/minutes/summary), a prep/agenda brief for a meeting, and an event merely ANNOUNCED for the future with no invite or set date are NOT 'meeting' → they are 'fyi' (a recap that explicitly closes a loop may be 'done'). A calendar meeting the user attends arrives from a real organizer or a calendar invite, not as a task-tracker/product-notification relay.
 8. Bulk/public event rule: public events, brand announcements, product launches, webinars, conferences, keynotes, and "save the date" blasts are marketing/newsletter/fyi, not meeting, unless the email is a direct calendar invite or scheduling thread for the user. (The publicEvent content flag marks this language.)
     8a. Social-network activity rule: connection / invitation requests ("X wants to connect", "I want to connect", "would like to join your network"), network-growth nudges ("people you may know", "add X to your network"), and profile-activity notifications ("you appeared in N searches", "N people viewed your profile", "your post got N reactions") relayed by a social platform (LinkedIn, X, Instagram, etc.) are passive social activity → 'fyi'. They are NOT 'awaiting_reply'/'action_needed'/'urgent': accepting or ignoring an invitation is the SENDER'S want, not a question the user must answer or a task the user owns (rule 16a-i no_obligation), however senior the requester's stated title. This holds ESPECIALLY for reminder/nudge copies — "still waiting for your response", "is waiting for your response", "you haven't responded", "reminder: X invited you" — which restate the same passive invitation in reply-shaped words. The reminder wording is the PLATFORM's engagement copy, not a new ask from the person named inside; judge by the SENDER (the platform envelope relaying it — SenderContext.effectiveAuthor='service'), not by the literal "waiting for your response" phrase, which never overrides this rule or rules 3/4. EXCEPTION: an actual personal message a real correspondent sent the user THROUGH the platform — where the body carries a genuine ask, not a templated invite — is judged on its content (awaiting_reply/follow_up), gated as always by the Sender relationship observation; a digest relaying a cold/unknown sender's message stays 'fyi'.
 9. Investor/legal notice rule: stock-market, shareholder, AGM, proxy/e-voting, annual report, exchange filing, and registrar/depository notices are usually 'fyi'. Use 'action_needed' only when the email asks the user to vote, register, submit a form, make a decision, or meet a concrete deadline. Do not use 'meeting' for a corporate AGM notice just because the notice says "meeting". (The investorNotice content flag marks this language.) More broadly — manufactured or ceremonial urgency (engagement/gamification nudges, "save the date" galas, AGMs) is 'fyi' (or 'marketing') unless it imposes a concrete action + deadline on the user; never 'meeting'/'urgent' on ceremony or a manufactured stake alone.
@@ -321,15 +340,16 @@ const PROMPT_AFTER_TODO_RULE = `17. Thread tag is the LIVE loop, not the last ke
     - \`other_activity\`: activity on an item the user only watches or is CC'd on — a third-party comment, a newly created item, someone else's edit — NOT directed at the user.
     - \`digest\`: a periodic activity roundup ("N updates in your workspace this week").
     Emit \`null\` for ANY email that is not a collaboration-tool notification (ordinary person-to-person mail, newsletters, marketing, security/auth, payments, calendar invites, social networks, vendor status pages). This is a FACTUAL read of the notification and is independent of the category — set it even when the category is fyi/done. It does not change your category choice; it records the ownership you already judged.
-20. Gmail spam verdict — \`spam=true\` in Observations means Gmail itself filed the message as spam: a THIRD PARTY'S verdict that the mail is unsolicited, so treat it as a strong PRIOR, not as proof. Judge the gist — a promo, a phish, bulk outreach → 'marketing'/'fyi'/'newsletter' — not the literal ask: a spam-filed question is still spam, however direct its phrasing ("Would love your thoughts!", "action required", a question mark). It is NEVER 'awaiting_reply' and NEVER 'follow_up'. Those two lanes claim the SENDER is owed a reply, which is exactly what the spam verdict denies. (A deterministic floor enforces that half; this rule is its prompt half.) EXCEPTION, for 'urgent'/'action_needed' ONLY: keep the demand lane when the body names a concrete obligation the USER ALREADY OWNS and that does not depend on trusting the sender — an application, case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential OF THE USER'S that must be rotated — and name that line in the rationale. A demand that only works if the sender is honest ("click here to secure your account", "verify your billing details or lose access") is phish: stay passive. Gmail's filter is fallible, and burying a real ask the user owns costs more than a dismissible false alarm.
+20. Gmail spam verdict — \`SPAM\` in the mail facts' labelIds means Gmail itself filed the message as spam, and Gmail's filter is right about 99 times in 100: a THIRD PARTY'S verdict that the mail is unsolicited, so treat it as a strong PRIOR, not as proof. Judge the gist — a promo, a phish, bulk outreach → 'marketing'/'fyi'/'newsletter' — not the literal ask: a spam-filed question is still spam, however direct its phrasing ("Would love your thoughts!", "action required", a question mark). It is NEVER 'awaiting_reply' and NEVER 'follow_up'. Those two lanes claim the SENDER is owed a reply, which is exactly what the spam verdict denies. (A deterministic floor enforces that half; this rule is its prompt half.) EXCEPTION, for 'urgent'/'action_needed' ONLY: keep the demand lane when the body names a concrete obligation the USER ALREADY OWNS and that does not depend on trusting the sender — an application, case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential OF THE USER'S that must be rotated — and name that line in the rationale. A demand that only works if the sender is honest ("click here to secure your account", "verify your billing details or lose access") is phish: stay passive. Gmail's filter is fallible, and burying a real ask the user owns costs more than a dismissible false alarm.
 21. Document ask: emit \`documentAsk: null\` unless this inbound message explicitly asks the user to send or create a resume or portfolio. When it does, emit exactly \`{"requestedKind":"resume"}\` or \`{"requestedKind":"portfolio"}\`. Do not infer an ask from an attachment, filename, link, sender, prior thread, or generic career prose, and never claim a file was sent or the request resolved.
+22. Legitimacy (\`legitimacy\`) — emit it FIRST, on every mail, before you pick the category: is this mail real and meant for the user? Read the mail facts. 'genuine': the sender is who it claims and writes to the user, or it is a service the user uses. 'doubtful': one fact counts against it (Gmail filed it as \`SPAM\`, the user is absent from To and Cc, a Reply-To on another domain, failed authentication, a stranger with no prior contact), and nothing in the body is the user's own obligation. 'fake': several facts count against it, or the ask works only if the sender is honest (a link to sign, verify, pay or log in). \`basis\` names the facts in one short sentence (under 200 characters). Then: 'fake' → a quiet label ('fyi'/'marketing'), loud only under rule 20's EXCEPTION; 'doubtful' → lean quiet. When the verdict is not 'genuine', say so in the rationale. Passing authentication only proves the sending domain; it does not make the ask real.
 
 Examples (subject → category):
 - "Sign in to Anthropic" / "Your login code is 123456" / "Verify your email address" the user just requested → fyi (vendor self-echo auth, expires harmlessly, action is moot by the time it surfaces — rule 15a, NOT action_needed, NOT urgent), and no todo (rule 16c memorability — nothing to remember).
 - "[GitHub] Sudo email verification code" the user just triggered → fyi (rule 15a, moot by the time it surfaces), no todo (rule 16c). "Security verification completed" / "Passkey created" / "Two-factor authentication enabled" / "A third-party OAuth application was added to your account" → fyi (rule 15a: the account's own vendor echoing an event the user could have performed), no todo. BOUNDARY: "Your Wellfound password was changed", whose body adds "if you did not make this change, your account may be compromised — contact support immediately" → still fyi, because the vendor asserts no observation, only boilerplate (rule 15a). Contrast "Suspicious sign-in from a new device — was this you?" from the account provider → urgent (rule 15b: an observed anomaly about WHO acted).
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - A recruiter's direct ask the user has ALREADY replied to (thread state shows "you last replied …" and the user's send is the latest message) → done (the user's side of the loop is closed; no longer awaiting_reply — rule 18; waiting on the recruiter to write back is not a user action).
-- A \`spam=true\` mail whose ask is an obligation the USER ALREADY OWNS — a case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential of the user's to rotate → action_needed (rule 20's EXCEPTION: the obligation holds whether or not the sender is honest, and Gmail's filter is fallible). Contrast "URGENT: verify your billing details within 24 hours" with \`spam=true\` → fyi (the demand works only if the sender is honest — phish).
+- A \`SPAM\` in labelIds mail whose ask is an obligation the USER ALREADY OWNS — a case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential of the user's to rotate → action_needed (rule 20's EXCEPTION: the obligation holds whether or not the sender is honest, and Gmail's filter is fallible). Contrast "URGENT: verify your billing details within 24 hours" with \`SPAM\` in labelIds → fyi (the demand works only if the sender is honest — phish).
 - "Arjun Rao wants to connect" / "I want to connect" from invitations@linkedin.com → fyi (social-network invitation, passive social activity — rule 8a; NOT awaiting_reply/action_needed, however senior the title), and no todo (rule 16a-i optional nicety).
 - "You appeared in 13 searches this week" from notifications@linkedin.com → fyi (profile-activity nudge — rule 8a).
 - "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
@@ -418,6 +438,17 @@ function clipUserContextLine(text: string): string {
 const USER_CONTEXT_HANDLING_RULE =
   "How to weigh that line: it is Alfred's own web research about the user, not the user's words and not this email, so it is the WEAKEST signal in this block. Use it only to judge whether this email touches the user's employer, studies, projects or public profiles. It never decides a category on its own, and it never outranks the email body.";
 
+/** One flat object, header names as Gmail spells them; a fact that is absent is left out. */
+function mailFactsForPrompt(mail: MailFacts) {
+  return {
+    ...mail.headers,
+    ...(mail.listUnsubscribe ? { "List-Unsubscribe": "present" } : {}),
+    labelIds: mail.labelIds,
+    ...(mail.calendarInvite ? { calendarInvite: true } : {}),
+    ...(mail.attachments.length > 0 ? { attachments: mail.attachments } : {}),
+  };
+}
+
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
@@ -464,15 +495,16 @@ function renderObservations(obs: Observations): string {
     );
   }
 
-  const g = obs.gmail;
   lines.push(
-    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}; spam=${g.spam}; trash=${g.trash}`,
+    obs.mail
+      ? `Mail facts (as Gmail recorded them at arrival): ${JSON.stringify(mailFactsForPrompt(obs.mail))}`
+      : "Mail facts: unavailable (no stored Gmail message)",
   );
 
   const c = obs.content;
   lines.push(
     `Content flags: unsubscribe=${c.hasUnsubscribe}; currency=${c.hasCurrencyAmount}; security=${c.hasSecurityKeyword}; ` +
-      `calendar=${c.hasCalendarInvite}; investorNotice=${c.hasInvestorNotice}; publicEvent=${c.hasPublicEventLanguage}`,
+      `investorNotice=${c.hasInvestorNotice}; publicEvent=${c.hasPublicEventLanguage}`,
   );
 
   return lines.join("\n");

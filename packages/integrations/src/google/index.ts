@@ -62,6 +62,13 @@ export {
   parseStoredGmailMessage,
 } from "./gmail";
 
+export {
+  gmailHeaderLookup,
+  readMailFacts,
+  type GmailHeaderLookup,
+  type MailFacts,
+} from "./mail-facts";
+
 export { gmailMailbox, type GmailMailbox } from "./mailbox";
 
 export {

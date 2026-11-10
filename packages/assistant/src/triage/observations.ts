@@ -1,4 +1,5 @@
 import type { AccountPersona } from "@alfred/contracts";
+import type { MailFacts } from "@alfred/integrations/google";
 // Top-level `import type`: an inline `{ type X }` survives as a side-effect import
 // and loads the whole knowledge barrel at runtime.
 import type { MailStandingInstructions, UserContextLine } from "../knowledge";
@@ -68,7 +69,6 @@ export interface ContentFlags {
    * no deterministic path may turn it into `urgent` or `action_needed`.
    */
   hasSecurityKeyword: boolean;
-  hasCalendarInvite: boolean;
   /** Investor/AGM notice language, for rule 9. A hint, never a category rewrite. */
   hasInvestorNotice: boolean;
   /** Public-event blast language, for rule 8. A hint, never a category rewrite. */
@@ -85,8 +85,6 @@ const CURRENCY_RE =
 const SECURITY_RE =
   /\bcve-\d{4}-\d+\b|\b(?:exposed|leaked|compromised)\b|\b(?:secret|credential|api[ -]?key|token|private key|password|passkey|security key|authenticator app|two[- ]factor|two[- ]step|2fa|mfa|2[- ]step|recovery (?:email|phone)|login method|oauth application)\b|\b(?:unauthorized|suspicious) (?:sign-?in|login|access)\b/i;
 
-const CALENDAR_RE = /BEGIN:VCALENDAR|BEGIN:VEVENT|\bical\b|text\/calendar/i;
-
 // `proxy`/`registrar` are qualified: bare words match "reverse proxy" in dev mail.
 const INVESTOR_RE =
   /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\s+(?:vote|voting|statement|card|form|materials?)\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\s+(?:and|&|to)\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
@@ -100,7 +98,6 @@ export function extractContentFlags(text: string): ContentFlags {
     hasUnsubscribe: UNSUBSCRIBE_RE.test(text),
     hasCurrencyAmount: CURRENCY_RE.test(text),
     hasSecurityKeyword: SECURITY_RE.test(text),
-    hasCalendarInvite: CALENDAR_RE.test(text),
     hasInvestorNotice: INVESTOR_RE.test(text),
     hasPublicEventLanguage: PUBLIC_EVENT_RE.test(text),
   };
@@ -139,6 +136,8 @@ export interface Observations {
   /** A null `userContext` means unknown, not absent. Else a total read failure looks normal. */
   userContextReadFailed: boolean;
   gmail: GmailSignals;
+  /** The stored message as Gmail recorded it; the model reads it verbatim. Null without `raw`. */
+  mail: MailFacts | null;
   content: ContentFlags;
 }
 
@@ -159,6 +158,7 @@ export interface AssembleObservationsArgs {
   userContext?: UserContextLine | null | undefined;
   userContextReadFailed?: boolean | undefined;
   labelIds: readonly string[];
+  mailFacts: MailFacts | null;
   /** Subject + body + headers, any case. */
   signalText: string;
 }
@@ -181,6 +181,7 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
     userContext: args.userContext ?? null,
     userContextReadFailed: args.userContextReadFailed ?? false,
     gmail: extractGmailSignals(args.labelIds),
+    mail: args.mailFacts,
     content: extractContentFlags(args.signalText),
   };
 }

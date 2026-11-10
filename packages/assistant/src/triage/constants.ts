@@ -12,8 +12,8 @@ export const TRIAGE_RECENT_MESSAGE_LIMIT = 6;
 /** Maximum characters included from each prior thread message. */
 export const TRIAGE_RECENT_MESSAGE_MAX_CHARS = 220;
 
-/** Structured classifier output budget. */
-export const TRIAGE_MAX_OUTPUT_TOKENS = 400;
+/** Structured classifier output budget. 60 of it is the `legitimacy` verdict (a 200-char basis). */
+export const TRIAGE_MAX_OUTPUT_TOKENS = 460;
 
 /** Total wall-clock budget for one classifier request, including retries. */
 export const TRIAGE_REQUEST_TIMEOUT_MS = 30_000;

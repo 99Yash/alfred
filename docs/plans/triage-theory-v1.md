@@ -26,6 +26,20 @@ Built: `packages/assistant/evals/triage-deck.eval.ts`, with the cases in `evals/
 
 Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 mails). Each run makes real model calls, so a case near a label boundary can change from run to run. Run the deck two times before and after a slice, and read the label of each mail, not only the total. The misses are the faults above: every payment failure gets `payment`, the webinars get `action_needed` or `meeting`, the own CI failures get `action_needed`, and the streak mails get three labels.
 
+## Slice 0b — The mail facts
+
+Before this slice, the model saw a few Gmail signals that code had interpreted (`spam=true`, a calendar regex hint). It could not see the headers that show if a mail is genuine. A phishing invite in Gmail's spam folder got `action_needed` and went into the morning brief on 2026-11-10.
+
+- `readMailFacts` (`@alfred/integrations/google`) reads one object of verbatim facts from `documents.raw`. ADR-0121 decision 4 names the fields.
+- `classify` sends that object in place of the `Gmail signals:` line.
+- The model answers with a `legitimacy` verdict first (`genuine`, `doubtful`, `fake`), then the label. The facts alone did not move the spam-filed invite off `meeting`; the verdict did.
+- Two deck cases test it: a spam-filed signature-request invite (`fyi`) and a spam-filed recruiter reply on Yash's own application (`action_needed`).
+
+**Removes:** `CALENDAR_RE` and `hasCalendarInvite`, and the calendar hint in the prompt. `GmailSignals` stays until slices 1 and 3, because the conflict pass, the spam floor, and the trace still read it.
+*Gate:* the eval deck holds, and the two new cases pass.
+
+Result on 2026-11-10, 2 runs on each side, the same labels in each run: old mails 25/43 before and 27/43 after, and both new cases pass. Two old mails got worse, and Yash accepted them: the Vercel "Production deployment failed" mail and the REIT TDS notice moved from `fyi` to `action_needed`. The model reads the user's address in `To` as a reason to act. Slice 3 owns that prompt text.
+
 ## Slice 1 — Stop the self-learning
 
 - `classify` stops writing `incrementSenderPrior` with its own category (`workflow-operations.ts:568`) and stops reading the prior.

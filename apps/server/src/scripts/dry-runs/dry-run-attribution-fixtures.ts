@@ -72,6 +72,7 @@ async function main() {
       senderRelationship: null,
       senderKind: null,
       labelIds: [],
+      mailFacts: null,
       signalText: [f.from, f.to, f.subject, content].join("\n"),
     });
 

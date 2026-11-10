@@ -16,6 +16,7 @@ import { assembleObservations } from "@alfred/assistant/triage/observations";
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
 import { PROD_INSTRUCTION_ROWS } from "./triage-deck/instructions";
+import { evalMailFacts } from "./lib/stored-mail";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
 
 /**
@@ -82,6 +83,12 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
     standingInstructions: INSTRUCTIONS.forMail({ sender: mail.from, accountId: null }),
     userContext: USER_CONTEXT,
     labelIds: mail.labelIds,
+    mailFacts: evalMailFacts({
+      from: mail.from,
+      to: USER.email,
+      labelIds: mail.labelIds,
+      headers: mail.headers,
+    }),
     signalText: [mail.from, mail.subject, mail.body, ...mail.labelIds].join("\n"),
   });
 
