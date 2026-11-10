@@ -25,7 +25,6 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   standingInstructions: null,
   userContext: null,
   userContextReadFailed: false,
-  noRecipientAddress: false,
   gmail: {
     categories: ["updates"],
     important: false,

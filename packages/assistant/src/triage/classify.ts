@@ -253,7 +253,6 @@ How to use the Observations block:
 - Sender kind (when present) is an active user-model projection's confident non-person classification for the sender address: \`group\` means a distribution list/shared mailbox; \`service\` means automated or product-originated mail. Absence of this line means no active/confident projection opinion. When present, do NOT treat the address as a known person or infer a personal relationship from display name alone.
 - Gmail signals (categories, IMPORTANT, STARRED) are Gmail's own priors — lean on them when they align.
 - Gmail's spam/trash filing is a THIRD PARTY'S VERDICT, not a hint and not a fact: \`spam=true\` means Gmail itself judged the mail unsolicited (rule 20). A spam-filed message is never 'awaiting_reply' and never 'follow_up', however direct its phrasing. It can still be 'urgent'/'action_needed', but only under rule 20's exception — an obligation the user already owns. \`trash=true\` means the user already deleted it — same read, weaker signal.
-- \`noRecipientAddress=true\` on a received mail means the stored envelope has no To/Cc header naming anyone — the sender never addressed the user, the mail rode in Bcc-style. Gmail furnishes a To for genuinely delivered personal mail, so this is a strong bulk/phish prior: it pairs with \`spam=true\` far more often than by chance, and it is exactly the shape of a cold invite or a "please review and sign" lure. Lean 'fyi'/'marketing' unless another observation (sender prior, thread state, known contact, a body that names an obligation the user already owns) establishes the user as a real recipient. It is a prior, never a category by itself: a manual Bcc can carry real mail, and older rows may lack the header record entirely (then \`noRecipientAddress=false\` and the claim is unmade, not negative).
 - Content flags are cheap regex tells: unsubscribe → newsletter/marketing; currency → payment; security → look harder at severity; calendar → meeting; investorNotice → rule 9; publicEvent → rule 8. They are signals to weigh, not commands.
 
 Rules:
@@ -331,7 +330,6 @@ Examples (subject → category):
 - "@alice requested your review on PR #42" from noreply@github.com → action_needed (review owed, not time-critical).
 - A recruiter's direct ask the user has ALREADY replied to (thread state shows "you last replied …" and the user's send is the latest message) → done (the user's side of the loop is closed; no longer awaiting_reply — rule 18; waiting on the recruiter to write back is not a user action).
 - A \`spam=true\` mail whose ask is an obligation the USER ALREADY OWNS — a case or ticket the user opened themselves, a deadline on work the user already agreed to, a credential of the user's to rotate → action_needed (rule 20's EXCEPTION: the obligation holds whether or not the sender is honest, and Gmail's filter is fallible). Contrast "URGENT: verify your billing details within 24 hours" with \`spam=true\` → fyi (the demand works only if the sender is honest — phish).
-- A \`spam=true\` calendar "Invitation:" mail ("X sent you an invitation, please review and sign", "Erincluley Project Collaboration @ …") from a sender with no history the user knows → fyi (rule 20's default: an invite to an unknown sender's meeting works only if the sender is honest — a stranger asking "can we meet today" is a demo of the passive default, NOT action_needed, NOT meeting). It can hold \`meeting\` only when the meeting is one the USER already owns — a re-invite inside a thread the user agreed to.
 - "Arjun Rao wants to connect" / "I want to connect" from invitations@linkedin.com → fyi (social-network invitation, passive social activity — rule 8a; NOT awaiting_reply/action_needed, however senior the title), and no todo (rule 16a-i optional nicety).
 - "You appeared in 13 searches this week" from notifications@linkedin.com → fyi (profile-activity nudge — rule 8a).
 - "**coderabbitai** commented on this pull request" with normal review suggestions → fyi (bot review, advisory by default).
@@ -468,7 +466,7 @@ function renderObservations(obs: Observations): string {
 
   const g = obs.gmail;
   lines.push(
-    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}; spam=${g.spam}; trash=${g.trash}; noRecipientAddress=${obs.noRecipientAddress}`,
+    `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}; spam=${g.spam}; trash=${g.trash}`,
   );
 
   const c = obs.content;

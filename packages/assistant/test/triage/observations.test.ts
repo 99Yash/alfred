@@ -181,7 +181,6 @@ describe("assembleObservations", () => {
       standingInstructions: null,
       userContext: null,
       userContextReadFailed: false,
-      noRecipientAddress: false,
       gmail: {
         categories: ["updates"],
         important: false,
