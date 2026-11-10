@@ -57,12 +57,11 @@ export const LOOP_ENTITY_PROVIDERS = [
 export type LoopEntityProvider = (typeof LOOP_ENTITY_PROVIDERS)[number];
 
 /**
- * Names of the providers outside the integration registry, in brand casing (`ClickUp`).
+ * Names of the providers outside the integration registry, in brand casing (`Jira`).
  * A registry slug reads `INTEGRATION_DISPLAY_NAMES`. If a provider joins the registry,
  * its key here stops compiling.
  */
 const NON_REGISTRY_PROVIDER_NAMES = {
-  clickup: "ClickUp",
   jira: "Jira",
   asana: "Asana",
   trello: "Trello",

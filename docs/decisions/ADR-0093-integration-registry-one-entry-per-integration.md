@@ -49,7 +49,7 @@ The repo already has the right pattern in two places: `CREDENTIAL_SHAPE` and `GE
 
 ## Amendment, 2026-09-12 — a built-in MCP server is a second key space under the same law (#1002)
 
-**What changed.** Alfred pins first-class remote MCP servers: GitHub, Linear, Notion, Sentry, and Polylane. The original ADR left "the MCP per-connection catalog (PRD #540)" undecided. This amendment decides only the part that touches a key space, and leaves the per-connection catalog where it was.
+**What changed.** Alfred pins first-class remote MCP servers: GitHub, Linear, Notion, Sentry, and Polylane. Railway and ClickUp (2026-11-10) came later on the same path. The original ADR left "the MCP per-connection catalog (PRD #540)" undecided. This amendment decides only the part that touches a key space, and leaves the per-connection catalog where it was.
 
 **Decision.** `MCP_BUILT_IN_CATALOG` in `packages/contracts/src/mcp.ts` is a second record whose keys are a key space, and it obeys the same three rules `INTEGRATIONS` obeys. `McpBuiltInProvider` is `keyof typeof MCP_BUILT_IN_CATALOG`. `MCP_BUILT_IN_PROVIDERS` is its key list in record order. `isMcpBuiltInProvider` is the `enumGuard` over that list, and the connect route uses it to narrow a path segment.
 

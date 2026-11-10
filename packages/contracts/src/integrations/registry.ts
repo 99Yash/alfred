@@ -341,7 +341,7 @@ export const INTEGRATIONS = {
     summaryBlurb: "the user's Vercel projects and deployments",
     domain: "vercel.com",
   },
-  // Sentry, Notion, Railway and Polylane (and Linear) are `planned` here but connect through MCP.
+  // Sentry, Notion, Railway, Polylane and ClickUp (and Linear) are `planned` here but connect through MCP.
   // The entries exist for the slug and the brand art the MCP catalog uses (ADR-0093).
   sentry: {
     kind: "provider",
@@ -372,6 +372,14 @@ export const INTEGRATIONS = {
     status: "planned",
     displayName: "Polylane",
     brand: "polylane",
+    sourceRoutes: ["tools_only"],
+    actions: [],
+  },
+  clickup: {
+    kind: "provider",
+    status: "planned",
+    displayName: "ClickUp",
+    brand: "clickup",
     sourceRoutes: ["tools_only"],
     actions: [],
   },

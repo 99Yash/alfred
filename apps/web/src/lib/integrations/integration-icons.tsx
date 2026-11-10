@@ -2,6 +2,7 @@ import type { IntegrationBrandKey } from "@alfred/contracts";
 import { Check, Globe2, Users, type LucideIcon } from "lucide-react";
 import { useId } from "react";
 import {
+  ClickUpTile,
   GithubTile,
   GmailTile,
   GoogleCalendarTile,
@@ -166,6 +167,13 @@ const BRAND_ART = {
     frostColor: "#ffffff",
     accent: "#a8e840",
     glyph: `<g transform="translate(8 8) scale(0.047486) translate(-120 -120)"><path fill-rule="evenodd" clip-rule="evenodd" d="M381.142 255.979C353.262 256.882 324.664 258.165 294.739 259.828C240.319 262.852 197.432 305.379 194.635 357.744C191.659 413.446 191.596 463.816 194.618 519.68C197.379 570.729 238.619 612.379 291.522 616.294C424.628 626.144 531.099 626.37 664.216 616.432C716.652 612.517 757.575 571.322 760.527 520.692C763.828 464.081 763.824 413.076 760.619 356.673C757.677 304.896 715.104 262.861 661.009 259.838C629.813 258.094 600.063 256.769 571.071 255.861C568.898 277.025 553.17 294.761 531.729 297.623C492.693 302.833 460.623 302.444 420.534 297.184C399.233 294.389 383.392 276.96 381.142 255.979ZM291.944 209.528C212.897 213.921 148.553 276.001 144.329 355.057C141.26 412.512 141.192 464.688 144.314 522.401C148.496 599.706 210.597 660.82 287.804 666.534C369.848 672.605 442.16 675.087 516.559 673.853C551.603 711.938 579.891 732.555 618.741 749.748C627.403 753.581 635.458 743.223 630.988 734.873C618.661 711.839 616.267 692.195 623.929 669.646C638.33 668.78 652.985 667.788 667.966 666.669C744.641 660.945 806.343 600.383 810.819 523.625C814.234 465.063 814.229 412.124 810.915 353.815C806.453 275.298 742.341 213.928 663.821 209.539C531.36 202.135 424.263 202.176 291.944 209.528Z" fill="currentColor"></path><path d="M438.296 415.062C438.296 447.11 412.316 473.09 380.269 473.09C348.221 473.09 322.242 447.11 322.242 415.062C322.242 383.015 348.221 357.035 380.269 357.035C412.316 357.035 438.296 383.015 438.296 415.062Z" fill="currentColor"></path><path d="M570.358 473.09C602.405 473.09 628.385 447.11 628.385 415.062C628.385 383.015 602.405 357.035 570.358 357.035C538.31 357.035 512.331 383.015 512.331 415.062C512.331 447.11 538.31 473.09 570.358 473.09Z" fill="currentColor"></path></g>`,
+  },
+  // ClickUp mark from simple-icons, scaled from a 24-unit grid. Two-tone gradients, as in the brand.
+  clickup: {
+    kind: "mark",
+    tile: ClickUpTile,
+    accent: "#7b68ee",
+    glyph: `<g transform="translate(8 8) scale(1.41667)"><path d="M2 18.439l3.69-2.828c1.961 2.56 4.044 3.739 6.363 3.739 2.307 0 4.33-1.166 6.203-3.704L22 18.405C19.298 22.065 15.941 24 12.053 24 8.178 24 4.788 22.078 2 18.439z" fill="url(#clickup_smile___UID0__)"></path><path d="M12.04 6.15l-6.568 5.66-3.036-3.52L12.055 0l9.543 8.296-3.05 3.509z" fill="url(#clickup_chevron___UID0__)"></path></g><defs><linearGradient id="clickup_smile___UID0__" x1="2" y1="21" x2="22" y2="21" gradientUnits="userSpaceOnUse"><stop stop-color="#8930FD"></stop><stop offset="1" stop-color="#49CCF9"></stop></linearGradient><linearGradient id="clickup_chevron___UID0__" x1="2.4" y1="6" x2="21.6" y2="6" gradientUnits="userSpaceOnUse"><stop stop-color="#FF02F0"></stop><stop offset="1" stop-color="#FFC800"></stop></linearGradient></defs>`,
   },
   web: { kind: "lucide", icon: Globe2, color: "#38bdf8" },
   collaborators: { kind: "lucide", icon: Users, color: "#e5e7eb" },
