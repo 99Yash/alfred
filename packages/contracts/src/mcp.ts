@@ -335,6 +335,11 @@ export const BUILT_IN_MCP_CATALOG = {
     label: "Polylane MCP",
     blurb: "Read production logs, metrics, traces, and tracked issues.",
   },
+  clickup: {
+    slug: "clickup",
+    label: "ClickUp MCP",
+    blurb: "Work with ClickUp tasks, docs, and chat.",
+  },
 } as const satisfies Record<string, McpBuiltInEntry>;
 
 export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;

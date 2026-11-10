@@ -24,6 +24,12 @@ export const SENTRY_MCP_ENDPOINT_HREF = "https://mcp.sentry.dev/mcp" as const;
  */
 export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as const;
 
+/**
+ * ClickUp MCP. Dynamic registration; scopes `read`, `write` (2026-11-10).
+ * Its registration accepts a hosted callback. It grants `authorization_code` only, so no refresh token.
+ */
+export const CLICKUP_MCP_ENDPOINT_HREF = "https://mcp.clickup.com/mcp" as const;
+
 /** Railway MCP. Dynamic registration at `backboard.railway.com` (2026-09-20). */
 export const RAILWAY_MCP_ENDPOINT_HREF = "https://mcp.railway.com/mcp" as const;
 

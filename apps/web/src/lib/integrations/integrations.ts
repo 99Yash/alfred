@@ -317,6 +317,24 @@ const INTEGRATION_PAGE_COPY = {
         "Polylane has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is Polylane's own.",
     },
   },
+  clickup: {
+    description: "Work with ClickUp tasks, docs, and chat.",
+    category: "Productivity",
+    capabilities: ["Search Tasks", "Read Task Detail", "Update Tasks", "Read Docs", "Read Chat"],
+    trust: {
+      title: "You approve every call",
+      body: "ClickUp connects over MCP, and every MCP call is staged for your approval before it runs.",
+    },
+    overview: {
+      body: "Connect ClickUp so Alfred can follow the work you track there: your tasks, their status and assignees, and the docs and chat beside them.",
+      heading: "Task Context",
+      detail:
+        "When a ClickUp notification lands in your inbox, Alfred can read the task itself instead of guessing from the email.",
+      extraHeading: "Connect it on the MCP tile",
+      extraDetail:
+        "ClickUp has no separate Alfred credential. It is a first-class MCP server: connect it from the MCP section of this page, and the consent screen is ClickUp's own.",
+    },
+  },
 } satisfies Record<CatalogSlug, IntegrationPageCopy>;
 
 function buildPage(slug: CatalogSlug): IntegrationPage {

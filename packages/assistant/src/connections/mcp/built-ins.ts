@@ -10,6 +10,7 @@ import { envFieldValue, type ServerEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
 import {
+  CLICKUP_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
   LINEAR_MCP_ENDPOINT_HREF,
@@ -158,6 +159,16 @@ export const BUILT_IN_REGISTRY = {
     endpointHref: POLYLANE_MCP_ENDPOINT_HREF,
     // Empty on purpose: neither metadata document declares `scopes_supported`.
     scopes: [],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: BUILT_IN_INITIAL_STATE,
+  },
+  clickup: {
+    instanceKey: "default",
+    canonicalResource: CLICKUP_MCP_ENDPOINT_HREF,
+    endpointHref: CLICKUP_MCP_ENDPOINT_HREF,
+    // Both declared scopes. ADR-0088 keeps every call behind an approval.
+    scopes: ["read", "write"],
     readOnlyCatalog: false,
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,
