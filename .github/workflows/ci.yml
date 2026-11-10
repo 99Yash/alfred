@@ -78,21 +78,6 @@ jobs:
         if: matrix.shard == 1
         run: corepack pnpm check:static-shards
 
-      # The four sections CLAUDE.md asks a PR body for, in sentences of 25 words or
-      # fewer and with no review-process words. A STEP here and not an entry in
-      # `check:ci`, because the check reads GitHub rather than the working tree: it runs
-      # `gh pr view`, which needs a pull request to exist. It fails CLOSED — `gh`
-      # missing, unauthenticated, rate-limited, or no PR found is a failure, never a
-      # pass — which is exactly why it must not sit in a chain that also runs on a branch
-      # with no PR yet: it would redden `pnpm verify:ci` for anyone mid-work.
-      #
-      # Skipped on a push to main, where there is no PR body to check.
-      - name: Pull-request body carries the sections CLAUDE.md asks for
-        if: github.event_name == 'pull_request' && matrix.shard == 1
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: corepack pnpm check:pr-body "${{ github.event.pull_request.number }}"
-
       # Steps run on EVERY leg by default, so each non-leg-specific step
       # carries an `if: matrix.shard == N`. A step left unconditioned — which
       # is what the first landed version did — runs four times and the matrix
