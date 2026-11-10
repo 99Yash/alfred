@@ -33,6 +33,8 @@ docker-compose up -d
 
 # 2. Install dependencies
 corepack pnpm install
+# Format and fix staged files on each commit (one install covers every worktree)
+corepack pnpm hooks:install
 
 # 3. Create local env files
 cp .env.example apps/server/.env

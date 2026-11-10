@@ -42,6 +42,8 @@ Take the first rung that can state the rule. Each lower rung reads less of the p
 
 A fact that is not about source code goes to a check script. Examples: a document (`check:pr-body`, `check:plan-status`), a config (`check:oxlint-config`), a manifest or the bundle graph (`check:web-boundaries`, `check:web-bundle-graph`), or reachability (`check:knip`).
 
+CI fails only for a fault in the code. A check that reads something outside the tree, such as a PR body on GitHub, does not run in CI. `check:pr-body` runs as advice inside `scripts/wait-pr-checks.mjs`.
+
 After you add, remove or change a gate rule, run `pnpm rules:catalog` and commit `docs/reference/enforced-rules.md`. `pnpm check` fails while the catalog is stale.
 
 ### 1. Prefer the compiler
@@ -79,7 +81,7 @@ Drive the tree to zero, then add the rule at `error`. Add one rule per change. A
 
 Use a rule in `scripts/oxlint/alfred/` for scope, nesting, binding or data flow. Examples: which binding a name resolves to, whether a reference reads or writes, and what flows into a call. The plugin's `README.md` gives the layout, the fixture file and the three steps to register a rule. A rule that replaces a consolidation row keeps the file scope of that row through `inGateScope`.
 
-An AST rule also speaks at edit time: `.claude/hooks/lint-on-edit.mjs` lints each file that an agent writes.
+An AST rule also speaks at edit time: `.claude/hooks/lint-on-edit.mjs` lints each file that an agent writes. The hook first applies `oxfmt` and the safe `oxlint --fix` fixes (`scripts/autofix.mjs`). The git pre-commit hook (`pnpm hooks:install`) applies the same fixes to each fully staged file. A rule with no fixer, such as each `anti-slop/*` rule, is only reported.
 
 ### 4. Regex only for single-token facts
 

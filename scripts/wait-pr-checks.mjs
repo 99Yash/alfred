@@ -41,6 +41,7 @@
 
 import { spawnSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 const USAGE =
   "Usage: node scripts/wait-pr-checks.mjs <pr-number> [--repo 99Yash/alfred] [--interval 30] [--timeout 60] [--fail-fast]";
@@ -161,6 +162,25 @@ function clock() {
 
 function log(line) {
   console.log(`[${clock()}] #${options.pr} ${line}`);
+}
+
+// The PR body rules (the four CLAUDE.md sections, 25-word sentences) are about a
+// document, not code, so CI does not run them: a red CI means the code is wrong.
+// The wait reports them once, here, and the result never changes the exit code.
+{
+  const body = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("./check-pr-body.mjs", import.meta.url)), String(options.pr)],
+    { encoding: "utf8" },
+  );
+
+  const text = `${body.stdout}${body.stderr}`.trim();
+
+  log(
+    body.status === 0
+      ? `PR body: ${text}`
+      : `PR body needs a fix (advisory, CI does not read it):\n${text}`,
+  );
 }
 
 /**

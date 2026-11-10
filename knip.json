@@ -47,6 +47,8 @@
       // `.claude`, so `.claude/hooks/*.mjs` covers both.
       "entry": [
         "scripts/*.mjs!",
+        // The installed `.git/hooks/pre-commit` runs it; nothing in the tree imports it.
+        "scripts/git-hooks/*.mjs!",
         "scripts/oxlint/anti-slop/rules/*.rule-test.ts",
         "scripts/oxlint/alfred/rules/*.rule-test.ts",
         ".claude/hooks/*.mjs!"

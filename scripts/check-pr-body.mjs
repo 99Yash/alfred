@@ -11,9 +11,9 @@
 // could not ask is the exact fail-open shape this repo's other checks are written
 // against.
 //
-// It is wired into `check:ci` rather than given its own CI job because it costs one
-// `gh pr view` and one process spawn, and because `check:ci` is already the required
-// chain in the `main protection` ruleset.
+// CI does not run it. A red CI must mean the code is wrong, and a PR body is not
+// code. `scripts/wait-pr-checks.mjs` runs it once per wait and prints the result as
+// advice; run it by hand with `pnpm check:pr-body <n>` after you edit a body.
 //
 // The grammar and the rule live in ./pr-body.mjs so fixtures can exercise them; this
 // file is the enforcing consumer.

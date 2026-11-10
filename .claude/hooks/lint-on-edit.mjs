@@ -14,6 +14,11 @@
 // anti-slop rules, which are just as silent at edit time. A rule added to the
 // config is reported here with no table to keep in step.
 //
+// It first applies the fixes that need no judgment (`scripts/autofix.mjs`: the
+// safe `oxlint --fix` fixes, then `oxfmt --write`), so a formatting or fixable
+// lint error never reaches `pnpm check`. It then reports what remains, from the
+// same lint run. Line numbers are from before `oxfmt` ran.
+//
 // Advisory only. It runs after the write, so it cannot block it, and it always
 // exits 0. It prints nothing when the file is clean, when the file is not
 // `.ts`/`.tsx` under the repo, when the file does not parse yet, or when oxlint
@@ -21,9 +26,9 @@
 //
 // Reads PostToolUse JSON on stdin, prints hookSpecificOutput JSON, exits 0.
 
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { autofix } from "../../scripts/autofix.mjs";
 
 // Advisory: a bug in this file must not surface as a hook error on every edit.
 process.on("uncaughtException", () => process.exit(0));
@@ -59,27 +64,24 @@ try {
 
 const filePath = String(payload.tool_input?.file_path ?? "");
 
-if (!filePath.startsWith(`${ROOT}/`) || !/\.tsx?$/.test(filePath)) process.exit(0);
-
-if (!existsSync(filePath) || !existsSync(OXLINT) || !existsSync(CONFIG)) process.exit(0);
+if (!filePath.startsWith(`${ROOT}/`) || !existsSync(filePath)) process.exit(0);
 
 const rel = filePath.slice(ROOT.length + 1);
 
+// Any file in the `pnpm format` scope gets formatted, not only `.ts`/`.tsx`.
+if (!/\.tsx?$/.test(filePath) || !existsSync(OXLINT) || !existsSync(CONFIG)) {
+  autofix(ROOT, [rel], { timeoutMs: TIMEOUT_MS });
+  process.exit(0);
+}
+
 // The same flags as `pnpm lint`, from the root, so `overrides` globs and
 // `ignorePatterns` resolve as they do there.
-const run = spawnSync(
-  OXLINT,
-  [
-    "--config",
-    CONFIG,
-    "--report-unused-disable-directives-severity=error",
-    "--no-error-on-unmatched-pattern",
-    "--format",
-    "json",
-    rel,
-  ],
-  { cwd: ROOT, encoding: "utf8", timeout: TIMEOUT_MS },
-);
+const run = autofix(ROOT, [rel], {
+  timeoutMs: TIMEOUT_MS,
+  lintArgs: ["--report-unused-disable-directives-severity=error", "--format", "json"],
+}).lint;
+
+if (!run) process.exit(0);
 
 // `run.error` covers a missing binary and the timeout. Empty output means oxlint
 // printed no report, so there is nothing to say.
