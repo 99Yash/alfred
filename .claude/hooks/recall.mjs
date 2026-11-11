@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 // Recall hook for the repo lessons system (.lessons/).
 // Modes:
-//   session-start  -> inject the always-on lessons index
-//   prompt         -> inject full lessons whose keywords match the user's prompt
-//   pre-edit       -> inject full lessons whose globs match the file being edited
+//   session-start  -> inject a short pointer to .lessons/ (not the index: it is too big)
+//   prompt         -> inject one pointer line per lesson whose keywords match the prompt
+//   pre-edit       -> inject one pointer line per lesson whose globs match the edited
+//                     file, only for a file inside this repo or one of its worktrees
+// Each hook injects pointers, not lesson bodies: the agent opens the file it needs.
 // Reads hook JSON from stdin (prompt/pre-edit), prints hookSpecificOutput JSON to
 // stdout, and exits 0. Prints nothing when there is no match (no injection).
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const mode = process.argv[2] || "session-start";
 
 const ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
 const LESSONS_DIR = join(ROOT, ".lessons");
-
-const INDEX = join(LESSONS_DIR, "INDEX.md");
 
 const EVENT =
   {
@@ -127,20 +127,44 @@ function parseLesson(path) {
   return { path, fm, body };
 }
 
-function renderLesson({ path, fm, body }) {
-  return `## Lesson: ${fm.title || basename(path)}\n_(.lessons/${basename(path)})_\n\n${body}`;
+function pointerLine({ path, fm }) {
+  const symptom = typeof fm.symptom === "string" ? fm.symptom : "";
+  const hook = symptom.length > 200 ? `${symptom.slice(0, 200)}…` : symptom;
+  return `- ${fm.title || basename(path)} (.lessons/${basename(path)})${hook ? ` — ${hook}` : ""}`;
 }
 
-// ---- session-start: inject the index -------------------------------------
-if (mode === "session-start") {
-  if (!existsSync(INDEX)) process.exit(0);
-  const idx = readFileSync(INDEX, "utf8");
+// The repo-relative path of `fp`, when `fp` sits in this repo or in one of its git
+// worktrees (a sibling checkout whose `.git` file points into ROOT/.git). Else null.
+function repoRelative(fp) {
+  const rootGit = join(ROOT, ".git");
+  let dir = dirname(fp);
 
-  if (!/^\s*-\s+\[/m.test(idx)) process.exit(0); // no lessons yet
+  while (dir !== dirname(dir)) {
+    const git = join(dir, ".git");
+
+    if (existsSync(git)) {
+      if (dir === ROOT) return relative(dir, fp);
+      try {
+        return readFileSync(git, "utf8").includes(rootGit) ? relative(dir, fp) : null;
+      } catch {
+        return null; // a .git directory: another repo
+      }
+    }
+    dir = dirname(dir);
+  }
+
+  return null;
+}
+
+// ---- session-start: a short pointer, not the index -------------------------
+if (mode === "session-start") {
+  const count = listLessonFiles().length;
+
+  if (!count) process.exit(0);
   emit(
-    `# Repo lessons (.lessons/)\n` +
-      `Durable, hard-won lessons from past sessions. Before debugging or editing, check whether one applies and open its file for the full fix. \`/recall\` searches them, \`/learn\` adds one.\n\n` +
-      idx.trim(),
+    `Repo lessons: ${count} files in .lessons/ (index: .lessons/INDEX.md). ` +
+      `Hooks name the matching lessons before a prompt or an edit; open a file only when it applies. ` +
+      `\`/recall <topic>\` searches them, \`/learn\` adds one.`,
   );
 }
 
@@ -196,8 +220,8 @@ if (mode === "prompt") {
 
   if (!top.length) process.exit(0);
   emit(
-    `# Possibly relevant repo lessons\nPast lessons that may apply to this request — check before proceeding:\n\n` +
-      top.map(({ lesson }) => renderLesson(lesson)).join("\n\n---\n\n"),
+    `Repo lessons that may apply (open a file only if it does):\n` +
+      top.map(({ lesson }) => pointerLine(lesson)).join("\n"),
   );
 }
 
@@ -215,7 +239,9 @@ if (mode === "pre-edit") {
   const fp = (input.tool_input && input.tool_input.file_path) || "";
 
   if (!fp) process.exit(0);
-  const rel = fp.startsWith(ROOT) ? fp.slice(ROOT.length + 1) : fp;
+  const rel = repoRelative(fp);
+
+  if (!rel) process.exit(0);
   const base = basename(rel);
   const matches = [];
 
@@ -228,7 +254,7 @@ if (mode === "pre-edit") {
 
   if (!matches.length) process.exit(0);
   emit(
-    `# Repo lesson for ${rel}\nA past lesson covers files like this — apply it:\n\n` +
-      matches.slice(0, 3).map(renderLesson).join("\n\n---\n\n"),
+    `Repo lessons for ${rel} (open a file only if it applies):\n` +
+      matches.slice(0, 3).map(pointerLine).join("\n"),
   );
 }
