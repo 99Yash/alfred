@@ -16,6 +16,8 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **Identity.** A key that names one thing, for example an email address, a PR URL, or an alarm ARN. Two records with the same identity are the same thing. Table: `entity_identities`.
 
+**Name.** A word that the user or a source uses for a thing, for example "alfred" for the repository `99Yash/alfred`. A name is not an identity: it is not unique, and two things can have the same name. Each name link keeps its evidence. Alfred resolves a name to a thing before it acts ([memory.md](./memory.md), ADR-0123). Not built.
+
 **State.** The current condition of a thing, for example `open`, `merged`, or `failed`. Only a provider fact can set a state. A mail from the service itself is a provider fact for a thing that no connected provider tracks (ADR-0120). Table: `integration_objects`.
 
 **Loop.** A thing, or a condition in the user's words, that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A thing loop closes when a fact sets its thing to `resolved` or `abandoned`; a condition loop closes when a matched event meets the condition (ADR-0122, which supersedes the ADR-0120 definition).

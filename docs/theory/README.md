@@ -9,6 +9,7 @@ Read this page before you design a change, add a prompt rule, a floor, a table, 
 | [product-flow.md](./product-flow.md)         | The built flow, verified against code and production, one section per area.  |
 | [triage.md](./triage.md)                     | The settled target for email triage (ADR-0121).                               |
 | [context-graph.md](./context-graph.md)       | The settled model of things, links, and state.                               |
+| [memory.md](./memory.md)                     | The settled theory of memory: claims, name links, and the check job (ADR-0123). |
 | [product-direction.md](./product-direction.md) | The owner's plan compared with Dimension and with the built code.          |
 | [state-machines.md](../reference/state-machines.md) | Each status machine, its transitions, and its invariants.              |
 
@@ -114,7 +115,7 @@ A stage can be Settled and Not built, or Open and Built. Both are valid states. 
 | Object state and loops | Settled for provider objects ([context-graph.md](./context-graph.md)) | Partly                                   | [product-flow §4](./product-flow.md#4-briefings-and-object-state)                                         | 3, 4       | Open: a loop that starts from chat or that crosses sources.                                                                                     |
 | Briefing               | Partly                                                                 | Built                                    | [product-flow §4](./product-flow.md#4-briefings-and-object-state)                                         | 4, 7       | It reports loops. It cannot close one or ask the user to verify one.                                                                            |
 | Chat                   | Partly                                                                 | Built                                    | [product-flow §5](./product-flow.md#5-chat-the-boss-agent)                                                | 1, 4, 7    | Chat cannot see briefings or triage labels. Alfred cannot send a message outside a turn.                                                        |
-| Memory over time       | Partly (long-term substrate frozen)                                    | Partly                                   | [product-flow §5](./product-flow.md#5-chat-the-boss-agent)                                                | 3, 5       | Chat memory capture writes nothing (`TODO(#399)`). Open: the triage profile (ADR-0121 decision 6) and how memory keeps it current.             |
+| Memory over time       | Settled (ADR-0123, [memory.md](./memory.md)), except Q6                | Not built (old direct writes)            | [memory.md §8](./memory.md#8-theory-state-and-code-state)                                                 | 1, 4, 5    | No name lookup, no evidence on claims, no check job (needs Code Mode, #535). Open: Q6 (unconfirmed claims and their UI), the triage profile (ADR-0121 decision 6). |
 | Loop closing and asks  | Open (ADR-0121 plan: "needs its own session")                          | Not built                                | none yet                                                                                                  | 2, 4, 6    | The Muse example. See section 4.                                                                                                                |
 
 ---
@@ -128,7 +129,7 @@ A foundation is a piece that many later stages read. Build a settled foundation 
 | One reader of the stored mail (mail facts)   | Partly  | Triage, loop joins, briefing, the user model                     |
 | Only the user's actions are evidence         | Settled | Triage, memory, the triage profile                               |
 | A tracked thing for each open matter (loop)  | Partly  | Loop closing, asks, briefing, todos, chat                        |
-| Memory that writes from chat                 | Partly  | The triage profile, loops from chat, chat itself                 |
+| Memory: claims with evidence, name links, the check job ([memory.md](./memory.md)) | Settled | Chat (resolve a name), triage, briefing, loops from chat, the triage profile |
 
 The order:
 
@@ -140,7 +141,7 @@ The order:
    - Alfred asks the user to verify before it closes (the autonomy ladder: report, verify, close).
 
    To settle with the owner: is an open matter from chat a thing in the context graph? Which evidence may join to it, and who decides the join (the model, by principle 4)? When may Alfred speak first?
-3. **Memory that writes from chat, and the triage profile.** Both need the loop theory from item 2, because an open matter from chat is also a memory. Settle them in the same session as item 2 or the session after it.
+3. **Memory, built from its settled theory.** [memory.md](./memory.md) settles claims with evidence, name links, chat capture, and the check job. It depends on the context graph, not on the loop theory. Build it in the order of memory.md section 10. The check job waits for Code Mode (#535). The triage profile is still open, and an open matter from chat waits for the loop theory from item 2.
 4. **Cold start from the mailbox and the calendar.** The first day is the first impression. It depends on the mail-facts reader from item 1.
 
 ---
