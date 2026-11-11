@@ -1,6 +1,6 @@
 # ADR-0122 — Each source declares what it can tell, a state is a projection of facts, a pointer says what touches the user, and each loop verdict carries its proof
 
-**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed. A late integration closes open loops through a map when Alfred reads, a key alias, and one run on connect, with no sweep.
+**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed. A late integration closes open loops through a map when Alfred reads, a key alias, and one run on connect, with no sweep. **Amended 2026-11-11 (owner decision):** decision 3c removes the declarations for each kind. A thing is a key from the evidence, the model judges each verdict with cites, and code checks only who may close, the cites, and that absence never closes. Decision 3c supersedes the kinds, states, and MCP mappings of decision 1, all of decisions 3a and 3b except the writer and the brand, and rule 4 of decision 5. It reverses the rejected alternatives (e) and (i).
 
 **Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider.
 
@@ -42,6 +42,8 @@ This is why a pointer points at the real things and not at the mail: one mail ca
 ## Decisions
 
 ### 1. A source declares what it can tell, as typed data
+
+> Superseded in part by decision 3c (2026-11-11). A source no longer declares `kinds`, `states`, or an identity, and a custom MCP server has no mapping. A source declares only its domains, and Code Mode does its reads. `ingest`, `coverage`, and decision 1a stay.
 
 Each source has one declaration. A built-in source declares it on its `INTEGRATIONS` entry (ADR-0093), so the compiler checks it. A custom MCP server stores a reviewed declaration with the server (ADR-0118 decision 5), and Alfred parses it at the boundary. The key is the `SourceIdentity` of ADR-0118 decision 2. `ObjectStateProvider` is removed.
 
@@ -170,6 +172,8 @@ The writers:
 
 ### 3a. One typed writer for pointers, with types from the source declaration
 
+> Superseded in part by decision 3c (2026-11-11). The identity schema, the spellings, the typed `ThingRef` arms, and the MCP route go away. `writePointer`, the `Grounded` brand, the empty target list, and the read side that fails closed stay.
+
 Amended with the owner on 2026-11-08. Four writers make pointers (decision 3). Each writer must not spell a thing or a key in its own way. Thus one function writes every pointer, and its types come from the declarations of decision 1.
 
 **The identity of a kind is a zod schema.** Today the kinds in `INTEGRATION_OBJECT_DEFS` have a lifecycle, but no typed identity. Slice 1 adds it:
@@ -257,6 +261,8 @@ Why:
 
 ### 3b. A thing with no declaration is an open thing, and no connection is needed
 
+> Superseded by decision 3c (2026-11-11). Each thing is now keyed by its domain and its key from the evidence, so the open arm is the only arm. `OPEN_KINDS` and the stated category go away. A connection does not change the key, so the alias stays only for a short form that a read confirms. The one run on connect and the rule of no sweep stay.
+
 Amended with the owner on 2026-11-08. A mail can name a thing of a service that Alfred has no integration for, for example a Jira mail about `PROJ-91`. A pointer must not depend on a connection or on an MCP client. A declaration only adds better types and a `read`. Without a declaration, the pointer still exists, and the loop still opens.
 
 ```ts
@@ -293,6 +299,69 @@ Why:
 
 - **No source is first class for the pointer.** The owner does not connect every service that sends mail. A connection adds a read and better types, but the question "does this touch me?" comes from the evidence, not from the connection.
 - **One rule for every source.** A built-in source, a custom MCP server, and an unknown service all go through the same writer, the same grounding, and the same `thingKey`. Only the strength of the proof changes.
+
+### 3c. No declaration for each kind: a thing is a key from the evidence, and the model judges with cites
+
+Amended with the owner on 2026-11-11. Alfred does not declare the things of each source in code. The model says which things the evidence names, what the evidence asks of the user, and whether a loop is closed. Code checks three guarantees only:
+
+1. **Who may close.** Only the source that owns the thing, or the user.
+2. **Each closure cites stored evidence.** The cited fact or tool output exists and holds the quoted words.
+3. **Absence never closes.** A failed read gives `unverified` (ADR-0048 decision D).
+
+Why:
+
+- **A declaration for each kind is the vendor grammar again.** Spellings replace the regexes of `loop-key.ts`, and a `states` map replaces a sender list. Both are code verdicts about words that the model can read (theory principles 1 and 4).
+- **It fails for the user's own integrations.** It works only for the kinds that someone wrote code for. Decision 1 needed a second machine for custom MCP servers: a reviewed mapping, pinned to the hash of its tool.
+- **A loop closes on the ask, not on the state of the thing.** "Review PR #12" closes when the user submits a review, and the PR is still open. "Fix the flaky CI on PR #12" closes on a green run. A map from native states to categories cannot say this. The model reads the ask and the source's words together.
+- **Code Mode is the read path (ADR-0124).** A program can call the tools of any connection, built-in or MCP. Code stores the output and checks the cites.
+
+**A thing is a key from the evidence.**
+
+```ts
+type ThingRef = {
+  domain: RegistrableDomain;  // who owns the thing: github.com, linear.app, atlassian.net
+  key: string;                // the canonical URL, or the id exactly as written ("PROJ-91")
+  label?: string;             // for display only: "PR #12 in acme/api"
+};
+```
+
+- **A URL first.** When the evidence or a source gives a URL, the key is the URL. Normalization removes the fragment, a trailing slash, and `utm_*` parameters. It keeps other parameters, because some are part of the identity (`?environmentId=`).
+- **No URL: the id as written.** The domain comes from the DMARC-passed From domain, or from the domain of a link in the text. With no domain, the target is dropped.
+- **A code writer uses the source's own URL.** A GitHub webhook gives `html_url`.
+- **No kind field.** The label is for display. Nothing reads it as a rule.
+- **The key does not depend on a connection.** `atlassian.net` and `PROJ-91` is the same key before and after the owner connects Jira.
+- `thingKey(ref)` stays the only key builder: the domain and the normalized key.
+
+**A pointer target names its thing with a quote.**
+
+```ts
+type PointerTarget = {
+  thing: ThingRef;
+  quote: string;                          // the words in the evidence that name the thing
+  ask?: string;                           // what the evidence asks of the user, in its words: "review"
+  stance: "opens" | "closes" | "mentions";
+  said?: string;                          // the state that the evidence states, in its words (decision 1a)
+  canonical?: string;                     // a URL that the model thinks is the same thing
+};
+```
+
+- `groundInText` passes when the quote and the key occur in the text. `groundByRead` passes when a read of the owning source finds the thing at the key, or at `canonical`. No spellings exist.
+- `said` replaces `claims`, because "claim" is the word for a memory statement (ADR-0123). Decision 1a compares `said` with a read to learn or revoke a domain.
+- **A short form.** A text can hold `acme/api#12` and no URL. The key stays `acme/api#12`. Alfred uses `canonical` as the key only after a read confirms it. The loop then keeps its first key, and the check log records the alias.
+- A chat message that names no id needs `groundByRead`, or a name link from memory (ADR-0123).
+
+**A fact is the source's own words.** `Fact.nativeState` becomes `said`: the source's words, a quote from `evidence`. A fact holds no category. A fact counts only when it comes from the owner of the thing: a connection whose domains include the domain of the thing, or a mail under decision 1a. A mail that fails this check is a pointer.
+
+**The domains of a connection are the only data that a source declares.** For a built-in, they are on its `INTEGRATIONS` entry. For a custom MCP server, the model proposes them from the catalog at connect, and the owner confirms them one time. A person confirms them, because they are a security guarantee.
+
+**The verdict.** For each loop in the set with a new fact or a new pointer since its last verdict, a cheap model reads the asks and the quotes of the `opens` pointers and the newest facts. It gives `open`, `closed`, or `unverified`, its cites, and a one-line `why`. Then code checks the proof:
+
+- `closed` needs at least one cite: a fact from the owner of the thing, or the user's own word. Without a valid cite, code changes the verdict to `unverified`.
+- Each cite exists, belongs to this loop, and holds the quoted words.
+- A read that the judge needs is a read-only Code Mode program over the tools of the owning connection. Code stores the output, and the fact must quote it. No connection gives `read_failed: no_reader`.
+- A loop with no new input keeps its last verdict. No model call runs.
+
+`LoopProof` gets `why` and `judgedBy: { model, runId }`. A replay reads the stored verdict and its cites; it does not call the model again. This replaces rule 4 of decision 5 ("`decide` is pure"). The `mapping_stale` reason of `read_failed` goes away.
 
 ### 4. A loop is a view of what pointers hold open; it is not a work item
 
@@ -343,7 +412,7 @@ The rules:
 1. **No verdict without a cause.** The type holds at least one cause.
 2. **Each closure names its writer.** A `closed` verdict cites a fact or a matched event.
 3. **Absence is a cause.** A pointer that resolves to nothing gives `no_thing`, not silence. The Vercel and security mails of today get a visible cause.
-4. **`decide` is pure.** Its input is ids of stored rows. Anyone can replay a verdict from the check log.
+4. **`decide` is pure.** Its input is ids of stored rows. Anyone can replay a verdict from the check log. *Superseded by decision 3c: a cheap model judges the verdict, code checks its cites, and a replay reads the stored verdict.*
 5. **One `LoopKey` everywhere.**
 
 **A matched event may close a condition loop (owner decision, 2026-11-07).** The matcher is a cheap model. It reads the events after the pointer that fit `watch`, and it must cite the event and the text that matched (ADR-0109 rule 3). Code checks each citation against the stored event. The proof keeps the rationale, and the briefing shows it in one line. A matched event closes the condition pointer only. It never sets the state of a thing.
@@ -380,26 +449,26 @@ ADR-0120 decision 9 stays, on the new types. `loops.open()` gives the loop set. 
 
 Each slice keeps the product working. The order is a strangler, not a big-bang rewrite.
 
-1. **Source declarations, no change in behavior.** Put `kinds`, `mail.domains`, `read`, and `coverage` on the `INTEGRATIONS` entries. Give each kind its identity schema and spellings, and derive `ThingRef`, `thingRefSchema`, and `thingKey` from them (decision 3a). Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
-2. **Facts.** Each `ingest` and `read` gives `Fact`. Write the fact rows, make `integration_objects` a projection, and migrate each existing version to a fact. Prove that a replay gives the same rows. Parse the `Authentication-Results` header at the Gmail ingest boundary into the document metadata, and backfill it from the stored `raw` message. A service mail is a fact only with `dmarc=pass` for a seed domain (decision 1a).
-3. **Pointers.** Add `writePointer`, `groundInText`, `groundByRead`, and `pointerSchema` (decision 3a), with the open arm and `OPEN_KINDS` (decision 3b). Write pointer rows at triage from the current keys and links. Backfill them from `email_interpretation`, and make todos a pointer source. Remove `email_interpretation`.
-4. **`verifyLoops` with proof.** Add the pure `decide`, `LoopProof`, and the check log. Make the source reads the needs. Move the verified pulls and the MCP health read into `source.read` as mappings. `list_loops` returns proofs.
+1. **Source domains, no change in behavior.** Put `mail.domains` and `coverage` on the `INTEGRATIONS` entries. Add `ThingRef` and `thingKey` (decision 3c). Add the `SourceIdentity` columns to `integration_objects` and `observations` (ADR-0118 decision 2). Remove `ObjectStateProvider`. Make the registry entries for Railway and Vercel tell the truth.
+2. **Facts.** Each `ingest` and `read` gives `Fact`. Write the fact rows, make `integration_objects` a projection, and migrate each existing version to a fact. Prove that a replay gives the same rows. Each fact keeps the source's words as `said` (decision 3c). A service mail is a fact only with `dmarc=pass` for a seed domain (decision 1a). The check reads the stored `Authentication-Results` header from `documents.raw`, so it needs no ingest parse and no backfill.
+3. **Pointers.** Add `writePointer`, `groundInText`, `groundByRead`, and `pointerSchema` (decisions 3a and 3c). Write pointer rows at triage from the current keys and links. Backfill them from `email_interpretation`, and make todos a pointer source. Remove `email_interpretation`.
+4. **`verifyLoops` with proof.** Add the model judge, the code check of its cites, `LoopProof`, and the check log (decision 3c). A read is a read-only Code Mode program. Move the verified pulls and the MCP health read into those programs, and remove the MCP health mapping. `list_loops` returns proofs.
 5. **One gather.** Remove `deploy_status` and `github_merged`. Count day shape from activity. Remove the `#1684` lint carve-outs in `briefings/`.
-6. **The classifier states the targets.** The output schema is `thingRefSchema`, and `groundInText` is the containment check. Add the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`. Add `claims` to the targets, and add the domain observations that `verifyLoops` learns and revokes (decision 1a). Add the open targets and their stated category, and the read-time mapping of an open ref to a declared kind (decision 3b).
-7. **Conditions.** Add the chat `track` tool, condition pointers, and the matcher.
+6. **The classifier states the targets.** Each target has a thing, a quote, an ask, a stance, and `said` (decision 3c). `groundInText` is the containment check. Add the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`, the kinds and lifecycles of `INTEGRATION_OBJECT_DEFS`, and the reducers that map provider words to a category. Add the domain observations that `verifyLoops` learns and revokes (decision 1a).
+7. **Conditions.** Add the chat `track` tool, condition pointers, and the matcher. This slice waits for the theory of a loop that starts in chat (`docs/theory/README.md`, section 4, item 2).
 8. **Code Mode.** Add the host functions of decision 7.
 
 ## Where this touches the rest of the app
 
 | Area | Change |
 | --- | --- |
-| `@alfred/contracts` | Remove `OBJECT_STATE_PROVIDERS`. Move `INTEGRATION_OBJECT_DEFS` into the source `kinds`. Collapse `LOOP_ENTITY_PROVIDERS`, `TRACKER_SENDER_PATTERNS`, and `MCP_HEALTH_IDENTITY_PROVIDERS`. Remove `deploy_status` and `github_merged` from `GATHER_INPUTS`. `BriefingLoop` becomes `LoopProof`. `TodoObjectRef` and `evidenceObjectClosesAsk` use `ThingRef`. |
+| `@alfred/contracts` | Remove `OBJECT_STATE_PROVIDERS`. Remove the kinds and lifecycles of `INTEGRATION_OBJECT_DEFS`, and keep only the domains (decision 3c). Collapse `LOOP_ENTITY_PROVIDERS`, `TRACKER_SENDER_PATTERNS`, and `MCP_HEALTH_IDENTITY_PROVIDERS`. Remove `deploy_status` and `github_merged` from `GATHER_INPUTS`. `BriefingLoop` becomes `LoopProof`. `TodoObjectRef` and `evidenceObjectClosesAsk` use `ThingRef`. |
 | Database | Add the source columns to `integration_objects` and `observations`. The MCP rows stop packing the connection id in `externalId`. Add the fact, pointer, and loop-check observation kinds. Repoint `integration_object_relations` at `integration_objects`. |
 | Object state | The 8-member event union and the 4 reducers become `ingest` parsers and one reducer. `OBJECT_STATE_ADAPTERS`, `VERIFIED_PULLS`, and `LOOP_VERIFIERS` go away. The GitHub backfill script changes. |
 | Activity (ADR-0118) | `OBSERVATION_REDUCERS`, `ACTIVITY_SOURCES`, and `SilenceEvidence` merge into the source declaration. Coverage no longer needs an inbound webhook source. |
-| Gmail ingest | Parse the `Authentication-Results` header into the document metadata (decision 1a). No code reads it today. |
+| Gmail ingest | No change. The authority check reads `dmarc=pass` from the stored `Authentication-Results` header in `documents.raw` when it runs (decision 1a). It needs no ingest parse and no backfill. |
 | Triage | `object-links.ts` becomes the pointer writer. The classify output gets targets. The todo object comes from the pointer. `runEmailTriageCloseLoopTodos` stops closing todos on the `payment` label. |
-| MCP | The health mapping becomes a general read and ingest mapping, with the presets of ADR-0118 decision 5. Each mapping stays pinned to the `descriptorHash` of its tool. A changed tool gives `mapping_stale`, and a new mapping that a model writes is used only when it gives the same state for a thing with a confirmed fact (decision 1). |
+| MCP | The health mapping goes away. A read is a read-only Code Mode program over the tools of the connection (decision 3c). At connect, the owner confirms the domains of a custom server one time. |
 | Briefing | `gather.ts`, `provenance.ts`, `list_loops`, the composer prose, `read.ts` `deriveLoopKey`, `open-ask-guard.ts`, and day shape. |
 | Chat | The new `track` tool. |
 | Context Search | `object-state-source.ts`, `documents-source.ts`, and `object-ref.ts` use `ThingRef`. |
@@ -416,13 +485,13 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 ## Residual risk
 
 - **A loop outside the window is not read again after a late integration.** If the owner connects a service three weeks after a mail, a loop from that mail can stay `unverified`. A new pointer to the same thing brings it back into the set.
-- **An alias that maps wrong joins the facts of two things.** The mapping parses the open identity against the declared schema, and the domain must be a domain of the source. A wrong alias shows in the proof, because the proof cites the facts of both keys.
+- **An alias that maps wrong joins the facts of two things.** After decision 3c, an alias needs a read of the owning source that finds the thing at `canonical`. A wrong alias shows in the proof, because the proof cites the facts of both keys.
 
-- **The model can give one open thing two kinds.** The closed list `OPEN_KINDS` limits this, but `issue` and `other` can still split one thing. The back-test of slice 6 counts the splits.
-- **A stated category for an open thing comes from a model.** Only a mail from the authenticated domain of the thing makes it a fact. A wrong category from that mail can close a loop. A later mail from the same domain corrects it through the recency guard.
-
-- **A spelling can match by chance.** A short spelling, for example `{key}` for a Linear issue, can occur in text that is not about the thing. The grounding step proves presence in the text, not meaning. The back-test of slice 6 measures this.
-- **The type of a derived union can grow large.** One arm for each pair of a source and a kind can slow the compiler. If it does, the writer can take the arms of one source at a time.
+- **A short form and a URL give two keys for one thing (decision 3c).** They join only when a read confirms `canonical`. A text with "PR 12" and no repository names no key; memory resolves that name. The back-test of slice 6 counts the splits.
+- **The model can judge a verdict wrong (decision 3c).** A wrong closure still needs a valid cite from the owner of the thing, and the proof shows `why` and the cited words. A weekly sample of closures, which the owner reviews, gives eval cases, as the memory check job does.
+- **A quote proves presence, not meaning (decision 3c).** A key can occur in a text that is not about the thing. The back-test of slice 6 measures this.
+- **The judge costs one model call for each loop with new input.** The loop set has a limit, and a loop with no new input gets no call.
+- **The owner can confirm a wrong domain for a custom MCP server.** Then that server can close a thing of that domain. The proof names the connection, so the owner can see it.
 
 - **The classifier can miss a target.** The containment check stops a false target, not a missed one. The back-test of slice 6 measures the misses before the regexes go.
 - **A matched event can close a condition loop by mistake.** The proof shows the rationale and the cited text, so the owner can see it. A new `opens` pointer opens the loop again.
@@ -430,7 +499,6 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **A two-step link walk can miss a deeper chain.** The bound keeps the reads small. A longer chain needs a new decision.
 - **A vendor without DMARC gives no mail facts.** Some vendors publish no DMARC record, or sign only with the domain of their mail provider. Their mail stays a pointer, and their things need reads. This is the safe direction.
 - **A learned domain can rest on weak proof.** A domain that claims only the common state, for example `open`, gets confirmations easily. The rule of 2 different things limits this, and one conflict revokes the domain. A newer read always wins over a mail fact.
-- **A repaired MCP mapping is checked on one thing only.** A new mapping can give the right state for that thing and a wrong state for another. The next conflict with a mail claim or a newer read shows it.
 - **A source with no `coverage` is always blind.** Each of its things needs a live read when its state is old, so the run cap limits these sources first.
 
 ## Rejected alternatives
@@ -439,11 +507,13 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **(b) A `loops` table.** It copies the thing and the pointers, and its state would come from inference (ADR-0120 alternative (a)).
 - **(c) Store the resolved row in the pointer.** The row can change after the mail, and a thing with no row at triage time could never match.
 - **(d) Keep `integration_objects` written in place, with a separate fact log.** Two records of one state can disagree, and nothing proves that the log is complete.
-- **(e) A model live read for custom MCP sources.** A reviewed mapping is repeatable and costs no model call. The ADR-0109 model read stays only for soft edges.
+- **(e) A model live read for custom MCP sources.** A reviewed mapping is repeatable and costs no model call. The ADR-0109 model read stays only for soft edges. *Reversed 2026-11-11 by decision 3c: a mapping needs code for each tool and goes stale when the tool changes. A Code Mode read with cites that code checks gives the same guarantee.*
 - **(f) Make each loop a todo.** The user would see and edit a record that Alfred derives. A todo stays the work item, and it is one source of pointers.
 - **(g) A list of official sender addresses for each source.** Nobody knows all the addresses in advance, and they change. The list also lets a relay that copies an address pass (decision 1a).
 - **(h) The owner confirms each learned domain.** The owner chose autonomous learning on 2026-11-08. The proof of each learned domain is stored, and one conflict revokes it.
-- **(i) A hand-written identity type for each source, or a string key.** A second type drifts from the declaration, and a string key lets each writer spell it in its own way. Decision 3a derives both from one schema.
+- **(i) A hand-written identity type for each source, or a string key.** A second type drifts from the declaration, and a string key lets each writer spell it in its own way. Decision 3a derives both from one schema. *Reversed 2026-11-11 by decision 3c: the key is a domain and a URL or an id from the evidence, and `thingKey` is still the only function that builds it.*
 - **(j) Keep only the targets of declared kinds.** A mail from a service that the owner did not connect would open no loop. The owner decided on 2026-11-08 that a pointer must not depend on a connection (decision 3b).
-- **(k) A free word for the open kind.** One thing could get two keys and give two loops. A closed list is the cost of one key.
+- **(k) A free word for the open kind.** One thing could get two keys and give two loops. A closed list is the cost of one key. *Moot after decision 3c: a thing has no kind.*
 - **(l) A sweep that rewrites old pointers and merges old rows when a source connects.** Its cost grows with the history, and most of the rows belong to loops that are closed or outside the window. The owner rejected it on 2026-11-08.
+- **(m) Keep the declarations for the built-in sources as a fast path, and use the model for the others.** Two paths give two sets of rules for one question, and the declared path still cannot see the ask (decision 3c).
+- **(n) A map from native states to categories, with the model as a fallback.** The map is a sender list for states, and it decides the state of the thing, not whether the ask is done (decision 3c).
