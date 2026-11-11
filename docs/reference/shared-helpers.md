@@ -96,6 +96,9 @@ it. Policy and every blind spot live in `knip.json`.
 | show a date or a relative time (web) | `formatDateTime(iso, { today, yesterday, year, locale, invalid })` / `formatRelative(iso, { style, invalid })`; with no options each gives the plain text, and each option opts one caller into one rule | `apps/web/src/lib/date-format.ts` | a private same-day or "today at" date formatter in a feature file |
 | render retrieved evidence as bounded model context                                             | `packEvidenceCards`                                                                                                                                                                                                                                                                                                | `@alfred/assistant/context-search` | hand-joining snippets and citations, or letting a full body or raw bytes reach the model                                                                                    |
 | a slot the composition root fills once at boot and a peer reads | `bootPort<T>(label, { missing })` — `install` returns the disposer, `read()` throws on an empty slot; pass `missing` when a caller needs a typed error (a `TriggerConsumerBootError` on a trigger-reachable slot) | `@alfred/assistant/boot-port` | a `let slot: T \| undefined` with its own collide, stale-disposer, and empty-read checks |
+| gate a Gmail mailbox mutation (label, archive, send) | `gmailMailboxWritesEnabled()` | `@alfred/env/server` | a read of the raw env field |
+| normalize an entity identity before you mint or dedup it | `canonicalizeIdentityValue(kind, value)` | `@alfred/contracts` | a local lowercase or trim per identity kind |
+| show a slug or a complete tool name to the user | `humanizeSlug` (closed literal union) / `humanizeToolName(toolName)` | `@alfred/contracts` | a local `replace(/_/g, " ")` and capitalize |
 
 ## Catalog — canonical owners
 
