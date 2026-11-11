@@ -72,6 +72,7 @@ A new value supersedes the old row. Alfred never deletes the history.
 - **The author label has a code check.** The model can label a claim "user-asserted" only when it quotes the user's words that state it. Code checks that the quote is in that user message. All other claims are agent-concluded.
 - **Web research is evidence, and the model judges its credibility.** For one normal person, most pages are pages that the user controls (LinkedIn, a personal site, a GitHub profile). The weak link is the model's synthesis, not the page. So each claim cites the page for that claim, with facts about its credibility: the URL, the domain, whether the user controls it (if known), and the fetch date. Capture stores a text snapshot of the page, so the check can read it again offline.
 - **A user correction wins at once.** It writes a user-asserted claim that supersedes the old claim.
+- **A user edit to an Alfred output is evidence.** Today these are the `todo_events` rows with the cause `edited` or `dismissed`. The model judges what the edit says. Code does not count repeats. One edit can be enough, for example a corrected due date. For a preference, the claim cites the edits that show it. The difference between an Alfred draft and the mail that the user sent waits until the user uses Alfred drafts.
 
 ## 6. The check job
 
@@ -87,7 +88,7 @@ The check job is Alfred's "dreaming". It finds claims that were wrong from the s
 
 A limit on rows for each run keeps each model call below 100k prompt tokens. When the work set is larger, the rows with the oldest check go first. The run records the count of rows that it did not check.
 
-**How.** The model is Claude Haiku 5.5 (`claude-haiku-5-5`; see [the Haiku research](../research/claude-haiku-default-model.md)). It writes a Code Mode program (ADR-0087) that has read host functions only. It has no write host function and no network. The program reads:
+**How.** The model is Claude Haiku 5.5 (`claude-haiku-5-5`; see [the Haiku research](../research/claude-haiku-default-model.md)). It writes a Code Mode program (ADR-0087, ADR-0124) that has read host functions only. It has no write host function and no network. The program reads:
 
 - the evidence linked to the row,
 - newer evidence about the same thing since the last check, through the context graph (for a claim with no thing, such as a tone preference, the user's own chat turns and corrections), and
@@ -102,6 +103,7 @@ A limit on rows for each run keeps each model call below 100k prompt tokens. Whe
 | Each cited evidence id exists, and the host call ledger shows that the program read it.          | Code  |
 | An agent-concluded claim whose evidence is all gone is retired (reason `evidence_gone`).         | Code  |
 | Retire sets the end of validity and the status. Nothing is deleted.                              | Code  |
+| A run applies at most `max(3, 15%)` of its work set as `correct`, `merge`, or `retire`. The other changing verdicts wait for the next run, and the run record logs their count. A bad-producer run that the owner starts has no cap. | Code  |
 | A user-asserted claim is never called wrong for its own time.                                    | Code  |
 | A user-asserted claim is superseded only by evidence dated after the user said it.               | Code  |
 | Supersede a user-asserted claim, or ask the user: this depends on the content.                   | Model |
@@ -112,6 +114,8 @@ A user-asserted claim is the authority for its own time, not forever. Example: "
 **Capture misses.** A `correct` verdict that cites evidence newer than the row gets the tag `capture_miss`. The check repairs the row, and the tag keeps the capture fault visible. Each `capture_miss` becomes an eval case for capture (principle 1).
 
 **A bad producer.** When a producer version is found bad, code adds all rows from that version to the next work set.
+
+**Why the cap.** A model that finds half of memory wrong is more likely to be wrong itself (the same cap is in [the Polylane memory post](../research/polylane-blog-2026-11-11.md#1-memory)). Retire keeps the history, but every chat run reads the result until the weekly review finds the fault. The owner's start is the authority for a larger change.
 
 ## 7. Observability: how memory quality is measured over time
 
@@ -140,7 +144,7 @@ Until the UI exists, a script prints the weekly report and the review sample.
 | Chat capture                           | Settled | Partly    | The extractor runs when its flag is on, and it discards its output (`TODO(#399)` in `chat/chat-memory-capture.ts`). The flag is off in prod. |
 | Author label with a quote check        | Settled | Not built | Prod has 6 confirmed rows with source `user`, all standing instructions.                                                |
 | Web evidence with a page for each claim | Settled | Partly   | Cold start keeps the run id and all URLs of the run, not the page for each claim (`cold-start-research.ts`). Run cold start again under the new capture. |
-| Check job                              | Settled | Not built | It needs Code Mode, which is not built (#535).                                                                          |
+| Check job                              | Settled | Not built | It needs Code Mode (ADR-0124), which is not built (#535).                                                                          |
 | Observability rows                     | Settled | Not built | None of the rows exist.                                                                                                 |
 | Weekly review                          | Settled | Not built | No script exists.                                                                                                       |
 

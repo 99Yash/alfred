@@ -130,6 +130,7 @@ A foundation is a piece that many later stages read. Build a settled foundation 
 | Only the user's actions are evidence         | Settled | Triage, memory, the triage profile                               |
 | A tracked thing for each open matter (loop)  | Partly  | Loop closing, asks, briefing, todos, chat                        |
 | Memory: claims with evidence, name links, the check job ([memory.md](./memory.md)) | Settled | Chat (resolve a name), triage, briefing, loops from chat, the triage profile |
+| Code Mode as the read path ([ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md)) | Settled | Chat reads, the memory check job |
 
 The order:
 
@@ -141,7 +142,9 @@ The order:
    - Alfred asks the user to verify before it closes (the autonomy ladder: report, verify, close).
 
    To settle with the owner: is an open matter from chat a thing in the context graph? Which evidence may join to it, and who decides the join (the model, by principle 4)? When may Alfred speak first?
-3. **Memory, built from its settled theory.** [memory.md](./memory.md) settles claims with evidence, name links, chat capture, and the check job. It depends on the context graph, not on the loop theory. Build it in the order of memory.md section 10. The check job waits for Code Mode (#535). The triage profile is still open, and an open matter from chat waits for the loop theory from item 2.
+
+   Inputs for that session, from [the Polylane research](../research/polylane-blog-2026-11-11.md#5-agent-shape-and-autonomy): the line for autonomy is reversible versus not; the default verdict is silence; and one agent gathers the evidence and acts on it, with no hand-off between agents.
+3. **Memory, built from its settled theory.** [memory.md](./memory.md) settles claims with evidence, name links, chat capture, and the check job. It depends on the context graph, not on the loop theory. Build it in the order of memory.md section 10. The check job waits for Code Mode (ADR-0124, #535), which also gives chat its read path. The triage profile is still open, and an open matter from chat waits for the loop theory from item 2.
 4. **Cold start from the mailbox and the calendar.** The first day is the first impression. It depends on the mail-facts reader from item 1.
 
 ---
