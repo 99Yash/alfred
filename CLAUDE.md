@@ -1,36 +1,81 @@
-Alfred is a personal assistant.
+Alfred is a personal assistant. This file has two parts:
+
+- **Part 1, Philosophy:** what to build, and when to stop and think. It changes rarely. Its source is [the theory start page](./docs/theory/README.md).
+- **Part 2, Implementation:** how to write code in this repo: conventions, quirks, and references. A gate enforces much of it.
+
+Part 1 decides what to build. Part 2 decides how to write it.
+
+# Part 1: Philosophy
+
+Read [the theory start page](./docs/theory/README.md) before you design a change, add a prompt rule, a floor, a table, or a parser, or open an ADR. It holds the vision, the user lifecycle, the state of each stage, and the receipts for each principle below. Use the words in [CONTEXT.md](./CONTEXT.md), the glossary.
+
+**The vision.** Alfred is the best personal agent experience that the owner can have, on a system that the owner controls. The vision comes before every principle. If a principle and the vision disagree, tell the owner. Do not work around it.
+
+**Before you work on an area:**
+
+- Name its theory state (Settled, Partly, or Open) and its code state (Built, Partly, or Not built). The stage table on the theory page has both.
+- Settled: build it, slice by slice, with its gate. Partly: settle the open pieces with the owner first. Open: do theory work first. Do not patch the old code to cover the gap.
+- Read the owning theory page, [decisions.md](./decisions.md), and `sessions search` results. `decisions.md` is a snapshot table plus an index. The ADRs are one file each under [docs/decisions/](./docs/decisions/). Open the two or three that touch your change.
+- Treat one owner correction as a rule for the whole area, not for one diff.
+
+**Stop and rethink** when one of these occurs. Then write the theory (the job, and what counts as an error) before code:
+
+- An area gets its third patch.
+- A patch changes the behavior of nearby rules.
+- The same input gets different results with no new evidence.
+- Each fix opens more follow-up work than it closes.
+
+**The principles.** The theory page gives the reason and the receipts for each one. Change a principle there first, then here.
+
+1. A fix that only adds a rule (a prompt line, a floor, a regex, a sender list) is a warning. Name the principle that the fault breaks. Make the fault an eval case.
+2. Know when to stop and rethink (the list above).
+3. Reuse before you make. Find the existing parser, field, table, or settled model first.
+4. Facts go in, the model judges, and code owns only guarantees: security, the user's own correction, and a named person.
+5. The system must not learn from itself. Only what the user did is evidence.
+6. The product job comes before the mechanism. The owner decides the job, the worst error, and what Alfred may do alone. You decide the mechanism.
+7. The fewest moving parts. Send the model what it needs, in a clear shape.
+
+**Issues and next steps.** File an issue only from a settled theory, and state the job it does. Close an issue when a later design replaces its destination. When a gap looks easy, first find the foundation that it belongs to. Do not offer a patch as the next step.
+
+# Part 2: Implementation
+
+## Code
 
 - Derive source-of-truth shapes: use named Drizzle row types, `$inferInsert`, and `z.infer` instead of parallel interfaces.
 - Keep browser runtime code free of Node-only packages. Type-only imports are allowed only when TypeScript erases them; `pnpm check:web-boundaries` enforces the boundary.
 - Treat external, persisted, and protocol data as `unknown`; validate it at the owning boundary instead of asserting it with casts.
-- Apply database schema changes with `db:generate` then `db:migrate`.
 - Put cross-boundary browser-safe contracts in `@alfred/contracts`, Replicache models in `@alfred/sync` and implementation details in the package or feature that owns them.
-- Keep the repo root to config, entrypoints, and the four docs that live there (`README.md`, `CLAUDE.md`, `CONTEXT.md`, `decisions.md`). Everything else has a home, all four gitignored: screenshots, scraped assets, and DOM/network captures in `references/`; one-off DB/API probes in `references/scratch/` unless they earn a place in `scripts/`; HTML lessons and their runnable labs in `.teach/`; Markdown lessons in `.lessons/`. Tracked prose docs go under `docs/`.
 - Reach for an existing helper before writing a new `format*`/`parse*`/`is*`/`to*`/`get*` function or adding to a route `helpers.ts`. Don't create new grab-bag `utils.ts`/`helpers.ts` for anything generic. Three things find the helper for you, so this list stays short:
   - `scripts/consolidation-rules.mjs` is the machine-checked half. `pnpm check` fails on a re-hand-rolled idiom, and `.claude/hooks/helper-hints.mjs` names the canonical helper from the same table while you are writing the line. `.claude/hooks/lint-on-edit.mjs` applies `oxfmt` and the safe `oxlint --fix` fixes to each file you write, then reports what remains, so the AST rules in `scripts/oxlint/` speak at edit time too. Both are registered in `.claude/settings.json`; Claude Code asks you to trust project hooks before they run. Anything enforced there is deliberately **not** repeated here.
   - [shared helpers](./docs/reference/shared-helpers.md) is the full catalog and the colocation rule for where a new helper goes.
   - `codebases guide alfred "<intent>"` / `codebases source alfred "<symbol>"` searches this repo's rules and implementations semantically. Use it when you don't know the helper's name. Retrieval is a discovery aid, not a gate. It recalls roughly half the relevant docs in its top 5, so never rely on it to surface an invariant. What is left below is the residue: helpers whose absence a check cannot detect, because the wrong version is a plausible-looking call rather than a recognizable idiom.
 
-  | About to write…                                | Reach for                                                                                                                                                                                                                                                                                                         | From                                                                              |
-  | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-  | read a nested field off `unknown`/JSON         | `getPath` / `getStringPath`                                                                                                                                                                                                                                                                                       | `@alfred/contracts`                                                               |
-  | normalize an email                             | `parseEmailAddress`                                                                                                                                                                                                                                                                                               | `@alfred/contracts`                                                               |
-  | gate a Gmail mailbox mutation                  | `gmailMailboxWritesEnabled()` (not the raw env field)                                                                                                                                                                                                                                                             | `@alfred/env/server`                                                              |
-  | normalize an entity identity before mint/dedup | `canonicalizeIdentityValue(kind, value)`                                                                                                                                                                                                                                                                          | `@alfred/contracts`                                                               |
-  | display a slug / complete tool name            | `humanizeSlug` / `humanizeToolName`                                                                                                                                                                                                                                                                               | `@alfred/contracts`                                                               |
+  | About to write…                                | Reach for                                                                                                                                                                                                                                                                                                                                                                                                       | From                                                                       |
+  | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+  | read a nested field off `unknown`/JSON         | `getPath` / `getStringPath`                                                                                                                                                                                                                                                                                                                                                                                     | `@alfred/contracts`                                                        |
+  | normalize an email                             | `parseEmailAddress`                                                                                                                                                                                                                                                                                                                                                                                             | `@alfred/contracts`                                                        |
+  | gate a Gmail mailbox mutation                  | `gmailMailboxWritesEnabled()` (not the raw env field)                                                                                                                                                                                                                                                                                                                                                           | `@alfred/env/server`                                                       |
+  | normalize an entity identity before mint/dedup | `canonicalizeIdentityValue(kind, value)`                                                                                                                                                                                                                                                                                                                                                                        | `@alfred/contracts`                                                        |
+  | display a slug / complete tool name            | `humanizeSlug` / `humanizeToolName`                                                                                                                                                                                                                                                                                                                                                                             | `@alfred/contracts`                                                        |
   | any calendar-day / zone / offset reading       | `settings({ userId }).timezone()` for the zone (one bind per request, step, or job; its `.flags()` / `.get(key)` share the same load), then the timezone module — `inZone(tz).day()` / `.hour()` / `.dayBounds()` / `.startOf(key)` / `.clock()` for anything needing one, and `addDays` / `weekdayIndex` / `formatDay` on the key for anything that doesn't. Zones are `IanaTimezone`, days are `LocalDateKey` | `@alfred/assistant/time` (math), `@alfred/assistant/settings` (`settings`) |
-  | a model handle + its reasoning options         | `route(name)`                                                                                                                                                                                                                                                                                                     | `@alfred/ai`                                                                      |
-  | a stored Google OAuth token                    | `getFreshAccessToken`                                                                                                                                                                                                                                                                                             | `@alfred/integrations/google`                                                     |
-  | enforce prose voice                            | `sanitizeVoice`                                                                                                                                                                                                                                                                                                   | `@alfred/ai/voice`                                                                |
+  | a model handle + its reasoning options         | `route(name)`                                                                                                                                                                                                                                                                                                                                                                                                   | `@alfred/ai`                                                               |
+  | a stored Google OAuth token                    | `getFreshAccessToken`                                                                                                                                                                                                                                                                                                                                                                                           | `@alfred/integrations/google`                                              |
+  | enforce prose voice                            | `sanitizeVoice`                                                                                                                                                                                                                                                                                                                                                                                                 | `@alfred/ai/voice`                                                         |
 
 - Do not add tests. This includes value-equality tests, type fixtures with `@ts-expect-error` probes, and schema round-trip tests. Make the compiler, a runtime parse at the owning boundary, or a `pnpm check` gate carry the proof instead. When a behavior cannot be proved that way, state the residual risk in the PR body.
-- Read [decisions.md](./decisions.md) before changing architecture. It is a snapshot table plus an index; the ADRs themselves are one file each under `[docs/decisions/](./docs/decisions/)`. Open the two or three that touch your change, not all of them.
+
+## Data
+
+- Apply database schema changes with `db:generate` then `db:migrate`.
+
+## Repo layout and process
+
+- Keep the repo root to config, entrypoints, and the four docs that live there (`README.md`, `CLAUDE.md`, `CONTEXT.md`, `decisions.md`). Everything else has a home, all four gitignored: screenshots, scraped assets, and DOM/network captures in `references/`; one-off DB/API probes in `references/scratch/` unless they earn a place in `scripts/`; HTML lessons and their runnable labs in `.teach/`; Markdown lessons in `.lessons/`. Tracked prose docs go under `docs/`.
 - Write each PR body for a reviewer who knows the Alfred product but does not know the changed flow. Use the sections `Where this change sits`, `Why this change is needed`, `What this change does`, and `Preserved behavior`. Explain the user or background flow, the old and new ownership, the main implementation changes, and the invariants that must not change in ASD STE-100 English. Wait for CI with `node scripts/wait-pr-checks.mjs <n>`, not a hand-written `gh pr checks` loop.
 - Relevant or appropriate locations of handoff docs: at /private/tmp/claude-501/-Users-yash-Developer-self-alfred/handoff/<name>.md or ./.handoff/ here along with ./.lessons.
 
 ## References
 
-- [Theory: start here](./docs/theory/README.md) — the vision, the user lifecycle, and the design principles. Read it before you add a prompt rule, a floor, a table, or a parser, or before you open an ADR.
 - [Review checklist](./docs/reference/review-checklist.md) — only the rules that no gate enforces — and [structural review](./docs/reference/structural-review.md). The checklist is generated from [smells](./docs/reference/smells/README.md): one file per rule with Bad and Good code and the PRs where review found it. A review records each hit with `node scripts/smells.mjs hit`.
 - [Enforced rules](./docs/reference/enforced-rules.md) — generated catalog of every gate rule; run `pnpm rules:catalog` after you change a rule
 - [Gate design](./docs/reference/gate-design.md) — which kind of check a new rule gets (types, then type-aware lint, then an AST rule, then regex), and the review-only queue
