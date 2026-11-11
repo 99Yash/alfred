@@ -128,8 +128,9 @@ function parseLesson(path) {
 }
 
 function pointerLine({ path, fm }) {
-  const symptom = typeof fm.symptom === "string" ? fm.symptom : "";
+  const symptom = toArr(fm.symptom).join(", ");
   const hook = symptom.length > 200 ? `${symptom.slice(0, 200)}…` : symptom;
+
   return `- ${fm.title || basename(path)} (.lessons/${basename(path)})${hook ? ` — ${hook}` : ""}`;
 }
 
@@ -144,12 +145,14 @@ function repoRelative(fp) {
 
     if (existsSync(git)) {
       if (dir === ROOT) return relative(dir, fp);
+
       try {
         return readFileSync(git, "utf8").includes(rootGit) ? relative(dir, fp) : null;
       } catch {
         return null; // a .git directory: another repo
       }
     }
+
     dir = dirname(dir);
   }
 
