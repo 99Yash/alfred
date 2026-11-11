@@ -392,10 +392,13 @@ The structured, exact-keyed, reducer-computed sibling of _semantic user-memory_.
 
 ## Sources, facts, pointers, and loops (ADR-0122, proposed)
 
-**Source.** One place that Alfred hears from, named by a `SourceIdentity`: a built-in integration or a custom MCP server. It declares the things that it owns and how to read them.
+**Source.** One place that Alfred hears from, named by a `SourceIdentity`: a built-in integration or a custom MCP server. It declares only the domains that it owns. It declares no kinds and no states (ADR-0122 decision 3c).
 _Avoid_: provider (as a key), `ObjectStateProvider`
 
-**Fact.** One statement from the source that owns a thing: this thing was in this state at this time. Only a fact sets the state of a thing.
+**Thing key.** The key of a thing: its owner domain and its canonical URL, or its owner domain and its id exactly as the evidence writes it. One function builds it, and no writer spells it by hand (not built).
+_Avoid_: identity schema, spelling, kind
+
+**Fact.** One statement from the source that owns a thing: this thing was in this state at this time, in the source's own words. Only a fact sets the state of a thing.
 _Avoid_: event (alone), delivery
 
 **Mail authority.** The rule that a mail is a fact only when Gmail reports `dmarc=pass` for a seed or learned domain of the source. Alfred learns a domain when reads confirm the claims of its mail, and one conflict revokes it.
@@ -404,11 +407,8 @@ _Avoid_: sender list, trusted sender
 **Pointer.** One statement from any evidence that a thing, or a condition in the user's words, touches the user. It names its targets and does not resolve them.
 _Avoid_: link, `email_interpretation`, about row
 
-**Grounded target.** A pointer target that a check tied to its evidence: a declared spelling occurs in the text, or a source read found the thing. Only a grounded target from a model can be written.
+**Grounded target.** A pointer target that a check tied to its evidence: its quote and its key occur in the text, or a read of the owning source found the thing. Only a grounded target from a model can be written.
 _Avoid_: verified target, resolved target
-
-**Open thing.** A thing of a kind that no source declares, keyed by its domain, a kind from a closed list, and identity values that occur in the evidence. It needs no connection. A later declaration takes it over when Alfred reads.
-_Avoid_: unknown thing, untracked object
 
 **Condition.** A pointer target with no thing: a closing condition in the user's words, for example "until the landlord replies".
 _Avoid_: commitment, ask
@@ -416,7 +416,7 @@ _Avoid_: commitment, ask
 **Loop.** One thing or one condition that an `opens` pointer names and that nothing has closed. Alfred derives it on each run; it is not a record and not a work item.
 _Avoid_: open loop record, ask row
 
-**Loop proof.** The verdict of one loop (`open`, `closed`, `unverified`) with the pointers that opened it and the causes of the verdict.
+**Loop proof.** The verdict of one loop (`open`, `closed`, `unverified`) with the pointers that opened it and the causes of the verdict. A cheap model gives the verdict and its cites, and code checks each cite (ADR-0122 decision 3c).
 _Avoid_: loop item, `BriefingLoop`
 
 **Check log.** The record of each change of a loop proof, one family for each loop key.
