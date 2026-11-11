@@ -20,7 +20,7 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **State.** The current condition of a thing, for example `open`, `merged`, or `failed`. Only a provider fact can set a state. A mail from the service itself is a provider fact for a thing that no connected provider tracks (ADR-0120). Table: `integration_objects`.
 
-**Loop.** A thing, or a condition in the user's words, that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A thing loop closes when a fact sets its thing to `resolved` or `abandoned`; a condition loop closes when a matched event meets the condition (ADR-0122, which supersedes the ADR-0120 definition).
+**Loop.** A thing that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A cheap model judges the verdict against the ask, and each closure cites a fact from the source that owns the thing, or the user's own word (ADR-0122 decision 3c, which supersedes the ADR-0120 definition). A matter from chat with no thing is a journal entry, not a loop ([journal.md](./journal.md), ADR-0122 decision 3d).
 
 **Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`. ADR-0122 (proposed) puts a link between two `integration_objects` rows in `integration_object_relations`, and a fact writes it.
 

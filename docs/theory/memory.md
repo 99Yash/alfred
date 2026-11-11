@@ -159,7 +159,7 @@ Prod on 2026-11-11: `user_facts` has 50 rows. Of the 33 confirmed rows, 21 are s
 
 - **Q6: may a reader use an unconfirmed claim, and the UI to confirm claims.** The owner's direction is a section that shows claims with their evidence links. Some claims expire and need no confirmation. The UI comes later.
 - **Parked: self-awareness.** Alfred knows its own code, its changes, and the direction of its improvement. The ADRs and the git history are precise sources, but they are too large to load as text. The rows in section 7 are part of the data for it. It extends `docs/plans/runtime-capability-awareness-decision-map.md`, which says that runtime code inspection must not be the default answer path. Settle that tension first.
-- **Parked: chat that knows the open matters of the user's life**, such as decisions and conflicts. This is the loop theory ([README.md](./README.md#4-what-to-work-on-next-foundations-first), item 2), not memory.
+- **Moved: chat that knows the open matters of the user's life**, such as decisions and conflicts. This is the journal ([journal.md](./journal.md)), not claim memory. Chat capture writes claims, name links, and journal entries in one pass.
 - **Parked: trace storage for all agent runs in prod.** The check job needs none, because of its run record.
 
 ## 10. Order of work
