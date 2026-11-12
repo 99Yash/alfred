@@ -518,6 +518,40 @@ export class McpConnectionManager {
     return { outcome: "connected" };
   }
 
+  /**
+   * Store a grant that another owner connect got for this connection, then open the client on it.
+   * The GitHub App install is the one caller (ADR-0093 amendment 2026-11-12). That install is the
+   * owner's connect for both halves, so this opens a `disconnected` row too.
+   * `store` runs first; then the old generation closes, so no session outlives the old grant.
+   * When `store` fails, write `failed` with a CAS on a null pointer: a row with a working catalog
+   * keeps it, as after a failed reconnect. A failed start writes its own state. Throws the error.
+   */
+  async adoptGrant(
+    connectionId: string,
+    userId: string,
+    store: () => Promise<void>,
+  ): Promise<void> {
+    const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
+
+    if (!owned) throw new McpConnectionNotFoundError(connectionId);
+
+    try {
+      await store();
+    } catch (err) {
+      await this.#persistence.compareAndSetCatalogRevision({
+        connectionId,
+        expectedCurrentRevisionId: null,
+        nextRevisionId: null,
+        patch: { status: "failed", lastError: boundedMcpErrorText(err) },
+      });
+
+      throw err;
+    }
+
+    await this.disconnect(connectionId, userId);
+    await this.getReadyClient(connectionId);
+  }
+
   /** Rename an owned connection. Built-ins are refused: `ensureBuiltInConnection` resets their label. */
   async rename(
     connectionId: string,
