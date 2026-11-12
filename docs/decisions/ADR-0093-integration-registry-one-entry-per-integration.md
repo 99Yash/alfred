@@ -88,4 +88,6 @@ The compiler names all seven, which is the property worth keeping: `slug` is typ
 5. **One forced reconnect.** Migration 0167 clears the old OAuth App grant and moves the connection to `auth_required`.
 6. **No "MCP" in a label.** A built-in label is the product name (`GitHub`, not `GitHub MCP`). This rule applies to all built-ins. The owner sees an integration, not a protocol. Migration 0168 renames only the rows that still hold the old catalog label. Known gap: `ensureBuiltInConnection` writes the catalog label on each connect, so a rename of a built-in row does not survive a reconnect.
 
+Consequence: the App must list a second callback URL, `/api/integrations/mcp/callback`, in each environment. The no-code callback path and the "Needs attention" reconnect (`mcpConnectionAuthorizePath`) authorize the App client with that redirect URI. If the App does not list it, GitHub refuses with a `redirect_uri` mismatch. The production App needs this URL before the deploy. [auth.md](../reference/auth.md) holds the setup step.
+
 Static clients stay acceptable only where MCP is not practical: Google (its MCP costs money) and Vercel (rule 1, amended 2026-09-27).
