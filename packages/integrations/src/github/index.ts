@@ -8,7 +8,6 @@ export {
   getInstallationToken,
   getInstallation,
   exchangeUserCode,
-  userTokenExpiresAt,
   canUserAccessInstallation,
   verifyWebhookSignature,
 } from "./app";

@@ -19,7 +19,6 @@ import { upsertBearerCredential } from "../src/shared/index";
 import { eq, inArray, sql } from "drizzle-orm";
 import { dbBackedSkip } from "./support/db-backed";
 import { z } from "zod";
-import { getGithubAccessToken } from "../src/github/credentials";
 import { listCredentials } from "../src/google/credentials";
 import { getActiveBearerCredential } from "../src/shared/credentials";
 
@@ -219,7 +218,7 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
     assert.ok(!("refreshToken" in (listed[0] ?? {})));
   });
 
-  test("github: the identity token is sealed and read back", async () => {
+  test("github: the row seals a placeholder and stores no user token", async () => {
     ensureCredentialTestEnv();
     const vault = credentialVault();
     const userId = await seedUser("test-vault-github");
@@ -228,17 +227,15 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
       userId,
       accountId: randomUUID(),
       accountLabel: "99Yash",
-      accessToken: "ghu_identity-token",
       installationId: "12345",
-      scopes: ["repo"],
-      expiresAt: new Date(Date.now() + 3_600_000),
+      scopes: [],
     });
 
     const raw = await rawIntegrationTokens(id);
     assert.ok(vault.isSealed(raw.accessToken));
-    // The GitHub MCP connection owns the refresh token, so the identity row never stores one.
+    // The GitHub MCP connection holds the App user grant, so this row holds no token (ADR-0125).
     assert.equal(raw.refreshToken, null);
-    assert.equal(await getGithubAccessToken(id), "ghu_identity-token");
+    assert.equal(vault.open(raw.accessToken), "ghu_placeholder_12345");
   });
 
   test("shared bearer: a Vercel-style token is sealed and read back", async () => {
