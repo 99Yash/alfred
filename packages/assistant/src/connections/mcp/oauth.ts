@@ -825,26 +825,40 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async saveTokens(value: StoredOAuthTokens, ctx?: OAuthClientInformationContext): Promise<void> {
+    await this.#writeTokens(value, ctx, "keep_omitted");
+  }
+
+  /**
+   * `keep_omitted`: a field that the response omits keeps its stored value. RFC 6749 permits a
+   * refresh response to omit the refresh token. `replace`: the response is a whole new grant, so
+   * an omitted field is cleared. An old refresh token must not pair with a new access token.
+   */
+  async #writeTokens(
+    value: StoredOAuthTokens,
+    ctx: OAuthClientInformationContext | undefined,
+    omitted: "keep_omitted" | "replace",
+  ): Promise<void> {
     const parsed = oauthTokensSchema.parse(value);
     const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const vault = this.#vault;
+    const prior = omitted === "keep_omitted" ? credential : null;
+    const scope = parsed.scope ?? prior?.scope ?? null;
     await this.#store.update(credential.id, this.#userId, {
       accessToken: vault.seal(parsed.access_token),
-      // RFC 6749 permits refresh responses to omit the prior refresh token.
       refreshToken: parsed.refresh_token
         ? vault.seal(parsed.refresh_token)
-        : credential.refreshToken,
-      idToken: parsed.id_token ? vault.seal(parsed.id_token) : credential.idToken,
+        : (prior?.refreshToken ?? null),
+      idToken: parsed.id_token ? vault.seal(parsed.id_token) : (prior?.idToken ?? null),
       tokenType: parsed.token_type,
       expiresIn: parsed.expires_in ?? null,
-      scope: parsed.scope ?? credential.scope,
+      scope,
       lastAuthorizedAt: new Date(),
     });
     await this.#store.updateConnectionAuthorization({
       connectionId: this.#connectionId,
       userId: this.#userId,
-      grantedScopes: parseOAuthScopeList(parsed.scope ?? credential.scope),
+      grantedScopes: parseOAuthScopeList(scope),
     });
 
     if (this.#attemptStateHash) {
@@ -1063,6 +1077,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
    * Store a grant that another flow got from this connection's own static client, with no
    * consent screen here. The GitHub App install is the one caller. Under the refresh lock,
    * so a keep-alive with the old refresh token cannot clear the new grant afterwards.
+   * It replaces every token field, nulls included. A grant with no refresh token is still
+   * usable: `authorize` accepts a stored access token that does not expire.
    * Throws when the resolved client is not the static client with `clientId`.
    */
   async adoptGrant(
@@ -1098,7 +1114,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       throw new Error("The adopted grant is not from this connection's static OAuth client");
     }
 
-    await this.saveTokens({ ...grant.tokens, issuer }, { issuer });
+    // A whole new grant: a refresh or ID token that it omits must not survive from the old one.
+    await this.#writeTokens({ ...grant.tokens, issuer }, { issuer }, "replace");
   }
 
   /**
