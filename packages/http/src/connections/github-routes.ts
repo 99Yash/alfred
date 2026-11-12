@@ -204,7 +204,8 @@ export const githubIntegrationRoutes = new Elysia({
           ? `${origin}/integrations?${connectedParam}`
           : // No `code` (`setup_action=update`): the MCP consent uses the same App, so
             // GitHub shows no second screen. That route needs onboarding, so skip it there.
-            mcpBuiltInConnectPath("github");
+            // It is an API route, so it goes on the API origin (`BETTER_AUTH_URL`).
+            `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${mcpBuiltInConnectPath("github")}`;
 
       set.status = 302;
       set.headers["Location"] = target;
