@@ -4,7 +4,7 @@ import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import {
   assertGmailPushOidcConfigured,
-  findExpiringGmailWatches,
+  findGmailWatchesToRenew,
 } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
 import type { JobInput } from "@alfred/assistant/queue-jobs";
@@ -240,8 +240,10 @@ export const ingestionWorker = ingestionQueue.consume({
     },
 
     "gmail.watch_renew": async () => {
-      // Gmail watches expire after about 7 days, so daily renewal of the next 24h is enough. #278:
-      // non-prod must not touch the shared real mailbox's watch.
+      // Gmail watches expire after about 7 days, so renewal of the next 24h is enough. A Gmail
+      // account with no watch (its install job ran out of attempts) is installed here, and the
+      // install seeds the cursor that the poll sweep needs. #278: non-prod must not touch the
+      // shared real mailbox's watch.
       if (!gmailMailboxWritesEnabled()) {
         logger.info(
           "[ingestion:worker] gmail.watch_renew: skipped reason=writes-disabled (non-prod)",
@@ -261,7 +263,7 @@ export const ingestionWorker = ingestionQueue.consume({
 
       assertGmailPushOidcConfigured();
       const horizon = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const candidates = await findExpiringGmailWatches(horizon);
+      const candidates = await findGmailWatchesToRenew(horizon);
       let renewed = 0;
       let failed = 0;
 

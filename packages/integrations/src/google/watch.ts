@@ -5,7 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { parseGoogleCredentialMetadata, type GmailWatchState } from "./credential-metadata";
 import { getFreshAccessToken } from "./credentials";
 import { gmailMailboxFor, type GmailMailbox } from "./mailbox";
-import { withDefaults } from "@alfred/contracts";
+import { holdsAnyScope, INTEGRATIONS, withDefaults } from "@alfred/contracts";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 
 /**
@@ -187,33 +187,35 @@ export async function findCredentialByEmail(
   return rows[0] ?? null;
 }
 
-/** Active watches expiring before `before`. Filters in JS after a full scan: single-user scale. */
-export async function findExpiringGmailWatches(
+/**
+ * Active Gmail accounts whose watch must be installed or renewed: no watch, an unreadable expiry,
+ * or an expiry before `before`. A watch whose first install failed is here too, so the renew sweep
+ * retries it instead of the user reconnecting. Filters in JS after a full scan: single-user scale.
+ */
+export async function findGmailWatchesToRenew(
   before: Date,
-): Promise<{ id: string; userId: string; expiresAt: Date; topic: string }[]> {
+): Promise<{ id: string; userId: string; expiresAt: Date | null }[]> {
   const rows = await db()
     .select({
       id: integrationCredentials.id,
       userId: integrationCredentials.userId,
       metadata: integrationCredentials.metadata,
       status: integrationCredentials.status,
+      scopes: integrationCredentials.scopes,
     })
     .from(integrationCredentials)
     .where(eq(integrationCredentials.provider, "google"));
 
-  const out: { id: string; userId: string; expiresAt: Date; topic: string }[] = [];
+  const gmail = INTEGRATIONS.gmail.credential;
+  const out: { id: string; userId: string; expiresAt: Date | null }[] = [];
 
   for (const row of rows) {
-    if (row.status !== "active") continue;
+    if (row.status !== "active" || !holdsAnyScope(row.scopes, gmail.anyOfScopes)) continue;
     const watch = readGmailWatchState(row.metadata);
+    const expiresAt = watch ? new Date(watch.expiresAt) : null;
 
-    if (!watch) continue;
-    const expiresAt = new Date(watch.expiresAt);
-
-    if (Number.isNaN(expiresAt.getTime())) continue;
-
-    if (expiresAt > before) continue;
-    out.push({ id: row.id, userId: row.userId, expiresAt, topic: watch.topic });
+    if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt > before) continue;
+    out.push({ id: row.id, userId: row.userId, expiresAt });
   }
 
   return out;

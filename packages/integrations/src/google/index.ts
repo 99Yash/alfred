@@ -154,7 +154,7 @@ export type { ContactSummary } from "./contacts";
 
 export {
   findCredentialByEmail,
-  findExpiringGmailWatches,
+  findGmailWatchesToRenew,
   getGmailWatchState,
   readGmailWatchState,
   stopGmailWatchWithAccessToken,

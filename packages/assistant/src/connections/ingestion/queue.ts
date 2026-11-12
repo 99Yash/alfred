@@ -75,8 +75,8 @@ export const ingestionQueue = defineQueue({
     ),
 
     /**
-     * Install the Gmail watch for a new credential (ADR-0037). `gmail.watch_renew` only renews
-     * existing watches, so without this a new account gets only the 5-minute sweep.
+     * Install the Gmail watch for a new credential (ADR-0037), so push starts at once.
+     * `gmail.watch_renew` also installs a missing watch, but only on its 6-hour schedule.
      */
     "gmail.watch_install": job(credential),
 

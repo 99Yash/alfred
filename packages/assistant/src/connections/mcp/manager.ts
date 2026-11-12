@@ -409,8 +409,11 @@ export class McpConnectionManager {
               : boundedMcpErrorText(err),
         });
       } else if (err instanceof McpClientError && err.code === "token_rejected") {
-        // A renewed token is not a failure: keep the row and its catalog as they are.
+        // A renewed token is not a failure: keep the status and the catalog. Record the error, so
+        // a second rejection in a row does not leave `connecting` with no error, which the
+        // recovery pass skips. The next start writes `lastError: null` again.
         yield* Scope.close(generation.scope, Exit.void);
+        yield* this.#store.updateConnection(connectionId, { lastError: boundedMcpErrorText(err) });
       } else {
         const expectedCurrentRevisionId =
           this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;

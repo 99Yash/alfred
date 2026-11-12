@@ -128,6 +128,45 @@ export async function listRecoverableCredentialedConnectionIds(
   return rows.map((row) => row.id);
 }
 
+/**
+ * Oldest-first page for the OAuth keep-alive: `ready` and `stale` connections whose grant has a
+ * refresh token and no refresh since `staleBefore`. Other statuses are skipped: a token save
+ * clears `lastError`, which the recovery pass needs on `connecting` and `failed` rows, and
+ * `auth_required` and `disconnected` wait for the owner.
+ */
+export async function listOAuthConnectionsToKeepAlive(
+  staleBefore: Date,
+  limit: number,
+  runner: DbRunner = db(),
+): Promise<McpConnectionWithServer[]> {
+  const rows = await runner
+    .select(connectionWithServerSelection)
+    .from(mcpConnections)
+    .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    .innerJoin(
+      mcpOauthCredentials,
+      and(
+        eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+        eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+        eq(mcpOauthCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .where(
+      and(
+        inArray(mcpConnections.status, ["ready", "stale"]),
+        isNotNull(mcpOauthCredentials.refreshToken),
+        or(
+          isNull(mcpOauthCredentials.lastAuthorizedAt),
+          lt(mcpOauthCredentials.lastAuthorizedAt, staleBefore),
+        ),
+      ),
+    )
+    .orderBy(asc(mcpOauthCredentials.lastAuthorizedAt), asc(mcpConnections.id))
+    .limit(limit);
+
+  return rows.map(joinConnection);
+}
+
 export async function readConnection(
   id: string,
   runner: DbRunner = db(),

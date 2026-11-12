@@ -419,11 +419,12 @@ States: disconnected, connecting, ready, stale, auth_required, failed. There is 
 | ready             | stale (pointer null)        | list-changed event                          | CAS on the pointer                              | `packages/assistant/src/connections/mcp/manager.ts`     |
 | any               | failed (pointer null)       | start failure or refresh failure            | CAS on the pointer                              | `packages/assistant/src/connections/mcp/manager.ts`     |
 | any               | auth_required               | start needs consent; client OAuth callbacks | none for the callbacks (ADR-0114 residual risk) | `packages/assistant/src/connections/mcp/manager.ts`     |
+| ready, stale      | auth_required               | keep-alive refresh finds a dead grant       | advisory refresh lock; locked re-read           | `packages/assistant/src/connections/mcp/connection-recovery.ts` |
 | any               | disconnected (pointer null) | disconnect                                  | none, after the scope closes                    | `packages/assistant/src/connections/mcp/manager.ts`     |
 | failed            | previous status and pointer | reconnect failure restore                   | none                                            | `packages/assistant/src/connections/mcp/manager.ts`     |
 | row               | none                        | remove                                      | `FOR UPDATE`, gate, and a removal fence         | `packages/assistant/src/connections/mcp/persistence.ts` |
 
-Invariants: one live generation per connection per process; admission refuses while a generation is closing or being removed. A stale worker cannot move the pointer (CAS). MCP token refreshes are serialized by an advisory lock with a locked re-read. The recovery loop never revives disconnected or auth_required rows. Assumed only: nothing re-opens a disconnected connection (SM-12); the consent callback and a refresh do not overlap (SM-13).
+Invariants: one live generation per connection per process; admission refuses while a generation is closing or being removed. A stale worker cannot move the pointer (CAS). MCP token refreshes are serialized by an advisory lock with a locked re-read. The recovery loop never revives disconnected or auth_required rows. The hourly keep-alive refreshes only ready and stale OAuth grants with no refresh in 24 hours, because a token save clears `lastError`, which recovery needs. Assumed only: nothing re-opens a disconnected connection (SM-12); the consent callback and a refresh do not overlap (SM-13).
 
 ### `workflows.status`, `blocked`, and revision pointers
 
