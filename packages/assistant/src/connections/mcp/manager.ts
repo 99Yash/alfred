@@ -620,13 +620,15 @@ export class McpConnectionManager {
 
   /**
    * Move the row to `auth_required` because its grant ended outside a call (the OAuth keep-alive).
-   * Compare-and-set: it applies only while the row is `ready` or `stale` and still holds
-   * `credentialId`, so a disconnect or a reconnect that came first wins. When it applies, close
-   * the live generation, so this process stops serving the old client. Returns true when applied.
+   * Compare-and-set: it applies only while the row is `ready` or `stale`, still holds
+   * `credentialId`, and the credential's `lastAuthorizedAt` is still `grantAuthorizedAt`, the
+   * stamp of the grant that the verdict judged. So a disconnect, a reconnect, or a newer grant
+   * that came first wins. When it applies, close the live generation, so this process stops
+   * serving the old client. Returns true when applied.
    */
   async markGrantEnded(
     connectionId: string,
-    input: { credentialId: string; lastError: string },
+    input: { credentialId: string; grantAuthorizedAt: Date | null; lastError: string },
   ): Promise<boolean> {
     // Read before the write: a generation that starts after the write is not the old grant's client.
     const generation = this.#generations.get(connectionId);
@@ -634,6 +636,7 @@ export class McpConnectionManager {
     const applied = await this.#persistence.markConnectionGrantEnded({
       connectionId,
       credentialId: input.credentialId,
+      grantAuthorizedAt: input.grantAuthorizedAt,
       lastError: input.lastError,
     });
 

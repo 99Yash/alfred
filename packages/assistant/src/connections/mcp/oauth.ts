@@ -180,10 +180,18 @@ function classifyRefreshRefusal(code: string, clientKind: McpOAuthClientKind): R
  * One refresh per connection in this process. A server that rotates refresh tokens
  * (Railway does) rejects the second use of the old one, and that ends the grant.
  */
-const refreshFlights = new Map<string, Promise<RefreshOutcome>>();
+const refreshFlights = new Map<string, Promise<McpOAuthRefreshOutcome>>();
 
-/** `fresh`: a usable access token is stored. `dead`: only a new consent can help. */
-type RefreshOutcome = "fresh" | "dead";
+/**
+ * `fresh`: a usable access token is stored. `dead`: only a new consent can help.
+ * `grantAuthorizedAt` is the `lastAuthorizedAt` of the grant that the dead verdict judged, read
+ * under the refresh lock. A later grant save changes it, so a write after the lock compares it.
+ */
+export type McpOAuthRefreshOutcome =
+  | { readonly verdict: "fresh" }
+  | { readonly verdict: "dead"; readonly grantAuthorizedAt: Date | null };
+
+const FRESH: McpOAuthRefreshOutcome = { verdict: "fresh" };
 
 /**
  * Why a refresh runs. `expiry`: the stored token is near its end. `rejected`: the server
@@ -1008,7 +1016,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
       if (
         credential?.refreshToken &&
-        (await this.#refreshShared({ kind: "expiry" }, options)) === "fresh"
+        (await this.#refreshShared({ kind: "expiry" }, options)).verdict === "fresh"
       ) {
         return "AUTHORIZED";
       }
@@ -1060,7 +1068,10 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
    * Refresh a grant that has not been refreshed since `staleBefore`, so that a grant that is not
    * used does not expire. A transient failure throws and keeps the refresh token.
    */
-  keepAlive(staleBefore: Date, options: McpOAuthRequestOptions = {}): Promise<"fresh" | "dead"> {
+  keepAlive(
+    staleBefore: Date,
+    options: McpOAuthRequestOptions = {},
+  ): Promise<McpOAuthRefreshOutcome> {
     return this.#refreshShared({ kind: "keepalive", staleBefore }, options);
   }
 
@@ -1070,7 +1081,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   ): Promise<boolean> {
     const reason = { kind: "rejected", token: rejectedAccessToken } as const;
 
-    return (await this.#refreshShared(reason, options)) === "fresh";
+    return (await this.#refreshShared(reason, options)).verdict === "fresh";
   }
 
   /**
@@ -1125,7 +1136,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async #refreshShared(
     reason: RefreshReason,
     options: McpOAuthRequestOptions,
-  ): Promise<RefreshOutcome> {
+  ): Promise<McpOAuthRefreshOutcome> {
     const existing = refreshFlights.get(this.#connectionId);
 
     if (existing && reason.kind !== "rejected") return existing;
@@ -1161,15 +1172,20 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async #refreshLocked(
     reason: RefreshReason,
     options: McpOAuthRequestOptions,
-  ): Promise<RefreshOutcome> {
+  ): Promise<McpOAuthRefreshOutcome> {
     const credential = await this.#readCredential();
     const stored = credential?.accessToken ? this.#vault.open(credential.accessToken) : undefined;
 
     if (credential && stored !== undefined && !needsRefresh(reason, credential, stored)) {
-      return "fresh";
+      return FRESH;
     }
 
-    if (!credential?.refreshToken) return "dead";
+    const dead: McpOAuthRefreshOutcome = {
+      verdict: "dead",
+      grantAuthorizedAt: credential?.lastAuthorizedAt ?? null,
+    };
+
+    if (!credential?.refreshToken) return dead;
 
     const fetchFn = timeoutBoundFetch(
       this.#authorization.fetch,
@@ -1190,7 +1206,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         idToken: null,
       });
 
-      return "dead";
+      return dead;
     }
 
     const resource = await selectResourceURL(
@@ -1245,12 +1261,12 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
           : {}),
       });
 
-      return "dead";
+      return dead;
     }
 
     await this.saveTokens({ ...tokens, issuer }, { issuer });
 
-    return "fresh";
+    return FRESH;
   }
 
   /**
