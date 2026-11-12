@@ -9,8 +9,8 @@ import { getInstallationToken } from "./app";
  * GitHub App credentials (ADR-0052). The row records the App installation and the account. A
  * connect writes no GitHub token to it: the GitHub MCP connection holds the App user grant
  * (ADR-0125), and a REST read mints a short-lived installation token, which is never stored. A
- * row from before ADR-0125 keeps its sealed user access token, which has expired, until the next
- * connect overwrites it.
+ * row from before ADR-0125 keeps its sealed user access token until the next connect overwrites it.
+ * No code reads that token. It can still work when the App issues user tokens that do not expire.
  */
 
 export interface UpsertGithubCredentialArgs {

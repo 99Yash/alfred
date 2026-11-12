@@ -6,6 +6,8 @@ import {
   gmailReadMessageInput,
   gmailSearchInput,
   getStringPath,
+  isRecord,
+  type McpCallInput,
   mcpCallInput,
   mcpToolSearchInputSchema,
   parseIanaTimezone,
@@ -84,8 +86,35 @@ const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
 /** Catalog reads find a tool. They are not an angle of the investigation. */
 const DISCOVERY_TOOLS = new Set<string>([READ_CONTEXT_TOOL, MCP_LIST_TOOLS_TOOL]);
 
+/** The arguments each remote tool needs. A call without them fails in production. */
+function requiredGithubArguments(remoteName: string): readonly string[] | undefined {
+  if (remoteName === GITHUB_SEARCH_REMOTE) return ["query"];
+
+  if (remoteName === GITHUB_READ_PR_REMOTE) return ["owner", "repo", "pullNumber"];
+
+  return undefined;
+}
+
+/**
+ * Whether production would accept this call: the connection and revision from the catalog ref,
+ * and the arguments that the remote tool needs. A call that fails here earns no credit.
+ */
+function isAcceptedGithubCall(input: unknown, remoteName: string): boolean {
+  const args = isRecord(input) ? input.arguments : undefined;
+  const required = requiredGithubArguments(remoteName);
+
+  return (
+    getStringPath(input, "remoteName") === remoteName &&
+    getStringPath(input, "connectionId") === GITHUB_CONNECTION.id &&
+    getStringPath(input, "catalogRevision") === GITHUB_CATALOG_REVISION &&
+    required !== undefined &&
+    isRecord(args) &&
+    required.every((key) => args[key] !== undefined && args[key] !== "")
+  );
+}
+
 function isMcpCallTo(call: ToolCall, remoteName: string): boolean {
-  return call.name === MCP_CALL_TOOL && getStringPath(call.input, "remoteName") === remoteName;
+  return call.name === MCP_CALL_TOOL && isAcceptedGithubCall(call.input, remoteName);
 }
 
 const CONNECTED_SUMMARY = [
@@ -716,7 +745,16 @@ const GITHUB_MCP_HITS = [
   },
 ];
 
-function githubMcpResult(remoteName: string) {
+function githubMcpResult(input: McpCallInput) {
+  const { remoteName } = input;
+
+  if (!isAcceptedGithubCall(input, remoteName)) {
+    return {
+      status: "tool_error",
+      error: `The call to ${remoteName} has a wrong connectionId or catalogRevision, or misses a required argument. Use the exact ref from mcp.list_tools.`,
+    };
+  }
+
   if (remoteName === GITHUB_SEARCH_REMOTE) {
     return {
       total_count: 1,
@@ -818,7 +856,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
         description:
           "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
         inputSchema: mcpCallInput,
-        execute: async ({ remoteName }) => githubMcpResult(remoteName),
+        execute: async (input) => githubMcpResult(input),
       }),
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored context about the user's people and projects.",
