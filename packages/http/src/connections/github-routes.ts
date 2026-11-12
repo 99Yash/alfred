@@ -12,7 +12,6 @@ import {
   exchangeUserCode,
   findUserInstallation,
   getInstallation,
-  listGithubCredentials,
   upsertGithubCredential,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
@@ -43,12 +42,11 @@ export const githubIntegrationRoutes = new Elysia({
   .guard({ auth: true }, (app) =>
     app.get("/connect", async ({ user, set }) => {
       const state = await handshake.begin({ userId: user.id });
-      // A returning user may have the App installed already, and then the install page
-      // never comes back. Their user authorization shows no screen, and the callback
-      // finds the installation, or sends them on to install.
-      const returning = (await listGithubCredentials(user.id)).length > 0;
+      // Every user starts at the user authorization. The install page never comes back when
+      // the App is installed already, and an Alfred disconnect keeps the App installed. The
+      // callback finds the installation, or sends the user on to install.
       set.status = 302;
-      set.headers["Location"] = returning ? buildUserAuthorizeUrl(state) : buildInstallUrl(state);
+      set.headers["Location"] = buildUserAuthorizeUrl(state);
 
       return null;
     }),

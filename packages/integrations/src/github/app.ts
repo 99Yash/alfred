@@ -54,7 +54,8 @@ export function getGithubAppConfig(): GithubAppConfig {
 /**
  * With request_oauth_on_install, installs the App and authorizes the user on one screen.
  * If the App is already installed, GitHub shows the installation settings and never
- * returns, so a returning user goes to {@link buildUserAuthorizeUrl} instead.
+ * returns, so only the callback sends a user here, after {@link findUserInstallation}
+ * finds no installation.
  */
 export function buildInstallUrl(state: string): string {
   const { slug } = getGithubAppConfig();
