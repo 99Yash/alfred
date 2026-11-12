@@ -36,32 +36,6 @@ function setEnv(clientId?: string, clientSecret?: string): void {
 describe("built-in MCP provider registry (#934)", () => {
   afterEach(() => setEnv(undefined, undefined));
 
-  test("an unset client id refuses, and names the line to set", () => {
-    setEnv(undefined, undefined);
-    assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
-      kind: "unavailable",
-      reason: "missing_client_id",
-      envKey: CLIENT_ID,
-    });
-  });
-
-  test("a secret without a client id fails closed", () => {
-    setEnv(undefined, "orphan-secret");
-    assert.equal(
-      resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }).kind,
-      "unavailable",
-    );
-  });
-
-  // The App client id is a required boot key (`min(1)`), so an empty line is the blank case.
-  test("an empty environment line counts as unset", () => {
-    setEnv("", undefined);
-    assert.equal(
-      resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }).kind,
-      "unavailable",
-    );
-  });
-
   test("a client id alone resolves a public client on the pinned issuer", () => {
     setEnv("public-client", undefined);
     assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
@@ -153,11 +127,7 @@ describe("built-in MCP provider registry (#934)", () => {
         redirectUrl: CALLBACK,
         issuerHint: "https://evil.example.test/",
       }),
-      {
-        kind: "unavailable",
-        reason: "issuer_not_bound",
-        envKey: CLIENT_ID,
-      },
+      { kind: "unavailable", reason: "issuer_not_bound" },
     );
     assert.equal(
       resolveBuiltInClient({

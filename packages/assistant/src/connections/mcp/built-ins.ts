@@ -6,7 +6,7 @@
  */
 
 import { integrationDisplayName, typedEntries, type BuiltInMCPProvider } from "@alfred/contracts";
-import { envFieldValue, type ServerEnv } from "@alfred/env/server";
+import { envFieldValue } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
 import {
@@ -28,27 +28,15 @@ export type BuiltInOAuthConfig = {
 };
 
 /**
- * The env keys of a pinned OAuth client, named one by one. Plain `keyof ServerEnv` would let
- * `"CLOUDFLARE_AI_GATEWAY_TOKEN"` compile and be sent to a third-party server.
- * GitHub's MCP uses the GitHub App's client (ADR-0093 amendment 2026-11-12).
- */
-type McpClientIdEnvKey = Extract<keyof ServerEnv, "GITHUB_APP_CLIENT_ID">;
-
-type McpClientSecretEnvKey = Extract<keyof ServerEnv, "GITHUB_APP_CLIENT_SECRET">;
-
-/**
  * How to get the OAuth client. `unavailable` is a refusal: never fall through to
  * dynamic registration, which the SDK does when it sees no client.
- * The loopback arm names the provider, not an env key, because no setting fixes it.
+ * No arm names a missing client id: the one pinned client is the GitHub App's, and the
+ * boot parse requires its id (`min(1)`).
  */
 export type BuiltInClientResolution =
   | { readonly kind: "dynamic" }
   | { readonly kind: "static"; readonly client: BuiltInOAuthConfig }
-  | {
-      readonly kind: "unavailable";
-      readonly reason: "missing_client_id" | "issuer_not_bound";
-      readonly envKey: McpClientIdEnvKey;
-    }
+  | { readonly kind: "unavailable"; readonly reason: "issuer_not_bound" }
   | {
       readonly kind: "unavailable";
       readonly reason: "authorization_server_requires_loopback";
@@ -62,12 +50,14 @@ type BuiltInDefinition = {
   readonly endpointHref: string;
   /**
    * A pre-registered client and its issuer. Absent means RFC 7591 dynamic registration.
-   * GitHub needs it: no dynamic registration and no URL-based client ids.
+   * GitHub needs it: no dynamic registration and no URL-based client ids. Its MCP uses the
+   * GitHub App's client (ADR-0093 amendment 2026-11-12). The env keys are literals, not
+   * `keyof ServerEnv`, which would let `"CLOUDFLARE_AI_GATEWAY_TOKEN"` go to a third party.
    */
   readonly staticClient?: {
     readonly issuer: string;
-    readonly clientIdKey: McpClientIdEnvKey;
-    readonly clientSecretKey: McpClientSecretEnvKey;
+    readonly clientIdKey: "GITHUB_APP_CLIENT_ID";
+    readonly clientSecretKey: "GITHUB_APP_CLIENT_SECRET";
   };
   /**
    * `"loopback-only"`: the server's dynamic registration accepts only
@@ -273,7 +263,6 @@ export type BuiltInClientRequest = {
 
 /**
  * How to get the OAuth client for `request.endpoint`. On `unavailable`, fail the authorize.
- * A secret without an id is `missing_client_id`.
  * `issuerHint` from discovery must share the pinned issuer's origin.
  */
 export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClientResolution {
@@ -294,16 +283,14 @@ export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClie
   }
 
   if (!staticClient) return { kind: "dynamic" };
-  const envKey = staticClient.clientIdKey;
-  const clientId = envFieldValue(envKey);
-
-  if (clientId === undefined) {
-    return { kind: "unavailable", reason: "missing_client_id", envKey };
-  }
-
   const issuer = issuerHint ? boundIssuer(definition, issuerHint) : staticClient.issuer;
 
-  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound", envKey };
+  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound" };
+  // Read on each call, so a rotated value applies on the next exchange. The boot parse
+  // requires the id, so only a process that clears it after boot gets here: a bug, not a state.
+  const clientId = envFieldValue(staticClient.clientIdKey);
+
+  if (clientId === undefined) throw new Error(`${staticClient.clientIdKey} is unset.`);
   const clientSecret = envFieldValue(staticClient.clientSecretKey);
 
   return {
@@ -327,9 +314,7 @@ export function builtInClientUnavailableMessage(
     );
   }
 
-  return resolution.reason === "missing_client_id"
-    ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
-    : "The authorization server does not match this server's pinned issuer.";
+  return "The authorization server does not match this server's pinned issuer.";
 }
 
 function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string | undefined {
