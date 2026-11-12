@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { before, describe, test } from "node:test";
 import { createCredentialVault } from "@alfred/db/credential-vault";
+import { serverEnv } from "@alfred/env/server";
 import type { McpOauthAuthorizationAttempt, McpOauthCredential } from "@alfred/db/schemas";
 import {
   exchangeAuthorization,
@@ -593,14 +594,43 @@ describe("MCP OAuth credentials are sealed at rest", () => {
   });
 });
 
+/** The `serverEnv()` fixtures, set only where the environment leaves a key unset. */
+const SERVER_ENV_FIXTURES = {
+  DATABASE_URL: "postgres://localhost:5432/alfred_test",
+  REDIS_URL: "redis://localhost:6379",
+  BETTER_AUTH_SECRET: "test better auth secret with length",
+  // `serverEnv()` requires a 32-byte credential KEK in every environment.
+  OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+  BETTER_AUTH_URL: "http://localhost:3001",
+  ALFRED_ALLOWED_EMAIL: "test@example.com",
+  RESEND_API_KEY: "test-resend",
+  RESEND_FROM_EMAIL: "Alfred <noreply@example.com>",
+  CLOUDFLARE_AI_GATEWAY_TOKEN: "test-cf-token",
+  CLOUDFLARE_ACCOUNT_ID: "test-cf-account",
+  CLOUDFLARE_GATEWAY_ID: "test-cf-gateway",
+  GOOGLE_OAUTH_CLIENT_ID: "test-google-client",
+  GOOGLE_OAUTH_CLIENT_SECRET: "test-google-secret",
+  GOOGLE_OAUTH_REDIRECT_URI: "http://localhost:3001/api/auth/callback/google",
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_SLUG: "test-app",
+  GITHUB_APP_CLIENT_ID: "test-github-client",
+  GITHUB_APP_CLIENT_SECRET: "test-github-secret",
+  GITHUB_APP_PRIVATE_KEY: "test-private-key",
+  GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
+  GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
+} satisfies Record<string, string>;
+
+function seedServerEnv(): void {
+  for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
+    process.env[key] ??= value;
+  }
+}
+
 /**
  * GitHub supports neither dynamic registration nor URL-based client ids, so the provider reads
- * `clientInformation` from the environment (#934). No row holds this client, so a rotated secret takes effect.
+ * `clientInformation` from the boot env (#934). No row holds this client.
  */
 describe("built-in GitHub MCP OAuth client (#934)", () => {
-  const CLIENT_ID = "GITHUB_APP_CLIENT_ID";
-  const CLIENT_SECRET = "GITHUB_APP_CLIENT_SECRET";
-
   function githubProvider(store: MemoryStore): McpOAuthProvider {
     return new McpOAuthProvider({
       connectionId: "conn_test",
@@ -628,27 +658,21 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
     },
   };
 
-  afterEach(() => {
-    delete process.env[CLIENT_ID];
-    delete process.env[CLIENT_SECRET];
-  });
+  before(seedServerEnv);
 
   test("answers clientInformation from the environment so the SDK skips registration", async () => {
-    process.env[CLIENT_ID] = "gh-client-id";
-    process.env[CLIENT_SECRET] = "gh-client-secret";
     const store = new MemoryStore();
     const oauth = githubProvider(store);
 
     const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
+    const env = serverEnv();
 
-    assert.equal(info?.client_id, "gh-client-id");
-    assert.equal(info.client_secret, "gh-client-secret");
+    assert.equal(info?.client_id, env.GITHUB_APP_CLIENT_ID);
+    assert.equal(info.client_secret, env.GITHUB_APP_CLIENT_SECRET);
     assert.equal(info.issuer, GITHUB_MCP_ISSUER);
   });
 
   test("declares the auth method the SDK reads off client information", async () => {
-    process.env[CLIENT_ID] = "gh-client-id";
-    process.env[CLIENT_SECRET] = "gh-client-secret";
     const oauth = githubProvider(new MemoryStore());
     const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
     assert.ok(info);
@@ -660,8 +684,6 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
   });
 
   test("the token exchange carries the client secret in the request body", async () => {
-    process.env[CLIENT_ID] = "gh-client-id";
-    process.env[CLIENT_SECRET] = "gh-client-secret";
     const oauth = githubProvider(new MemoryStore());
     const info = await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER });
     assert.ok(info);
@@ -691,41 +713,21 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
       },
     });
 
+    const env = serverEnv();
     assert.equal(tokens.access_token, "gh-token");
-    assert.equal(body?.get("client_id"), "gh-client-id");
-    assert.equal(body.get("client_secret"), "gh-client-secret");
+    assert.equal(body?.get("client_id"), env.GITHUB_APP_CLIENT_ID);
+    assert.equal(body.get("client_secret"), env.GITHUB_APP_CLIENT_SECRET);
     assert.equal(authorizationHeader, null);
   });
 
   test("saveDiscoveryState never copies the client into the credential row", async () => {
-    process.env[CLIENT_ID] = "gh-client-id";
-    process.env[CLIENT_SECRET] = "gh-client-secret";
     const store = new MemoryStore();
     const oauth = githubProvider(store);
 
     await oauth.saveDiscoveryState(GITHUB_DISCOVERY);
 
-    // The row holds discovery only. A durable copy would pin the secret and survive rotation.
+    // The row holds discovery only. A durable copy would pin the secret past a rotation and a restart.
     assert.equal(store.row?.clientInformation, null);
     assert.equal(store.row.clientSecret, null);
-  });
-
-  test("a rotated secret reaches the next exchange with no reconsent", async () => {
-    process.env[CLIENT_ID] = "gh-client-id";
-    process.env[CLIENT_SECRET] = "secret-one";
-    const store = new MemoryStore();
-    const oauth = githubProvider(store);
-    await oauth.saveDiscoveryState(GITHUB_DISCOVERY);
-    assert.equal(
-      (await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }))?.client_secret,
-      "secret-one",
-    );
-
-    process.env[CLIENT_SECRET] = "secret-two";
-
-    assert.equal(
-      (await oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }))?.client_secret,
-      "secret-two",
-    );
   });
 });

@@ -1,17 +1,45 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, test } from "node:test";
+import { before, describe, test } from "node:test";
+import { serverEnv } from "@alfred/env/server";
 
 import { GITHUB_MCP_ENDPOINT_HREF } from "../../src/connections/mcp/constants";
 import { resolveBuiltInClient, type BuiltInOAuthConfig } from "../../src/connections/mcp/built-ins";
 
 /**
  * The built-in registry is the only OAuth client source for providers that refuse dynamic registration.
- * Tests set `process.env` directly: the lazy per-call read is what makes rotation work.
+ * The client id and secret come from `serverEnv()`, so the suite seeds its fixtures before the first read.
  */
 
-const CLIENT_ID = "GITHUB_APP_CLIENT_ID";
+const SERVER_ENV_FIXTURES = {
+  DATABASE_URL: "postgres://localhost:5432/alfred_test",
+  REDIS_URL: "redis://localhost:6379",
+  BETTER_AUTH_SECRET: "test better auth secret with length",
+  // `serverEnv()` requires a 32-byte credential KEK in every environment.
+  OAUTH_CREDENTIAL_KEK: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+  BETTER_AUTH_URL: "http://localhost:3001",
+  ALFRED_ALLOWED_EMAIL: "test@example.com",
+  RESEND_API_KEY: "test-resend",
+  RESEND_FROM_EMAIL: "Alfred <noreply@example.com>",
+  CLOUDFLARE_AI_GATEWAY_TOKEN: "test-cf-token",
+  CLOUDFLARE_ACCOUNT_ID: "test-cf-account",
+  CLOUDFLARE_GATEWAY_ID: "test-cf-gateway",
+  GOOGLE_OAUTH_CLIENT_ID: "test-google-client",
+  GOOGLE_OAUTH_CLIENT_SECRET: "test-google-secret",
+  GOOGLE_OAUTH_REDIRECT_URI: "http://localhost:3001/api/auth/callback/google",
+  GITHUB_APP_ID: "1",
+  GITHUB_APP_SLUG: "test-app",
+  GITHUB_APP_CLIENT_ID: "test-github-client",
+  GITHUB_APP_CLIENT_SECRET: "test-github-secret",
+  GITHUB_APP_PRIVATE_KEY: "test-private-key",
+  GITHUB_WEBHOOK_SECRET: "test-webhook-secret",
+  GITHUB_APP_REDIRECT_URI: "http://localhost:3001/api/integrations/github/callback",
+} satisfies Record<string, string>;
 
-const CLIENT_SECRET = "GITHUB_APP_CLIENT_SECRET";
+function seedServerEnv(): void {
+  for (const [key, value] of Object.entries(SERVER_ENV_FIXTURES)) {
+    process.env[key] ??= value;
+  }
+}
 
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
@@ -25,49 +53,31 @@ function staticClient(endpoint: URL, issuerHint?: string): BuiltInOAuthConfig | 
   return resolution.kind === "static" ? resolution.client : undefined;
 }
 
-function setEnv(clientId?: string, clientSecret?: string): void {
-  if (clientId === undefined) delete process.env[CLIENT_ID];
-  else process.env[CLIENT_ID] = clientId;
-
-  if (clientSecret === undefined) delete process.env[CLIENT_SECRET];
-  else process.env[CLIENT_SECRET] = clientSecret;
-}
-
 describe("built-in MCP provider registry (#934)", () => {
-  afterEach(() => setEnv(undefined, undefined));
+  before(seedServerEnv);
 
   test("a client id and a secret resolve a confidential client", () => {
-    setEnv("confidential-client", "confidential-secret");
+    const env = serverEnv();
     assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
       kind: "static",
       client: {
         issuer: "https://github.com/",
-        clientId: "confidential-client",
-        clientSecret: "confidential-secret",
+        clientId: env.GITHUB_APP_CLIENT_ID,
+        clientSecret: env.GITHUB_APP_CLIENT_SECRET,
       },
     });
   });
 
-  test("a rotated secret takes effect on the next call", () => {
-    setEnv("confidential-client", "secret-one");
-    assert.equal(staticClient(ENDPOINT)?.clientSecret, "secret-one");
-    setEnv("confidential-client", "secret-two");
-    assert.equal(staticClient(ENDPOINT)?.clientSecret, "secret-two");
-  });
-
   test("a trailing slash still names the same built-in", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.ok(staticClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}/`)));
   });
 
   test("a redundant percent escape still names the same built-in", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.ok(staticClient(new URL("https://api.githubcopilot.com/%6Dcp/readonly")));
   });
 
   // `dynamic`, not `unavailable`: no built-in claims these endpoints, so the SDK registers its own client.
   test("a query or a fragment cannot inherit the pre-registered client", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.equal(
       resolveBuiltInClient({
         endpoint: new URL(`${GITHUB_MCP_ENDPOINT_HREF}?foo=1`),
@@ -85,7 +95,6 @@ describe("built-in MCP provider registry (#934)", () => {
   });
 
   test("an unrelated endpoint gets no client", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.equal(
       resolveBuiltInClient({
         endpoint: new URL("https://evil.example.test/mcp"),
@@ -103,7 +112,6 @@ describe("built-in MCP provider registry (#934)", () => {
   });
 
   test("a discovered issuer under the pinned origin binds the client to that href", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.equal(
       staticClient(ENDPOINT, "https://github.com/login/oauth")?.issuer,
       "https://github.com/login/oauth",
@@ -112,7 +120,6 @@ describe("built-in MCP provider registry (#934)", () => {
 
   // A refused issuer must not read as "register dynamically", or the pin sends the caller to the refused origin.
   test("a discovered issuer on another origin refuses the client", () => {
-    setEnv("confidential-client", "confidential-secret");
     assert.deepEqual(
       resolveBuiltInClient({
         endpoint: ENDPOINT,

@@ -1,12 +1,12 @@
 /**
  * Built-in MCP providers: endpoint, resource, and client policy pinned in code.
  * Browser-safe copy lives in `BUILT_IN_MCP_CATALOG`; this file holds what Alfred sends.
- * A static client's id and secret come from env on each read, never from a row,
- * so a rotated secret applies on the next token exchange.
+ * A static client's id and secret come from the boot env (`serverEnv()`), never from a row.
+ * A rotated secret applies only after a restart.
  */
 
 import { integrationDisplayName, typedEntries, type BuiltInMCPProvider } from "@alfred/contracts";
-import { envFieldValue } from "@alfred/env/server";
+import { serverEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
 import {
@@ -286,16 +286,16 @@ export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClie
   const issuer = issuerHint ? boundIssuer(definition, issuerHint) : staticClient.issuer;
 
   if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound" };
-  // Read on each call, so a rotated value applies on the next exchange. The boot parse
-  // requires both, so only a process that clears one after boot gets here: a bug, not a state.
-  const clientId = envFieldValue(staticClient.clientIdKey);
-  const clientSecret = envFieldValue(staticClient.clientSecretKey);
+  const env = serverEnv();
 
-  if (clientId === undefined || clientSecret === undefined) {
-    throw new Error(`${staticClient.clientIdKey} or ${staticClient.clientSecretKey} is unset.`);
-  }
-
-  return { kind: "static", client: { issuer, clientId, clientSecret } };
+  return {
+    kind: "static",
+    client: {
+      issuer,
+      clientId: env[staticClient.clientIdKey],
+      clientSecret: env[staticClient.clientSecretKey],
+    },
+  };
 }
 
 /** Owner-facing error for the integrations card. The loopback case must not suggest a setting. */
