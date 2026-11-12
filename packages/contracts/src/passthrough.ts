@@ -117,7 +117,6 @@ export const READ_GATE_REASONS = [
   "invalid_path",
   "graphql_non_query",
   "graphql_operation_ambiguous",
-  "auth_scope_unreachable",
 ] as const;
 
 export type ReadGateReason = (typeof READ_GATE_REASONS)[number];

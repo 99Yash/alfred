@@ -122,28 +122,6 @@ describe("assertReadableRestRequest — path hardening", () => {
   });
 });
 
-describe("assertReadableRestRequest — auth-scope denylist", () => {
-  // No live provider lists a denial today, so the case builds its own config.
-  const scoped = {
-    ...vercel,
-    authScopeDenylist: [{ pattern: /^\/notifications(?:\/|$)/, detail: "user-scoped" }],
-  };
-
-  test("a listed path is pre-flight-rejected as auth_scope_unreachable", () => {
-    for (const path of ["/notifications", "/notifications/threads/1"]) {
-      const r = assertReadableRestRequest(scoped, rest({ path }));
-      assert.equal(r.ok, false, path);
-
-      assert.equal(r.reason, "auth_scope_unreachable", path);
-    }
-  });
-
-  test("a path off the denylist passes", () => {
-    const r = assertReadableRestRequest(scoped, rest({ path: "/v6/deployments" }));
-    assert.equal(r.ok, true);
-  });
-});
-
 function graphql(
   partial: Partial<GraphqlPassthroughRequest> & { document: string },
 ): GraphqlPassthroughRequest {
@@ -269,10 +247,9 @@ describe("read gate — every denial reason is reachable", () => {
       "method_not_read",
       "path_not_allowlisted",
       "invalid_path",
-      "auth_scope_unreachable",
     ];
 
     const graphqlReachable: ReadGateReason[] = ["graphql_non_query", "graphql_operation_ambiguous"];
-    assert.equal(restReachable.length + graphqlReachable.length, 6);
+    assert.equal(restReachable.length + graphqlReachable.length, 5);
   });
 });
