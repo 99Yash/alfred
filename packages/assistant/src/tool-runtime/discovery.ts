@@ -18,6 +18,7 @@ import { singularizePhrase } from "@alfred/assistant/search-words";
 import {
   catalogWords,
   connectionNameWords,
+  mcpServerIdsAdmittedBy,
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
 import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
@@ -106,10 +107,12 @@ export async function searchAvailableTools(args: {
     const queryWords = catalogWords(args.query);
     // A full query rarely occurs verbatim in a descriptor, so scan pages and rank by token.
     let cursor: string | null = null;
+    const serverIds = await mcpServerIdsAdmittedBy(args.userId, args.allowedIntegrations);
 
     for (let pageNumber = 0; pageNumber < 10; pageNumber += 1) {
       const page = await searchMcpToolsLocal({
         userId: args.userId,
+        serverIds,
         detail: "summary",
         // `limit` counts hits, so with the 10-page bound it caps the reachable set.
         limit: MCP_LIST_TOOLS_MAX_LIMIT,

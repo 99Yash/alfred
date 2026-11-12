@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import type { CatalogSlug, CredentialProvider } from "./integrations";
+import type { CatalogSlug, CredentialProvider, IntegrationSlug } from "./integrations";
 import { integrationRoutePrefix } from "./integrations/slugs";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
@@ -391,6 +391,19 @@ export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
  */
 export function builtInMCPProvidersOf(slug: CatalogSlug): readonly BuiltInMCPProvider[] {
   return BUILT_IN_MCP_PROVIDERS.filter((provider) => BUILT_IN_MCP_CATALOG[provider].slug === slug);
+}
+
+/**
+ * The built-ins that a run's integration allowlist admits: those whose integration is on it.
+ * A user-added server has no integration, so a non-empty allowlist never admits one. An empty
+ * allowlist sets no limit; the caller checks for it first.
+ */
+export function builtInMCPProvidersAdmittedBy(
+  allowedIntegrations: readonly IntegrationSlug[],
+): readonly BuiltInMCPProvider[] {
+  return BUILT_IN_MCP_PROVIDERS.filter((provider) =>
+    allowedIntegrations.includes(BUILT_IN_MCP_CATALOG[provider].slug),
+  );
 }
 
 // MCP `ContentBlock` types, plus `unknown` for any future shape.

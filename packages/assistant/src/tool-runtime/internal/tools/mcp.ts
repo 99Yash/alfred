@@ -15,7 +15,9 @@ import { AppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
   McpClientError,
+  mcpServerIdsAdmittedBy,
   needsMcpReauthorization,
+  readOwnedConnection,
   searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -108,6 +110,19 @@ export const mcpTools: readonly RegisteredTool[] = [
         remoteName: input.remoteName,
         catalogRevision: input.catalogRevision,
       }),
+    // Before the staging row, so a call outside the run's integrations gets no approval card.
+    refuseProposal: async (input, ctx) => {
+      const serverIds = await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations);
+
+      if (serverIds === null) return null;
+
+      const connection = await readOwnedConnection(input.connectionId, ctx.userId);
+
+      // An unknown connection fails in the broker with its own error.
+      if (!connection || serverIds.includes(connection.serverId)) return null;
+
+      return "This MCP connection is outside the integrations of this run. Use a connection of an allowed integration.";
+    },
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
@@ -177,7 +192,12 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpToolSearchInputSchema,
-    execute: (input, ctx) => searchMcpToolsLocal({ userId: ctx.userId, ...input }),
+    execute: async (input, ctx) =>
+      searchMcpToolsLocal({
+        userId: ctx.userId,
+        serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+        ...input,
+      }),
   }),
   liveTool({
     integration: "mcp",
@@ -196,6 +216,11 @@ export const mcpTools: readonly RegisteredTool[] = [
     staging: "fast_path",
     policyGateWaiver: "#540: exact local read of Alfred's validated MCP catalog",
     inputSchema: mcpToolInspectInputSchema,
-    execute: (input, ctx) => inspectMcpToolLocal({ userId: ctx.userId, ref: input.ref }),
+    execute: async (input, ctx) =>
+      inspectMcpToolLocal({
+        userId: ctx.userId,
+        ref: input.ref,
+        serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+      }),
   }),
 ];

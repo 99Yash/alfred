@@ -21,6 +21,7 @@ import type {
 import {
   ASK_USER_TOOL,
   buildToolName,
+  builtInMCPProvidersAdmittedBy,
   missingRequiredScopes,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
@@ -373,12 +374,23 @@ export interface RegisteredTool {
   bind: (input: unknown) => ToolInputBinding;
 }
 
+/**
+ * Whether an allowlist admits the tool. `mcp` is never on an allowlist, because it names the
+ * transport. The `mcp.*` tools pass when a listed integration has a built-in MCP server, and the
+ * tools then reach only the servers of those integrations (`mcpServerIdsAdmittedBy`).
+ */
+function allowlistAdmits(tool: RegisteredTool, allowed: ReadonlySet<IntegrationSlug>): boolean {
+  if (tool.integration === "mcp") return builtInMCPProvidersAdmittedBy([...allowed]).length > 0;
+
+  return allowed.has(tool.integration);
+}
+
 function evaluateRunContextGates(
   tool: RegisteredTool,
   allowed: ReadonlySet<IntegrationSlug>,
   context: ToolRunContext,
 ): ToolAvailabilityResult {
-  if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
+  if (tool.integration !== "system" && allowed.size > 0 && !allowlistAdmits(tool, allowed)) {
     return {
       available: false,
       code: "not_allowed",

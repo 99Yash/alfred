@@ -457,6 +457,17 @@ export async function readOwnedConnection(
   return row ? joinConnection(row) : undefined;
 }
 
+/** The id and the pinned endpoint of each owned server. */
+export async function listOwnedServerEndpoints(
+  userId: string,
+  runner: DbRunner = db(),
+): Promise<Pick<McpServer, "id" | "endpointUrl">[]> {
+  return runner
+    .select({ id: mcpServers.id, endpointUrl: mcpServers.endpointUrl })
+    .from(mcpServers)
+    .where(eq(mcpServers.userId, userId));
+}
+
 export async function listOwnedConnections(
   userId: string,
   runner: DbRunner = db(),
@@ -532,6 +543,8 @@ export type ReadOwnedCurrentCatalogDescriptorInput = Pick<McpConnection, "userId
 export type ListOwnedCurrentCatalogSlicesInput = Pick<McpConnection, "userId"> & {
   namespace?: McpServer["id"];
   connectionId?: McpConnection["id"];
+  /** Only these servers, when set. An empty list matches none. */
+  serverIds?: readonly McpServer["id"][];
   /** Exclusive stable-order position from the last catalog row already scanned. */
   after?: OwnedCurrentCatalogPosition;
   /** Both limits are clamped again. `catalogLimit: 0` only answers `hasMore`. */
@@ -712,6 +725,9 @@ export async function listOwnedCurrentCatalogSlices(
     sql`${mcpConnections.currentCatalogRevisionId} is not null`,
     input.namespace !== undefined ? eq(mcpConnections.serverId, input.namespace) : undefined,
     input.connectionId !== undefined ? eq(mcpConnections.id, input.connectionId) : undefined,
+    input.serverIds !== undefined
+      ? inArray(mcpConnections.serverId, [...input.serverIds])
+      : undefined,
     input.after
       ? sql`(${mcpConnections.serverId}, ${mcpConnections.instanceKey}) > (${input.after.namespace}, ${input.after.instanceKey})`
       : undefined,
