@@ -22,17 +22,15 @@ export type GithubAppUserGrant = Pick<
   "accessToken" | "refreshToken" | "tokenType" | "expiresInSeconds" | "scopes"
 >;
 
-/** On `failed`, the row holds the outcome. The install itself still succeeded. */
-export type GithubAppGrantOutcome = "connected" | "failed";
-
 /**
- * Store `grant` on the user's GitHub MCP connection and open the client. It never throws:
- * the manager writes a failure to the row, and the integrations page shows it.
+ * Store `grant` on the user's GitHub MCP connection and open the client. It never throws, and
+ * the caller needs no result: the manager writes the outcome to the row, and the integrations
+ * page shows it. A row that keeps a working catalog after a failure gets only the log line.
  */
 export async function adoptGithubAppGrant(input: {
   readonly userId: string;
   readonly grant: GithubAppUserGrant;
-}): Promise<GithubAppGrantOutcome> {
+}): Promise<void> {
   let connectionId: string | undefined;
 
   try {
@@ -64,14 +62,10 @@ export async function adoptGithubAppGrant(input: {
           }),
       ),
     );
-
-    return "connected";
   } catch (err) {
     logger.warn(
       { event: "github_app_mcp_grant_failed", connectionId, err },
       "The GitHub App install could not connect the GitHub MCP",
     );
-
-    return "failed";
   }
 }
