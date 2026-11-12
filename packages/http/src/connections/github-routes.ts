@@ -5,6 +5,7 @@ import {
   type CredentialProvider,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
+import { logger } from "@alfred/logging";
 import {
   buildInstallUrl,
   buildUserAuthorizeUrl,
@@ -12,6 +13,7 @@ import {
   exchangeUserCode,
   findUserInstallation,
   getInstallation,
+  hasPersonalInstallation,
   upsertGithubCredential,
   userTokenExpiresAt,
 } from "@alfred/integrations/github";
@@ -31,6 +33,27 @@ import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
 const PROVIDER = "github" satisfies CredentialProvider;
 
+/**
+ * One GitHub screen on connect. GitHub, not the Alfred rows, tells if the App is installed,
+ * because an Alfred disconnect keeps the App installed. With no personal installation, the
+ * install screen also authorizes the user (`request_oauth_on_install`). With one, the user
+ * authorization shows one screen, or none when the user authorized the App before.
+ */
+async function connectUrl(state: string): Promise<string> {
+  try {
+    return (await hasPersonalInstallation())
+      ? buildUserAuthorizeUrl(state)
+      : buildInstallUrl(state);
+  } catch (err) {
+    // If GitHub does not answer, use the user authorization. The install page never comes
+    // back when the App is installed, so a wrong guess there is a dead end. A wrong guess
+    // here costs one more screen: the callback finds no installation and sends the user on.
+    logger.warn({ err }, "[github.connect] installation check failed; using user authorization");
+
+    return buildUserAuthorizeUrl(state);
+  }
+}
+
 const handshake = oauthHandshake(PROVIDER);
 
 export const githubIntegrationRoutes = new Elysia({
@@ -43,11 +66,9 @@ export const githubIntegrationRoutes = new Elysia({
   .guard({ auth: true }, (app) =>
     app.get("/connect", async ({ user, set }) => {
       const state = await handshake.begin({ userId: user.id });
-      // Every user starts at the user authorization. The install page never comes back when
-      // the App is installed already, and an Alfred disconnect keeps the App installed. The
-      // callback finds the installation, or sends the user on to install.
+
       set.status = 302;
-      set.headers["Location"] = buildUserAuthorizeUrl(state);
+      set.headers["Location"] = await connectUrl(state);
 
       return null;
     }),
@@ -136,7 +157,9 @@ export const githubIntegrationRoutes = new Elysia({
             accountId: tokens.accountId,
           });
 
-          // Authorized, but the App is not installed: install it. That screen comes back with both.
+          // Authorized, but the App is not on the user's own account: install it. That screen
+          // comes back with both. `/connect` sends a user here only when the App is on another
+          // personal account, or when its installation check failed.
           if (!found) {
             set.status = 302;
             set.headers["Location"] = buildInstallUrl(await handshake.begin({ userId }));

@@ -54,8 +54,9 @@ export function getGithubAppConfig(): GithubAppConfig {
 /**
  * With request_oauth_on_install, installs the App and authorizes the user on one screen.
  * If the App is already installed, GitHub shows the installation settings and never
- * returns, so only the callback sends a user here, after {@link findUserInstallation}
- * finds no installation.
+ * returns. So a caller sends a user here only when GitHub reports no installation on a
+ * personal account: {@link hasPersonalInstallation} in `/connect`, or
+ * {@link findUserInstallation} in the callback.
  */
 export function buildInstallUrl(state: string): string {
   const { slug } = getGithubAppConfig();
@@ -119,6 +120,44 @@ export async function findUserInstallation(args: {
   );
 
   return chosen ? String(chosen.id) : null;
+}
+
+const appInstallationsSchema = z.array(
+  z.object({
+    id: z.number(),
+    // A user or org account has `type`. An enterprise account has no `type`.
+    account: z.object({ type: z.string().optional() }).nullable().optional(),
+  }),
+);
+
+/**
+ * Whether this App has an installation on a personal (`User`) account. GitHub is the source,
+ * not the Alfred credential rows, because an Alfred disconnect keeps the App installed.
+ * Alfred has one user, and the App belongs to that user, so a personal installation is the
+ * user's. Reads `GET /app/installations` with the App JWT, one full page at a time.
+ */
+export async function hasPersonalInstallation(): Promise<boolean> {
+  const jwt = await mintAppJwt();
+
+  for (let page = 1; ; page++) {
+    const url = new URL(`${GITHUB_API}/app/installations`);
+    url.searchParams.set("per_page", String(GITHUB_MAX_PER_PAGE));
+    url.searchParams.set("page", String(page));
+
+    const res = await githubFetch(url, {
+      headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
+    });
+
+    if (!res.ok) {
+      throw await httpErrorFromResponse("github.app", res, { url: url.toString() });
+    }
+
+    const installations = appInstallationsSchema.parse(await res.json());
+
+    if (installations.some((installation) => installation.account?.type === "User")) return true;
+
+    if (installations.length < GITHUB_MAX_PER_PAGE) return false;
+  }
 }
 
 /** For a callback with `installation_id` but no `code` (`setup_action=update`). */

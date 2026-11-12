@@ -3,6 +3,7 @@ export {
   buildInstallUrl,
   buildUserAuthorizeUrl,
   findUserInstallation,
+  hasPersonalInstallation,
   mintAppJwt,
   getInstallationToken,
   getInstallation,
