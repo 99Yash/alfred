@@ -404,16 +404,13 @@ _Avoid_: event (alone), delivery
 **Mail authority.** The rule that a mail is a fact only when Gmail reports `dmarc=pass` for a seed or learned domain of the source. Alfred learns a domain when reads confirm the claims of its mail, and one conflict revokes it.
 _Avoid_: sender list, trusted sender
 
-**Pointer.** One statement from any evidence that a thing, or a condition in the user's words, touches the user. It names its targets and does not resolve them.
+**Pointer.** One statement from any evidence that a thing touches the user. It names its targets and does not resolve them. A matter from chat with no thing is a journal entry, not a pointer (ADR-0122 decision 3d).
 _Avoid_: link, `email_interpretation`, about row
 
 **Grounded target.** A pointer target that a check tied to its evidence: its quote and its key occur in the text, or a read of the owning source found the thing. Only a grounded target from a model can be written.
 _Avoid_: verified target, resolved target
 
-**Condition.** A pointer target with no thing: a closing condition in the user's words, for example "until the landlord replies".
-_Avoid_: commitment, ask
-
-**Loop.** One thing or one condition that an `opens` pointer names and that nothing has closed. Alfred derives it on each run; it is not a record and not a work item.
+**Loop.** One thing that an `opens` pointer names and that nothing has closed. Alfred derives it on each run; it is not a record and not a work item.
 _Avoid_: open loop record, ask row
 
 **Loop proof.** The verdict of one loop (`open`, `closed`, `unverified`) with the pointers that opened it and the causes of the verdict. A cheap model gives the verdict and its cites, and code checks each cite (ADR-0122 decision 3c).
@@ -421,6 +418,20 @@ _Avoid_: loop item, `BriefingLoop`
 
 **Check log.** The record of each change of a loop proof, one family for each loop key.
 _Avoid_: run log
+
+## Journal (docs/theory/journal.md, settled 2026-11-12, not built)
+
+**Journal entry.** Prose that the model writes about something that the user talked about with Alfred, with links to the chat turns that it comes from. It points to where to look; it is never evidence. It is internal: the user does not see it, and the owner reviews it in the database.
+_Avoid_: episode, chat memory, open matter, condition
+
+**Lookout.** The part of a journal entry that says, in the model's words, what would move the matter forward. The pre-briefing pass matches new mail and activity against the open lookouts. A lookout lives 90 days from the last mention or hit. An asked lookout (the user asked Alfred to watch) goes first under the cap, and Alfred asks before it ends.
+_Avoid_: cue (ADR-0113 uses it for a hard fact that code reads), watch, trigger, standing query
+
+**Pre-briefing pass.** The read-only Code Mode program that runs before the gather of each briefing. It reads all new items from every integration, matches them against the open lookouts and the notes of all entries, and writes remarks for the briefing.
+_Avoid_: reflection pass, fast net, daily job
+
+**Remark.** A short sentence or question in which Alfred connects a new item to a past talk. It quotes both, and it never acts. It is a stored record that the next chat reads. At most 3 each day.
+_Avoid_: nudge, insight, notification
 
 ## m12 scope (locked 2026-05-11)
 

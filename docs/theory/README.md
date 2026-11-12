@@ -10,6 +10,7 @@ Read this page before you design a change, add a prompt rule, a floor, a table, 
 | [triage.md](./triage.md)                     | The settled target for email triage (ADR-0121).                               |
 | [context-graph.md](./context-graph.md)       | The settled model of things, links, and state.                               |
 | [memory.md](./memory.md)                     | The settled theory of memory: claims, name links, and the check job (ADR-0123). |
+| [journal.md](./journal.md)                   | The theory of the journal: recall a past talk, and connect it to what happens later. |
 | [product-direction.md](./product-direction.md) | The owner's plan compared with Dimension and with the built code.          |
 | [state-machines.md](../reference/state-machines.md) | Each status machine, its transitions, and its invariants.              |
 
@@ -28,7 +29,7 @@ The owner's words, 2026-11-10, in short:
 
 **The privacy boundary, as built.** The data stays in the owner's own deployment (Postgres and the workers). The model providers and the AI gateway see the content of each model call. "No untrusted assistant company holds the mail" is true. "No third party sees any mail" is not true.
 
-**What "good" looks like.** An example from another product (Muse, 2026-11-02). The user asked the agent to compare MacBooks. Later, two unrelated mails arrived: Apple said that an iCloud account signed in on a MacBook Air, and Wise said that a card was added to Apple Pay on that MacBook. The agent joined the two mails to the open decision from chat. It asked: "Was that you? If it was, I'll close the whole Air-versus-mini thread." Alfred cannot do this today. Section 4, item 1 explains why.
+**What "good" looks like.** An example from another product (Muse, 2026-11-02). The user asked the agent to compare MacBooks. Later, two unrelated mails arrived: Apple said that an iCloud account signed in on a MacBook Air, and Wise said that a card was added to Apple Pay on that MacBook. The agent joined the two mails to the open decision from chat. It asked: "Was that you? If it was, I'll close the whole Air-versus-mini thread." Alfred cannot do this today. [journal.md](./journal.md) is the theory for it.
 
 ---
 
@@ -112,11 +113,12 @@ A stage can be Settled and Not built, or Open and Built. Both are valid states. 
 | Ingest                 | Partly                                                                 | Built                                    | [product-flow §3](./product-flow.md#3-email-tagging-triage)                                               | 3, 7       | Open: the mail-state model. Alfred stores a mail as it was at arrival. A read or a relabel in Gmail is not seen.                               |
 | Triage                 | Settled (ADR-0121, [triage.md](./triage.md))                           | Not built (slice 0 only)                 | [triage-theory-v1.md](../plans/triage-theory-v1.md)                                                       | 1, 2, 4, 5 | Open: the shape of the mail facts that the model reads.                                                                                         |
 | Todos                  | Settled (ADR-0121 decision 12: a follow-up that never changes a label) | Not built (old producer, flag off)       | [product-flow §2](./product-flow.md#2-action-items-todos)                                                 | 1, 6       | Object state does not close a todo. Only Gmail mints one.                                                                                       |
-| Object state and loops | Settled for provider objects ([context-graph.md](./context-graph.md)) | Partly                                   | [product-flow §4](./product-flow.md#4-briefings-and-object-state)                                         | 3, 4       | Open: a loop that starts from chat or that crosses sources.                                                                                     |
+| Object state and loops | Settled for provider objects ([context-graph.md](./context-graph.md)) | Partly                                   | [product-flow §4](./product-flow.md#4-briefings-and-object-state)                                         | 3, 4       | ADR-0122 decision 3c (no declaration for each kind) is not built. A matter from chat is a journal entry, not a loop (decision 3d).              |
 | Briefing               | Partly                                                                 | Built                                    | [product-flow §4](./product-flow.md#4-briefings-and-object-state)                                         | 4, 7       | It reports loops. It cannot close one or ask the user to verify one.                                                                            |
 | Chat                   | Partly                                                                 | Built                                    | [product-flow §5](./product-flow.md#5-chat-the-boss-agent)                                                | 1, 4, 7    | Chat cannot see briefings or triage labels. Alfred cannot send a message outside a turn.                                                        |
 | Memory over time       | Settled (ADR-0123, [memory.md](./memory.md)), except Q6                | Not built (old direct writes)            | [memory.md §8](./memory.md#8-theory-state-and-code-state)                                                 | 1, 4, 5    | No name lookup, no evidence on claims, no check job (needs Code Mode, #535). Open: Q6 (unconfirmed claims and their UI), the triage profile (ADR-0121 decision 6). |
-| Loop closing and asks  | Open (ADR-0121 plan: "needs its own session")                          | Not built                                | none yet                                                                                                  | 2, 4, 6    | The Muse example. See section 4.                                                                                                                |
+| Journal and recall     | Settled ([journal.md](./journal.md)), except section 9                 | Not built                                | [journal.md §10](./journal.md#10-theory-state-and-code-state)                                             | 4, 5, 7    | Past chats are not searchable. The pre-briefing pass needs Code Mode. Open: a remark outside a turn, and writers other than chat.               |
+| Loop closing and asks  | Partly (ADR-0122 decision 3c: the user's word closes; the journal asks) | Not built                                | none yet                                                                                                  | 2, 4, 6    | Open: how an ask about a provider thing reaches the user, and the daily limit of asks (ADR-0121).                                               |
 
 ---
 
@@ -128,23 +130,18 @@ A foundation is a piece that many later stages read. Build a settled foundation 
 | -------------------------------------------- | ------- | ---------------------------------------------------------------- |
 | One reader of the stored mail (mail facts)   | Partly  | Triage, loop joins, briefing, the user model                     |
 | Only the user's actions are evidence         | Settled | Triage, memory, the triage profile                               |
-| A tracked thing for each open matter (loop)  | Partly  | Loop closing, asks, briefing, todos, chat                        |
-| Memory: claims with evidence, name links, the check job ([memory.md](./memory.md)) | Settled | Chat (resolve a name), triage, briefing, loops from chat, the triage profile |
+| A loop for each thing with an owning source (ADR-0122) | Settled | Loop closing, asks, briefing, todos                  |
+| The journal: past chats that can be found, entries, and lookouts ([journal.md](./journal.md)) | Settled | Chat recall, remarks, the Muse example  |
+| Memory: claims with evidence, name links, the check job ([memory.md](./memory.md)) | Settled | Chat (resolve a name), triage, briefing, the journal, the triage profile |
 | Code Mode as the read path ([ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md)) | Settled | Chat reads, the memory check job |
 
 The order:
 
 1. **Triage under ADR-0121, starting with its foundations.** The theory is settled, so build it. The first two slices are foundations: the mail-facts reader (from `documents.raw`, so the model can judge if a mail is real) and the stop on self-learning (slice 1). The plan is in [triage-theory-v1.md](../plans/triage-theory-v1.md).
-2. **Theory work on loops that cross sources and start from chat.** This is the largest gap against the vision, and its theory is open. Do not write code yet. The Muse example needs four things:
-   - Chat keeps an open matter (a decision, a purchase) as a tracked thing.
-   - New evidence from any source (two mails from two senders) joins to that thing.
-   - Alfred speaks first, outside a turn.
-   - Alfred asks the user to verify before it closes (the autonomy ladder: report, verify, close).
+2. **The journal, built from its theory.** The Muse example is the journal, not a loop ([journal.md](./journal.md), settled 2026-11-11). A matter from chat is an internal prose entry with links to the user's turns and a lookout. Two nets join new evidence to it: a pass before each briefing that reads all new items from every integration, and a search at chat time. The model judges each link. Code checks the quotes, and Alfred makes at most 3 remarks each day, with the matters that the user asked it to watch first. Build it in the order of journal.md section 11. The first step, past chats that can be found, helps alone.
 
-   To settle with the owner: is an open matter from chat a thing in the context graph? Which evidence may join to it, and who decides the join (the model, by principle 4)? When may Alfred speak first?
-
-   Inputs for that session, from [the Polylane research](../research/polylane-blog-2026-11-11.md#5-agent-shape-and-autonomy): the line for autonomy is reversible versus not; the default verdict is silence; and one agent gathers the evidence and acts on it, with no hand-off between agents.
-3. **Memory, built from its settled theory.** [memory.md](./memory.md) settles claims with evidence, name links, chat capture, and the check job. It depends on the context graph, not on the loop theory. Build it in the order of memory.md section 10. The check job waits for Code Mode (ADR-0124, #535), which also gives chat its read path. The triage profile is still open, and an open matter from chat waits for the loop theory from item 2.
+   Still open: a remark outside a turn, and writers other than chat. The [Polylane research](../research/polylane-blog-2026-11-11.md#5-agent-shape-and-autonomy) applies: the default verdict is silence.
+3. **Memory, built from its settled theory.** [memory.md](./memory.md) settles claims with evidence, name links, chat capture, and the check job. It depends on the context graph, not on the loop theory. Build it in the order of memory.md section 10. The check job waits for Code Mode (ADR-0124, #535), which also gives chat its read path. The triage profile is still open. Chat capture writes claims, name links, and journal entries in one pass, so build its capture step with the journal in view.
 4. **Cold start from the mailbox and the calendar.** The first day is the first impression. It depends on the mail-facts reader from item 1.
 
 ---

@@ -1,8 +1,8 @@
 # ADR-0122 — Each source declares what it can tell, a state is a projection of facts, a pointer says what touches the user, and each loop verdict carries its proof
 
-**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed. A late integration closes open loops through a map when Alfred reads, a key alias, and one run on connect, with no sweep. **Amended 2026-11-11 (owner decision):** decision 3c removes the declarations for each kind. A thing is a key from the evidence, the model judges each verdict with cites, and code checks only who may close, the cites, and that absence never closes. Decision 3c supersedes the kinds, states, and MCP mappings of decision 1, all of decisions 3a and 3b except the writer and the brand, and rule 4 of decision 5. It reverses the rejected alternatives (e) and (i).
+**Status.** Proposed; not built. Decided with the owner on 2026-11-07. Supersedes ADR-0120 decisions 1, 3, 4, 6, 8, and 9. It keeps ADR-0120 decisions 2, 5, 7, and 10. Amends ADR-0062 (a provider becomes a source, and the state table becomes a projection), ADR-0092 (any source can write an `about` link, not only the mail classifier), ADR-0093 (an integration entry declares what it can tell), ADR-0118 (builds decision 2, and uses the presets of decision 5 for every source), ADR-0109 (rule 2 becomes the one link rule; rule 3 stays for soft edges only), and ADR-0048 (the loop verdict is stored, with its proof). **Amended 2026-11-08 (owner decision):** decision 1a replaces the list of senders with a DMARC-authenticated domain that Alfred learns from confirmed claims, and decision 1 pins each MCP mapping to the shape of its tool. This also amends ADR-0120 decision 2: the sender gate of a service mail is decision 1a. Decision 3a adds one typed writer for pointers, with types from the identity schema of each kind. Decision 3b adds open things: a target of a kind that no source declares keeps its pointer, and no connection is needed. A late integration closes open loops through a map when Alfred reads, a key alias, and one run on connect, with no sweep. **Amended 2026-11-11 (owner decision):** decision 3c removes the declarations for each kind. A thing is a key from the evidence, the model judges each verdict with cites, and code checks only who may close, the cites, and that absence never closes. Decision 3c supersedes the kinds, states, and MCP mappings of decision 1, all of decisions 3a and 3b except the writer and the brand, and rule 4 of decision 5. It reverses the rejected alternatives (e) and (i). Decision 3d removes the condition target: a matter from chat is a journal entry (`docs/theory/journal.md`), not a loop.
 
-**Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider.
+**Decision in one paragraph.** Alfred has four primitives. A **source** declares, as typed data, the things that it can tell about. A **fact** is one statement from a source about the state of one thing; `integration_objects` is a projection of the facts. A **pointer** is one statement that a thing, or a condition in the user's words, touches the user; any source can write it. A **loop** is the view of one thing or condition that pointers hold open; `verifyLoops` gives each loop a verdict and the proof of that verdict, and it records each change of verdict. The briefing gather is one function over generic readers, and no line in it names a provider. *Amended by decision 3d (2026-11-11): a pointer target and a loop are always a thing. A matter from chat is a journal entry.*
 
 ## Why
 
@@ -22,7 +22,7 @@ Alfred must answer one question each morning: **what still waits on me, and how 
 | Statement | Example | Who can say it |
 | --- | --- | --- |
 | A thing is in a state | "PR #12 is merged." | Only the source that owns the thing: a webhook, a poll, a live read, or the service's own mail |
-| A thing, or a condition, touches the user | "This Linear mail asks you to review PR #12." | Any source: a mail, a chat message, the user's own act, a todo |
+| A thing touches the user (decision 3d removes the condition) | "This Linear mail asks you to review PR #12." | Any source: a mail, a chat message, the user's own act, a todo |
 | A loop is open or closed, and why | "Open: the mail of 09:10 asks for review, and GitHub said `open` at 07:00." | Only `verifyLoops`, from the two statements above |
 
 Today, one code path mixes the three statements, once for each provider. This ADR gives each statement its own record and its own writer. Then the provider knowledge has one home: the source declaration.
@@ -133,6 +133,8 @@ Why:
 The migration writes one fact for each existing version of each `integration_objects` row, with `via: "migrated"`. Then a replay must give the same rows.
 
 ### 3. A pointer says that something touches the user, and any source can write it
+
+> Amended by decision 3d (2026-11-11). The `condition` arm, the chat `track` tool, and the chat row of the writers table go away. A matter from chat is a journal entry.
 
 A **pointer** is one statement: "this evidence says that this thing, or this condition, touches the user". It is an `observations` family for each piece of evidence. It replaces `gmail/email_interpretation`.
 
@@ -363,7 +365,21 @@ type PointerTarget = {
 
 `LoopProof` gets `why` and `judgedBy: { model, runId }`. A replay reads the stored verdict and its cites; it does not call the model again. This replaces rule 4 of decision 5 ("`decide` is pure"). The `mapping_stale` reason of `read_failed` goes away.
 
+### 3d. No condition target: a matter from chat is a journal entry
+
+Amended with the owner on 2026-11-11. A pointer target is always a thing. The `condition` arm of decision 3, the chat `track` tool, the matcher, and the `matched_event` cause go away.
+
+Why:
+
+- **A matter from chat has no source that owns it.** "Tell me when the landlord replies" or "I am choosing between two laptops" has no key and no read. Thus a loop cannot verify it, and the authority rule of decision 3c cannot apply.
+- **The link to a later event exists only at read time.** A user asks for fashion colleges, and months later a family member gets a place at one. No `watch` field that Alfred writes at chat time can name that event. A model sees the link when it reads both pieces.
+- **The worst error is different.** A wrong loop verdict hides work. A wrong recall is a wrong remark, and a question makes it cheap. The two need different rules.
+
+What replaces it: the journal (`docs/theory/journal.md`). Chat capture and a chat tool write prose entries that link to the user's turns, each with an optional lookout. Two nets match new evidence to the entries: a pass before each briefing that reads all new items from every integration, and a search at chat time. Alfred makes at most 3 remarks each day, and each one quotes the stored items. A matter that the user asked Alfred to watch goes first, and its lookout does not end in silence. When a recall finds the key of a thing, it writes a pointer under decision 3c, and a loop takes over.
+
 ### 4. A loop is a view of what pointers hold open; it is not a work item
+
+> Amended by decision 3d (2026-11-11). A loop is always a thing. The `LoopKey` of a condition pointer, the condition in the loop set, and the `match` step of decision 5 go away.
 
 A **loop** is one thing or one condition that at least one `opens` pointer names, and that no later fact or event has closed. The loop has no table. `verifyLoops` derives it from pointers and facts on each run.
 
@@ -415,7 +431,7 @@ The rules:
 4. **`decide` is pure.** Its input is ids of stored rows. Anyone can replay a verdict from the check log. *Superseded by decision 3c: a cheap model judges the verdict, code checks its cites, and a replay reads the stored verdict.*
 5. **One `LoopKey` everywhere.**
 
-**A matched event may close a condition loop (owner decision, 2026-11-07).** The matcher is a cheap model. It reads the events after the pointer that fit `watch`, and it must cite the event and the text that matched (ADR-0109 rule 3). Code checks each citation against the stored event. The proof keeps the rationale, and the briefing shows it in one line. A matched event closes the condition pointer only. It never sets the state of a thing.
+*Superseded by decision 3d (2026-11-11): no condition loop exists, so the matcher and the `matched_event` cause go away.* **A matched event may close a condition loop (owner decision, 2026-11-07).** The matcher is a cheap model. It reads the events after the pointer that fit `watch`, and it must cite the event and the text that matched (ADR-0109 rule 3). Code checks each citation against the stored event. The proof keeps the rationale, and the briefing shows it in one line. A matched event closes the condition pointer only. It never sets the state of a thing.
 
 **The check log is an observation family for each `LoopKey`, with `dedup: "head"` on the verdict and the cause ids.** It records only the changes. A run that changes nothing writes nothing for that loop. The `loop_verification_runs` row stays as the run record: its id is the `runId`, and its window rule stays.
 
@@ -455,7 +471,7 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 4. **`verifyLoops` with proof.** Add the model judge, the code check of its cites, `LoopProof`, and the check log (decision 3c). A read is a read-only Code Mode program. Move the verified pulls and the MCP health read into those programs, and remove the MCP health mapping. `list_loops` returns proofs.
 5. **One gather.** Remove `deploy_status` and `github_merged`. Count day shape from activity. Remove the `#1684` lint carve-outs in `briefings/`.
 6. **The classifier states the targets.** Each target has a thing, a quote, an ask, a stance, and `said` (decision 3c). `groundInText` is the containment check. Add the back-test. Then remove the vendor regexes in `loop-key.ts` and `github-adapter.ts`, the kinds and lifecycles of `INTEGRATION_OBJECT_DEFS`, and the reducers that map provider words to a category. Add the domain observations that `verifyLoops` learns and revokes (decision 1a).
-7. **Conditions.** Add the chat `track` tool, condition pointers, and the matcher. This slice waits for the theory of a loop that starts in chat (`docs/theory/README.md`, section 4, item 2).
+7. **Conditions.** Removed by decision 3d. The journal (`docs/theory/journal.md`) has its own order of work.
 8. **Code Mode.** Add the host functions of decision 7.
 
 ## Where this touches the rest of the app
@@ -470,7 +486,7 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 | Triage | `object-links.ts` becomes the pointer writer. The classify output gets targets. The todo object comes from the pointer. `runEmailTriageCloseLoopTodos` stops closing todos on the `payment` label. |
 | MCP | The health mapping goes away. A read is a read-only Code Mode program over the tools of the connection (decision 3c). At connect, the owner confirms the domains of a custom server one time. |
 | Briefing | `gather.ts`, `provenance.ts`, `list_loops`, the composer prose, `read.ts` `deriveLoopKey`, `open-ask-guard.ts`, and day shape. |
-| Chat | The new `track` tool. |
+| Chat | No change from this ADR. The journal adds a chat tool that writes entries (decision 3d). |
 | Context Search | `object-state-source.ts`, `documents-source.ts`, and `object-ref.ts` use `ThingRef`. |
 
 ## Preserved behavior
@@ -494,7 +510,6 @@ Each slice keeps the product working. The order is a strangler, not a big-bang r
 - **The owner can confirm a wrong domain for a custom MCP server.** Then that server can close a thing of that domain. The proof names the connection, so the owner can see it.
 
 - **The classifier can miss a target.** The containment check stops a false target, not a missed one. The back-test of slice 6 measures the misses before the regexes go.
-- **A matched event can close a condition loop by mistake.** The proof shows the rationale and the cited text, so the owner can see it. A new `opens` pointer opens the loop again.
 - **The projection migration is large.** Each version of each row becomes a fact. A replay that does not give the same rows blocks slice 2.
 - **A two-step link walk can miss a deeper chain.** The bound keeps the reads small. A longer chain needs a new decision.
 - **A vendor without DMARC gives no mail facts.** Some vendors publish no DMARC record, or sign only with the domain of their mail provider. Their mail stays a pointer, and their things need reads. This is the safe direction.
