@@ -187,14 +187,15 @@ export async function findCredentialByEmail(
   return rows[0] ?? null;
 }
 
+/** A Gmail account that needs a watch install or renewal. `expiresAt` is null when no expiry parses. */
+export type GmailWatchCandidate = { id: string; userId: string; expiresAt: Date | null };
+
 /**
  * Active Gmail accounts whose watch must be installed or renewed: no watch, an unreadable expiry,
  * or an expiry before `before`. A watch whose first install failed is here too, so the renew sweep
  * retries it instead of the user reconnecting. Filters in JS after a full scan: single-user scale.
  */
-export async function findGmailWatchesToRenew(
-  before: Date,
-): Promise<{ id: string; userId: string; expiresAt: Date | null }[]> {
+export async function findGmailAccountsNeedingWatch(before: Date): Promise<GmailWatchCandidate[]> {
   const rows = await db()
     .select({
       id: integrationCredentials.id,
@@ -207,14 +208,16 @@ export async function findGmailWatchesToRenew(
     .where(eq(integrationCredentials.provider, "google"));
 
   const gmail = INTEGRATIONS.gmail.credential;
-  const out: { id: string; userId: string; expiresAt: Date | null }[] = [];
+  const out: GmailWatchCandidate[] = [];
 
   for (const row of rows) {
     if (row.status !== "active" || !holdsAnyScope(row.scopes, gmail.anyOfScopes)) continue;
     const watch = readGmailWatchState(row.metadata);
-    const expiresAt = watch ? new Date(watch.expiresAt) : null;
+    const parsed = watch ? new Date(watch.expiresAt) : null;
+    // An expiry that does not parse is null, and the account stays a candidate for reinstall.
+    const expiresAt = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 
-    if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt > before) continue;
+    if (expiresAt && expiresAt > before) continue;
     out.push({ id: row.id, userId: row.userId, expiresAt });
   }
 

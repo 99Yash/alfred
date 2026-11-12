@@ -76,7 +76,8 @@ export const ingestionQueue = defineQueue({
 
     /**
      * Install the Gmail watch for a new credential (ADR-0037), so push starts at once.
-     * `gmail.watch_renew` also installs a missing watch, but only on its 6-hour schedule.
+     * `gmail.watch_renew` also installs a missing watch, but only at its
+     * `GMAIL_WATCH_RENEW_INTERVAL_MS` cadence (6 hours, in `worker.ts`).
      */
     "gmail.watch_install": job(credential),
 

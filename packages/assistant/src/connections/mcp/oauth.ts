@@ -102,16 +102,11 @@ const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
 const MCP_OAUTH_ATTEMPT_TTL_MS = 10 * 60_000;
 
 /**
- * Token-endpoint answers that end the grant: RFC 6749 `invalid_grant`, the services' own codes for
- * it (Executor's list, `oauth-protocol.ts` `isEndedGrant` at executor 4bb5882), and a refused
- * client. Alfred registers one client per connection, so a refused client ends its grant too.
- * Any other answer (`invalid_request`, `invalid_scope`, `access_denied`, a timeout, a 5xx) keeps
- * the refresh token: a server fault must not destroy a grant that works once the server is fixed.
+ * The services' own codes for RFC 6749 `invalid_grant`: the refresh token can never be used again.
+ * Source: Executor `oauth-protocol.ts` `isEndedGrant` at commit 4bb5882 (Supabase Auth, GitHub,
+ * Slack, AWS Sign-In, and the OpenID Connect `login_required`). Some come with HTTP 200 or 401.
  */
-const DEAD_GRANT_ERROR_CODES: ReadonlySet<string> = new Set([
-  OAuthErrorCode.InvalidGrant,
-  OAuthErrorCode.InvalidClient,
-  OAuthErrorCode.UnauthorizedClient,
+const VENDOR_ENDED_GRANT_CODES: ReadonlySet<string> = new Set([
   "refresh_token_already_used",
   "refresh_token_not_found",
   "session_expired",
@@ -125,13 +120,70 @@ const DEAD_GRANT_ERROR_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Codes that refuse the OAuth client, not the grant: RFC 6749 `invalid_client` and
+ * `unauthorized_client`, and the services' own codes from Executor `isClientRejection`
+ * (GitHub `incorrect_client_credentials`, Salesforce `invalid_client_id`, Dropbox `invalid_client: …`).
+ */
+const REFUSED_CLIENT_ERROR_CODES: ReadonlySet<string> = new Set([
+  OAuthErrorCode.InvalidClient,
+  OAuthErrorCode.UnauthorizedClient,
+  "incorrect_client_credentials",
+  "invalid_client_id",
+]);
+
+function refusesClient(code: string): boolean {
+  return (
+    REFUSED_CLIENT_ERROR_CODES.has(code) || code.startsWith(`${OAuthErrorCode.InvalidClient}:`)
+  );
+}
+
+/**
+ * The source of the client that signs a refresh.
+ * `registered`: an RFC 7591 registration that Alfred stored for this connection only.
+ * `metadata_document`: Alfred's client ID metadata document URL, the same `client_id` for every server.
+ * `static`: a built-in client from env, which every connection to that issuer shares.
+ */
+type McpOAuthClientKind = "registered" | "metadata_document" | "static";
+
+/**
+ * What a refused refresh means for the stored credential.
+ * `ended_grant`: clear the tokens. `refused_registration`: clear the tokens and the registration.
+ * `refused_shared_client`: keep both, because a fault in a shared client is not a fault in this grant.
+ * `transient`: keep both.
+ */
+type RefreshRefusal =
+  | "ended_grant"
+  | "refused_registration"
+  | "refused_shared_client"
+  | "transient";
+
+/**
+ * Classify a token-endpoint error code from a refresh.
+ * Only `invalid_grant` and the vendor aliases end the grant, as in Executor `renewalOutcome`.
+ * Alfred differs on a refused client: it ends the grant when the client is this connection's own
+ * registration. A new consent then registers a new client. Executor keeps the grant on every
+ * refused client: a fault in a shared client must not make every user sign in again.
+ * Any other code (`invalid_request`, `invalid_scope`, `access_denied`, `server_error`) is transient.
+ * Alfred sends no `scope` on a refresh, so `invalid_scope` is a server fault, not a scope to drop.
+ */
+function classifyRefreshRefusal(code: string, clientKind: McpOAuthClientKind): RefreshRefusal {
+  if (code === OAuthErrorCode.InvalidGrant || VENDOR_ENDED_GRANT_CODES.has(code)) {
+    return "ended_grant";
+  }
+
+  if (!refusesClient(code)) return "transient";
+
+  return clientKind === "registered" ? "refused_registration" : "refused_shared_client";
+}
+
+/**
  * One refresh per connection in this process. A server that rotates refresh tokens
  * (Railway does) rejects the second use of the old one, and that ends the grant.
  */
 const refreshFlights = new Map<string, Promise<RefreshOutcome>>();
 
 /** `fresh`: a usable access token is stored. `dead`: only a new consent can help. */
-export type RefreshOutcome = "fresh" | "dead";
+type RefreshOutcome = "fresh" | "dead";
 
 /**
  * Why a refresh runs. `expiry`: the stored token is near its end. `rejected`: the server
@@ -144,32 +196,27 @@ type RefreshReason =
   | { kind: "rejected"; token: string | undefined }
   | { kind: "keepalive"; staleBefore: Date };
 
-function refreshNotNeeded(
+/** `true` when the stored access token `stored` does not satisfy `reason`. */
+function needsRefresh(
   reason: RefreshReason,
   credential: Pick<McpOauthCredential, "expiresIn" | "lastAuthorizedAt">,
   stored: string,
 ): boolean {
   switch (reason.kind) {
     case "expiry":
-      return !tokenExpiresSoon(credential);
+      return tokenExpiresSoon(credential);
     case "rejected":
-      return stored !== reason.token;
+      return stored === reason.token;
     case "keepalive":
       return (
-        credential.lastAuthorizedAt !== null &&
-        credential.lastAuthorizedAt > reason.staleBefore &&
-        !tokenExpiresSoon(credential)
+        needsRefresh({ kind: "expiry" }, credential, stored) ||
+        credential.lastAuthorizedAt === null ||
+        credential.lastAuthorizedAt <= reason.staleBefore
       );
     default:
       return assertNever(reason, "MCP OAuth refresh reason");
   }
 }
-
-/** A refused client cannot sign a refresh: drop its registration, or the next consent reuses it. */
-const REFUSED_CLIENT_ERROR_CODES: ReadonlySet<string> = new Set([
-  OAuthErrorCode.InvalidClient,
-  OAuthErrorCode.UnauthorizedClient,
-]);
 
 /** `GET /api/integrations/mcp/callback` completes this handshake with its own `oauthHandshake("mcp")`. */
 const handshake = oauthHandshake("mcp");
@@ -684,6 +731,16 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async clientInformation(
     ctx?: OAuthClientInformationContext,
   ): Promise<StoredOAuthClientInformation | undefined> {
+    return (await this.#resolveClient(ctx))?.information;
+  }
+
+  /**
+   * The client for `ctx.issuer` and its source. The SDK also stores a metadata-document client,
+   * so a stored `client_id` equal to `clientMetadataUrl` is not this connection's registration.
+   */
+  async #resolveClient(
+    ctx?: OAuthClientInformationContext,
+  ): Promise<{ kind: McpOAuthClientKind; information: StoredOAuthClientInformation } | undefined> {
     const credential = await this.#credentialForIssuer(ctx?.issuer);
 
     if (credential?.clientInformation) {
@@ -696,9 +753,12 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         : undefined;
 
       return {
-        ...parsed.data,
-        issuer: credential.issuer,
-        ...(secret ? { client_secret: secret } : {}),
+        kind: parsed.data.client_id === this.clientMetadataUrl ? "metadata_document" : "registered",
+        information: {
+          ...parsed.data,
+          issuer: credential.issuer,
+          ...(secret ? { client_secret: secret } : {}),
+        },
       };
     }
 
@@ -715,14 +775,17 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
       const { client } = resolution;
 
       return {
-        client_id: client.clientId,
-        issuer: client.issuer,
-        ...(client.clientSecret
-          ? {
-              client_secret: client.clientSecret,
-              token_endpoint_auth_method: "client_secret_post",
-            }
-          : {}),
+        kind: "static",
+        information: {
+          client_id: client.clientId,
+          issuer: client.issuer,
+          ...(client.clientSecret
+            ? {
+                client_secret: client.clientSecret,
+                token_endpoint_auth_method: "client_secret_post",
+              }
+            : {}),
+        },
       };
     }
 
@@ -983,7 +1046,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
    * Refresh a grant that has not been refreshed since `staleBefore`, so that a grant that is not
    * used does not expire. A transient failure throws and keeps the refresh token.
    */
-  keepAlive(staleBefore: Date, options: McpOAuthRequestOptions = {}): Promise<RefreshOutcome> {
+  keepAlive(staleBefore: Date, options: McpOAuthRequestOptions = {}): Promise<"fresh" | "dead"> {
     return this.#refreshShared({ kind: "keepalive", staleBefore }, options);
   }
 
@@ -1032,7 +1095,9 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   /**
    * Runs on a provider bound to the lock's store. Re-read under the lock: another process
    * may have refreshed while this one waited.
-   * Executor's refresh rules, ported: a dead grant clears the tokens, a transient failure keeps them.
+   * An ended grant clears the tokens, and other failures keep them, as in Executor.
+   * One difference: a refused client ends the grant when it is this connection's own registration.
+   * `classifyRefreshRefusal` holds the rule.
    */
   async #refreshLocked(
     reason: RefreshReason,
@@ -1041,7 +1106,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     const credential = await this.#readCredential();
     const stored = credential?.accessToken ? this.#vault.open(credential.accessToken) : undefined;
 
-    if (credential && stored !== undefined && refreshNotNeeded(reason, credential, stored)) {
+    if (credential && stored !== undefined && !needsRefresh(reason, credential, stored)) {
       return "fresh";
     }
 
@@ -1055,11 +1120,11 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     const discovery = await this.#refreshDiscovery(fetchFn);
     const metadata = discovery.authorizationServerMetadata;
     const issuer = metadata?.issuer ?? discovery.authorizationServerUrl;
-    const clientInformation = await this.clientInformation({ issuer });
+    const client = await this.#resolveClient({ issuer });
 
     // No registered client: only the SDK consent flow can register one. Drop the tokens it
     // cannot use, or the SDK `auth()` would refresh them outside both locks.
-    if (!clientInformation) {
+    if (!client) {
       await this.#store.update(credential.id, this.#userId, {
         accessToken: null,
         refreshToken: null,
@@ -1080,25 +1145,43 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     try {
       tokens = await refreshAuthorization(discovery.authorizationServerUrl, {
         ...(metadata ? { metadata } : {}),
-        clientInformation,
+        clientInformation: client.information,
         refreshToken: this.#vault.open(credential.refreshToken),
         ...(resource ? { resource } : {}),
         fetchFn,
       });
     } catch (error) {
-      if (!(error instanceof OAuthError && DEAD_GRANT_ERROR_CODES.has(error.code))) {
-        throw this.#refreshUnavailable(error);
+      if (!(error instanceof OAuthError)) throw this.#refreshUnavailable(error);
+
+      const refusal = classifyRefreshRefusal(error.code, client.kind);
+
+      switch (refusal) {
+        case "transient":
+          throw this.#refreshUnavailable(error);
+        case "refused_shared_client":
+          throw this.#refreshUnavailable(error, { code: error.code, clientKind: client.kind });
+        case "ended_grant":
+        case "refused_registration":
+          break;
+        default:
+          return assertNever(refusal, "MCP OAuth refresh refusal");
       }
 
       logger.warn(
-        { event: "mcp_oauth_refresh_dead", connectionId: this.#connectionId, code: error.code },
+        {
+          event: "mcp_oauth_refresh_dead",
+          connectionId: this.#connectionId,
+          code: error.code,
+          refusal,
+        },
         "MCP OAuth refresh grant is dead; the connection needs a new consent",
       );
+      // A refused registration cannot sign a refresh: drop it, or the next consent reuses it.
       await this.#store.update(credential.id, this.#userId, {
         accessToken: null,
         refreshToken: null,
         idToken: null,
-        ...(REFUSED_CLIENT_ERROR_CODES.has(error.code)
+        ...(refusal === "refused_registration"
           ? { clientInformation: null, clientSecret: null }
           : {}),
       });
@@ -1144,12 +1227,30 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
     return restored;
   }
 
-  /** A transient refresh failure: keep the refresh token and fail before delivery. */
-  #refreshUnavailable(error: unknown): McpClientError {
-    logger.warn(
-      { event: "mcp_oauth_refresh_transient", connectionId: this.#connectionId, err: error },
-      "MCP OAuth refresh failed; the refresh token stays for the next attempt",
-    );
+  /**
+   * A transient refresh failure: keep the refresh token and fail before delivery.
+   * `refusedClient` marks a refused shared client, which gets its own log event.
+   */
+  #refreshUnavailable(
+    error: unknown,
+    refusedClient?: { code: string; clientKind: McpOAuthClientKind },
+  ): McpClientError {
+    if (refusedClient) {
+      logger.warn(
+        {
+          err: error,
+          event: "mcp_oauth_refresh_client_refused",
+          connectionId: this.#connectionId,
+          ...refusedClient,
+        },
+        "MCP OAuth token endpoint refused a shared client; the grant and the client stay",
+      );
+    } else {
+      logger.warn(
+        { err: error, event: "mcp_oauth_refresh_transient", connectionId: this.#connectionId },
+        "MCP OAuth refresh failed; the refresh token stays for the next attempt",
+      );
+    }
 
     return new McpClientError(
       "authorization_unavailable",

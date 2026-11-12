@@ -4,7 +4,7 @@ import { retryPending } from "@alfred/corpus";
 import { gmailMailboxWritesEnabled, serverEnv } from "@alfred/env/server";
 import {
   assertGmailPushOidcConfigured,
-  findGmailWatchesToRenew,
+  findGmailAccountsNeedingWatch,
 } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
 import type { JobInput } from "@alfred/assistant/queue-jobs";
@@ -94,6 +94,9 @@ async function enqueueGmailMediaIngest(
   await ingestionQueue.add("gmail.media_ingest", args);
 }
 
+/** The `gmail.watch_renew` cadence. It also bounds the delay before a missing watch is installed. */
+const GMAIL_WATCH_RENEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 export async function runGmailKindRefoldJob(userId: string) {
   return refoldGmailKindProjection({ userId });
 }
@@ -102,8 +105,8 @@ export async function runGmailKindRefoldJob(userId: string) {
  * The `ingestion-runs` worker and its schedules. Each schedule is idempotent, because
  * `upsertJobScheduler` keys by the kind.
  * - `gmail.poll_sweep`: backstop for missed Pub/Sub pushes and missing watches.
- * - `gmail.watch_renew` every 6h: watches expire after about 7 days; 6h leaves room for a failed
- *   run.
+ * - `gmail.watch_renew` every `GMAIL_WATCH_RENEW_INTERVAL_MS` (6h): watches expire after about 7 days;
+ *   6h leaves room for a failed run.
  * - `gmail.embed_sweep`: index chunkless docs and project older receipts with no document.
  * - `ingress.health_sweep` every 6h: a broken source sends nothing, so only a schedule notices
  *   (ADR-0100).
@@ -263,7 +266,7 @@ export const ingestionWorker = ingestionQueue.consume({
 
       assertGmailPushOidcConfigured();
       const horizon = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const candidates = await findGmailWatchesToRenew(horizon);
+      const candidates = await findGmailAccountsNeedingWatch(horizon);
       let renewed = 0;
       let failed = 0;
 
@@ -409,7 +412,7 @@ export const ingestionWorker = ingestionQueue.consume({
     },
     {
       kind: "gmail.watch_renew",
-      repeat: { every: 6 * 60 * 60 * 1000 },
+      repeat: { every: GMAIL_WATCH_RENEW_INTERVAL_MS },
       opts: {
         attempts: 3,
         backoff: { type: "exponential", delay: 60_000 },
