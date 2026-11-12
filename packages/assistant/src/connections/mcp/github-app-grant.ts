@@ -9,6 +9,7 @@ import { serverEnv } from "@alfred/env/server";
 import type { ExchangeUserCodeResult } from "@alfred/integrations/github";
 import { logger } from "@alfred/logging";
 
+import { BUILT_IN_REGISTRY } from "./built-ins";
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS } from "./client";
 import { getMcpEndpointAuthorizer, withMcpEndpointAuthorization } from "./endpoint-authorization";
 import { mcpOAuthProviderForConnection } from "./oauth";
@@ -49,7 +50,8 @@ export async function adoptGithubAppGrant(input: {
             userId: input.userId,
             authorization: authorized.oauth,
           }).adoptGrant({
-            clientId: serverEnv().GITHUB_APP_CLIENT_ID,
+            // The registry declares the client once. The grant must come from that client.
+            clientId: serverEnv()[BUILT_IN_REGISTRY.github.staticClient.clientIdKey],
             tokens: {
               access_token: input.grant.accessToken,
               token_type: input.grant.tokenType,
