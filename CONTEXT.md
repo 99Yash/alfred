@@ -419,15 +419,18 @@ _Avoid_: loop item, `BriefingLoop`
 **Check log.** The record of each change of a loop proof, one family for each loop key.
 _Avoid_: run log
 
-## Journal (docs/theory/journal.md, settled 2026-11-11, not built)
+## Journal (docs/theory/journal.md, settled 2026-11-12, not built)
 
-**Journal entry.** Prose that the model writes about something that the user talked about with Alfred, with links to the chat turns that it comes from. It points to where to look; it is never evidence.
+**Journal entry.** Prose that the model writes about something that the user talked about with Alfred, with links to the chat turns that it comes from. It points to where to look; it is never evidence. It is internal: the user does not see it, and the owner reviews it in the database.
 _Avoid_: episode, chat memory, open matter, condition
 
-**Cue.** The part of a journal entry that says, in the model's words, what would move the matter forward. New mail and activity are matched against the open cues. A cue lives 90 days from the last mention or hit.
-_Avoid_: watch, trigger, standing query
+**Lookout.** The part of a journal entry that says, in the model's words, what would move the matter forward. The pre-briefing pass matches new mail and activity against the open lookouts. A lookout lives 90 days from the last mention or hit. An asked lookout (the user asked Alfred to watch) goes first under the cap, and Alfred asks before it ends.
+_Avoid_: cue (ADR-0113 uses it for a hard fact that code reads), watch, trigger, standing query
 
-**Remark.** A short sentence or question in which Alfred connects a new item to a past talk. It quotes both, and it never acts. At most 3 each day.
+**Pre-briefing pass.** The read-only Code Mode program that runs before the gather of each briefing. It reads all new items from every integration, matches them against the open lookouts and the notes of all entries, and writes remarks for the briefing.
+_Avoid_: reflection pass, fast net, daily job
+
+**Remark.** A short sentence or question in which Alfred connects a new item to a past talk. It quotes both, and it never acts. It is a stored record that the next chat reads. At most 3 each day.
 _Avoid_: nudge, insight, notification
 
 ## m12 scope (locked 2026-05-11)
