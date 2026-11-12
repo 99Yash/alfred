@@ -8,6 +8,8 @@ interface OnboardingSearch {
   step: OnboardingStep;
   google_connected?: string | undefined;
   github_connected?: string | undefined;
+  /** Kept in the URL so the root layout can show the refusal. */
+  github_error?: string | undefined;
 }
 
 export const Route = createFileRoute("/onboarding")({
@@ -22,6 +24,7 @@ export const Route = createFileRoute("/onboarding")({
       step,
       google_connected: getStringPath(search, "google_connected"),
       github_connected: getStringPath(search, "github_connected"),
+      github_error: getStringPath(search, "github_error"),
     };
   },
   component: OnboardingRoute,

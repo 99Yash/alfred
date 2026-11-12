@@ -77,15 +77,6 @@ export const githubIntegrationRoutes = new Elysia({
     async ({ query, set }) => {
       const origin = serverEnv().CORS_ORIGIN;
 
-      // The user refused the authorization (`access_denied`). Same as the Vercel callback.
-      if (query.error) {
-        set.status = 302;
-        set.headers["Location"] =
-          `${origin}/integrations?github_error=${encodeURIComponent(query.error)}`;
-
-        return null;
-      }
-
       // An install from GitHub's own page has no state, so no Alfred user to bind.
       if (!query.state) {
         set.status = 302;
@@ -94,7 +85,22 @@ export const githubIntegrationRoutes = new Elysia({
         return null;
       }
 
+      // Consume the nonce first, so a refusal also spends the state.
       const { userId } = await handshake.complete(query.state);
+
+      // The user refused the authorization (`access_denied`). The web app shows the error.
+      if (query.error) {
+        const errorParam = `github_error=${encodeURIComponent(query.error)}`;
+        const userRow = await readOnboarding(userId);
+
+        set.status = 302;
+        set.headers["Location"] =
+          userRow?.onboardedAt === null
+            ? `${origin}/onboarding?step=2&${errorParam}`
+            : `${origin}/integrations?${errorParam}`;
+
+        return null;
+      }
 
       // `setup_action=update` sends no `code`. Then we look up the installation with the
       // App JWT, so a lost Alfred row does not force a reinstall.

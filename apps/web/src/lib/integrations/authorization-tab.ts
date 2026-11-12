@@ -60,6 +60,25 @@ export function isAuthorizationReturnTab(): boolean {
   return false;
 }
 
+/** A provider callback that fails sends `?<provider>_error=<code>`, for example `github_error`. */
+const CALLBACK_ERROR_PARAM_SUFFIX = "_error";
+
+/** RFC 6749 §4.1.2.1: the user refused the consent screen. */
+const OAUTH_ACCESS_DENIED = "access_denied";
+
+/** The callback error in `search`, as a sentence for the user, or `null` when there is none. */
+export function readAuthorizationError(search: string): string | null {
+  for (const [key, code] of new URLSearchParams(search)) {
+    if (!key.endsWith(CALLBACK_ERROR_PARAM_SUFFIX) || !code) continue;
+
+    return code === OAUTH_ACCESS_DENIED
+      ? "You declined access. Nothing changed."
+      : `The provider sent back "${code}". Nothing changed.`;
+  }
+
+  return null;
+}
+
 export function continueAfterAuthorization(): void {
   window.sessionStorage.removeItem(AUTHORIZATION_TAB_KEY);
   window.location.reload();
