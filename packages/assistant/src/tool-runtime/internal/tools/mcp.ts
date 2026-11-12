@@ -29,6 +29,12 @@ import {
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 interface McpBrokerToolResult {
+  /**
+   * `false` when the remote tool failed or nothing was sent. The tool log reads it
+   * (`toolCallLogStatus`), so the chat trail shows the call as failed. `tool_error` and `blocked`
+   * are not failure statuses for every tool: a `system.*_workflow` draft is `blocked` and `ok`.
+   */
+  ok?: false;
   status: string;
   result?: unknown;
   retry?: "blocked";
@@ -46,11 +52,12 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
     case "tool_error":
       // Only idempotent reads reach here. MCP `isError` does not prove no effect occurred.
       return withTruncation(
-        { status: "tool_error", result: outcome.envelope.result },
+        { ok: false, status: "tool_error", result: outcome.envelope.result },
         outcome.envelope,
       );
     case "blocked":
       return {
+        ok: false,
         status: "blocked",
         retry: "blocked",
         reason: outcome.reason,
