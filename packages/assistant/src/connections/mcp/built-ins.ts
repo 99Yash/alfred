@@ -28,12 +28,13 @@ export type BuiltInOAuthConfig = {
 };
 
 /**
- * Only `*_MCP_CLIENT_ID` env keys. Plain `keyof ServerEnv` would let
+ * The env keys of a pinned OAuth client, named one by one. Plain `keyof ServerEnv` would let
  * `"CLOUDFLARE_AI_GATEWAY_TOKEN"` compile and be sent to a third-party server.
+ * GitHub's MCP uses the GitHub App's client (ADR-0093 amendment 2026-11-12).
  */
-type McpClientIdEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_ID`>;
+type McpClientIdEnvKey = Extract<keyof ServerEnv, "GITHUB_APP_CLIENT_ID">;
 
-type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECRET`>;
+type McpClientSecretEnvKey = Extract<keyof ServerEnv, "GITHUB_APP_CLIENT_SECRET">;
 
 /**
  * How to get the OAuth client. `unavailable` is a refusal: never fall through to
@@ -111,14 +112,17 @@ export const BUILT_IN_REGISTRY = {
     instanceKey: "default",
     canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
     endpointHref: GITHUB_MCP_ENDPOINT_HREF,
+    // The GitHub App's client (ADR-0093 amendment 2026-11-12). The install callback gives
+    // its user token to this connection (`adoptGithubAppGrant`), so one screen connects both.
     staticClient: {
       issuer: GITHUB_MCP_ISSUER,
-      clientIdKey: "GITHUB_MCP_CLIENT_ID",
-      clientSecretKey: "GITHUB_MCP_CLIENT_SECRET",
+      clientIdKey: "GITHUB_APP_CLIENT_ID",
+      clientSecretKey: "GITHUB_APP_CLIENT_SECRET",
     },
-    // `repo` unhides PR and issue tools, `read:org` the team reads. `repo` grants
-    // write, so the read-only endpoint is what keeps the token off write tools.
-    scopes: ["repo", "read:org"],
+    // Empty on purpose: an App user token has no scopes (`scope: ""`). The App's permissions and
+    // its installed repos limit it. With such a token the endpoint lists all 28 tools (2026-11-12).
+    // A non-empty pin would never be in the grant, and `mcpConsentAsk` would ask again each time.
+    scopes: [],
     readOnlyCatalog: true,
     pinLegacyProtocol: true,
     initialState: BUILT_IN_INITIAL_STATE,

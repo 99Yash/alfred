@@ -1,6 +1,8 @@
 export {
   getGithubAppConfig,
   buildInstallUrl,
+  buildUserAuthorizeUrl,
+  findUserInstallation,
   mintAppJwt,
   getInstallationToken,
   getInstallation,
@@ -13,6 +15,7 @@ export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from 
 
 export {
   upsertGithubCredential,
+  listGithubCredentials,
   getInstallationTokenForUser,
   githubInstallationId,
 } from "./credentials";

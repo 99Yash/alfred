@@ -1060,6 +1060,48 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   /**
+   * Store a grant that another flow got from this connection's own static client, with no
+   * consent screen here. The GitHub App install is the one caller. Under the refresh lock,
+   * so a keep-alive with the old refresh token cannot clear the new grant afterwards.
+   * Throws when the resolved client is not the static client with `clientId`.
+   */
+  async adoptGrant(
+    grant: { readonly clientId: string; readonly tokens: StoredOAuthTokens },
+    options: McpOAuthRequestOptions = {},
+  ): Promise<void> {
+    await this.#store.withRefreshLock(this.#connectionId, (store) =>
+      new McpOAuthProvider({ ...this.#options, store, vault: this.#vault }).#adoptLocked(
+        grant,
+        options,
+      ),
+    );
+  }
+
+  async #adoptLocked(
+    grant: { readonly clientId: string; readonly tokens: StoredOAuthTokens },
+    options: McpOAuthRequestOptions,
+  ): Promise<void> {
+    const fetchFn = timeoutBoundFetch(
+      this.#authorization.fetch,
+      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+    );
+
+    const discovery = await this.#refreshDiscovery(fetchFn);
+
+    const issuer =
+      discovery.authorizationServerMetadata?.issuer ?? discovery.authorizationServerUrl;
+
+    const client = await this.#resolveClient({ issuer });
+
+    // A stored registration or another client could not refresh this grant.
+    if (client?.kind !== "static" || client.information.client_id !== grant.clientId) {
+      throw new Error("The adopted grant is not from this connection's static OAuth client");
+    }
+
+    await this.saveTokens({ ...grant.tokens, issuer }, { issuer });
+  }
+
+  /**
    * Join the flight for this connection, or start one. A caller's abort does not stop it.
    * A 401 waits for a running expiry check, then compares the stored token with the one rejected.
    */

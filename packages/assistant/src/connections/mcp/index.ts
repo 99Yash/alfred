@@ -86,6 +86,12 @@ export {
 
 export { addUserMcpServer, isAddUserMcpServerRefusal } from "./provision";
 
+export {
+  adoptGithubAppGrant,
+  type GithubAppGrantOutcome,
+  type GithubAppUserGrant,
+} from "./github-app-grant";
+
 export { getMcpConnectionManager } from "./runtime";
 
 export { startMcpConnectionRecovery, stopMcpConnectionRecovery } from "./connection-recovery";

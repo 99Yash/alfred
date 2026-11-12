@@ -229,7 +229,6 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
       accountId: randomUUID(),
       accountLabel: "99Yash",
       accessToken: "ghu_identity-token",
-      refreshToken: "ghr_refresh-token",
       installationId: "12345",
       scopes: ["repo"],
       expiresAt: new Date(Date.now() + 3_600_000),
@@ -237,7 +236,8 @@ describe("credential persistence is sealed at rest (DB-backed)", { skip: SKIP },
 
     const raw = await rawIntegrationTokens(id);
     assert.ok(vault.isSealed(raw.accessToken));
-    assert.ok(vault.isSealed(raw.refreshToken));
+    // The GitHub MCP connection owns the refresh token, so the identity row never stores one.
+    assert.equal(raw.refreshToken, null);
     assert.equal(await getGithubAccessToken(id), "ghu_identity-token");
   });
 

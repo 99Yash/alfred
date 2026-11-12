@@ -34,6 +34,11 @@ export function mcpConnectionAuthorizePath(connectionId: string): string {
   return `/api/integrations/mcp/connections/${encodeURIComponent(connectionId)}/authorize`;
 }
 
+/** The connect route for a built-in. It creates the row if there is none, then goes to consent. */
+export function mcpBuiltInConnectPath(provider: BuiltInMCPProvider): string {
+  return `/api/integrations/mcp/built-ins/${provider}/connect`;
+}
+
 // Snapshot of the negotiated server identity, stored on `mcp_connections.server_identity`.
 export const mcpServerIdentitySchema = z.object({
   protocolVersion: z.string(),
@@ -299,7 +304,10 @@ export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySche
 export interface McpBuiltInEntry {
   /** The slug whose logo the tile uses. Only `CatalogSlug` entries have a logo. */
   readonly slug: CatalogSlug;
-  /** Names the server, not the product: one product can have more than one server. */
+  /**
+   * The product name, with no "MCP" in it (owner rule, 2026-11-12). The owner sees one
+   * integration, not a protocol. A second server for one product adds a qualifier, not "MCP".
+   */
   readonly label: string;
   readonly blurb: string;
 }
@@ -307,37 +315,37 @@ export interface McpBuiltInEntry {
 export const BUILT_IN_MCP_CATALOG = {
   github: {
     slug: "github",
-    label: "GitHub MCP",
+    label: "GitHub",
     blurb: "Read pull requests, issues, and code.",
   },
   linear: {
     slug: "linear",
-    label: "Linear MCP",
+    label: "Linear",
     blurb: "Work with Linear issues, projects, and cycles.",
   },
   notion: {
     slug: "notion",
-    label: "Notion MCP",
+    label: "Notion",
     blurb: "Work with Notion pages and databases.",
   },
   sentry: {
     slug: "sentry",
-    label: "Sentry MCP",
+    label: "Sentry",
     blurb: "Investigate Sentry issues and error events.",
   },
   railway: {
     slug: "railway",
-    label: "Railway MCP",
+    label: "Railway",
     blurb: "Read Railway deployment status.",
   },
   polylane: {
     slug: "polylane",
-    label: "Polylane MCP",
+    label: "Polylane",
     blurb: "Read production logs, metrics, traces, and tracked issues.",
   },
   clickup: {
     slug: "clickup",
-    label: "ClickUp MCP",
+    label: "ClickUp",
     blurb: "Work with ClickUp tasks, docs, and chat.",
   },
 } as const satisfies Record<string, McpBuiltInEntry>;

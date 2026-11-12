@@ -1,6 +1,8 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  BUILT_IN_MCP_CATALOG,
   BUILT_IN_MCP_PROVIDERS,
+  isLiveProviderSlug,
   type McpRecoveryDecision,
   type McpRecoveryOperationsPage,
 } from "@alfred/contracts";
@@ -21,6 +23,14 @@ type McpRecoveryAction =
   | { kind: "successor"; invocationId: string };
 
 const FIRST_RECOVERY_PAGE: string | null = null;
+
+/**
+ * A built-in for a live provider (GitHub) connects with that provider's install, so its
+ * provider card and page show it. The list shows only the built-ins with no other card.
+ */
+const LISTED_BUILT_INS = BUILT_IN_MCP_PROVIDERS.filter(
+  (provider) => !isLiveProviderSlug(BUILT_IN_MCP_CATALOG[provider].slug),
+);
 
 export function MCPServerSection() {
   const queryClient = useQueryClient();
@@ -87,7 +97,7 @@ export function MCPServerSection() {
         {MCP_SECTION.heading}
       </h2>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {BUILT_IN_MCP_PROVIDERS.map((provider) => (
+        {LISTED_BUILT_INS.map((provider) => (
           <McpBuiltInCard
             key={provider}
             provider={provider}

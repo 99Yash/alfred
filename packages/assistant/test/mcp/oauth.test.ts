@@ -598,8 +598,8 @@ describe("MCP OAuth credentials are sealed at rest", () => {
  * `clientInformation` from the environment (#934). No row holds this client, so a rotated secret takes effect.
  */
 describe("built-in GitHub MCP OAuth client (#934)", () => {
-  const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
-  const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
+  const CLIENT_ID = "GITHUB_APP_CLIENT_ID";
+  const CLIENT_SECRET = "GITHUB_APP_CLIENT_SECRET";
 
   function githubProvider(store: MemoryStore): McpOAuthProvider {
     return new McpOAuthProvider({
@@ -734,7 +734,7 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
   test("an unconfigured environment refuses, and names the line to set", async () => {
     const oauth = githubProvider(new MemoryStore());
     await assert.rejects(() => oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), {
-      message: /GITHUB_MCP_CLIENT_ID/,
+      message: /GITHUB_APP_CLIENT_ID/,
     });
   });
 });

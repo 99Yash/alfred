@@ -16,8 +16,8 @@ export interface UpsertGithubCredentialArgs {
   accountId: string;
   /** The GitHub login. Blank would leave `@me` unresolvable, so every row has one. */
   accountLabel: string;
+  /** The identity token. No refresh token: the GitHub MCP connection owns it, and GitHub rotates it on use. */
   accessToken: string;
-  refreshToken?: string | null;
   /** From the post-install redirect. */
   installationId: string;
   scopes: string[];
@@ -35,8 +35,8 @@ export async function upsertGithubCredential(
       accountId: args.accountId,
       accountLabel: args.accountLabel,
       accessToken: args.accessToken,
-      // A blank or omitted token writes NULL, also on a reconnect.
-      refreshToken: args.refreshToken || null,
+      // Also on a reconnect, so an old row drops a refresh token that the MCP row may rotate.
+      refreshToken: null,
       installationId: args.installationId,
       expiresAt: args.expiresAt,
       scopes: args.scopes,

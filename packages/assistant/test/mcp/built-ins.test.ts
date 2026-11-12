@@ -9,9 +9,9 @@ import { resolveBuiltInClient, type BuiltInOAuthConfig } from "../../src/connect
  * Tests set `process.env` directly: the lazy per-call read is what makes rotation work.
  */
 
-const CLIENT_ID = "GITHUB_MCP_CLIENT_ID";
+const CLIENT_ID = "GITHUB_APP_CLIENT_ID";
 
-const CLIENT_SECRET = "GITHUB_MCP_CLIENT_SECRET";
+const CLIENT_SECRET = "GITHUB_APP_CLIENT_SECRET";
 
 const ENDPOINT = new URL(GITHUB_MCP_ENDPOINT_HREF);
 
@@ -53,8 +53,9 @@ describe("built-in MCP provider registry (#934)", () => {
     );
   });
 
-  test("a blank environment line counts as unset", () => {
-    setEnv("   ", undefined);
+  // The App client id is a required boot key (`min(1)`), so an empty line is the blank case.
+  test("an empty environment line counts as unset", () => {
+    setEnv("", undefined);
     assert.equal(
       resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }).kind,
       "unavailable",

@@ -25,6 +25,10 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
       {live ? (
         <>
           <ConnectedAccounts provider={provider} connected={connected} />
+          {/* GitHub: the install also connects its MCP server, so the page shows both halves. */}
+          {isBuiltInMCPProvider(provider.slug) && (
+            <McpConnectionPanel provider={provider.slug} name={provider.name} connectsWithInstall />
+          )}
           <ProviderPolicy provider={provider} />
           <TrustNotice provider={provider} />
           <RelatedSetup provider={provider} />

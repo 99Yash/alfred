@@ -1,4 +1,5 @@
 import {
+  mcpBuiltInConnectPath,
   mcpConnectionAuthorizePath,
   type BuiltInMCPProvider,
   type McpRecoveryOperation,
@@ -62,7 +63,7 @@ export function mcpAuthorizeUrl(connectionId: string): string {
 }
 
 export function mcpBuiltInConnectUrl(provider: BuiltInMCPProvider): string {
-  return `${API_URL}/api/integrations/mcp/built-ins/${provider}/connect`;
+  return `${API_URL}${mcpBuiltInConnectPath(provider)}`;
 }
 
 export function matches(haystack: string, query: string): boolean {
