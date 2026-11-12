@@ -28,6 +28,12 @@ a provider or database graph. `system.corpus_search`
 `tool-runtime/context.ts`, so the tool graph stays free of the static
 `@alfred/db`/`@alfred/corpus` edge.
 
+A provider with a working MCP server has no curated tool. GitHub is the example
+(ADR-0125). The model finds a GitHub tool through the MCP line of the connected
+summary, `system.search_tools`, or `mcp.list_tools`. It calls the tool with
+`mcp.call`. The registry entry `INTEGRATIONS.github` has `actions: []` and
+`passthrough: null`.
+
 ## The four players
 
 | Player              | Role                                                                                                                |

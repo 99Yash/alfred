@@ -23,9 +23,9 @@
 - **Reach is the App installation.** An App user token reaches only the repos where the App is installed (ADR-0093 amendment, item 4). The deleted tools used the installation token, so their reach was the same. The old OAuth App reached every repo that the user can see.
 - **The App permissions limit the catalog.** GitHub hides a tool that the token cannot reach (ADR-0094, "The forced trade"). If the production App lacks a permission that the dev App has, the catalog is smaller. Nothing checks the tool count (ADR-0094 amendment, 2026-11-12).
 - **No GitHub reads without the MCP connection.** Before, the curated tools worked with the App credential alone. Now, a GitHub MCP connection in `auth_required` leaves the model with no GitHub read. The connected summary then tells the model to ask the user to reconnect.
-- **The structured search fields are gone.** `github.search` resolved a time window in the user's timezone on the server (ADR-0068), and it folded free-typed qualifiers into fields (ADR-0071). The MCP search takes GitHub search syntax as written by the model.
+- **The structured search fields are gone.** `github.search` resolved a time window in the user's timezone on the server (ADR-0068), and it folded free-typed qualifiers into fields (ADR-0071). Those fields stopped the silent-zero trap of #213: the model wrote a different free-form query for the same question, and the counts changed (19 vs 23). The MCP search takes GitHub search syntax as written by the model, so that failure can occur again.
 - **The login is not in the summary.** The GitHub line said "connected as <login>", so the model could resolve `@me`. The MCP catalog has `get_me`, and GitHub search accepts `@me`.
-- **No batch read with diff totals.** `github.get_pull_requests` summed the diff stats of many pull requests in one call. ADR-0124 (Code Mode) is the answer to fan-out for every read tool.
+- **No batch read with diff totals.** `github.get_pull_requests` summed the diff stats of many pull requests in one call. It stopped the N+1 loop of #935, where the model called `github.get_pull_request` one time for each pull request. With the MCP, the model can do the same loop with `pull_request_read`. ADR-0124 (Code Mode) is the answer to fan-out for every read tool.
 
 ## Alternatives
 

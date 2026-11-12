@@ -30,7 +30,7 @@ A cast (`as`) asks the compiler to trust a claim that it did not prove. It is a 
 
 ### A name you must already know
 
-Each row of the [shared helpers](./shared-helpers.md) table is a capability that only documentation finds. A caller that holds `unknown` cannot see `getPath`. A caller that holds a `credentialId` cannot see `getFreshAccessToken`. `integrations({ userId }).github.search({ q })` replaces three facts: that `getInstallationTokenForUser` exists, that its token must not be logged, and that `searchGithub` takes it.
+Each row of the [shared helpers](./shared-helpers.md) table is a capability that only documentation finds. A caller that holds `unknown` cannot see `getPath`. A caller that holds a `credentialId` cannot see `getFreshAccessToken`. `githubClientForUser({ userId, retry }).getPullRequests(items)` replaces three facts: that `getInstallationTokenForUser` exists, that its token must not be logged, and that the pull request read takes it.
 
 ### A leaky primitive
 
