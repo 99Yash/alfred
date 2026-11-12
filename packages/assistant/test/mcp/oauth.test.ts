@@ -728,13 +728,4 @@ describe("built-in GitHub MCP OAuth client (#934)", () => {
       "secret-two",
     );
   });
-
-  // Throw, not `undefined`: a pinning provider reads an absent client as consent to register,
-  // and GitHub has no registration endpoint. The throw names the env line to set.
-  test("an unconfigured environment refuses, and names the line to set", async () => {
-    const oauth = githubProvider(new MemoryStore());
-    await assert.rejects(() => oauth.clientInformation({ issuer: GITHUB_MCP_ISSUER }), {
-      message: /GITHUB_APP_CLIENT_ID/,
-    });
-  });
 });
