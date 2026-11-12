@@ -2,7 +2,7 @@
 
 **Status.** Accepted; built. Decided with the owner on 2026-11-12. Amends ADR-0052: the App installation token no longer serves a model tool. Amends ADR-0071 and ADR-0068: the structured GitHub search fields go with the tool that had them. Amends ADR-0074: GitHub leaves the passthrough tier. Builds on the ADR-0093 amendment of 2026-11-12 (the GitHub MCP uses the App client) and on ADR-0094 (the read-only resource).
 
-**Decision in one paragraph.** Alfred has no curated GitHub tool and no GitHub passthrough. The six `github.*` tools (`search`, `get_pull_request`, `get_pull_requests`, `get_issue`, `get_issues`, `request`) are deleted. The GitHub MCP built-in, pinned to the read-only resource `/mcp/readonly` (ADR-0094), is the only surface through which the model reads GitHub. The GitHub App stays. It is the OAuth client for the MCP login, and it is the webhook source for ingress and for the activity record. Background code that reads GitHub over REST keeps the App installation token. The GitHub credential row stores no GitHub token.
+**Decision in one paragraph.** Alfred has no curated GitHub tool and no GitHub passthrough. The six `github.*` tools (`search`, `get_pull_request`, `get_pull_requests`, `get_issue`, `get_issues`, `request`) are deleted. The GitHub MCP built-in, pinned to the read-only resource `/mcp/readonly` (ADR-0094), is the only surface through which the model reads GitHub. The GitHub App stays. It is the OAuth client for the MCP login, and it is the webhook source for ingress and for the activity record. Background code that reads GitHub over REST keeps the App installation token. A connect writes no GitHub token to the GitHub credential row.
 
 ## Why
 
@@ -16,7 +16,7 @@
 2. **The model finds the GitHub tools as MCP tools.** The connected summary has one line for each MCP connection, with its label and its tool count. `system.search_tools` and `mcp.list_tools` find a GitHub tool, and `mcp.call` calls it. The read-only built-in lowers the `mcp.call` approval floor (ADR-0096), so a GitHub read shows no approval card.
 3. **The App stays for two jobs.** It is the OAuth client of the GitHub MCP login (ADR-0093 amendment, 2026-11-12). It is the webhook source for ingress (ADR-0097) and for the activity record (ADR-0118).
 4. **Background REST reads keep the installation token.** The loop verifier reads a pull request over REST with an installation token (ADR-0120, ADR-0062 amendment of 2026-11-06). The REST client keeps that read only (`getPullRequests`). The briefing's merged read already uses the MCP (ADR-0062 amendment of 2026-10-27).
-5. **The credential row stores no GitHub token.** The MCP connection holds the App user grant. `upsertGithubCredential` writes the placeholder `ghu_placeholder_<installation id>` and `expiresAt: null`, because `access_token` is NOT NULL. `getGithubAccessToken` is deleted. No migration: an old row keeps its sealed token until the next connect writes the placeholder.
+5. **A connect writes no GitHub token to the credential row.** The MCP connection holds the App user grant. `upsertGithubCredential` writes the placeholder `ghu_placeholder_<installation id>` and `expiresAt: null`, because `access_token` is NOT NULL. `getGithubAccessToken` is deleted. No migration: an old row keeps its sealed access token until the next connect writes the placeholder. Migration 0167 already cleared the old refresh tokens, and a GitHub App user access token expires after eight hours, so that old value is an expired token.
 
 ## The trade-off
 
