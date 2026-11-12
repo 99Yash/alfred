@@ -187,11 +187,6 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "No usable credential exists for this integration.",
     fix: connect,
   }),
-  reauth_required: withParams(integrationParams, {
-    message: ({ integration }) => `${label(integration)} needs to be reconnected.`,
-    why: "A credential exists but is revoked, expired, or incomplete, and cannot act.",
-    fix: reconnect,
-  }),
   account_read_failed: withParams(integrationParams, {
     message: ({ integration }) => `A connected ${label(integration)} account could not be read.`,
     why: "One credential's provider call failed while a sibling credential may still answer.",
