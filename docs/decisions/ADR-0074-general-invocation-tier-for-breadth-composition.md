@@ -9,3 +9,5 @@
 **Alternatives.** (a) **Hand-curate to ~100% coverage** — rejected: unmaintainable, never complete, and can't cover the prose-only DSL layer (ADR-0071's maintenance policy). (b) **Adopt Code Mode now** — rejected: a heavy, security-critical commitment that is its own grill, and it would not have prevented the motivating bug. (c) **Skip the general tier entirely** — rejected: forecloses BYO-MCP and the obscure-query long tail the owner explicitly wants.
 
 **Cross-ref.** The breadth complement to ADR-0071's curated correctness tier; both share ADR-0071 #6 (result-honesty). Relates to the BYO-MCP direction and the integration model (ADR-0052/0053). Sibling in spirit to ADR-0063 (a framed-deferred front-door). The produce-artifact epic (rendering, not invocation) is ADR-0075.
+
+**Amended 2026-11-12 by [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md).** GitHub leaves the passthrough tier: `github.request` is deleted, and `INTEGRATIONS.github.passthrough` is `null`. The Google and Vercel passthrough tools stay.
