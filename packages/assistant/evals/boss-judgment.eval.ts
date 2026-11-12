@@ -6,6 +6,8 @@ import {
   gmailReadMessageInput,
   gmailSearchInput,
   getStringPath,
+  mcpCallInput,
+  mcpToolSearchInputSchema,
   parseIanaTimezone,
   readUserContextInput,
   webSearchInput,
@@ -50,9 +52,19 @@ const CALENDAR_TOOL = "calendar.list_events";
 
 const FETCH_URL_TOOL = "system.fetch_url";
 
-const GITHUB_SEARCH_TOOL = "github.search";
+const MCP_LIST_TOOLS_TOOL = "mcp.list_tools";
 
-const GITHUB_GET_PR_TOOL = "github.get_pull_request";
+const MCP_CALL_TOOL = "mcp.call";
+
+// GitHub is a read-only MCP built-in (ADR-0094, ADR-0125). The model finds its tools in the
+// catalog and calls them through mcp.call, so the eval names the remote tools.
+const GITHUB_CONNECTION = { id: "mcp_conn_github", instanceKey: "github", label: "GitHub" };
+
+const GITHUB_CATALOG_REVISION = "rev_github_eval";
+
+const GITHUB_SEARCH_REMOTE = "search_pull_requests";
+
+const GITHUB_READ_PR_REMOTE = "pull_request_read";
 
 const TIERS: ChatModelTier[] = ["standard", "deep"];
 
@@ -65,9 +77,16 @@ const WEB_INVESTIGATION_TOOLS = new Set<string>([
 
 const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
   READ_CONTEXT_TOOL,
-  GITHUB_SEARCH_TOOL,
-  GITHUB_GET_PR_TOOL,
+  MCP_LIST_TOOLS_TOOL,
+  MCP_CALL_TOOL,
 ]);
+
+/** Catalog reads find a tool. They are not an angle of the investigation. */
+const DISCOVERY_TOOLS = new Set<string>([READ_CONTEXT_TOOL, MCP_LIST_TOOLS_TOOL]);
+
+function isMcpCallTo(call: ToolCall, remoteName: string): boolean {
+  return call.name === MCP_CALL_TOOL && getStringPath(call.input, "remoteName") === remoteName;
+}
 
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
@@ -161,16 +180,16 @@ function bossDepthVerdict(calls: ToolCall[]): DepthVerdict {
 /** For the research sub-agent on any source: two distinct actions and one drill into a record. */
 function investigationDepthVerdict(calls: ToolCall[], kind: "web" | "github"): DepthVerdict {
   const allowed = kind === "web" ? WEB_INVESTIGATION_TOOLS : GITHUB_INVESTIGATION_TOOLS;
-  const relevant = calls.filter((c) => allowed.has(c.name) && c.name !== READ_CONTEXT_TOOL);
+  const relevant = calls.filter((c) => allowed.has(c.name) && !DISCOVERY_TOOLS.has(c.name));
   const offDomain = calls.filter((c) => !allowed.has(c.name));
   const distinct = new Set(relevant.map((c) => `${c.name}:${JSON.stringify(c.input)}`));
 
-  const searched = relevant.some(
-    (c) => c.name === (kind === "web" ? WEB_SEARCH_TOOL : GITHUB_SEARCH_TOOL),
+  const searched = relevant.some((c) =>
+    kind === "web" ? c.name === WEB_SEARCH_TOOL : isMcpCallTo(c, GITHUB_SEARCH_REMOTE),
   );
 
-  const drilled = relevant.some(
-    (c) => c.name === (kind === "web" ? FETCH_URL_TOOL : GITHUB_GET_PR_TOOL),
+  const drilled = relevant.some((c) =>
+    kind === "web" ? c.name === FETCH_URL_TOOL : isMcpCallTo(c, GITHUB_READ_PR_REMOTE),
   );
 
   const ok = offDomain.length === 0 && distinct.size >= 2 && searched && drilled;
@@ -653,13 +672,13 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
 });
 
 // Depth is not web-only. The sub-agent must go deep on the web (search, fetch_url) and on
-// GitHub (search, get_pull_request) with the same prompt.
+// GitHub (the MCP pull request search, then the pull request read) with the same prompt.
 
 const SUB_CONNECTED_SUMMARY = [
   "You are connected to these tools right now — call each as integration.action:",
   "- system.web_search — live public web search",
   "- system.fetch_url — read a known URL's page as text",
-  "- github.search, github.get_pull_request — the user's code",
+  `- "GitHub" MCP server (connectionId ${GITHUB_CONNECTION.id}) — 28 tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`,
   "- system.read_user_context — Alfred's stored memory about the user",
 ].join("\n");
 
@@ -670,16 +689,62 @@ const SUB_SYSTEM = buildSubAgentSystemPrompt(
   "sub-eval",
 );
 
-const githubSearchInputMock = z.object({
-  query: z.string(),
-  type: z.string().optional(),
-  state: z.string().optional(),
-});
+const GITHUB_MCP_HITS = [
+  {
+    ref: {
+      kind: "mcp",
+      connectionId: GITHUB_CONNECTION.id,
+      remoteName: GITHUB_SEARCH_REMOTE,
+      catalogRevision: GITHUB_CATALOG_REVISION,
+    },
+    namespace: GITHUB_CONNECTION.instanceKey,
+    connection: GITHUB_CONNECTION,
+    description:
+      "Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr.",
+  },
+  {
+    ref: {
+      kind: "mcp",
+      connectionId: GITHUB_CONNECTION.id,
+      remoteName: GITHUB_READ_PR_REMOTE,
+      catalogRevision: GITHUB_CATALOG_REVISION,
+    },
+    namespace: GITHUB_CONNECTION.instanceKey,
+    connection: GITHUB_CONNECTION,
+    description:
+      "Get information on a specific pull request in a GitHub repository: its details, diff, files, reviews, or status.",
+  },
+];
 
-const githubGetPrInputMock = z.object({
-  repo: z.string(),
-  number: z.number(),
-});
+function githubMcpResult(remoteName: string) {
+  if (remoteName === GITHUB_SEARCH_REMOTE) {
+    return {
+      total_count: 1,
+      items: [
+        {
+          number: 482,
+          title: "Refactor auth middleware",
+          html_url: "https://github.com/acme/web/pull/482",
+          state: "open",
+        },
+      ],
+    };
+  }
+
+  if (remoteName === GITHUB_READ_PR_REMOTE) {
+    return {
+      number: 482,
+      title: "Refactor auth middleware",
+      state: "open",
+      body: "Splits the auth middleware into per-provider handlers. One review still requested; CI is green.",
+      additions: 240,
+      deletions: 180,
+      changed_files: 7,
+    };
+  }
+
+  return { error: `Unknown tool ${remoteName} in catalog ${GITHUB_CATALOG_REVISION}.` };
+}
 
 interface SubAgentCase {
   label: string;
@@ -743,37 +808,17 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
           text: "Priya Nair — Product Manager at Foobar (Bengaluru). Leads customer onboarding; speaks at product meetups.",
         }),
       }),
-      [GITHUB_SEARCH_TOOL]: tool({
+      [MCP_LIST_TOOLS_TOOL]: tool({
         description:
-          "Search GitHub issues and pull requests. Each hit carries type, number, title, repo, state, and url — a snippet, not the full record.",
-        inputSchema: githubSearchInputMock,
-        execute: async () => ({
-          items: [
-            {
-              type: "pr",
-              number: 482,
-              title: "Refactor auth middleware",
-              repo: "acme/web",
-              state: "open",
-              url: "https://github.com/acme/web/pull/482",
-            },
-          ],
-        }),
+          "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.",
+        inputSchema: mcpToolSearchInputSchema,
+        execute: async () => ({ status: "tools", tools: GITHUB_MCP_HITS, nextCursor: null }),
       }),
-      [GITHUB_GET_PR_TOOL]: tool({
+      [MCP_CALL_TOOL]: tool({
         description:
-          "Read one pull request's full detail by repo and number: title, body, changed files, additions/deletions, review state.",
-        inputSchema: githubGetPrInputMock,
-        execute: async () => ({
-          number: 482,
-          title: "Refactor auth middleware",
-          state: "open",
-          body: "Splits the auth middleware into per-provider handlers. One review still requested; CI is green.",
-          additions: 240,
-          deletions: 180,
-          changedFiles: 7,
-          reviewDecision: "REVIEW_REQUIRED",
-        }),
+          "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
+        inputSchema: mcpCallInput,
+        execute: async ({ remoteName }) => githubMcpResult(remoteName),
       }),
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored context about the user's people and projects.",

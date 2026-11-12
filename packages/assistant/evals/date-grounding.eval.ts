@@ -25,12 +25,11 @@ const EVAL_TIMEOUT_MS = 60_000;
 
 const CALENDAR_TOOL = "calendar.list_events";
 
-// A connected summary for a Google + GitHub user (ADR-0053). The prompt must embed it.
+// A connected summary for a Google user (ADR-0053). The prompt must embed it.
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
   "- gmail.search, gmail.read_message, gmail.send_draft — the user's email",
   "- calendar.list_events, calendar.create_event — the user's calendar",
-  "- github.search, github.get_pull_request, github.get_issue — the user's GitHub issues and pull requests",
 ].join("\n");
 
 interface TargetWindow {

@@ -7,7 +7,7 @@ import { z } from "zod";
  * LLM-as-a-judge scorer (ADR-0055) for subjective checks, like sound reasoning or a natural todo title.
  * The judge picks a letter grade, not a number: models grade 0-100 inconsistently.
  * The default cheap judge is safe only when deterministic scorers carry the proof.
- * `passthrough-honesty` relies on the judge alone, so it pins `route("standard")`.
+ * A suite whose judge carries the proof alone passes a stronger `model`.
  * `voice-ai-tells` pins `route("cheap")` so its grader stays off the OpenAI family it grades.
  */
 
