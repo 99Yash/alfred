@@ -3,7 +3,8 @@
 -- the rows that exist now keep the old label until this update.
 --
 -- A row changes only while it is on the built-in's server and still holds the old catalog
--- label. A label the owner chose stays. Idempotent: a second run finds no old label.
+-- label. Any other label stays. Idempotent: a second run finds no old label.
+-- Accepted limit: no column records who set a label, so an owner's "GitHub MCP" also changes.
 UPDATE "mcp_connections" c
 SET
 	"label" = v."new_label",
