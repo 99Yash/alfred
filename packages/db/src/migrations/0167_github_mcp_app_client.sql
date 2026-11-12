@@ -3,6 +3,9 @@
 -- expires and has no refresh token, so nothing would move it to the new client. Clear the
 -- grant and put the connection in front of the consent screen once (owner decision).
 --
+-- The clear includes a disconnected connection. A disconnect keeps the tokens, so a later
+-- Connect would reuse the old grant. A disconnected connection stays disconnected.
+--
 -- The discovery cache stays: the issuer (`https://github.com/login/oauth`) does not change.
 -- The catalog pointer stays: the endpoint does not change, and the App token lists the same
 -- 28 read-only tools.
@@ -26,7 +29,6 @@ WHERE "connection_id" IN (
 	FROM "mcp_connections" c
 	JOIN "mcp_servers" s ON s."id" = c."server_id"
 	WHERE s."canonical_resource" = 'https://api.githubcopilot.com/mcp/readonly'
-		AND c."status" <> 'disconnected'
 )
 	AND "access_token" IS NOT NULL;--> statement-breakpoint
 UPDATE "mcp_connections"
