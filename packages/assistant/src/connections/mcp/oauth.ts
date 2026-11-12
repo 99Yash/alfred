@@ -787,12 +787,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         information: {
           client_id: client.clientId,
           issuer: client.issuer,
-          ...(client.clientSecret
-            ? {
-                client_secret: client.clientSecret,
-                token_endpoint_auth_method: "client_secret_post",
-              }
-            : {}),
+          client_secret: client.clientSecret,
+          token_endpoint_auth_method: "client_secret_post",
         },
       };
     }

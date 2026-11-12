@@ -24,14 +24,14 @@ import {
 export type BuiltInOAuthConfig = {
   readonly issuer: string;
   readonly clientId: string;
-  readonly clientSecret?: string;
+  readonly clientSecret: string;
 };
 
 /**
  * How to get the OAuth client. `unavailable` is a refusal: never fall through to
  * dynamic registration, which the SDK does when it sees no client.
- * No arm names a missing client id: the one pinned client is the GitHub App's, and the
- * boot parse requires its id (`min(1)`).
+ * No arm names a missing client id or secret: the one pinned client is the GitHub App's,
+ * and the boot parse requires both (`min(1)`). So a `static` client is always confidential.
  */
 export type BuiltInClientResolution =
   | { readonly kind: "dynamic" }
@@ -287,20 +287,15 @@ export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClie
 
   if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound" };
   // Read on each call, so a rotated value applies on the next exchange. The boot parse
-  // requires the id, so only a process that clears it after boot gets here: a bug, not a state.
+  // requires both, so only a process that clears one after boot gets here: a bug, not a state.
   const clientId = envFieldValue(staticClient.clientIdKey);
-
-  if (clientId === undefined) throw new Error(`${staticClient.clientIdKey} is unset.`);
   const clientSecret = envFieldValue(staticClient.clientSecretKey);
 
-  return {
-    kind: "static",
-    client: {
-      issuer,
-      clientId,
-      ...(clientSecret === undefined ? {} : { clientSecret }),
-    },
-  };
+  if (clientId === undefined || clientSecret === undefined) {
+    throw new Error(`${staticClient.clientIdKey} or ${staticClient.clientSecretKey} is unset.`);
+  }
+
+  return { kind: "static", client: { issuer, clientId, clientSecret } };
 }
 
 /** Owner-facing error for the integrations card. The loopback case must not suggest a setting. */

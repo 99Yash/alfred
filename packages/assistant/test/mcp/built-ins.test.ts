@@ -36,14 +36,6 @@ function setEnv(clientId?: string, clientSecret?: string): void {
 describe("built-in MCP provider registry (#934)", () => {
   afterEach(() => setEnv(undefined, undefined));
 
-  test("a client id alone resolves a public client on the pinned issuer", () => {
-    setEnv("public-client", undefined);
-    assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
-      kind: "static",
-      client: { issuer: "https://github.com/", clientId: "public-client" },
-    });
-  });
-
   test("a client id and a secret resolve a confidential client", () => {
     setEnv("confidential-client", "confidential-secret");
     assert.deepEqual(resolveBuiltInClient({ endpoint: ENDPOINT, redirectUrl: CALLBACK }), {
@@ -64,12 +56,12 @@ describe("built-in MCP provider registry (#934)", () => {
   });
 
   test("a trailing slash still names the same built-in", () => {
-    setEnv("confidential-client", undefined);
+    setEnv("confidential-client", "confidential-secret");
     assert.ok(staticClient(new URL(`${GITHUB_MCP_ENDPOINT_HREF}/`)));
   });
 
   test("a redundant percent escape still names the same built-in", () => {
-    setEnv("confidential-client", undefined);
+    setEnv("confidential-client", "confidential-secret");
     assert.ok(staticClient(new URL("https://api.githubcopilot.com/%6Dcp/readonly")));
   });
 
@@ -111,7 +103,7 @@ describe("built-in MCP provider registry (#934)", () => {
   });
 
   test("a discovered issuer under the pinned origin binds the client to that href", () => {
-    setEnv("confidential-client", undefined);
+    setEnv("confidential-client", "confidential-secret");
     assert.equal(
       staticClient(ENDPOINT, "https://github.com/login/oauth")?.issuer,
       "https://github.com/login/oauth",
