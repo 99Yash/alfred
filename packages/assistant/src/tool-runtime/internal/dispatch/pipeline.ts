@@ -1333,7 +1333,7 @@ function toolNameForAction(integration: IntegrationSlug, action: string): ToolNa
 
 /**
  * Tokens that mean "list many". Token overlap alone would send
- * `list_pull_requests` to `get_pull_request`; `search` is the right hint.
+ * `list_threads` to `get_thread`; `search` is the right hint.
  */
 const ENUMERATION_TOKENS = new Set(["list", "find", "all", "search"]);
 

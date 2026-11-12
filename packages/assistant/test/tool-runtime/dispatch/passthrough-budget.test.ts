@@ -48,23 +48,22 @@ async function seedUser(): Promise<{ userId: string; runId: string }> {
     .values({ id: userId, name: "Test User", email: `${userId}@example.test` });
   await db().insert(userActionPolicies).values({ userId, defaultMode: "autonomy" });
   // Without a healthy connection the dispatch answers `not_allowed` before the ceiling.
-  // `credentialSatisfies` for `github_app` needs an active row with an installation id.
+  // `credentialSatisfies` for `bearer` needs an active row.
 
   await db()
     .insert(integrationCredentials)
     .values({
       userId,
-      provider: "github",
-      accountId: `${userId}-gh`,
+      provider: "vercel",
+      accountId: `${userId}-vercel`,
       // Unsealed on purpose: nothing opens the token, and sealing needs the `serverEnv()` fixtures.
       accessToken: unsealedTestSecret("test-token"),
-      installationId: "1",
       status: "active",
     });
   // The passthrough tier is off by default.
   await db()
     .insert(userPreferences)
-    .values({ userId, key: "feature.passthrough.github", value: true });
+    .values({ userId, key: "feature.passthrough.vercel", value: true });
   const runId = `run_${randomUUID().slice(0, 12)}`;
   await db().insert(agentRuns).values({
     id: runId,
@@ -92,10 +91,10 @@ async function seedExecutedPassthroughCalls(
         runId,
         stepId: "dispatch-tools",
         toolCallId: `seed_${i}_${randomUUID().slice(0, 8)}`,
-        toolName: "github.request" as const,
-        integration: "github" as const,
+        toolName: "vercel.request" as const,
+        integration: "vercel" as const,
         riskTier: "no_risk" as const,
-        proposedInput: { method: "GET", path: `/repos/x/y/commits?page=${i}` },
+        proposedInput: { method: "GET", path: `/v6/deployments?page=${i}` },
         proposedInputHash: `seed-hash-${i}`,
         // NOT NULL ledger columns.
         effectKey: `eff:${runId}:seed_${i}`,
@@ -108,14 +107,14 @@ async function seedExecutedPassthroughCalls(
     );
 }
 
-function dispatchGithubRequest(userId: string, runId: string, page: number) {
+function dispatchVercelRequest(userId: string, runId: string, page: number) {
   return dispatchToolCall({
     runId,
     stepId: "dispatch-tools",
     toolCallId: `tc_${randomUUID().slice(0, 8)}`,
-    toolName: "github.request",
-    activeTools: ["github.request"],
-    input: { method: "GET", path: `/repos/x/y/commits?page=${page}` },
+    toolName: "vercel.request",
+    activeTools: ["vercel.request"],
+    input: { method: "GET", path: `/v6/deployments?page=${page}` },
     userId,
     timezone: UTC,
     caller: "boss",
@@ -130,7 +129,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
     // Same identity and passthrough marker as the real tool, with a counting execute.
     registerTool(
       liveTool({
-        integration: "github",
+        integration: "vercel",
         action: "request",
         riskTier: "no_risk",
         replay: "safe",
@@ -168,7 +167,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
     const { userId, runId } = await seedUser();
     await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
 
-    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING + 1);
+    const result = await dispatchVercelRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING + 1);
 
     assert.equal(result.kind, "executed", "the guard commits a normal executed result");
     const toolResult = result.toolResult;
@@ -187,7 +186,7 @@ describe("passthrough per-run ceiling (DB-backed)", { skip: SKIP }, () => {
     const { userId, runId } = await seedUser();
     await seedExecutedPassthroughCalls(userId, runId, PASSTHROUGH_PER_RUN_CEILING - 1);
 
-    const result = await dispatchGithubRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
+    const result = await dispatchVercelRequest(userId, runId, PASSTHROUGH_PER_RUN_CEILING);
 
     assert.equal(result.kind, "executed");
     const toolResult = result.toolResult;

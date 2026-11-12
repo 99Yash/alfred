@@ -22,7 +22,8 @@ const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
 
 /**
- * `identityInSummary` appends the account login, so the boss can resolve `@me` itself (ADR-0071).
+ * A live provider with no curated tool (GitHub, ADR-0125) gets a line only when it needs
+ * reauth. Its MCP connection line names its tools.
  */
 export async function buildConnectedSummaryFromAvailability(
   userId: string,
@@ -45,14 +46,12 @@ export async function buildConnectedSummaryFromAvailability(
 
     if (!access || access.health === null) continue;
     // Full tool names: with bare actions, the boss called `calendar` with an `action` argument.
-    const identity = entry.identityInSummary ? access.accountLabel : null;
-    const binding = identity ? ` — connected as ${identity}` : "";
     const tools = availableByIntegration.get(entry.slug) ?? [];
 
     // Credentials but no usable tools means reauth. A narrower scope can still allow some tools.
     if (tools.length === 0 && access.health === "needs_reauth") {
       lines.push(
-        `- ${entry.slug} — ${entry.summaryBlurb}${binding} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,
+        `- ${entry.slug} — ${entry.summaryBlurb} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,
       );
       continue;
     }
@@ -60,7 +59,7 @@ export async function buildConnectedSummaryFromAvailability(
     if (tools.length > 0) {
       const approval = await approvalLabel(userId, tools);
       const suffix = approval ? `. ${approval}` : "";
-      lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}${suffix}`);
+      lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${suffix}`);
     }
   }
 

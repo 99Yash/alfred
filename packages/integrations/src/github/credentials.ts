@@ -95,10 +95,9 @@ export async function getGithubAccessToken(credentialId: string): Promise<string
 
 export interface UserInstallationToken {
   token: string;
-  accountLogin: string | null;
 }
 
-/** Also returns the login, for resolving `author:@me`. */
+/** An installation token for the user's GitHub account row. The loop verifier's REST read uses it. */
 export async function getInstallationTokenForUser(
   userId: string,
   accountRef?: string,
@@ -110,7 +109,7 @@ export async function getInstallationTokenForUser(
   );
 
   // The one rule both this and the availability card read, so a partial row never
-  // shadows the account the tools will actually use.
+  // shadows the account that the read will actually use.
   const active = selectGithubAccountRow(candidates);
 
   if (!active) {
@@ -127,7 +126,7 @@ export async function getInstallationTokenForUser(
 
   const { token } = await getInstallationToken(active.installationId);
 
-  return { token, accountLogin: active.accountLabel?.trim() || null };
+  return { token };
 }
 
 /** GitHub sends a JSON number; the column is text. */

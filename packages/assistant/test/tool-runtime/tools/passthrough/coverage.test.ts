@@ -12,7 +12,9 @@ import { REST_GATE_CONFIG } from "../../../../src/tool-runtime/internal/tools/pa
 
 describe("general-invocation coverage registry", () => {
   test("isSupportedPassthroughSlug agrees with the registry", () => {
-    assert.equal(isSupportedPassthroughSlug("github"), true);
+    assert.equal(isSupportedPassthroughSlug("vercel"), true);
+    // GitHub reads go through the GitHub MCP only (ADR-0125).
+    assert.equal(isSupportedPassthroughSlug("github"), false);
     assert.equal(isSupportedPassthroughSlug("slack"), false);
     assert.equal(isSupportedPassthroughSlug("imessage"), false);
     assert.equal(isSupportedPassthroughSlug("not_a_slug"), false);
@@ -48,7 +50,7 @@ describe("passthrough preference (default OFF)", () => {
   });
 
   test("preference keys are namespaced per supported slug", () => {
-    assert.equal(passthroughPreferenceKey("github"), "feature.passthrough.github");
+    assert.equal(passthroughPreferenceKey("vercel"), "feature.passthrough.vercel");
 
     for (const slug of SUPPORTED_PASSTHROUGH_SLUGS) {
       assert.equal(PASSTHROUGH_PREFERENCE_KEYS[slug], `feature.passthrough.${slug}`);

@@ -1,6 +1,5 @@
 import {
   collapseWhitespace,
-  githubSearchResultSchema,
   GOOGLE_WORKSPACE_MIME_PREFIX,
   INTEGRATIONS,
   getPath,
@@ -189,36 +188,6 @@ function clock12({ hour, minute }: WallClock): string {
   return minute === 0 ? `${h} ${period}` : `${h}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
-function githubStateBadge(item: JsonObject): EvidenceBadge | undefined {
-  if (item.draft === true) return { label: "Draft", tone: "neutral" };
-  const state = toNonEmptyString(item.state);
-
-  if (state === "open") return { label: "Open", tone: "green" };
-
-  if (item.merged === true) return { label: "Merged", tone: "purple" };
-
-  if (state === "closed") return { label: "Closed", tone: "red" };
-
-  return undefined;
-}
-
-/** One GitHub issue or pull request: a search hit, or an item of `github.get_issues`. */
-function githubItemRow(item: JsonObject): EvidenceRow | null {
-  const title = toNonEmptyString(item.title);
-
-  if (!title) return null;
-  const number = toFiniteNumber(item.number);
-  const url = toNonEmptyString(item.url);
-
-  return {
-    key: url ?? String(number ?? title),
-    title: number ? `#${number} ${title}` : title,
-    href: url,
-    meta: toNonEmptyString(item.repository),
-    badge: githubStateBadge(item),
-  };
-}
-
 /** Drive MIME type to a short kind ("PDF", "Doc", "Folder"). */
 function driveKind(mimeType: string | undefined): string | undefined {
   if (!mimeType) return undefined;
@@ -266,7 +235,6 @@ const SEARCH_TOOLS = new Set<ToolName>([
   "system.web_search" satisfies ToolName,
   "system.read_chat_history" satisfies ToolName,
   "gmail.search" satisfies ToolName,
-  "github.search" satisfies ToolName,
   "drive.search_files" satisfies ToolName,
 ]);
 
@@ -389,55 +357,6 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
     },
   ],
   [
-    "github.search",
-    {
-      arrayKey: "items",
-      faviconDomain: INTEGRATIONS.github.domain,
-      remaining: (result, shown) => {
-        // The preview has only the first page; `totalCount` gives the "+N". No count, no "+N".
-        const parsed = githubSearchResultSchema.safeParse(result);
-
-        if (!parsed.success) return undefined;
-
-        return parsed.data.totalCount > shown ? parsed.data.totalCount - shown : undefined;
-      },
-      row: githubItemRow,
-    },
-  ],
-  [
-    "github.get_issues",
-    { arrayKey: "items", faviconDomain: INTEGRATIONS.github.domain, row: githubItemRow },
-  ],
-  [
-    "github.get_pull_requests",
-    {
-      arrayKey: "items",
-      faviconDomain: INTEGRATIONS.github.domain,
-      row: (item) => {
-        const title = toNonEmptyString(item.title);
-
-        if (!title) return null;
-        const number = toFiniteNumber(item.number);
-        const url = toNonEmptyString(item.url);
-        const additions = toFiniteNumber(item.additions);
-        const deletions = toFiniteNumber(item.deletions);
-
-        const diff =
-          additions !== undefined || deletions !== undefined
-            ? `+${additions ?? 0} −${deletions ?? 0}`
-            : undefined;
-
-        return {
-          key: url ?? String(number ?? title),
-          title: number ? `#${number} ${title}` : title,
-          href: url,
-          meta: joinMeta(toNonEmptyString(item.repository), diff),
-          badge: githubStateBadge(item),
-        };
-      },
-    },
-  ],
-  [
     "calendar.list_events",
     {
       arrayKey: "events",
@@ -483,50 +402,7 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
   ],
 ]);
 
-function githubEntity(result: JsonObject): EntityView | null {
-  const title = toNonEmptyString(result.title);
-
-  if (!title) return null;
-  const number = toFiniteNumber(result.number);
-  const facts: EntityFact[] = [];
-  const repo = toNonEmptyString(result.repository);
-
-  if (repo) facts.push({ label: "Repo", value: repo });
-  const author = toNonEmptyString(result.author);
-
-  if (author) facts.push({ label: "Author", value: author });
-  const additions = toFiniteNumber(result.additions);
-  const deletions = toFiniteNumber(result.deletions);
-
-  if (additions !== undefined || deletions !== undefined) {
-    facts.push({ label: "Diff", value: `+${additions ?? 0} −${deletions ?? 0}` });
-  }
-
-  const commits = toFiniteNumber(result.commits);
-
-  if (commits !== undefined) facts.push({ label: "Commits", value: String(commits) });
-  const changedFiles = toFiniteNumber(result.changedFiles);
-
-  if (changedFiles !== undefined) facts.push({ label: "Files", value: String(changedFiles) });
-  // PR previews have no comment count or body.
-  const comments = toFiniteNumber(result.comments);
-
-  if (comments !== undefined) facts.push({ label: "Comments", value: String(comments) });
-
-  return {
-    kind: "entity",
-    faviconDomain: INTEGRATIONS.github.domain,
-    title: number ? `#${number} ${title}` : title,
-    href: toNonEmptyString(result.url),
-    badge: githubStateBadge(result),
-    facts,
-    excerpt: snippetOf(toNonEmptyString(result.body)),
-  };
-}
-
 const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | null>([
-  ["github.get_pull_request", githubEntity],
-  ["github.get_issue", githubEntity],
   [
     "gmail.read_message",
     (result) => {

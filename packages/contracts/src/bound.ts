@@ -7,7 +7,7 @@ import { isRecord } from "./guards";
  * Deterministic, so the cached transcript prefix stays stable.
  */
 
-/** Above the largest measured `github.get_issue` body (~6.3K), so normal reads never clip. */
+/** Above the largest measured GitHub issue body (~6.3K), so normal reads never clip. */
 export const TOOL_RESULT_MAX_STRING_CHARS = 8000;
 
 export interface BoundResult {

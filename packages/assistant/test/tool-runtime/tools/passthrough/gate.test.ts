@@ -19,34 +19,28 @@ function rest(partial: Partial<RestPassthroughRequest> & { path: string }): Rest
   return { method: "GET", ...partial };
 }
 
-const github = REST_GATE_CONFIG.github;
+const vercel = REST_GATE_CONFIG.vercel;
 
 const calendar = REST_GATE_CONFIG.calendar;
 
 describe("assertReadableRestRequest — method gate", () => {
   test("GET and HEAD in the pinned namespace pass without endpoint curation", () => {
     for (const method of ["GET", "HEAD"]) {
-      const r = assertReadableRestRequest(
-        github,
-        rest({ method, path: "/repos/o/r/actions/runs" }),
-      );
+      const r = assertReadableRestRequest(vercel, rest({ method, path: "/v6/deployments" }));
 
       assert.equal(r.ok, true, `${method} should pass`);
     }
   });
 
   test("method casing is normalized — lowercase 'get' still passes", () => {
-    const r = assertReadableRestRequest(
-      github,
-      rest({ method: "get", path: "/repos/o/r/commits" }),
-    );
+    const r = assertReadableRestRequest(vercel, rest({ method: "get", path: "/v9/projects" }));
 
     assert.equal(r.ok, true);
   });
 
   test("write methods are denied as method_not_read (visible, self-correctable)", () => {
     for (const method of ["DELETE", "PATCH", "PUT", "OPTIONS", "TRACE"]) {
-      const r = assertReadableRestRequest(github, rest({ method, path: "/repos/o/r" }));
+      const r = assertReadableRestRequest(vercel, rest({ method, path: "/v9/projects/p" }));
       assert.equal(r.ok, false);
 
       assert.equal(r.reason, "method_not_read", method);
@@ -55,11 +49,8 @@ describe("assertReadableRestRequest — method gate", () => {
 });
 
 describe("assertReadableRestRequest — read-via-POST allowlist", () => {
-  test("an unlisted POST is denied (github has no read-via-POST endpoints)", () => {
-    const r = assertReadableRestRequest(
-      github,
-      rest({ method: "POST", path: "/repos/o/r/issues" }),
-    );
+  test("an unlisted POST is denied (vercel has no read-via-POST endpoints)", () => {
+    const r = assertReadableRestRequest(vercel, rest({ method: "POST", path: "/v13/deployments" }));
 
     assert.equal(r.ok, false);
 
@@ -105,7 +96,7 @@ describe("assertReadableRestRequest — path hardening", () => {
 
   for (const [label, path] of invalid) {
     test(`rejects ${label} as invalid_path`, () => {
-      const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
+      const r = assertReadableRestRequest(vercel, rest({ method: "GET", path }));
       assert.equal(r.ok, false, `${label} should be rejected`);
 
       assert.equal(r.reason, "invalid_path", label);
@@ -114,7 +105,7 @@ describe("assertReadableRestRequest — path hardening", () => {
 
   test("rejects a control character in the path", () => {
     const path = `/repos/o${String.fromCodePoint(7)}r`; // U+0007 bell, a real control char
-    const r = assertReadableRestRequest(github, rest({ method: "GET", path }));
+    const r = assertReadableRestRequest(vercel, rest({ method: "GET", path }));
     assert.equal(r.ok, false);
 
     assert.equal(r.reason, "invalid_path");
@@ -132,17 +123,23 @@ describe("assertReadableRestRequest — path hardening", () => {
 });
 
 describe("assertReadableRestRequest — auth-scope denylist", () => {
-  test("GitHub /notifications is pre-flight-rejected as auth_scope_unreachable", () => {
+  // No live provider lists a denial today, so the case builds its own config.
+  const scoped = {
+    ...vercel,
+    authScopeDenylist: [{ pattern: /^\/notifications(?:\/|$)/, detail: "user-scoped" }],
+  };
+
+  test("a listed path is pre-flight-rejected as auth_scope_unreachable", () => {
     for (const path of ["/notifications", "/notifications/threads/1"]) {
-      const r = assertReadableRestRequest(github, rest({ path }));
+      const r = assertReadableRestRequest(scoped, rest({ path }));
       assert.equal(r.ok, false, path);
 
       assert.equal(r.reason, "auth_scope_unreachable", path);
     }
   });
 
-  test("a repo-scoped GitHub read is NOT on the auth denylist", () => {
-    const r = assertReadableRestRequest(github, rest({ path: "/repos/o/r/actions/runs" }));
+  test("a path off the denylist passes", () => {
+    const r = assertReadableRestRequest(scoped, rest({ path: "/v6/deployments" }));
     assert.equal(r.ok, true);
   });
 });

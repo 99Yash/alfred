@@ -15,7 +15,7 @@ import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/intern
  * must stay a visible executed result: not hidden as `nonExecution`, and not logged `failed`.
  */
 
-const REQUEST: ToolName = "github.request";
+const REQUEST: ToolName = "vercel.request";
 
 describe("passthroughBudgetExhausted envelope", () => {
   test("carries the honest, model-facing shape", () => {

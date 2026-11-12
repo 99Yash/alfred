@@ -34,11 +34,7 @@ export type {
   GithubClient,
   GithubClientOptions,
   GithubTokenResolver,
-  GithubSearchHit,
-  SearchResult as GithubSearchResult,
   PullRequestDetail as GithubPullRequestDetail,
   PullRequestBatch as GithubPullRequestBatch,
   BatchReadFailure as GithubBatchReadFailure,
-  IssueDetail as GithubIssueDetail,
-  IssueBatch as GithubIssueBatch,
 } from "./client";

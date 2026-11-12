@@ -17,18 +17,6 @@ const NO_SIDE_EFFECTING_GET: readonly RegExp[] = [];
 const NO_AUTH_SCOPE_DENIALS: readonly { pattern: RegExp; detail: string }[] = [];
 
 export const REST_GATE_CONFIG = {
-  github: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    // `/notifications` is user-scoped, so the App installation token gets a 403.
-    authScopeDenylist: [
-      {
-        pattern: /^\/notifications(?:\/|$)/,
-        detail:
-          "GitHub /notifications is user-scoped and is not reachable under the App installation token. Repo-scoped reads (workflow runs, commits, releases, issues, pulls) are reachable.",
-      },
-    ],
-  },
   vercel: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,

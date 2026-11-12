@@ -34,7 +34,7 @@ const FULL_SCHEMA_BYTES_CEILING = 102_000;
 const NON_KERNEL_GIANTS: readonly ToolName[] = [
   "system.create_artifact",
   "system.append_artifact_page",
-  "github.search",
+  "drive.search_files",
 ];
 
 function toolsByName(names: readonly ToolName[]): RegisteredTool[] {
@@ -69,7 +69,12 @@ describe("tool-schema budget", () => {
     );
 
     const loaded = estimateToolSurfaceBudget(
-      toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search", "github.search"]),
+      toolsByName([
+        ...systemToolKernel(),
+        "calendar.list_events",
+        "gmail.search",
+        "drive.search_files",
+      ]),
     );
 
     const full = estimateToolSurfaceBudget([...listRegisteredTools()]);
@@ -120,8 +125,8 @@ describe("tool-schema budget", () => {
     });
 
     const verbose = toolSchemaSize({
-      name: "github.search",
-      description: "Search repositories, issues, and pull requests across GitHub",
+      name: "drive.search_files",
+      description: "Search files, folders, and shared documents across Google Drive",
       modelInputSchema: sharedSchema,
     });
 

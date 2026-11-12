@@ -65,11 +65,11 @@ describe("exact active tool dispatch", () => {
     let executions = 0;
     registerTool(
       liveTool({
-        integration: "github",
+        integration: "gmail",
         action: "search",
         riskTier: "no_risk",
         replay: "safe",
-        description: "test GitHub search",
+        description: "test Gmail search",
         inputSchema: z.object({}).strict(),
         execute: async () => {
           executions++;
@@ -81,7 +81,7 @@ describe("exact active tool dispatch", () => {
 
     const result = await dispatchToolCall({
       ...baseDispatch,
-      toolName: "github.search",
+      toolName: "gmail.search",
       input: {},
       activeTools: [],
       allowedIntegrations: ["calendar"],
@@ -204,18 +204,18 @@ describe("legacy active integration migration", () => {
     registerTool(scratchReadTool(() => {}));
     registerTool(
       liveTool({
-        integration: "github",
+        integration: "gmail",
         action: "search",
         riskTier: "no_risk",
         replay: "safe",
-        description: "test GitHub search",
+        description: "test Gmail search",
         inputSchema: z.object({}).strict(),
         execute: async () => ({ ok: true }),
       }),
     );
 
-    assert.deepEqual(migrateActiveTools(undefined, ["github"]), [
-      "github.search",
+    assert.deepEqual(migrateActiveTools(undefined, ["gmail"]), [
+      "gmail.search",
       "system.current_time",
       "system.load_tool",
       "system.search_tools",

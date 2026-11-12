@@ -1001,17 +1001,17 @@ describe("connection-health nudges (#378 item 3)", () => {
         turn: TURN,
         subAgent: SUB,
         toolCallId: "child_t1",
-        toolName: "github.search",
+        toolName: "vercel.list_projects",
         status: "failed",
         nonExecution: true,
-        connectNudge: { integration: "github", action: "connect" },
+        connectNudge: { integration: "vercel", action: "connect" },
       }),
       3_000,
     );
 
     assert.equal(applied, true, "the repair must re-project even with no trail to retract");
     const { snapshot } = drain(cell);
-    assert.deepEqual(snapshot.connectNudges, [{ integration: "github", action: "connect" }]);
+    assert.deepEqual(snapshot.connectNudges, [{ integration: "vercel", action: "connect" }]);
     assert.equal(snapshot.subAgents.length, 0, "no trail is drawn for a child that never ran");
   });
 

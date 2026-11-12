@@ -46,9 +46,9 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const GITHUB_PROFILE: RestPassthroughProfile = {
-  baseUrl: "https://api.github.com",
-  headers: { Authorization: "Bearer gh-token", Accept: "application/vnd.github+json" },
+const GMAIL_PROFILE: RestPassthroughProfile = {
+  baseUrl: "https://gmail.googleapis.com/gmail/v1",
+  headers: { Authorization: "Bearer gmail-token" },
 };
 
 const CALENDAR_PROFILE: RestPassthroughProfile = {
@@ -86,8 +86,8 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "DELETE", path: "/repos/a/b" }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "DELETE", path: "/users/me/messages/m1" }),
         ),
     );
 
@@ -97,7 +97,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
     assert.equal(result.reason, "method_not_read");
   });
 
-  test("an unlisted github POST is rejected (path_not_allowlisted), no fetch issued", async () => {
+  test("an unlisted gmail POST is rejected (path_not_allowlisted), no fetch issued", async () => {
     let fetched = false;
 
     const result = await withMockedFetch(
@@ -108,8 +108,8 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "POST", path: "/repos/a/b/issues", body: { title: "x" } }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "POST", path: "/users/me/messages/send", body: { raw: "x" } }),
         ),
     );
 
@@ -124,18 +124,22 @@ describe("runRestPassthrough — HTTP envelope", () => {
   test("a clean 200 JSON is succeeded:true and carries the body + reaches the pinned URL with query", async () => {
     const result = await withMockedFetch(
       (capture) => {
-        assert.equal(capture.url?.origin, "https://api.github.com");
-        assert.equal(capture.url.pathname, "/repos/a/b/commits");
-        assert.equal(capture.url.searchParams.get("per_page"), "5");
-        assert.equal(capture.url.searchParams.get("sha"), "main");
+        assert.equal(capture.url?.origin, "https://gmail.googleapis.com");
+        assert.equal(capture.url.pathname, "/gmail/v1/users/me/messages");
+        assert.equal(capture.url.searchParams.get("maxResults"), "5");
+        assert.equal(capture.url.searchParams.get("q"), "in:inbox");
         assert.equal(capture.init?.method, "GET");
 
-        return jsonResponse([{ sha: "abc" }]);
+        return jsonResponse([{ id: "abc" }]);
       },
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "GET", path: "/repos/a/b/commits", query: { per_page: 5, sha: "main" } }),
+          capability("gmail", GMAIL_PROFILE),
+          req({
+            method: "GET",
+            path: "/users/me/messages",
+            query: { maxResults: 5, q: "in:inbox" },
+          }),
         ),
     );
 
@@ -143,7 +147,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
 
     assert.equal(result.status, 200);
     assert.equal(result.succeeded, true);
-    assert.deepEqual(result.body, [{ sha: "abc" }]);
+    assert.deepEqual(result.body, [{ id: "abc" }]);
   });
 
   test("a pinned fixedQuery (Vercel teamId) cannot be overridden by the model's own query", async () => {
@@ -180,8 +184,8 @@ describe("runRestPassthrough — HTTP envelope", () => {
       () => jsonResponse({ message: "Not Found" }, 404),
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "GET", path: "/repos/a/nope" }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "GET", path: "/users/me/messages/nope" }),
         ),
     );
 
@@ -225,8 +229,8 @@ describe("runRestPassthrough — HTTP envelope", () => {
         }),
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "GET", path: "/repos/a/b/tarball" }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "GET", path: "/users/me/messages/m1/attachments/a1" }),
         ),
     );
 
@@ -248,8 +252,8 @@ describe("runRestPassthrough — HTTP envelope", () => {
       () => new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }),
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "GET", path: "/repos/a/b/logo" }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "GET", path: "/users/me/messages/m1/attachments/a2" }),
         ),
     );
 
@@ -275,8 +279,8 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("github", GITHUB_PROFILE),
-          req({ method: "GET", path: "/repos/a/b" }),
+          capability("gmail", GMAIL_PROFILE),
+          req({ method: "GET", path: "/users/me/profile" }),
         ),
     );
 

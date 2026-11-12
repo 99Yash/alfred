@@ -247,10 +247,6 @@
     "htmlToText",
     "safeRequest"
   ],
-  "packages/assistant/src/tool-runtime/internal/tools/github.ts": [
-    "buildGithubSearchQuery",
-    "resolvePullRequestAuthor"
-  ],
   "packages/assistant/src/tool-runtime/internal/tools/passthrough/bounds.ts": [
     "PASSTHROUGH_MAX_ARRAY_ITEMS",
     "PASSTHROUGH_MAX_BODY_BYTES"

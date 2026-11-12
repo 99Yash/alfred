@@ -7,7 +7,7 @@ import { once, type ProviderBindOptions, type ProviderFactory } from "./shared/p
 
 /**
  * Bind a user once and get every provider client for that user:
- * `integrations({ userId }).github.search({ q })`. Tools get it as `ctx.integrations`
+ * `integrations({ userId }).vercel.projects()`. Tools get it as `ctx.integrations`
  * and never hold a token.
  *
  * Each provider is a lazy getter, memoized per bind. Only the client is memoized,
