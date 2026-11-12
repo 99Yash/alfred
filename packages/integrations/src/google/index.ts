@@ -154,11 +154,12 @@ export type { ContactSummary } from "./contacts";
 
 export {
   findCredentialByEmail,
-  findExpiringGmailWatches,
+  findGmailAccountsNeedingWatch,
   getGmailWatchState,
   readGmailWatchState,
   stopGmailWatchWithAccessToken,
   uninstallGmailWatch,
+  type GmailWatchCandidate,
 } from "./watch";
 
 export { parseGoogleCredentialMetadata, type GmailWatchState } from "./credential-metadata";

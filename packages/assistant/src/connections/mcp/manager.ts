@@ -17,6 +17,7 @@ import type { ExternalToolRef } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { Cause, Effect, Exit, Fiber, Scope } from "effect";
 import {
+  MCP_RECONNECT_MESSAGE,
   McpRawClient,
   type McpCallEnvelope,
   type McpCatalogSnapshot,
@@ -32,6 +33,7 @@ import {
   compareAndSetCatalogRevision,
   deleteOwnedConnection,
   insertCatalogRevision,
+  markConnectionGrantEnded,
   readConnection,
   readOwnedConnection,
   renameOwnedConnection,
@@ -57,6 +59,7 @@ export interface McpConnectionManagerPersistence {
   deleteOwnedConnection: typeof deleteOwnedConnection;
   insertCatalogRevision: typeof insertCatalogRevision;
   compareAndSetCatalogRevision: typeof compareAndSetCatalogRevision;
+  markConnectionGrantEnded: typeof markConnectionGrantEnded;
 }
 
 export interface McpConnectionManagerOptions {
@@ -72,6 +75,7 @@ const DEFAULT_PERSISTENCE: McpConnectionManagerPersistence = {
   deleteOwnedConnection,
   insertCatalogRevision,
   compareAndSetCatalogRevision,
+  markConnectionGrantEnded,
 };
 
 /** Rename result, one per HTTP route branch. */
@@ -105,7 +109,9 @@ type McpManagerCloseIntent =
   // Close only; the row is already deleted.
   | "removal"
   // Close only; the next generation writes the status.
-  | "credential_replaced";
+  | "credential_replaced"
+  // Close only; `markGrantEnded` already wrote `auth_required`.
+  | "grant_ended";
 
 /**
  * One live client for one connection. `scope` owns the client and every fiber
@@ -239,7 +245,7 @@ function liveClientFactory(): McpClientFactory {
             onAuthorizationRequired: async () => {
               await updateConnection(connection.id, {
                 status: "auth_required",
-                lastError: "Reconnect this MCP server to continue.",
+                lastError: MCP_RECONNECT_MESSAGE,
               });
             },
             onInsufficientScope: async (requiredScopes: string[]) => {
@@ -409,8 +415,11 @@ export class McpConnectionManager {
               : boundedMcpErrorText(err),
         });
       } else if (err instanceof McpClientError && err.code === "token_rejected") {
-        // A renewed token is not a failure: keep the row and its catalog as they are.
+        // A renewed token is not a failure: keep the status and the catalog. Record the error, so
+        // a second rejection in a row does not leave `connecting` with no error, which the
+        // recovery pass skips. The next start writes `lastError: null` again.
         yield* Scope.close(generation.scope, Exit.void);
+        yield* this.#store.updateConnection(connectionId, { lastError: boundedMcpErrorText(err) });
       } else {
         const expectedCurrentRevisionId =
           this.#activeRevisionIds.get(connectionId) ?? connection.currentCatalogRevisionId;
@@ -573,6 +582,30 @@ export class McpConnectionManager {
     if (!generation) return;
 
     await this.#closeGeneration(generation, "credential_replaced");
+  }
+
+  /**
+   * Move the row to `auth_required` because its grant ended outside a call (the OAuth keep-alive).
+   * Compare-and-set: it applies only while the row is `ready` or `stale` and still holds
+   * `credentialId`, so a disconnect or a reconnect that came first wins. When it applies, close
+   * the live generation, so this process stops serving the old client. Returns true when applied.
+   */
+  async markGrantEnded(
+    connectionId: string,
+    input: { credentialId: string; lastError: string },
+  ): Promise<boolean> {
+    // Read before the write: a generation that starts after the write is not the old grant's client.
+    const generation = this.#generations.get(connectionId);
+
+    const applied = await this.#persistence.markConnectionGrantEnded({
+      connectionId,
+      credentialId: input.credentialId,
+      lastError: input.lastError,
+    });
+
+    if (applied && generation) await this.#closeGeneration(generation, "grant_ended");
+
+    return applied;
   }
 
   /** Drop all live clients, for shutdown. Rows are untouched. */
@@ -892,7 +925,7 @@ export class McpConnectionManager {
     failure?: string,
   ): Promise<void> {
     // `disconnect` and `removal` always win; `failure` cannot override them.
-    // `shutdown` and `credential_replaced` apply only when nothing stronger is set.
+    // `shutdown`, `credential_replaced`, and `grant_ended` apply only when nothing stronger is set.
     if (
       intent === "disconnect" ||
       intent === "removal" ||

@@ -52,6 +52,8 @@ class MemoryStore implements McpOAuthCredentialStore {
       expiresIn: this.row?.expiresIn ?? null,
       scope: this.row?.scope ?? null,
       lastAuthorizedAt: this.row?.lastAuthorizedAt ?? null,
+      keepaliveAttemptedAt: this.row?.keepaliveAttemptedAt ?? null,
+      keepaliveFailingSince: this.row?.keepaliveFailingSince ?? null,
       createdAt: this.row?.createdAt ?? now,
       updatedAt: now,
     };

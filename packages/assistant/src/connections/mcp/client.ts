@@ -136,6 +136,9 @@ export interface McpRawClientOptions extends McpClientLimits {
 /** Default per-request timeout. The OAuth routes use it too. */
 export const MCP_DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
+/** The owner-facing text when only a new consent can bring the connection back. */
+export const MCP_RECONNECT_MESSAGE = "Reconnect this MCP server to continue.";
+
 const DEFAULT_MAX_CATALOG_PAGES = 100;
 
 const DEFAULT_MAX_CATALOG_TOOLS = 1_000;
@@ -853,7 +856,7 @@ export class McpRawClient {
       // Keep this code out of the pre-delivery set: the broker still owns effect ambiguity.
       generation.authorizationBlocked = new McpClientError(
         "authorization_required",
-        "Reconnect this MCP server to continue.",
+        MCP_RECONNECT_MESSAGE,
         { cause: err },
       );
       await this.#options.onAuthorizationRequired?.();

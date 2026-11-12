@@ -119,6 +119,13 @@ export const mcpOauthCredentials = pgTable(
     expiresIn: integer("expires_in"),
     scope: text("scope"),
     lastAuthorizedAt: timestamp("last_authorized_at", { withTimezone: true }),
+    /** The last keep-alive attempt, success or failure. The pass retries a row at most hourly. */
+    keepaliveAttemptedAt: timestamp("keepalive_attempted_at", { withTimezone: true }),
+    /**
+     * The first failure in the current run of keep-alive failures. Null when no run is open.
+     * A value at or before `lastAuthorizedAt` is a closed run: a later refresh worked.
+     */
+    keepaliveFailingSince: timestamp("keepalive_failing_since", { withTimezone: true }),
     ...lifecycle_dates,
   },
   (t) => [

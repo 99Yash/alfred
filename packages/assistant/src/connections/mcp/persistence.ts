@@ -14,6 +14,7 @@ import {
   mcpServers,
   type McpCatalogRevision,
   type McpConnection,
+  type McpOauthCredential,
   type McpServer,
   type NewMcpConnection,
   type NewMcpServer,
@@ -126,6 +127,147 @@ export async function listRecoverableCredentialedConnectionIds(
     .limit(limit);
 
   return rows.map((row) => row.id);
+}
+
+/** A keep-alive page row. The inner join on the grant makes `credentialId` non-null. */
+export type McpOAuthKeepAliveCandidate = McpConnectionWithServer & {
+  readonly credentialId: McpOauthCredential["id"];
+};
+
+/** The grant row that one keep-alive bookkeeping write targets. */
+export interface McpOAuthKeepAliveTarget {
+  readonly connectionId: McpConnection["id"];
+  readonly credentialId: McpOauthCredential["id"];
+}
+
+/**
+ * One keep-alive page: `ready` and `stale` connections whose grant has a refresh token and no
+ * refresh since `staleBefore`. Other statuses are skipped: a token save clears `lastError`, which
+ * the recovery pass needs on `connecting` and `failed` rows, and `auth_required` and
+ * `disconnected` wait for the owner. A row attempted since `attemptedBefore` is skipped. The
+ * least recently attempted row comes first, so failing rows cannot block the others.
+ */
+export async function listOAuthConnectionsToKeepAlive(
+  input: { staleBefore: Date; attemptedBefore: Date; limit: number },
+  runner: DbRunner = db(),
+): Promise<McpOAuthKeepAliveCandidate[]> {
+  const rows = await runner
+    .select({ ...connectionWithServerSelection, credentialId: mcpOauthCredentials.id })
+    .from(mcpConnections)
+    .innerJoin(mcpServers, eq(mcpConnections.serverId, mcpServers.id))
+    .innerJoin(
+      mcpOauthCredentials,
+      and(
+        eq(mcpOauthCredentials.id, mcpConnections.credentialId),
+        eq(mcpOauthCredentials.connectionId, mcpConnections.id),
+        eq(mcpOauthCredentials.userId, mcpConnections.userId),
+      ),
+    )
+    .where(
+      and(
+        inArray(mcpConnections.status, ["ready", "stale"]),
+        isNotNull(mcpOauthCredentials.refreshToken),
+        or(
+          isNull(mcpOauthCredentials.lastAuthorizedAt),
+          lt(mcpOauthCredentials.lastAuthorizedAt, input.staleBefore),
+        ),
+        or(
+          isNull(mcpOauthCredentials.keepaliveAttemptedAt),
+          lt(mcpOauthCredentials.keepaliveAttemptedAt, input.attemptedBefore),
+        ),
+      ),
+    )
+    .orderBy(
+      sql`${mcpOauthCredentials.keepaliveAttemptedAt} asc nulls first`,
+      sql`${mcpOauthCredentials.lastAuthorizedAt} asc nulls first`,
+      asc(mcpConnections.id),
+    )
+    .limit(input.limit);
+
+  return rows.map(({ credentialId, ...row }) => ({ ...joinConnection(row), credentialId }));
+}
+
+function keepAliveTargetWhere(target: McpOAuthKeepAliveTarget) {
+  return and(
+    eq(mcpOauthCredentials.id, target.credentialId),
+    eq(mcpOauthCredentials.connectionId, target.connectionId),
+  );
+}
+
+/** Record a keep-alive attempt before it starts, so a crash also moves the row back. No token changes. */
+export async function markKeepAliveAttempted(
+  target: McpOAuthKeepAliveTarget,
+  at: Date,
+  runner: DbRunner = db(),
+): Promise<void> {
+  await runner
+    .update(mcpOauthCredentials)
+    .set({ keepaliveAttemptedAt: at })
+    .where(keepAliveTargetWhere(target));
+}
+
+/** A keep-alive refresh worked: close the failure run. No token changes. */
+export async function closeKeepAliveFailureRun(
+  target: McpOAuthKeepAliveTarget,
+  runner: DbRunner = db(),
+): Promise<void> {
+  await runner
+    .update(mcpOauthCredentials)
+    .set({ keepaliveFailingSince: null })
+    .where(keepAliveTargetWhere(target));
+}
+
+/**
+ * A keep-alive refresh failed: open a failure run at `at`, or keep the open one. A run that
+ * started at or before `lastAuthorizedAt` is closed, because a later refresh worked.
+ * Returns the start of the open run, or `undefined` when the grant row is gone. No token changes.
+ */
+export async function openKeepAliveFailureRun(
+  target: McpOAuthKeepAliveTarget,
+  at: Date,
+  runner: DbRunner = db(),
+): Promise<Date | undefined> {
+  const failingSince = mcpOauthCredentials.keepaliveFailingSince;
+  const lastAuthorizedAt = mcpOauthCredentials.lastAuthorizedAt;
+
+  const [row] = await runner
+    .update(mcpOauthCredentials)
+    .set({
+      keepaliveFailingSince: sql`case
+        when ${failingSince} is null
+          or (${lastAuthorizedAt} is not null and ${failingSince} <= ${lastAuthorizedAt})
+        then ${at.toISOString()}::timestamptz
+        else ${failingSince}
+      end`,
+    })
+    .where(keepAliveTargetWhere(target))
+    .returning({ keepaliveFailingSince: failingSince });
+
+  return row?.keepaliveFailingSince ?? undefined;
+}
+
+/**
+ * Compare-and-set to `auth_required` when the stored grant has ended. It applies only while the
+ * row is `ready` or `stale` and still points at `credentialId`. So a disconnect or a reconnect
+ * that came first wins. Returns true when the row changed.
+ */
+export async function markConnectionGrantEnded(
+  input: { connectionId: string; credentialId: string; lastError: string },
+  runner: DbRunner = db(),
+): Promise<boolean> {
+  const rows = await runner
+    .update(mcpConnections)
+    .set({ status: "auth_required", lastError: input.lastError })
+    .where(
+      and(
+        eq(mcpConnections.id, input.connectionId),
+        inArray(mcpConnections.status, ["ready", "stale"]),
+        eq(mcpConnections.credentialId, input.credentialId),
+      ),
+    )
+    .returning({ id: mcpConnections.id });
+
+  return rows.length > 0;
 }
 
 export async function readConnection(
