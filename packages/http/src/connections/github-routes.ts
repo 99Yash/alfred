@@ -13,6 +13,7 @@ import {
   findUserInstallation,
   getInstallation,
   upsertGithubCredential,
+  userTokenExpiresAt,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
@@ -151,7 +152,7 @@ export const githubIntegrationRoutes = new Elysia({
         accountEmail = tokens.accountEmail;
         accountName = tokens.accountName;
         accessToken = tokens.accessToken;
-        expiresAt = tokens.expiresAt;
+        expiresAt = userTokenExpiresAt(tokens.expiresInSeconds);
         scopes = tokens.scopes;
         tokenType = tokens.tokenType;
         grant = tokens;

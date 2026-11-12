@@ -249,15 +249,18 @@ export interface ExchangeUserCodeResult {
   accountName: string | null;
   accessToken: string;
   refreshToken: string | null;
-  /** Far-future sentinel when user tokens do not expire. */
-  expiresAt: Date;
-  /** `expires_in` as sent, `null` when absent. The MCP grant stores this form. */
+  /** `expires_in` as sent, `null` when user tokens do not expire. See {@link userTokenExpiresAt}. */
   expiresInSeconds: number | null;
   scopes: string[];
   tokenType: string;
 }
 
 const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+
+/** The credential row's expiry for a user token. A token with no expiry gets a far-future sentinel. */
+export function userTokenExpiresAt(expiresInSeconds: number | null): Date {
+  return expiresInSeconds === null ? FAR_FUTURE() : new Date(Date.now() + expiresInSeconds * 1000);
+}
 
 /** Exchange the post-install `code` for a user token, then identify the user. */
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
@@ -308,9 +311,6 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     accountName: user.name ?? null,
     accessToken: parsed.data.access_token,
     refreshToken: parsed.data.refresh_token ?? null,
-    expiresAt: parsed.data.expires_in
-      ? new Date(Date.now() + parsed.data.expires_in * 1000)
-      : FAR_FUTURE(),
     expiresInSeconds: parsed.data.expires_in ?? null,
     scopes: parseOAuthScopeList(parsed.data.scope),
     tokenType: parsed.data.token_type ?? "bearer",
