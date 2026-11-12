@@ -86,18 +86,23 @@ const userInstallationsSchema = z.object({
   ),
 });
 
+/** GitHub's REST maximum for `per_page`. */
+const GITHUB_MAX_PER_PAGE = 100;
+
 /**
  * This App's installation on the user's own account, or `null`. `null` sends the caller to
  * the install screen, where the user picks the target. An org installation is never picked
  * here, because the user did not choose it on this connect. `GET /user/installations` lists
- * only this App's installations, so one page of 100 holds the user's own.
+ * only this App's installations, so we read one full page and do not paginate. A user with
+ * more than {@link GITHUB_MAX_PER_PAGE} of them can miss their own, and the install page then
+ * does not come back.
  */
 export async function findUserInstallation(args: {
   accessToken: string;
   accountId: string;
 }): Promise<string | null> {
   const url = new URL(`${GITHUB_API}/user/installations`);
-  url.searchParams.set("per_page", "100");
+  url.searchParams.set("per_page", String(GITHUB_MAX_PER_PAGE));
 
   const res = await githubFetch(url, {
     headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${args.accessToken}` },
