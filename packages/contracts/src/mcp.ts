@@ -358,6 +358,15 @@ export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
 
 export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
 
+/**
+ * The built-ins of one integration, in catalog order. The two key spaces stay separate
+ * (ADR-0093): a built-in key names a server, and its `slug` names the integration. Today
+ * each key equals its slug by chance, so never test an integration slug as a built-in key.
+ */
+export function builtInMCPProvidersOf(slug: CatalogSlug): readonly BuiltInMCPProvider[] {
+  return BUILT_IN_MCP_PROVIDERS.filter((provider) => BUILT_IN_MCP_CATALOG[provider].slug === slug);
+}
+
 // MCP `ContentBlock` types, plus `unknown` for any future shape.
 export const mcpContentKindValues = [
   "text",

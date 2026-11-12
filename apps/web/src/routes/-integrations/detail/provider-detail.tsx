@@ -1,4 +1,4 @@
-import { isBuiltInMCPProvider, isInboundEventSource, isLiveProviderSlug } from "@alfred/contracts";
+import { builtInMCPProvidersOf, isInboundEventSource, isLiveProviderSlug } from "@alfred/contracts";
 import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { Capabilities } from "./capabilities";
 import { ConnectedAccounts } from "./connected-accounts";
@@ -17,6 +17,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
   // A planned provider has no Alfred credential. One with a built-in MCP server shows
   // that connection; any other shows the design-only notice.
   const live = isLiveProviderSlug(provider.slug);
+  const builtIns = builtInMCPProvidersOf(provider.slug);
 
   return (
     <div className="mt-6 space-y-10">
@@ -26,17 +27,24 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
         <>
           <ConnectedAccounts provider={provider} connected={connected} />
           {/* GitHub: the install also connects its MCP server, so the page shows both halves. */}
-          {isBuiltInMCPProvider(provider.slug) && (
-            <McpConnectionPanel provider={provider.slug} name={provider.name} connectsWithInstall />
-          )}
+          {builtIns.map((builtIn) => (
+            <McpConnectionPanel
+              key={builtIn}
+              provider={builtIn}
+              name={provider.name}
+              connectsWithInstall
+            />
+          ))}
           <ProviderPolicy provider={provider} />
           <TrustNotice provider={provider} />
           <RelatedSetup provider={provider} />
           <Capabilities provider={provider} />
           {isInboundEventSource(provider.slug) && <RawKinds slug={provider.slug} />}
         </>
-      ) : isBuiltInMCPProvider(provider.slug) ? (
-        <McpConnectionPanel provider={provider.slug} name={provider.name} />
+      ) : builtIns.length > 0 ? (
+        builtIns.map((builtIn) => (
+          <McpConnectionPanel key={builtIn} provider={builtIn} name={provider.name} />
+        ))
       ) : (
         <DesignOnlyNotice name={provider.name} />
       )}
