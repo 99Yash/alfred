@@ -4,18 +4,15 @@ import { useMcpConnections } from "~/lib/integrations/mcp-connections";
 import { SectionHeading } from "./section-heading";
 
 /**
- * Shown for a planned integration that connects only through its built-in MCP
- * server (ADR-0093, amended 2026-10-23). The card is the same one the list shows.
- * `connectsWithInstall`: a live provider whose connect also connects this server (GitHub).
+ * The built-in MCP server on an integration page (ADR-0093, amended 2026-10-23). The card
+ * is the same one the list shows. The caller writes `note`: only it knows how the server connects.
  */
 export function McpConnectionPanel({
   provider,
-  name,
-  connectsWithInstall = false,
+  note,
 }: {
   provider: BuiltInMCPProvider;
-  name: string;
-  connectsWithInstall?: boolean;
+  note: string;
 }) {
   const connectionQuery = useMcpConnections();
 
@@ -33,11 +30,7 @@ export function McpConnectionPanel({
           void connectionQuery.refetch();
         }}
       />
-      <p className="px-1 text-[12.5px] leading-5 text-app-fg-3">
-        {connectsWithInstall
-          ? `Connecting ${name} also connects this server. Chat reads ${name} through it.`
-          : `${name} connects only through its MCP server. Each call waits for your approval before it runs.`}
-      </p>
+      <p className="px-1 text-[12.5px] leading-5 text-app-fg-3">{note}</p>
     </section>
   );
 }

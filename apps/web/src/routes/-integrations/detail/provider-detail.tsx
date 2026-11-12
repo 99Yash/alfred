@@ -31,8 +31,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
             <McpConnectionPanel
               key={builtIn}
               provider={builtIn}
-              name={provider.name}
-              connectsWithInstall
+              note={`Connecting ${provider.name} also connects this server. Chat reads ${provider.name} through it.`}
             />
           ))}
           <ProviderPolicy provider={provider} />
@@ -43,7 +42,11 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
         </>
       ) : builtIns.length > 0 ? (
         builtIns.map((builtIn) => (
-          <McpConnectionPanel key={builtIn} provider={builtIn} name={provider.name} />
+          <McpConnectionPanel
+            key={builtIn}
+            provider={builtIn}
+            note={`${provider.name} connects only through its MCP server. Each call waits for your approval before it runs.`}
+          />
         ))
       ) : (
         <DesignOnlyNotice name={provider.name} />
