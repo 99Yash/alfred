@@ -253,6 +253,7 @@ async function seedRecoverableWrite(protocol: FakeProtocol) {
     stagingId,
     ref,
     arguments: argumentsValue,
+    serverScope: null,
   });
 
   assert.equal(first.status, "ambiguous");
@@ -339,7 +340,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       catalogRevision: revision,
     };
 
-    const outcome = await broker.callTool({ userId, stagingId, ref, arguments: {} });
+    const outcome = await broker.callTool({
+      userId,
+      stagingId,
+      ref,
+      serverScope: null,
+      arguments: {},
+    });
 
     assert.equal(outcome.status, "completed");
     assert.ok(outcome.invocationId);
@@ -392,6 +399,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId,
       ref: { kind: "mcp", connectionId: connId, remoteName: "search", catalogRevision: revision },
       arguments: {},
+      serverScope: null,
     });
 
     // The exemption is gone: the call is ledgered like any unreviewed effect.
@@ -423,7 +431,13 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       catalogRevision: revision,
     };
 
-    const outcome = await broker.callTool({ userId, stagingId, ref, arguments: { title: "x" } });
+    const outcome = await broker.callTool({
+      userId,
+      stagingId,
+      ref,
+      serverScope: null,
+      arguments: { title: "x" },
+    });
 
     assert.equal(outcome.status, "completed");
     const [row] = await invocationsForStaging(stagingId);
@@ -458,6 +472,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { title: "x" },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -477,6 +492,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { title: "x" },
+      serverScope: null,
     });
 
     assert.equal(repeated.status, "blocked");
@@ -506,6 +522,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(first.status, "ambiguous");
@@ -530,6 +547,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(second.status, "blocked");
@@ -561,6 +579,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { amount: 4200 },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -595,6 +614,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
           catalogRevision: STALE_REVISION,
         },
         arguments: {},
+        serverScope: null,
       }),
       /catalog changed|refresh/i,
     );
@@ -641,6 +661,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(firstOutcome.status, "ambiguous");
@@ -667,6 +688,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(second.status, "blocked");
@@ -681,6 +703,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(stillBlocked.status, "blocked");
@@ -712,7 +735,15 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     };
     const firstBroker = brokerWith(protocol);
     const stagingId = await seedStaging(userId, exactInput);
-    const first = await firstBroker.callTool({ userId, stagingId, ref, arguments: args });
+
+    const first = await firstBroker.callTool({
+      userId,
+      stagingId,
+      ref,
+      serverScope: null,
+      arguments: args,
+    });
+
     assert.equal(first.status, "ambiguous");
 
     await db()
@@ -1160,6 +1191,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId,
       ref,
       arguments: { title: "one" },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -1309,6 +1341,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId,
       ref,
       arguments: exactInput.arguments,
+      serverScope: null,
     });
 
     assert.equal(first.status, "ambiguous");
@@ -1398,6 +1431,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: {},
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -1452,6 +1486,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -1463,6 +1498,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       stagingId: await seedStaging(userId),
       ref,
       arguments: args,
+      serverScope: null,
     });
 
     assert.equal(repeat.status, "blocked");
@@ -1488,6 +1524,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: okRevision,
       },
       arguments: { title: "x" },
+      serverScope: null,
     });
 
     assert.equal(okOutcome.status, "completed");
@@ -1516,6 +1553,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: errRevision,
       },
       arguments: { title: "y" },
+      serverScope: null,
     });
 
     assert.equal(errOutcome.status, "ambiguous");
@@ -1544,6 +1582,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { amount: 1 },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -1575,13 +1614,95 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     const callsBefore = protocol.calls;
 
     await assert.rejects(
-      broker.callTool({ userId: attacker, stagingId, ref, arguments: { title: "x" } }),
+      broker.callTool({
+        userId: attacker,
+        stagingId,
+        ref,
+        serverScope: null,
+        arguments: { title: "x" },
+      }),
       (err: unknown) => err instanceof McpClientError && err.code === "not_connected",
     );
 
     // Nothing was dispatched and no ledger row was minted under either user.
     assert.equal(protocol.calls, callsBefore, "a foreign connection never reaches the network");
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
+  });
+
+  // The run scope is checked on the connection that runs, so an approval edit or a resume
+  // cannot reach a server outside the run's integrations.
+  test("a connection outside the run scope is refused before a client opens", async () => {
+    const userId = await seedUser();
+
+    const connection = await ensureConnection({
+      userId,
+      label: "User MCP",
+      instanceKey: "default",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://mcp.example.test/mcp"),
+    });
+
+    const protocol = new FakeProtocol([tool("search")]);
+    const revision = await liveRevision(protocol, connection.id);
+    // A client that opens now fails with another error, so the assertion proves no client opened.
+    protocol.connectError = new Error("a client opened");
+
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connection.id,
+      remoteName: "search",
+      catalogRevision: revision,
+    };
+
+    for (const serverScope of [[], [`mcps_${randomUUID()}`]]) {
+      const stagingId = await seedStaging(userId);
+
+      await assert.rejects(
+        brokerWith(protocol).callTool({ userId, stagingId, ref, serverScope, arguments: {} }),
+        (err: unknown) => err instanceof McpClientError && err.code === "outside_scope",
+      );
+
+      assert.equal((await invocationsForStaging(stagingId)).length, 0, "no ledger row is minted");
+    }
+
+    assert.equal(protocol.calls, 0, "an out-of-scope call never reaches the network");
+  });
+
+  test("a scope that lists the server, and a null scope, let the call run", async () => {
+    const userId = await seedUser();
+
+    const connection = await ensureConnection({
+      userId,
+      label: "User MCP",
+      instanceKey: "default",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://mcp.example.test/mcp"),
+    });
+
+    const protocol = new FakeProtocol([tool("search")]);
+    const revision = await liveRevision(protocol, connection.id);
+
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connection.id,
+      remoteName: "search",
+      catalogRevision: revision,
+    };
+
+    for (const serverScope of [[connection.serverId], null]) {
+      const outcome = await brokerWith(protocol).callTool({
+        userId,
+        stagingId: await seedStaging(userId),
+        ref,
+        serverScope,
+        // Different arguments, so the second call does not meet the barrier of the first.
+        arguments: { scope: serverScope === null ? "none" : "listed" },
+      });
+
+      assert.equal(outcome.status, "completed");
+    }
+
+    assert.equal(protocol.calls, 2);
   });
 
   // The ledger copies `run_id` / `step_id` / `tool_call_id` from the staging row at mint.
@@ -1615,6 +1736,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { title: "x" },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "completed");
@@ -1652,6 +1774,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { amount: 1 },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");
@@ -1691,6 +1814,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
         catalogRevision: revision,
       },
       arguments: { title: secretArg, amount: 4200 },
+      serverScope: null,
     });
 
     assert.equal(outcome.status, "ambiguous");

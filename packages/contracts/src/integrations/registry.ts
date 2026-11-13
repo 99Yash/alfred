@@ -95,8 +95,6 @@ export interface LiveIntegrationEntry extends SourceEntryBase {
   readonly passthrough: PassthroughSpec;
   /** The model reads this in the connected summary (ADR-0053). */
   readonly summaryBlurb: string;
-  /** Add the account identity to the summary line (ADR-0071 F2). */
-  readonly identityInSummary?: true;
   /** For favicons and evidence groups. */
   readonly domain: string;
 }
@@ -314,18 +312,11 @@ export const INTEGRATIONS = {
     brand: "github",
     sourceRoutes: ["ingest"],
     credential: { shape: "github_app" },
-    passthrough: { transport: "rest" },
-    actions: [
-      "search",
-      "get_pull_request",
-      "get_pull_requests",
-      "get_issue",
-      "get_issues",
-      "request",
-    ],
-    summaryBlurb: "the user's GitHub issues and pull requests",
-    // Without the login, the boss asked "which repo?" about the user's own work.
-    identityInSummary: true,
+    // The model reads GitHub through the GitHub MCP built-in only (ADR-0125). The App is the
+    // MCP login client and the webhook source, so it has no curated tool and no passthrough.
+    passthrough: null,
+    actions: [],
+    summaryBlurb: "the user's GitHub App",
     domain: "github.com",
   },
   vercel: {

@@ -83,8 +83,6 @@ export * from "./inbox-cursor";
 
 export * from "./tool-schemas";
 
-export * from "./github-search";
-
 export * from "./tool-fields";
 
 export * from "./mentions";

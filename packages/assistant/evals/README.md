@@ -8,7 +8,7 @@ pnpm --filter @alfred/assistant eval        # run once
 pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-A bare `evalite run` globs **all ten** suites in this directory, `boss-judgment`
+A bare `evalite run` globs **all eight** suites in this directory, `boss-judgment`
 and `triage-classify` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
@@ -18,16 +18,15 @@ Env (loaded from `apps/server/.env`): the three Cloudflare AI Gateway vars
 Every model call goes through the gateway, so there are no provider keys to set.
 
 - `route("cheap")` (Gemini Flash-Lite) is the cheap classifier under test, and the
-  DEFAULT LLM judge. It covers `triage-classify` end to end. Only three suites call
-  `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells` take the cheap
-  default, and `passthrough-honesty` pins a `route("standard")` judge (see the next
-  bullet). The other six suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — eight of the nine suites GENERATE on that
-  route, because the system under test there is the chat agent itself:
-  `boss-judgment`, `calendar-grounding`, `date-grounding`, `github-grounding`,
-  `passthrough-honesty`, `sender-suppression-grounding`, `tool-selection-bloat` and
-  `voice-ai-tells`. Only ONE suite also JUDGES on that route — `passthrough-honesty`,
-  because no deterministic scorer stands behind its judge.
+  DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
+  `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
+  cheap default. The other suites score deterministically and need no judge.
+- `route("standard")` (`gpt-6-luna`) — six suites GENERATE on that route, because
+  the system under test there is the chat agent itself: `boss-judgment`,
+  `calendar-grounding`, `date-grounding`, `sender-suppression-grounding`,
+  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
+  The ADR-0074 passthrough honesty suite was the only one, and it graded the
+  `github.request` tool, which ADR-0125 removed.
 
 The default judge model lives in ONE place, `lib/llm-judge.ts`. A suite that
 needs a stronger grader passes `model` to `llmJudgeScorer`; nothing else states
@@ -43,9 +42,6 @@ it.
 - `calendar-grounding.eval.ts` — chat agent answers relative calendar questions
   ("today", "this week") through the structured `window` / `partOfDay` fields
   instead of inventing a param name or hand-computing RFC3339 bounds.
-- `github-grounding.eval.ts` — chat agent answers time-relative GitHub PR
-  questions with structured `*WithinDays` fields instead of invented or
-  colliding free-form GitHub search qualifiers.
 - `sender-suppression-grounding.eval.ts` — chat agent searches Gmail before
   sender-suppression writes, and only persists a resolved sender when search
   hits clearly identify one address.
@@ -57,9 +53,6 @@ it.
 - `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
   `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
   no case gets worse. Deterministic only.
-- `passthrough-honesty.eval.ts` — the ADR-0074 rung-a general read-only tier:
-  the boss reaches for the uncurated passthrough on a read the curated tools
-  don't cover, and reports honestly when it cannot.
 - `tool-selection-bloat.eval.ts` — the context-purity experiment: does a bloated
   tool menu degrade tool selection? Runs the same tasks under a lean menu and a
   full one.
@@ -81,9 +74,8 @@ Two kinds, both used:
   more consistently than they grade 0–100 — and must explain itself; the
   explanation surfaces in the evalite per-case panel. The judge model is a
   per-suite choice, not one rule: a stronger, different-family judge is the
-  textbook defence against self-preference, and `passthrough-honesty` pays for it
-  because its judge is the only thing grading the claim. `triage-classify` does
-  the opposite on purpose — it judges on `route("cheap")`, the classifier's own
+  textbook defence against self-preference, and a suite whose judge is the only
+  thing grading the claim pays for it. `triage-classify` does the opposite on purpose — it judges on `route("cheap")`, the classifier's own
   route, because its three deterministic scorers carry the proof and the judge is
   a readability signal. See `lib/llm-judge.ts` for the trade.
 

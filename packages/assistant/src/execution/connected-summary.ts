@@ -6,7 +6,12 @@ import {
   type ToolRunContext,
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
-import { listOwnedConnections } from "@alfred/assistant/connections/mcp";
+import {
+  listOwnedConnections,
+  mcpScopeAdmits,
+  mcpServerIdsAdmittedBy,
+  type McpServerScope,
+} from "@alfred/assistant/connections/mcp";
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 import { toolAlwaysWaitsForApproval } from "@alfred/assistant/tool-runtime/approval-rule";
 
@@ -22,7 +27,8 @@ const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
 
 /**
- * `identityInSummary` appends the account login, so the boss can resolve `@me` itself (ADR-0071).
+ * A live provider with no curated tool (GitHub, ADR-0125) gets a line only when it needs
+ * reauth. Its MCP connection line names its tools.
  */
 export async function buildConnectedSummaryFromAvailability(
   userId: string,
@@ -45,14 +51,12 @@ export async function buildConnectedSummaryFromAvailability(
 
     if (!access || access.health === null) continue;
     // Full tool names: with bare actions, the boss called `calendar` with an `action` argument.
-    const identity = entry.identityInSummary ? access.accountLabel : null;
-    const binding = identity ? ` — connected as ${identity}` : "";
     const tools = availableByIntegration.get(entry.slug) ?? [];
 
     // Credentials but no usable tools means reauth. A narrower scope can still allow some tools.
     if (tools.length === 0 && access.health === "needs_reauth") {
       lines.push(
-        `- ${entry.slug} — ${entry.summaryBlurb}${binding} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,
+        `- ${entry.slug} — ${entry.summaryBlurb} (needs reauth — tell the user to reconnect ${entry.slug}; don't call its tools yet)`,
       );
       continue;
     }
@@ -60,12 +64,14 @@ export async function buildConnectedSummaryFromAvailability(
     if (tools.length > 0) {
       const approval = await approvalLabel(userId, tools);
       const suffix = approval ? `. ${approval}` : "";
-      lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${binding}${suffix}`);
+      lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${suffix}`);
     }
   }
 
   if (availableByIntegration.get("mcp")?.includes("mcp.call")) {
-    lines.push(...(await mcpConnectionLines(userId)));
+    // The same scope as discovery and the broker, so the list names only reachable servers.
+    const scope = await mcpServerIdsAdmittedBy(userId, allowedIntegrations);
+    lines.push(...(await mcpConnectionLines(userId, scope)));
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
@@ -102,11 +108,15 @@ async function approvalLabel(userId: string, tools: readonly ToolName[]): Promis
 /**
  * One line per MCP connection. The curated registry does not list them, so without these
  * lines the header told the model that a connected server such as Railway did not exist.
+ * `scope` is required: the header calls the list authoritative, so a server outside the run's
+ * integrations must not appear.
  */
-async function mcpConnectionLines(userId: string): Promise<string[]> {
+async function mcpConnectionLines(userId: string, scope: McpServerScope): Promise<string[]> {
   const lines: string[] = [];
 
   for (const connection of await listOwnedConnections(userId)) {
+    if (!mcpScopeAdmits(scope, connection.serverId)) continue;
+
     const name = `${JSON.stringify(connection.label)} MCP server (connectionId ${connection.id})`;
 
     if (connection.status === "auth_required") {

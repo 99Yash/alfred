@@ -39,24 +39,6 @@ const FIXTURES = {
     },
     arrayFields: ["addAttendees", "removeAttendees"],
   },
-  "github.get_pull_requests": {
-    base: {
-      items: [
-        { owner: "99Yash", repo: "alfred", pull_number: 957 },
-        { owner: "99Yash", repo: "alfred", pull_number: 952 },
-      ],
-    },
-    arrayFields: ["items"],
-  },
-  "github.get_issues": {
-    base: {
-      items: [
-        { owner: "99Yash", repo: "alfred", issue_number: 1016 },
-        { owner: "99Yash", repo: "alfred", issue_number: 1002 },
-      ],
-    },
-    arrayFields: ["items"],
-  },
   "gmail.send_draft": {
     base: {
       to: ["a@example.com"],

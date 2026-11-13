@@ -130,48 +130,48 @@ describe("buildSdkToolSet caller/interaction projection", () => {
 });
 
 describe("preloadToolCatalog against the real registry", () => {
-  // Path B preloads a tool. Path C leaves the model to search and load. Uses real github metadata.
-  interface GitHubAccess {
+  // Path B preloads a tool. Path C leaves the model to search and load. Uses real Vercel metadata.
+  interface VercelAccess {
     access: ToolCatalogAccess;
     kernelNames: ToolName[];
   }
 
-  const githubAccess = (): GitHubAccess => {
+  const vercelAccess = (): VercelAccess => {
     const kernelNames = listKernelTools().map((t) => t.name);
-    const githubNames = listToolsForIntegration("github").map((t) => t.name);
+    const vercelNames = listToolsForIntegration("vercel").map((t) => t.name);
 
     return {
       kernelNames,
       access: {
-        allowedIntegrations: ["github"],
+        allowedIntegrations: ["vercel"],
         availability: new Map<ToolName, ToolAvailabilityResult>(
-          [...kernelNames, ...githubNames].map((name) => [name, { available: true }]),
+          [...kernelNames, ...vercelNames].map((name) => [name, { available: true }]),
         ),
       },
     };
   };
 
-  test("a strong-intent prompt preloads a non-kernel github tool (path B)", () => {
-    const { access, kernelNames } = githubAccess();
+  test("a strong-intent prompt preloads a non-kernel vercel tool (path B)", () => {
+    const { access, kernelNames } = vercelAccess();
 
     const selected = preloadToolCatalog({
-      prompt: "find the pull request assigned to me",
+      prompt: "list the deployments of my vercel project",
       activeTools: kernelNames,
       access,
     });
 
     assert.ok(selected.length > 0, "expected at least one preloaded tool");
     assert.ok(
-      selected.every((n) => n.startsWith("github.")),
+      selected.every((n) => n.startsWith("vercel.")),
       `selected [${selected.join(", ")}]`,
     );
   });
 
-  test("a github-relevant but loosely phrased ask preloads nothing → ladder only (path C)", () => {
-    const { access, kernelNames } = githubAccess();
+  test("a vercel-relevant but loosely phrased ask preloads nothing → ladder only (path C)", () => {
+    const { access, kernelNames } = vercelAccess();
 
     const selected = preloadToolCatalog({
-      prompt: "give me a summary of my github activity",
+      prompt: "give me a summary of my vercel activity",
       activeTools: kernelNames,
       access,
     });
@@ -180,7 +180,7 @@ describe("preloadToolCatalog against the real registry", () => {
   });
 
   test("a kernel tool is never re-preloaded (already active)", () => {
-    const { access, kernelNames } = githubAccess();
+    const { access, kernelNames } = vercelAccess();
 
     const selected = preloadToolCatalog({
       prompt: "what do you know about me? read my user context",

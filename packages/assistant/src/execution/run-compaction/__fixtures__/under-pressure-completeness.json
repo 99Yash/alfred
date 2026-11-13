@@ -16,7 +16,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_issue_101",
-          "toolName": "github.get_issue",
+          "toolName": "mcp.call",
           "output": {
             "type": "json",
             "value": {
@@ -37,7 +37,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_issue_102",
-          "toolName": "github.get_issue",
+          "toolName": "mcp.call",
           "output": {
             "type": "json",
             "value": {
@@ -58,7 +58,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_issue_103",
-          "toolName": "github.get_issue",
+          "toolName": "mcp.call",
           "output": {
             "type": "json",
             "value": {
@@ -124,7 +124,7 @@
       "section": "user_directives",
       "contains": "Do not drop GH-101, GH-102, or GH-103 from the final release note"
     },
-    { "section": "actions_completed", "contains": "github.get_issue" },
+    { "section": "actions_completed", "contains": "mcp.call" },
     { "section": "actions_rejected", "contains": "gmail.send_draft" },
     { "section": "actions_failed", "contains": "github.add_label" },
     { "section": "key_entities", "contains": "GH-101" },

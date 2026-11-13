@@ -29,8 +29,6 @@ const rejectMethod = reject("method_not_read");
 
 const rejectAllowlist = reject("path_not_allowlisted");
 
-const rejectAuthScope = reject("auth_scope_unreachable");
-
 const rejectGraphqlNonQuery = reject("graphql_non_query");
 
 const rejectGraphqlAmbiguous = reject("graphql_operation_ambiguous");
@@ -103,7 +101,7 @@ function matchesAny(path: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(path));
 }
 
-/** Pass GET/HEAD (minus the denylists) and allowlisted POST reads. New GET endpoints pass without curation. */
+/** Pass GET/HEAD (minus the side-effect denylist) and allowlisted POST reads. New GET endpoints pass without curation. */
 export function assertReadableRestRequest(
   config: RestProviderGateConfig,
   request: RestPassthroughRequest,
@@ -125,12 +123,6 @@ export function assertReadableRestRequest(
       return rejectAllowlist(
         "This GET/HEAD endpoint is known to side-effect and is denied by the read gate.",
       );
-    }
-
-    const authDenial = config.authScopeDenylist.find((entry) => entry.pattern.test(request.path));
-
-    if (authDenial) {
-      return rejectAuthScope(authDenial.detail);
     }
 
     return { ok: true };

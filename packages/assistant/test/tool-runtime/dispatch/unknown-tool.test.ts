@@ -15,14 +15,11 @@ describe("undeclaredToolMessage", () => {
   });
 
   test("enumerates valid actions for an invented qualified integration tool", () => {
-    const message = undeclaredToolMessage("github.list_pull_requests", ["github"]);
+    const message = undeclaredToolMessage("gmail.list_threads", ["gmail"]);
 
-    assert.match(
-      message,
-      /github exposes: `search`, `get_pull_request`, `get_pull_requests`, `get_issue`/,
-    );
-    // A `list_*` guess wants to enumerate, so point at `search`, not `get_pull_request`.
-    assert.match(message, /Use 'github\.search' instead/);
+    assert.match(message, /gmail exposes: `search`, `read_message`, `get_thread`/);
+    // A `list_*` guess wants to enumerate, so point at `search`, not `get_thread`.
+    assert.match(message, /Use 'gmail\.search' instead/);
     assert.match(message, /system\.load_tool/);
   });
 

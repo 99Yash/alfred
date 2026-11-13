@@ -225,10 +225,8 @@ describe("GitHub MCP row has one control (DB-backed)", { skip: SKIP }, () => {
       userId,
       accountId: "4242",
       accountLabel: "octo",
-      accessToken: "ghu_identity",
       installationId: "777",
       scopes: [],
-      expiresAt: new Date(Date.now() + 60 * 60_000),
     });
 
     signIn(t, userId);

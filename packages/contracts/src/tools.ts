@@ -615,37 +615,6 @@ export const TOOL_LABELS = {
   "contacts.list": { running: "Listing contacts", done: "Listed contacts", title: "list contacts" },
   "contacts.get": { running: "Reading a contact", done: "Read a contact", title: "read a contact" },
 
-  "github.search": {
-    running: "Searching GitHub",
-    done: "Searched GitHub",
-    title: "search issues and pull requests",
-  },
-  "github.get_pull_request": {
-    running: "Reading a pull request",
-    done: "Read a pull request",
-    title: "read a pull request",
-  },
-  "github.get_pull_requests": {
-    running: "Reading pull requests",
-    done: "Read pull requests",
-    title: "read several pull requests",
-  },
-  "github.get_issue": {
-    running: "Reading an issue",
-    done: "Read an issue",
-    title: "read an issue",
-  },
-  "github.get_issues": {
-    running: "Reading issues",
-    done: "Read issues",
-    title: "read several issues",
-  },
-  "github.request": {
-    running: "Querying the GitHub API",
-    done: "Queried the GitHub API",
-    title: "run a read-only GitHub API request",
-  },
-
   "vercel.list_projects": {
     running: "Listing Vercel projects",
     done: "Listed Vercel projects",
@@ -755,13 +724,6 @@ export const TOOL_CATEGORIES = {
   "contacts.search": "source",
   "contacts.list": "source",
   "contacts.get": "source",
-
-  "github.search": "source",
-  "github.get_pull_request": "source",
-  "github.get_pull_requests": "source",
-  "github.get_issue": "source",
-  "github.get_issues": "source",
-  "github.request": "source",
 
   "vercel.list_projects": "source",
   "vercel.list_deployments": "source",

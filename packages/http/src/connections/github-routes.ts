@@ -17,7 +17,6 @@ import {
   hasPersonalInstallation,
   listGithubCredentials,
   upsertGithubCredential,
-  userTokenExpiresAt,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
@@ -247,10 +246,7 @@ export const githubIntegrationRoutes = new Elysia({
       let accountLogin: string;
       let accountEmail: string | null = null;
       let accountName: string | null = null;
-      let accessToken: string;
-      let expiresAt: Date;
       let scopes: string[] = [];
-      let tokenType = "bearer";
       // The App user grant from this install. The GitHub MCP connection takes it.
       let grant: GithubAppUserGrant | null = null;
 
@@ -291,10 +287,7 @@ export const githubIntegrationRoutes = new Elysia({
         accountLogin = tokens.accountLogin;
         accountEmail = tokens.accountEmail;
         accountName = tokens.accountName;
-        accessToken = tokens.accessToken;
-        expiresAt = userTokenExpiresAt(tokens.expiresInSeconds);
         scopes = tokens.scopes;
-        tokenType = tokens.tokenType;
         grant = tokens;
       } else {
         if (!query.installation_id) throw Errors.BadRequestError("Missing installation_id");
@@ -304,10 +297,6 @@ export const githubIntegrationRoutes = new Elysia({
         if (!inst) throw Errors.BadRequestError("GitHub installation not found");
         accountId = inst.accountId;
         accountLogin = inst.accountLogin;
-        // The row needs a token, but REST uses `getInstallationToken`. Far-future expiry
-        // avoids an instant `needs_reauth`.
-        accessToken = `ghu_placeholder_${installationId}`;
-        expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
       }
 
       const [credential, userRow] = await Promise.all([
@@ -315,15 +304,12 @@ export const githubIntegrationRoutes = new Elysia({
           userId,
           accountId,
           accountLabel: accountLogin,
-          accessToken,
           installationId,
-          expiresAt,
           scopes,
           metadata: {
             login: accountLogin,
             name: accountName,
             email: accountEmail,
-            token_type: tokenType,
             installation_id: installationId,
             setup_action: query.setup_action ?? null,
           },

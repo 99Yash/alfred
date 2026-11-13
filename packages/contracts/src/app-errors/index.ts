@@ -187,11 +187,6 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "No usable credential exists for this integration.",
     fix: connect,
   }),
-  reauth_required: withParams(integrationParams, {
-    message: ({ integration }) => `${label(integration)} needs to be reconnected.`,
-    why: "A credential exists but is revoked, expired, or incomplete, and cannot act.",
-    fix: reconnect,
-  }),
   account_read_failed: withParams(integrationParams, {
     message: ({ integration }) => `A connected ${label(integration)} account could not be read.`,
     why: "One credential's provider call failed while a sibling credential may still answer.",
@@ -240,6 +235,12 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     message:
       "These arguments do not match this MCP tool's schema, so the server was not called. Call mcp.inspect_tool with the same ref to read the exact schema, then call mcp.call again with only the properties it lists.",
     why: "The arguments failed the tool's imported JSON Schema before delivery. Search results do not carry the full schema, so the model guessed a property name.",
+    fix: { kind: "correct_input" },
+  },
+  mcp_connection_outside_scope: {
+    message:
+      "This MCP connection is outside the integrations of this run, so the server was not called. Use a connection of an allowed integration.",
+    why: "The run has an integration allowlist, and the connection's server belongs to no listed integration. The check reads the input that runs, after any approval edit.",
     fix: { kind: "correct_input" },
   },
   mcp_effect_not_applied: {

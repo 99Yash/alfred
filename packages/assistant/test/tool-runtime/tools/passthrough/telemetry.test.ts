@@ -38,11 +38,11 @@ function truncatedResult(): PassthroughResult {
 
 describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
   test("emits the full L0-trigger signal for a truncated http success", () => {
-    const t = telemetryFor("github.request", truncatedResult());
+    const t = telemetryFor("gmail.request", truncatedResult());
     assert.ok(t, "a truncated http result must produce a signal");
     assert.equal(t.handleEligible, true);
-    assert.equal(t.integration, "github");
-    assert.equal(t.toolName, "github.request");
+    assert.equal(t.integration, "gmail");
+    assert.equal(t.toolName, "gmail.request");
     assert.equal(t.runId, RUN_ID);
     assert.equal(t.succeeded, true);
     assert.equal(t.returnedBytes, 4_000);
@@ -77,7 +77,7 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
 
   test("returns null for a non-truncated http result", () => {
     const result: PassthroughResult = { outcome: "http", status: 200, succeeded: true, body: [] };
-    assert.equal(telemetryFor("github.request", result), null);
+    assert.equal(telemetryFor("gmail.request", result), null);
   });
 
   test("returns null for rejected / transport outcomes", () => {
@@ -94,7 +94,7 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
       message: "timed out",
     };
 
-    assert.equal(telemetryFor("github.request", rejected), null);
-    assert.equal(telemetryFor("github.request", transport), null);
+    assert.equal(telemetryFor("gmail.request", rejected), null);
+    assert.equal(telemetryFor("gmail.request", transport), null);
   });
 });

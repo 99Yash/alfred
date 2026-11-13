@@ -70,7 +70,7 @@ export const restPassthroughRequestSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "A namespace-relative path beginning with '/' (e.g. '/repos/owner/name/actions/runs'). Never an absolute URL, origin, or host — those are pinned by Alfred. Put query parameters in the separate 'query' field, not here.",
+      "A namespace-relative path beginning with '/' (e.g. '/v6/deployments'). Never an absolute URL, origin, or host — those are pinned by Alfred. Put query parameters in the separate 'query' field, not here.",
     ),
   query: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
@@ -117,7 +117,6 @@ export const READ_GATE_REASONS = [
   "invalid_path",
   "graphql_non_query",
   "graphql_operation_ambiguous",
-  "auth_scope_unreachable",
 ] as const;
 
 export type ReadGateReason = (typeof READ_GATE_REASONS)[number];

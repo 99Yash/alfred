@@ -288,17 +288,10 @@ export interface ExchangeUserCodeResult {
   accountName: string | null;
   accessToken: string;
   refreshToken: string | null;
-  /** `expires_in` as sent, `null` when user tokens do not expire. See {@link userTokenExpiresAt}. */
+  /** `expires_in` as sent, `null` when user tokens do not expire. */
   expiresInSeconds: number | null;
   scopes: string[];
   tokenType: string;
-}
-
-const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
-
-/** The credential row's expiry for a user token. A token with no expiry gets a far-future sentinel. */
-export function userTokenExpiresAt(expiresInSeconds: number | null): Date {
-  return expiresInSeconds === null ? FAR_FUTURE() : new Date(Date.now() + expiresInSeconds * 1000);
 }
 
 /** Exchange the post-install `code` for a user token, then identify the user. */

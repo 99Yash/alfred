@@ -151,12 +151,12 @@ test("groups available tool names by integration, sorted, honoring the allowlist
       execute: async () => ({}),
     }),
     liveTool({
-      integration: "github",
-      action: "get_issue",
+      integration: "vercel",
+      action: "list_projects",
       riskTier: "low",
       replay: "safe",
-      description: "Get a GitHub issue.",
-      inputSchema: z.object({ number: z.number() }).strict(),
+      description: "List Vercel projects.",
+      inputSchema: z.object({}).strict(),
       execute: async () => ({}),
     }),
   ]);
@@ -164,7 +164,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([
       ["gmail", { health: "active" as const, accountLabel: null }],
-      ["github", { health: "active" as const, accountLabel: null }],
+      ["vercel", { health: "active" as const, accountLabel: null }],
       ["calendar", { health: "needs_reauth" as const, accountLabel: null }],
     ]),
     providers: new Map(),
@@ -175,14 +175,14 @@ test("groups available tool names by integration, sorted, honoring the allowlist
 
   const grouped = availableToolNamesByIntegration({
     availability,
-    allowedIntegrations: ["gmail", "github"],
+    allowedIntegrations: ["gmail", "vercel"],
     context,
   });
 
   assert.deepEqual(grouped.get("gmail"), ["gmail.read_message", "gmail.search"]);
-  assert.deepEqual(grouped.get("github"), ["github.get_issue"]);
+  assert.deepEqual(grouped.get("vercel"), ["vercel.list_projects"]);
 
-  // The allowlist removes GitHub even though its credentials are healthy.
+  // The allowlist removes Vercel even though its credentials are healthy.
   const gmailOnly = availableToolNamesByIntegration({
     availability,
     allowedIntegrations: ["gmail"],
@@ -190,7 +190,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
   });
 
   assert.deepEqual(gmailOnly.get("gmail"), ["gmail.read_message", "gmail.search"]);
-  assert.equal(gmailOnly.has("github"), false);
+  assert.equal(gmailOnly.has("vercel"), false);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {

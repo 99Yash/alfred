@@ -995,8 +995,17 @@ function ResolvedCopy({
  * Only where it can take effect: high-tier actions confirm even under autonomy.
  * System tools never gate.
  */
+/**
+ * `mcp.call` takes the rule of its connection's provider (the `github` rule for the GitHub MCP),
+ * which this row does not name. A switch here would change the `mcp` rule and leave that call
+ * gated, so the provider page owns it.
+ */
 function canAlwaysAllow(staging: SyncedActionStaging): boolean {
-  return staging.riskTier !== "high" && isLoadableIntegrationSlug(staging.integration);
+  return (
+    staging.toolName !== "mcp.call" &&
+    staging.riskTier !== "high" &&
+    isLoadableIntegrationSlug(staging.integration)
+  );
 }
 
 function policyCopy(riskTier: ToolRiskTier): string {

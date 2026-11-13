@@ -14,7 +14,6 @@ import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
 import { docsTools } from "./internal/tools/docs";
 import { driveTools } from "./internal/tools/drive";
-import { githubTools } from "./internal/tools/github";
 import { gmailTools } from "./internal/tools/gmail";
 import { mcpTools } from "./internal/tools/mcp";
 import { sheetsTools } from "./internal/tools/sheets";
@@ -41,7 +40,6 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(gmailTools);
   registerTools(calendarTools);
   registerTools(driveTools);
-  registerTools(githubTools);
   registerTools(docsTools);
   registerTools(sheetsTools);
   registerTools(slidesTools);

@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import {
-  calendarListEventsInput,
-  gmailSearchInput,
-  githubGetPullRequestInput,
-  isRecord,
-} from "@alfred/contracts";
+import { calendarListEventsInput, gmailSearchInput, isRecord } from "@alfred/contracts";
 import { z } from "zod";
 import { normalizeToolInputKeys } from "../../../src/tool-runtime/internal/dispatch/normalize-keys";
 
@@ -23,10 +18,10 @@ describe("normalizeToolInputKeys", () => {
   });
 
   test("renames camelCase → the snake_case schema key (direction-agnostic)", () => {
-    // GitHub uses snake_case. The model sends camelCase.
+    // A REST name in snake_case. The model sends camelCase.
     const { input } = normalizeToolInputKeys(
       { owner: "99Yash", repo: "alfred", pullNumber: 305 },
-      githubGetPullRequestInput,
+      z.object({ owner: z.string(), repo: z.string(), pull_number: z.number() }).strict(),
     );
 
     assert.deepEqual(input, { owner: "99Yash", repo: "alfred", pull_number: 305 });

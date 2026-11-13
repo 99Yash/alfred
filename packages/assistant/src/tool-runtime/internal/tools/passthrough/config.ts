@@ -6,64 +6,41 @@ export interface RestProviderGateConfig {
   readViaPostAllowlist: readonly RegExp[];
   /** GET/HEAD endpoints that side-effect anyway. */
   sideEffectingGetDenylist: readonly RegExp[];
-  /** Known 403s under the current auth, rejected up front with a clear reason. */
-  authScopeDenylist: readonly { pattern: RegExp; detail: string }[];
 }
 
 const NO_READ_VIA_POST: readonly RegExp[] = [];
 
 const NO_SIDE_EFFECTING_GET: readonly RegExp[] = [];
 
-const NO_AUTH_SCOPE_DENIALS: readonly { pattern: RegExp; detail: string }[] = [];
-
 export const REST_GATE_CONFIG = {
-  github: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    // `/notifications` is user-scoped, so the App installation token gets a 403.
-    authScopeDenylist: [
-      {
-        pattern: /^\/notifications(?:\/|$)/,
-        detail:
-          "GitHub /notifications is user-scoped and is not reachable under the App installation token. Repo-scoped reads (workflow runs, commits, releases, issues, pulls) are reachable.",
-      },
-    ],
-  },
   vercel: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   gmail: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   calendar: {
     // `/freeBusy` is a POST read.
     readViaPostAllowlist: [/^\/freeBusy$/],
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   drive: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   docs: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   sheets: {
     // `values:batchGetByDataFilter` is a POST read, not yet allowed.
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
   slides: {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-    authScopeDenylist: NO_AUTH_SCOPE_DENIALS,
   },
 } satisfies Record<SupportedRestSlug, RestProviderGateConfig>;

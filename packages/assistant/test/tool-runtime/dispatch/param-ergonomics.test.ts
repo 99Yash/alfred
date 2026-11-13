@@ -45,12 +45,6 @@ const CASES: readonly Case[] = [
     },
   },
   {
-    name: "github.search per_page → perPage",
-    tool: "github.search",
-    input: { query: "repo:99Yash/alfred", per_page: 10 },
-    expect: (d) => assert.equal(d.perPage, 10),
-  },
-  {
     name: "drive.search_files page_token / page_size casing",
     tool: "drive.search_files",
     input: { q: "name contains 'x'", page_size: 10, page_token: "tok" },
@@ -59,32 +53,12 @@ const CASES: readonly Case[] = [
       assert.equal(d.pageToken, "tok");
     },
   },
-  {
-    name: "github.get_pull_request pullNumber (camel) → pull_number",
-    tool: "github.get_pull_request",
-    input: { owner: "99Yash", repo: "alfred", pullNumber: 305 },
-    expect: (d) => assert.equal(d.pull_number, 305),
-  },
   // ── synonyms (withKeyAliases) ────────────────────────────────────────────
   {
     name: "gmail.send_draft body → bodyText",
     tool: "gmail.send_draft",
     input: { to: ["a@example.com"], subject: "Hi", body: "The message body." },
     expect: (d) => assert.equal(d.bodyText, "The message body."),
-  },
-  {
-    name: "github.search limit → perPage",
-    tool: "github.search",
-    input: { query: "repo:99Yash/alfred", limit: 5 },
-    expect: (d) => assert.equal(d.perPage, 5),
-  },
-  {
-    // The dispatch normalizer only knows accepted keys, so withKeyAliases must match aliases
-    // case-insensitively.
-    name: "github.search Limit (cased alias) → perPage",
-    tool: "github.search",
-    input: { query: "repo:99Yash/alfred", Limit: 5 },
-    expect: (d) => assert.equal(d.perPage, 5),
   },
   {
     name: "gmail.send_draft Body (cased alias) → bodyText",
@@ -130,49 +104,6 @@ const CASES: readonly Case[] = [
     input: { to: '["a@example.com","b@example.com"]', subject: "Hi", bodyText: "Body." },
     expect: (d) => assert.deepEqual(d.to, ["a@example.com", "b@example.com"]),
   },
-  // ── wrong shape (github url/number decompose) ───────────────────────────
-  {
-    name: "github.get_pull_request url → owner/repo/pull_number",
-    tool: "github.get_pull_request",
-    input: { url: "https://github.com/99Yash/alfred/pull/305" },
-    expect: (d) => {
-      assert.equal(d.owner, "99Yash");
-      assert.equal(d.repo, "alfred");
-      assert.equal(d.pull_number, 305);
-    },
-  },
-  {
-    name: "github.get_issue url → owner/repo/issue_number",
-    tool: "github.get_issue",
-    input: { url: "https://github.com/99Yash/alfred/issues/218" },
-    expect: (d) => assert.equal(d.issue_number, 218),
-  },
-  {
-    name: "github.get_pull_request bare number → pull_number",
-    tool: "github.get_pull_request",
-    input: { owner: "99Yash", repo: "alfred", number: 305 },
-    expect: (d) => assert.equal(d.pull_number, 305),
-  },
-  {
-    name: "github.get_pull_request combined slug + pullRequestNumber synonym",
-    tool: "github.get_pull_request",
-    input: { repo: "99Yash/alfred", pullRequestNumber: "503" },
-    expect: (d) => {
-      assert.equal(d.owner, "99Yash");
-      assert.equal(d.repo, "alfred");
-      assert.equal(d.pull_number, 503);
-    },
-  },
-  {
-    name: "github.get_issue combined slug + issueNumber synonym",
-    tool: "github.get_issue",
-    input: { repo: "99Yash/alfred", issueNumber: 218 },
-    expect: (d) => {
-      assert.equal(d.owner, "99Yash");
-      assert.equal(d.repo, "alfred");
-      assert.equal(d.issue_number, 218);
-    },
-  },
   // ── real Drive-DSL guard ─────────────────────────────────────────────────
   {
     name: "drive.search_files bare term → name/fullText contains",
@@ -214,19 +145,6 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
       if (c.expect) c.expect(parsed.data);
     });
   }
-});
-
-describe("param-ergonomics: the github number-synonym fold stays a closed allowlist", () => {
-  // Folding `comment_number` would fetch the wrong entity. A bounce self-corrects; that does not.
-  test("github.get_issue comment_number is not folded into issue_number", () => {
-    const parsed = dispatchParse("github.get_issue", {
-      owner: "99Yash",
-      repo: "alfred",
-      comment_number: 5,
-    });
-
-    assert.equal(parsed.success, false);
-  });
 });
 
 describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanket accept-anything", () => {

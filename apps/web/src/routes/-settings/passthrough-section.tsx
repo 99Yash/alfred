@@ -7,7 +7,6 @@ import {
   AlertCircle,
   CalendarDays,
   FileText,
-  GitBranch,
   HardDrive,
   Mail,
   Presentation,
@@ -64,11 +63,6 @@ const PASSTHROUGH_META = {
     helper: "Raw read-only Slides API: presentation structure and metadata.",
     icon: Presentation,
     tint: "orange",
-  },
-  github: {
-    helper: "Raw read-only GitHub REST: workflow runs, commits, releases, branches, and contents.",
-    icon: GitBranch,
-    tint: "purple",
   },
   vercel: {
     helper: "Raw read-only Vercel REST: project and deployment detail.",

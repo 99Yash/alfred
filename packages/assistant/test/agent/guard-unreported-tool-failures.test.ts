@@ -309,7 +309,7 @@ describe("guardUnreportedToolFailures", () => {
       toolCallsLog: [
         {
           toolCallId: "tc_1",
-          toolName: "github.get_pull_requests",
+          toolName: "drive.search_files",
           status: "failed",
           segmentIndex: 0,
         },

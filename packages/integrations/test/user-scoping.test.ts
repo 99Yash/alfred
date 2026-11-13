@@ -57,7 +57,7 @@ async function seedUser(prefix: string): Promise<string> {
 /**
  * Every credential-read path the `integrations({ userId })` root funnels through
  * must return only the bound user's rows. The scoping does NOT live in the leaf
- * token functions (`getFreshAccessToken`/`getGithubAccessToken` are id-only, no
+ * token functions (`getFreshAccessToken` is id-only, no
  * userId predicate — a test aimed there is a false lock); it lives in the client
  * selection gates and the Google resolver's ownership revalidation. These tests
  * hit the gates.
@@ -220,20 +220,16 @@ describe("credential reads are scoped to the bound user (DB-backed)", { skip: SK
         userId: userA,
         accountId: `a-${randomUUID()}`,
         accountLabel: "scope-a",
-        accessToken: "gh-token-a",
         installationId: "10001",
-        scopes: ["repo"],
-        expiresAt: new Date(Date.now() + 60 * 60_000),
+        scopes: [],
       });
 
       const b = await upsertGithubCredential({
         userId: userB,
         accountId: `b-${randomUUID()}`,
         accountLabel: "scope-b",
-        accessToken: "gh-token-b",
         installationId: "10002",
-        scopes: ["repo"],
-        expiresAt: new Date(Date.now() + 60 * 60_000),
+        scopes: [],
       });
 
       const rows = await listGithubCredentials(userA);

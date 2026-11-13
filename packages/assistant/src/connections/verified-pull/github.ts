@@ -1,7 +1,6 @@
 import {
   canonicalizeGithubPullRequestUrl,
   DAY_SHAPE_TITLE_MAX,
-  githubSearchDateTime,
   parseGithubPullRequestUrl,
   type DayShape,
 } from "@alfred/contracts";
@@ -24,6 +23,15 @@ import type {
   GithubMergedRead,
   GithubMergedReadOutcome,
 } from "./github-merged-read";
+
+/**
+ * A date-time value for a GitHub search date qualifier (`merged:`, `created:`, `closed:`).
+ * GitHub documents the `+00:00` offset form, not a `Z` suffix (ADR-0068), and the
+ * `merged:` range has second precision, so the milliseconds are dropped.
+ */
+function githubSearchDateTime(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
+}
 
 /**
  * GitHub's half of the verified pull (ADR-0062 amendment 2026-10-27). Webhooks stay the only row

@@ -304,7 +304,7 @@ explicit formatting command that writes files.
 Live backends today:
 
 - Google Workspace: Gmail, Calendar, Drive, Docs, Sheets, Slides.
-- GitHub App: install + user-to-server OAuth, installation tokens for REST, prod-only webhooks.
+- GitHub App: install + user-to-server OAuth, prod-only webhooks, and the OAuth client of the GitHub MCP login. The model reads GitHub through the read-only GitHub MCP only (ADR-0125). An installation token serves the background REST read of the loop verifier.
 - Notion MCP OAuth: dynamic client registration and the Notion MCP tools. Notion has no REST connection (ADR-0093, 2026-10-23 amendment).
 - Railway MCP OAuth: dynamic client registration, live deployment reads, and MCP tools.
 - Vercel OAuth (the curated grant): the Vercel tools and the verified-pull deployment reads. Vercel has no MCP built-in, because its server accepts only loopback redirect URIs (`docs/plans/vercel-mcp-retirement.md`).

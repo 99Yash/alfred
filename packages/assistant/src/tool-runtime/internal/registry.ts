@@ -21,6 +21,7 @@ import type {
 import {
   ASK_USER_TOOL,
   buildToolName,
+  builtInMCPProvidersAdmittedBy,
   missingRequiredScopes,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
@@ -212,6 +213,15 @@ export interface ToolArgsCommon<
   resolveRiskTier?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
   /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
   riskTierDowngradeReason?: string;
+  /**
+   * The integration whose policy rule governs this call, when the input names it and the tool
+   * name does not: `mcp.call` on a built-in server follows its provider's rule. Absent: the
+   * rule of the tool's own integration. Must be side-effect free.
+   */
+  resolvePolicyIntegration?: (
+    input: z.infer<S>,
+    ctx: ToolExecuteContext,
+  ) => Promise<IntegrationSlug>;
   /** Defaults to `"staged"`. */
   staging?: ToolStagingPolicy;
   /** No default: every tool states it. `fast_path`, `join`, and `question` must be `"safe"`. */
@@ -330,6 +340,8 @@ export interface BoundToolCall {
    * time for each decision.
    */
   effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
+  /** See {@link ToolArgsCommon.resolvePolicyIntegration}. The tool's integration when it declares none. */
+  policyIntegration: (ctx: ToolExecuteContext) => Promise<IntegrationSlug>;
   /**
    * See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor.
    * The only value the trace sinks (`ToolSpanInput`, `DispatchRejectionInput`) take.
@@ -353,6 +365,8 @@ export interface RegisteredTool {
   resolvesRiskTier: boolean;
   /** See {@link LiveToolArgs.riskTierDowngradeReason}. */
   riskTierDowngradeReason?: string | undefined;
+  /** Whether the tool declares {@link ToolArgsCommon.resolvePolicyIntegration}, so its policy rule depends on input. */
+  resolvesPolicyIntegration: boolean;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
   /** See {@link ToolReplay}. */
@@ -373,12 +387,24 @@ export interface RegisteredTool {
   bind: (input: unknown) => ToolInputBinding;
 }
 
+/**
+ * Whether an allowlist admits the tool. `mcp` names the transport, so `mcp` on a list admits
+ * nothing. Workflow authoring still writes it for an `mcp.call` step, so such a workflow fails
+ * activation (ADR-0125 item 6, an accepted gap). The `mcp.*` tools pass when a listed integration has a built-in MCP server, and the
+ * tools then reach only the servers of those integrations (`mcpServerIdsAdmittedBy`).
+ */
+function allowlistAdmits(tool: RegisteredTool, allowed: ReadonlySet<IntegrationSlug>): boolean {
+  if (tool.integration === "mcp") return builtInMCPProvidersAdmittedBy([...allowed]).length > 0;
+
+  return allowed.has(tool.integration);
+}
+
 function evaluateRunContextGates(
   tool: RegisteredTool,
   allowed: ReadonlySet<IntegrationSlug>,
   context: ToolRunContext,
 ): ToolAvailabilityResult {
-  if (tool.integration !== "system" && allowed.size > 0 && !allowed.has(tool.integration)) {
+  if (tool.integration !== "system" && allowed.size > 0 && !allowlistAdmits(tool, allowed)) {
     return {
       available: false,
       code: "not_allowed",
@@ -666,7 +692,9 @@ export function liveTool<
   O,
 >(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
-  const { redactInput, resolveRiskTier, refuseInput, refuseProposal } = args;
+
+  const { redactInput, resolveRiskTier, resolvePolicyIntegration, refuseInput, refuseProposal } =
+    args;
 
   // Only a gated call writes a staging row, so on any other policy the check would never run.
   if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
@@ -682,6 +710,7 @@ export function liveTool<
     riskTier: args.riskTier,
     resolvesRiskTier: resolveRiskTier !== undefined,
     riskTierDowngradeReason: args.riskTierDowngradeReason,
+    resolvesPolicyIntegration: resolvePolicyIntegration !== undefined,
     staging: args.staging ?? "staged",
     replay: args.replay,
     executionLane: args.executionLane,
@@ -741,6 +770,8 @@ export function liveTool<
             resolveRiskTier
               ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)
               : tool.riskTier,
+          policyIntegration: async (ctx) =>
+            resolvePolicyIntegration ? resolvePolicyIntegration(input, ctx) : tool.integration,
           redactedInput: () => markRedacted(redactInput ? redactInput(input) : input),
           execute: async (ctx) => {
             if (args.availability?.requiresLiveChat !== true) {

@@ -23,16 +23,16 @@ describe("summarizeToolSurfaceUsage", () => {
         "system.load_tool", // kernel
         "calendar.list_events", // loaded + used
         "gmail.search", // loaded + unused
-        "github.search", // loaded + unused
+        "drive.search_files", // loaded + unused
       ],
       preloadedTools: ["calendar.list_events", "gmail.search"],
       kernelTools: KERNEL,
       invokedTools: new Set(["calendar.list_events", "system.current_time"]),
     });
 
-    assert.deepEqual(usage.loaded, ["calendar.list_events", "github.search", "gmail.search"]);
+    assert.deepEqual(usage.loaded, ["calendar.list_events", "drive.search_files", "gmail.search"]);
     assert.deepEqual(usage.usedLoaded, ["calendar.list_events"]);
-    assert.deepEqual(usage.unusedLoaded, ["github.search", "gmail.search"]);
+    assert.deepEqual(usage.unusedLoaded, ["drive.search_files", "gmail.search"]);
     assert.deepEqual(usage.preloaded, ["calendar.list_events", "gmail.search"]);
     assert.deepEqual(usage.usedPreloaded, ["calendar.list_events"]);
     assert.deepEqual(usage.unusedPreloaded, ["gmail.search"]);

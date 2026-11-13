@@ -33,12 +33,15 @@ import {
   descriptorHash,
   isPreDeliveryErrorCode,
   McpClientError,
+  mcpScopeAdmits,
   needsMcpReauthorization,
+  readOwnedConnection,
   startMcpTraceSpan,
   type ExternalToolRef,
   type McpCallEnvelope,
   type McpConnectionManager,
   type McpPreparedToolCall,
+  type McpServerScope,
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import {
@@ -85,6 +88,12 @@ export interface McpBrokerCallInput {
   ref: ExternalToolRef;
   /** The raw client validates these against the tool schema. */
   arguments: unknown;
+  /**
+   * The servers that the run's integration allowlist admits (`mcpServerIdsAdmittedBy`). Required,
+   * so no caller can forget it. The broker checks the connection that runs, before it opens the
+   * client: an approval edit or a resume can change the connection after the proposal check.
+   */
+  serverScope: McpServerScope;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
   traceId?: string;
   signal?: AbortSignal;
@@ -125,6 +134,21 @@ export type McpBrokerOutcome =
       priorInvocationId: string | null;
     }
   | { status: "ambiguous"; invocationId: string; message: string };
+
+/** Throws before any client opens when the connection is outside the run's scope. */
+async function assertConnectionInScope(input: McpBrokerCallInput): Promise<void> {
+  if (input.serverScope === null) return;
+
+  const connection = await readOwnedConnection(input.ref.connectionId, input.userId);
+
+  // An unknown connection fails in `#prepareCall` with its own error.
+  if (!connection || mcpScopeAdmits(input.serverScope, connection.serverId)) return;
+
+  throw new McpClientError(
+    "outside_scope",
+    "This MCP connection is outside the integrations of this run.",
+  );
+}
 
 /** True only for an `McpClientError` that provably was not delivered. */
 function isProvenNotDelivered(err: unknown): boolean {
@@ -1369,6 +1393,8 @@ export class McpExecutionBroker {
 
   async #callTool(input: McpBrokerCallInput, trace: McpTraceContext): Promise<McpBrokerOutcome> {
     const { ref } = input;
+
+    await assertConnectionInScope(input);
 
     const preparedCall = await this.#prepareCall({
       userId: input.userId,

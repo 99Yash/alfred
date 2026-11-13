@@ -11,11 +11,15 @@ import {
   mcpToolSearchInputSchema,
   unknownEffectEnvelopeSchema,
 } from "@alfred/contracts";
-import { AppError } from "@alfred/contracts/app-errors";
+import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
+  integrationOfMcpConnection,
   McpClientError,
+  mcpScopeAdmits,
+  mcpServerIdsAdmittedBy,
   needsMcpReauthorization,
+  readOwnedConnection,
   searchMcpToolsLocal,
   type ExternalToolRef,
   type McpCallEnvelope,
@@ -108,6 +112,24 @@ export const mcpTools: readonly RegisteredTool[] = [
         remoteName: input.remoteName,
         catalogRevision: input.catalogRevision,
       }),
+    // A built-in follows its provider's rule, so the GitHub Auto/Gated setting governs GitHub reads.
+    // A user-added server has no provider and keeps the `mcp` rule.
+    resolvePolicyIntegration: async (input, ctx) =>
+      (await integrationOfMcpConnection(ctx.userId, input.connectionId)) ?? "mcp",
+    // Before the staging row, so a call outside the run's integrations gets no approval card.
+    // Only a fresh proposal runs this. The broker checks the connection that runs again.
+    refuseProposal: async (input, ctx) => {
+      const serverIds = await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations);
+
+      if (serverIds === null) return null;
+
+      const connection = await readOwnedConnection(input.connectionId, ctx.userId);
+
+      // An unknown connection fails in the broker with its own error.
+      if (!connection || mcpScopeAdmits(serverIds, connection.serverId)) return null;
+
+      return publicAppError("mcp_connection_outside_scope").message;
+    },
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
@@ -132,6 +154,8 @@ export const mcpTools: readonly RegisteredTool[] = [
           traceId: ctx.runId,
           ref,
           arguments: input.arguments,
+          // `input` is the effective input (an approval edit included), on a resume and a replay too.
+          serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {
@@ -140,7 +164,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           throw new AppError("mcp_reauth_required", { cause: error });
         }
 
-        // A generic "try again" makes the model resend the same call, so these two name the next step.
+        // A generic "try again" makes the model resend the same call, so these name the next step.
         if (error instanceof McpClientError) {
           // The broker already published the live catalog, so a new search returns a current ref.
           if (error.code === "catalog_stale") {
@@ -149,6 +173,10 @@ export const mcpTools: readonly RegisteredTool[] = [
 
           if (error.code === "arguments_rejected") {
             throw new AppError("mcp_arguments_rejected", { cause: error });
+          }
+
+          if (error.code === "outside_scope") {
+            throw new AppError("mcp_connection_outside_scope", { cause: error });
           }
         }
 
@@ -177,7 +205,12 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpToolSearchInputSchema,
-    execute: (input, ctx) => searchMcpToolsLocal({ userId: ctx.userId, ...input }),
+    execute: async (input, ctx) =>
+      searchMcpToolsLocal({
+        userId: ctx.userId,
+        serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+        ...input,
+      }),
   }),
   liveTool({
     integration: "mcp",
@@ -196,6 +229,11 @@ export const mcpTools: readonly RegisteredTool[] = [
     staging: "fast_path",
     policyGateWaiver: "#540: exact local read of Alfred's validated MCP catalog",
     inputSchema: mcpToolInspectInputSchema,
-    execute: (input, ctx) => inspectMcpToolLocal({ userId: ctx.userId, ref: input.ref }),
+    execute: async (input, ctx) =>
+      inspectMcpToolLocal({
+        userId: ctx.userId,
+        ref: input.ref,
+        serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+      }),
   }),
 ];

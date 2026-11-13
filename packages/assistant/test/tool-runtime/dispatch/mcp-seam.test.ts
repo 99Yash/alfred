@@ -22,6 +22,7 @@ import {
   publishCatalogRevision,
 } from "@alfred/assistant/connections/mcp/test-support";
 import { ensureConnection } from "../../../src/connections/mcp/persistence";
+import { GITHUB_MCP_ENDPOINT_HREF } from "../../../src/connections/mcp/constants";
 import type { McpBrokerOutcome } from "@alfred/assistant/tool-runtime/mcp";
 import {
   _setMcpExecutionBrokerForTests,
@@ -220,6 +221,39 @@ async function seedOwnedCatalog(
   );
 
   return { connectionId: conn.id, revisionHash, descriptorHashes };
+}
+
+/** An owned connection to the GitHub built-in endpoint, so its server belongs to `github`. */
+async function seedGithubConnection(
+  userId: string,
+  tools: Tool[],
+): Promise<{ connectionId: string; revisionHash: string }> {
+  const conn = await ensureConnection({
+    userId,
+    label: "GitHub",
+    instanceKey: "github",
+    canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
+    endpoint: new URL(GITHUB_MCP_ENDPOINT_HREF),
+  });
+
+  const revisionHash = `sha256:${randomUUID().replace(/-/g, "")}`;
+  await publishCatalogRevision({ connectionId: conn.id, revisionHash, descriptors: tools });
+
+  return { connectionId: conn.id, revisionHash };
+}
+
+/** Gated by default, with Auto on `github` only. */
+async function seedGithubAutoPolicy(userId: string): Promise<void> {
+  const values = {
+    defaultMode: "gated" as const,
+    integrationRules: { github: { mode: "autonomy" as const } },
+  };
+
+  await db()
+    .insert(userActionPolicies)
+    .values({ userId, ...values })
+    .onConflictDoUpdate({ target: userActionPolicies.userId, set: values });
+  clearPolicyCacheForTests();
 }
 
 /** Autonomy mode, so the resolved risk tier alone drives the gate. */
@@ -514,6 +548,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       stagingId,
       ref,
       arguments: input.arguments,
+      serverScope: null,
     });
 
     await awaitGate(
@@ -803,5 +838,165 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       ),
       new Set([firstConnectionId, secondConnectionId]),
     );
+  });
+
+  test("an approval edit to a connection outside the run scope fails before a client opens", async () => {
+    let opened = 0;
+
+    const manager = new McpConnectionManager({
+      clientFactory: () => {
+        opened += 1;
+        throw new Error("a client opened");
+      },
+    });
+
+    _setMcpExecutionBrokerForTests(new McpExecutionBroker(manager));
+
+    const { userId, runId } = await seedUserAndRun();
+    const remoteTool: Tool = { name: "search", inputSchema: { type: "object" } };
+    const github = await seedGithubConnection(userId, [remoteTool]);
+    const otherConnectionId = await seedConnectionWithCatalog(userId, "User MCP", [remoteTool]);
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
+    const args = {
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "mcp.call" as const,
+      activeTools: ["mcp.call" as const],
+      allowedIntegrations: ["github" as const],
+      input: {
+        connectionId: github.connectionId,
+        remoteName: remoteTool.name,
+        catalogRevision: github.revisionHash,
+        arguments: { q: "is:open" },
+      },
+      userId,
+      timezone: UTC,
+      caller: "boss" as const,
+      runContext: { caller: "boss", interaction: "background" } as const,
+      ...FIRST_STEP,
+    };
+
+    const staged = await dispatchToolCall(args);
+    assert.equal(staged.kind, "staged", "the GitHub connection is in scope, so a card stages");
+    assert.ok(staged.stagingId);
+
+    // The owner edits the call to another server, then approves it.
+    await db()
+      .update(actionStagings)
+      .set({ status: "approved", decidedInput: { ...args.input, connectionId: otherConnectionId } })
+      .where(eq(actionStagings.id, staged.stagingId));
+
+    const executed = await dispatchToolCall(args);
+
+    assert.equal(executed.kind, "failed");
+    assert.equal(executed.error.code, "mcp_connection_outside_scope");
+    assert.ok(isRecord(executed.executedInput));
+    assert.equal(executed.executedInput.connectionId, otherConnectionId, "the edit is what ran");
+    assert.equal(opened, 0, "the broker refuses before it opens a client");
+
+    const invocations = await db()
+      .select({ id: mcpInvocation.id })
+      .from(mcpInvocation)
+      .where(eq(mcpInvocation.stagingId, staged.stagingId));
+
+    assert.equal(invocations.length, 0, "no ledger row is minted");
+  });
+
+  test("a proposal outside the run scope is refused with no staging row", async () => {
+    const broker = new CapturingBroker();
+    _setMcpExecutionBrokerForTests(asBroker(broker));
+
+    const { userId, runId } = await seedUserAndRun();
+    const remoteTool: Tool = { name: "search", inputSchema: { type: "object" } };
+    await seedGithubConnection(userId, [remoteTool]);
+    const otherConnectionId = await seedConnectionWithCatalog(userId, "User MCP", [remoteTool]);
+    const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
+    const result = await dispatchToolCall({
+      runId,
+      stepId: "dispatch-tools",
+      toolCallId,
+      toolName: "mcp.call",
+      activeTools: ["mcp.call"],
+      allowedIntegrations: ["github"],
+      input: {
+        connectionId: otherConnectionId,
+        remoteName: remoteTool.name,
+        catalogRevision: "sha256:rev",
+        arguments: {},
+      },
+      userId,
+      timezone: UTC,
+      caller: "boss",
+      runContext: { caller: "boss", interaction: "background" },
+      ...FIRST_STEP,
+    });
+
+    assert.notEqual(result.kind, "staged");
+    assert.equal((await stagingRowsFor(runId, toolCallId)).length, 0, "no approval card shows");
+    assert.equal(broker.calls, 0);
+  });
+
+  test("a built-in mcp.call follows its provider's rule, and a user-added server keeps the mcp rule", async () => {
+    const broker = new CapturingBroker();
+    _setMcpExecutionBrokerForTests(asBroker(broker));
+
+    const { userId, runId } = await seedUserAndRun();
+    await seedGithubAutoPolicy(userId);
+
+    const remoteTool: Tool = {
+      name: "search_pull_requests",
+      inputSchema: { type: "object", additionalProperties: true },
+      annotations: { readOnlyHint: true },
+    };
+
+    const github = await seedGithubConnection(userId, [remoteTool]);
+    const other = await seedOwnedCatalog(userId, [remoteTool]);
+
+    // The same reviewed `low` read on both, so only the policy rule differs.
+    for (const connectionId of [github.connectionId, other.connectionId]) {
+      await upsertToolPolicy({
+        userId,
+        connectionId,
+        remoteName: remoteTool.name,
+        descriptorHash: descriptorHash(remoteTool),
+        riskTier: "low",
+        effectClass: "read",
+        retryContract: "never",
+      });
+    }
+
+    const dispatchOn = async (connectionId: string, catalogRevision: string) => {
+      const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
+
+      const result = await dispatchToolCall({
+        runId,
+        stepId: "dispatch-tools",
+        toolCallId,
+        toolName: "mcp.call",
+        activeTools: ["mcp.call"],
+        input: { connectionId, remoteName: remoteTool.name, catalogRevision, arguments: {} },
+        userId,
+        timezone: UTC,
+        caller: "boss",
+        runContext: { caller: "boss", interaction: "background" },
+        ...FIRST_STEP,
+      });
+
+      return { result, rows: await stagingRowsFor(runId, toolCallId) };
+    };
+
+    const onGithub = await dispatchOn(github.connectionId, github.revisionHash);
+    assert.equal(onGithub.result.kind, "executed", "the github Auto rule runs the read at once");
+    assert.equal(onGithub.rows[0]?.requiresApproval, false);
+    assert.equal(broker.calls, 1);
+
+    const onOther = await dispatchOn(other.connectionId, other.revisionHash);
+    assert.equal(onOther.result.kind, "staged", "the gated mcp rule shows a card");
+    assert.equal(onOther.rows[0]?.status, "pending");
+    assert.equal(onOther.rows[0].requiresApproval, true);
+    assert.equal(broker.calls, 1);
   });
 });

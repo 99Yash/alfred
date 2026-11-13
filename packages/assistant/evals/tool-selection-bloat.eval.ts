@@ -54,11 +54,14 @@ function buildSummary(live: readonly LiveProviderSlug[]): string {
   const header =
     "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
 
-  const lines = live.map((slug) => {
-    const tools = INTEGRATION_ACTIONS[slug].map((a) => `${slug}.${a}`).join(", ");
+  // Like the connected summary: a provider with no curated tool (GitHub, ADR-0125) gets no line.
+  const lines = live
+    .filter((slug) => INTEGRATION_ACTIONS[slug].length > 0)
+    .map((slug) => {
+      const tools = INTEGRATION_ACTIONS[slug].map((a) => `${slug}.${a}`).join(", ");
 
-    return `- ${tools} — ${INTEGRATIONS[slug].summaryBlurb}`;
-  });
+      return `- ${tools} — ${INTEGRATIONS[slug].summaryBlurb}`;
+    });
 
   return [header, ...lines].join("\n");
 }
@@ -73,18 +76,6 @@ interface Case {
 const CASES: Case[] = [
   // From real chat tasks.
   { input: "what's on my calendar tomorrow?", expected: "calendar.list_events", home: "calendar" },
-  {
-    input:
-      "how many lines of code did PR #305 in 99Yash/alfred change? give me additions and deletions",
-    expected: "github.get_pull_request",
-    home: "github",
-  },
-  {
-    input: "what PRs were merged on github in the last 30 hours?",
-    expected: "github.search",
-    home: "github",
-  },
-  { input: "list my open github issues", expected: "github.search", home: "github" },
   {
     input: "search the web for today's top AI news and give me one headline",
     expected: "system.web_search",

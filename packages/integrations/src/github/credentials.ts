@@ -1,28 +1,32 @@
 import { getIdPath, selectGithubAccountRow, type JsonObject } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { upsertIntegrationCredential } from "../shared/credential-upsert";
 import { getInstallationToken } from "./app";
 
 /**
- * GitHub App credentials (ADR-0052). The stored token is the user identity token.
- * REST calls use short-lived installation tokens, which are never stored.
+ * GitHub App credentials (ADR-0052). The row records the App installation and the account. A
+ * connect writes no GitHub token to it: the GitHub MCP connection holds the App user grant
+ * (ADR-0125), and a REST read mints a short-lived installation token, which is never stored. A
+ * row from before ADR-0125 keeps its sealed user access token until the next connect overwrites it.
+ * No code reads that token. It can still work when the App issues user tokens that do not expire.
  */
 
 export interface UpsertGithubCredentialArgs {
   userId: string;
   accountId: string;
-  /** The GitHub login. Blank would leave `@me` unresolvable, so every row has one. */
+  /** The GitHub login, which the Connected card names. */
   accountLabel: string;
-  /** The identity token. No refresh token: the GitHub MCP connection owns it, and GitHub rotates it on use. */
-  accessToken: string;
   /** From the post-install redirect. */
   installationId: string;
   scopes: string[];
   metadata?: JsonObject;
-  expiresAt: Date;
+}
+
+/** `access_token` is NOT NULL, so the row holds this value and never a real token. */
+function githubCredentialPlaceholder(installationId: string): string {
+  return `ghu_placeholder_${installationId}`;
 }
 
 export async function upsertGithubCredential(
@@ -34,11 +38,11 @@ export async function upsertGithubCredential(
       provider: "github",
       accountId: args.accountId,
       accountLabel: args.accountLabel,
-      accessToken: args.accessToken,
-      // Also on a reconnect, so an old row drops a refresh token that the MCP row may rotate.
+      // Also on a reconnect, so an old row drops the user token that it stored before.
+      accessToken: githubCredentialPlaceholder(args.installationId),
       refreshToken: null,
       installationId: args.installationId,
-      expiresAt: args.expiresAt,
+      expiresAt: null,
       scopes: args.scopes,
       metadata: { replace: args.metadata ?? {} },
     },
@@ -72,33 +76,11 @@ export async function listGithubCredentials(userId: string): Promise<GithubCrede
     .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id));
 }
 
-/** The stored identity token. For REST access use `getInstallationTokenForUser`. */
-export async function getGithubAccessToken(credentialId: string): Promise<string> {
-  const rows = await db()
-    .select({
-      accessToken: integrationCredentials.accessToken,
-      status: integrationCredentials.status,
-    })
-    .from(integrationCredentials)
-    .where(eq(integrationCredentials.id, credentialId));
-
-  const row = rows[0];
-
-  if (!row) throw new Error(`[github.credentials] not found: ${credentialId}`);
-
-  if (row.status !== "active") {
-    throw new Error(`[github.credentials] not active: ${credentialId} (status=${row.status})`);
-  }
-
-  return credentialVault().open(row.accessToken);
-}
-
 export interface UserInstallationToken {
   token: string;
-  accountLogin: string | null;
 }
 
-/** Also returns the login, for resolving `author:@me`. */
+/** An installation token for the user's GitHub account row. The loop verifier's REST read uses it. */
 export async function getInstallationTokenForUser(
   userId: string,
   accountRef?: string,
@@ -110,7 +92,7 @@ export async function getInstallationTokenForUser(
   );
 
   // The one rule both this and the availability card read, so a partial row never
-  // shadows the account the tools will actually use.
+  // shadows the account that the read will actually use.
   const active = selectGithubAccountRow(candidates);
 
   if (!active) {
@@ -127,7 +109,7 @@ export async function getInstallationTokenForUser(
 
   const { token } = await getInstallationToken(active.installationId);
 
-  return { token, accountLogin: active.accountLabel?.trim() || null };
+  return { token };
 }
 
 /** GitHub sends a JSON number; the column is text. */

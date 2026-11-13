@@ -212,6 +212,7 @@ async function rowsForSearch(input: {
   userId: string;
   namespace?: string;
   connectionId?: string;
+  serverIds?: readonly string[];
   cursor: DiscoveryCursor | null;
 }): Promise<{ rows: OwnedCurrentCatalogSliceRow[]; hasMore: boolean }> {
   if (!input.cursor) {
@@ -219,6 +220,7 @@ async function rowsForSearch(input: {
       userId: input.userId,
       ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
       ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+      ...(input.serverIds === undefined ? {} : { serverIds: input.serverIds }),
       catalogLimit: MCP_DISCOVERY_SCAN_BUDGET.catalogLimit,
       descriptorLimit: MCP_DISCOVERY_SCAN_BUDGET.descriptorLimit,
     });
@@ -236,7 +238,8 @@ async function rowsForSearch(input: {
     current.namespace !== input.cursor.position.namespace ||
     current.instanceKey !== input.cursor.position.instanceKey ||
     (input.namespace !== undefined && current.namespace !== input.namespace) ||
-    (input.connectionId !== undefined && current.connectionId !== input.connectionId)
+    (input.connectionId !== undefined && current.connectionId !== input.connectionId) ||
+    (input.serverIds !== undefined && !input.serverIds.includes(current.namespace))
   ) {
     cursorError("catalog position is no longer available");
   }
@@ -260,6 +263,7 @@ async function rowsForSearch(input: {
     userId: input.userId,
     ...(input.namespace === undefined ? {} : { namespace: input.namespace }),
     ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+    ...(input.serverIds === undefined ? {} : { serverIds: input.serverIds }),
     after: positionOf(current),
     catalogLimit: remainingCatalogBudget,
     descriptorLimit: remainingDescriptorBudget,
@@ -268,11 +272,17 @@ async function rowsForSearch(input: {
   return { rows: [current, ...following.rows], hasMore: following.hasMore };
 }
 
+/**
+ * The scope that a run's integration allowlist sets (`mcpServerIdsAdmittedBy`). Absent or `null`
+ * admits every owned server, as for the owner's own settings page. The model never supplies it.
+ */
+type AdmittedServers = { serverIds?: readonly string[] | null | undefined };
+
 /** Search stored catalogs. */
 export async function searchMcpToolsLocal(
-  input: McpToolSearchInput & { userId: string },
+  input: McpToolSearchInput & { userId: string } & AdmittedServers,
 ): Promise<McpToolDiscoveryPage> {
-  const { userId, ...searchInput } = input;
+  const { userId, serverIds, ...searchInput } = input;
   const parsed = mcpToolSearchInputSchema.parse(searchInput);
   const normalized = normalizeSearch(parsed);
   const expectedFilterHash = filterHash(normalized);
@@ -282,6 +292,7 @@ export async function searchMcpToolsLocal(
     userId,
     ...(normalized.namespace === undefined ? {} : { namespace: normalized.namespace }),
     ...(normalized.connectionId === undefined ? {} : { connectionId: normalized.connectionId }),
+    ...(serverIds == null ? {} : { serverIds }),
     cursor,
   });
 
@@ -344,10 +355,12 @@ export async function searchMcpToolsLocal(
   });
 }
 
-export async function inspectMcpToolLocal(input: {
-  userId: string;
-  ref: ExternalToolRef;
-}): Promise<McpToolInspectionResult> {
+export async function inspectMcpToolLocal(
+  input: {
+    userId: string;
+    ref: ExternalToolRef;
+  } & AdmittedServers,
+): Promise<McpToolInspectionResult> {
   const ref = mcpExternalToolRefSchema.parse(input.ref);
 
   const row = await readOwnedCurrentCatalogDescriptor({
@@ -361,6 +374,14 @@ export async function inspectMcpToolLocal(input: {
       status: "not_found",
       ref,
       message: "This MCP tool is not available for the current user.",
+    });
+  }
+
+  if (input.serverIds != null && !input.serverIds.includes(row.namespace)) {
+    return mcpToolInspectionResultSchema.parse({
+      status: "not_found",
+      ref,
+      message: "This MCP tool is outside the integrations of this run.",
     });
   }
 

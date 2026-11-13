@@ -176,10 +176,8 @@ jobs:
 
           run_suite date-grounding @alfred/assistant
           run_suite calendar-grounding @alfred/assistant
-          run_suite github-grounding @alfred/assistant
           run_suite sender-suppression-grounding @alfred/assistant
           run_suite voice-ai-tells @alfred/assistant
-          run_suite passthrough-honesty @alfred/assistant
 
       - name: Upload eval JSON artifacts
         if: always()

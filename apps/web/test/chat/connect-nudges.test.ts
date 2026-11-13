@@ -50,10 +50,10 @@ describe("splitPersistedToolCalls", () => {
       },
       {
         toolCallId: "b",
-        toolName: "github.search",
+        toolName: "vercel.list_projects",
         status: "failed",
         segmentIndex: 1,
-        connectNudge: { integration: "github", action: "connect" },
+        connectNudge: { integration: "vercel", action: "connect" },
       },
       {
         toolCallId: "c",
@@ -67,7 +67,7 @@ describe("splitPersistedToolCalls", () => {
     // Same rule as the live stream: first position stays, last offer wins, so a reload matches.
     assert.deepEqual(nudges, [
       { integration: "gmail", action: "reconnect" },
-      { integration: "github", action: "connect" },
+      { integration: "vercel", action: "connect" },
     ]);
     assert.deepEqual(cards, []);
   });
