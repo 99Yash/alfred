@@ -26,7 +26,7 @@ Triage answers one question for each thread: what does it cost the user to ignor
 
 ### 2. Nine labels in two tiers
 
-Loud: `urgent`, `action`, `reply`. Quiet: `meeting`, `receipt`, `fyi`, `done`, `news`, `promo`. The stored category ids are these words. `awaiting_reply` and `follow_up` become `reply`. `payment` becomes `receipt`, and a payment that failed or needs an action is `action` or `urgent`. `meeting` is only a meeting that the user attends. The Gmail names are short words with no number prefix. Loud labels have strong colors. Quiet labels are pale or grey.
+Loud: `urgent`, `action`, `reply`. Quiet: `meeting`, `receipt`, `fyi`, `done`, `news`, `promo`. The stored category ids are these words. `awaiting_reply` and `follow_up` become `reply`. `payment` becomes `receipt`, and a payment that failed or needs an action is `action` or `urgent`. `meeting` is only a meeting that the user attends. A meeting that specific people arranged for the user — confirmed, proposed, or arranged by a scheduling service for the user and one person — counts. An event with an open audience (webinar, seminar, cohort session, conference) is never `meeting`, even when the user registered for it and the invite sits on the calendar; the other attendees decide, not the calendar object. The Gmail names are short words with no number prefix. Loud labels have strong colors. Quiet labels are pale or grey.
 
 ### 3. The loud question comes first
 

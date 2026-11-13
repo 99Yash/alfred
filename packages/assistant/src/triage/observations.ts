@@ -92,8 +92,12 @@ const INVESTOR_RE =
   /\bannual general meeting\b|\bagm\b|\bshareholder(?:s)?\b|\bproxy\s+(?:vote|voting|statement|card|form|materials?)\b|\be-?voting\b|\bevoting\b|\bannual report\b|\bregistrar\s+(?:and|&|to)\b|\bdepository\b|\bnsdl\b|\bcdsl\b/i;
 
 // `conference` skips "conference call/room"; the trailing `\b` keeps "conference calligraphy".
+// Broadcast vocabulary beyond the classic webinar words (cohort, seminar, summit, …) marks
+// open-audience events, which the owner ruled are never Meeting (theory page, 2026-11-13).
+// "Save your seat/spot" is registration language: the 2026-11-13 prod pull showed broadcast
+// invites whose only open-audience tell is that phrase (Infisical webinar mails).
 const PUBLIC_EVENT_RE =
-  /\bwwdc\d*\b|\bkeynote\b|\bwebinar\b|\bconferences?\b(?!\s+(?:call|rooms?|line|bridge|dial-?in)\b)|\bsummit\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b/i;
+  /\bwwdc\d*\b|\bkeynote\b|\bwebinars?\b|\bwebcasts?\b|\bseminars?\b|\bcohorts?\b|\bmasterclasses?\b|\bworkshops?\b|\bbootcamps?\b|\bhackathons?\b|\bconferences?\b(?!\s+(?:call|rooms?|line|bridge|dial-?in)\b)|\bsummits?\b|\broundtables?\b|\bfireside\s+chat\b|\bdemo\s+day\b|\bpanel\s+discussion\b|\blive\s?streams?\b|\bproduct launch\b|\blaunch event\b|\bpublic event\b|\bsave the date\b|\bsave\s+(?:your|a)\s+(?:seat|spot)\b/i;
 
 export function extractContentFlags(text: string): ContentFlags {
   return {

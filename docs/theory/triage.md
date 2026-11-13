@@ -21,7 +21,7 @@ Yash reads the labels in the inbox list. He does not filter by them. Thus a loud
 | Loud  | Urgent  | It costs you something today.              | red    |
 | Loud  | Action  | You must do something.                     | orange |
 | Loud  | Reply   | A person waits for your answer.            | blue   |
-| Quiet | Meeting | A real meeting that you attend.            | pale   |
+| Quiet | Meeting | A meeting with you that specific people arranged — never a broadcast event. | pale   |
 | Quiet | Receipt | Money moved, and nothing went wrong.       | pale   |
 | Quiet | FYI     | Useful to know. Nothing to do.             | pale   |
 | Quiet | Done    | The matter is finished. Nothing is left.   | pale   |
@@ -31,6 +31,7 @@ Yash reads the labels in the inbox list. He does not filter by them. Thus a loud
 **Precedence.** Triage asks the loud question first. If the mail needs Yash, it gets a loud label, whatever kind of mail it is. Only a mail that needs nothing gets a quiet label. This is a hard rule, not a case-by-case judgment.
 
 - A failed payment, a card that expired, or a service that will stop is **Action**, or **Urgent** when access stops today. It is never Receipt.
+- Meeting is a meeting with you that specific people arranged — confirmed, proposed, or arranged by a scheduling service for you and one person. An event with an open audience — a webinar, a seminar, a cohort session, a conference — is never Meeting, even when you registered for it and the invite sits on your calendar. The other attendees decide, not the calendar object.
 - Webinars, AGMs, e-voting notices, investor calls, and earnings calls are never Meeting.
 - When triage is not sure, the label is **FYI**. FYI never hides a mail and never raises a false alarm.
 

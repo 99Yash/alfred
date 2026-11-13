@@ -322,6 +322,42 @@ export const DECK: readonly DeckCase[] = [
     ],
   },
 
+  // ── Broadcast event invites are never Meeting, however they arrive ────────
+  {
+    label: "broadcast-event-invites",
+    accept: ["marketing", "newsletter", "fyi"],
+    note: "The three mails prod gave `meeting` in the 14 days to 2026-11-13, which the owner reported as the class: webinar and live-stream scheduling blasts. An open-audience event is never Meeting — even when it invites him by name and offers an add-to-calendar link. The other attendees decide, not the calendar object. Note the subjects carry no event word; the tells are registration and unsubscribe language in the body.",
+    mails: [
+      {
+        from: '"Vlad Matsiiako" <vlad@infisical.com>',
+        subject: "When an agent calls an API, who is it acting as?",
+        body: "See how to give every agent its own short-lived identity. Hi Yash, Once an agent can reach your APIs and MCP servers, you also need to know who it's acting as, and be able to prove that after the fact. On November 18 at 1 PM ET, Jake Hulberg (Infisical's dev rel) will show how agent identities relate to the machine identities you already manage, then walk through a pattern where an orchestrator assumes a machine identity and mints a short-lived session token for each agent it starts. You'll also see the telemetry side: which orchestrator started which agent, on whose behalf, and every HTTP request and MCP tool call that agent made. → Save your seat. Unsubscribe. Manage preferences.",
+        authoredAt: "2026-11-13T13:58:54Z",
+        labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
+        prodCategory: "meeting",
+        senderRelationship: "no prior contact on record",
+      },
+      {
+        from: '"Matt Pocock (AI Hero)" <matt@aihero.dev>',
+        subject: "Live Monday: the creators of Pi on writing code in the AI age",
+        body: "Hey Yash, I'm doing another live interview, this time with two legends: Armin Ronacher and Mario Zechner. Mario created Pi, the open-source terminal coding agent. Armin created Flask and founded Earendil, where they now maintain Pi together. They've both written about what happens to code quality when agents write it unchecked. You'll learn how the creators of Pi think code should be written in the AI age. LIVE: Writing code that doesn't suck with the creators of Pi. Monday, November 16, 4:20pm UTC, on YouTube. That's 8:20am PT, 11:20am ET, 4:20pm London, 5:20pm Berlin and 9:50pm India. Set a reminder on YouTube. Or add it to your calendar: Google, Apple and Outlook. See you there, Matt. You're getting this because you're on the AI Hero list, and this is a live stream announcement. Unsubscribe from AI Hero live stream announcements.",
+        authoredAt: "2026-11-13T03:12:49Z",
+        labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+        prodCategory: "meeting",
+        senderRelationship: "no prior contact on record",
+      },
+      {
+        from: '"Vlad Matsiiako" <vlad@infisical.com>',
+        subject: "How to give AI agents access without handing them keys",
+        body: "Plus a live Agent Vault demo on Wednesday, Nov 18. Hi Yash, AI agents that automate work or power features need real access to APIs, databases, and MCP servers. Handing them long-lived credentials rarely survives a security review. On Wednesday, November 18 at 1 PM ET, Jake Hulberg from Infisical's developer relations team walks through a practical architecture for securing agents in systems you build and run yourself. The session covers: why agents shouldn't hold secrets at all, and how credential brokering through a proxy lets them call services without ever seeing a key; scoping access by intent, down to specific endpoints and MCP tools, with the agent acting on behalf of the person who invoked it. It closes with a live demo using Infisical's Agent Vault. → Save your seat. Unsubscribe. Manage preferences.",
+        authoredAt: "2026-11-09T11:07:26Z",
+        labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
+        prodCategory: "meeting",
+        senderRelationship: "no prior contact on record",
+      },
+    ],
+  },
+
   // ── Investor mail: quiet under the stock instruction ──────────────────────
   {
     label: "evoting-and-agm-notices",
