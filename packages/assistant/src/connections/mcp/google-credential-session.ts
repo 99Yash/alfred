@@ -14,14 +14,14 @@ import { McpOAuthAuthorizationRequiredError } from "./oauth";
 export const GOOGLE_RECONNECT_MESSAGE = "Reconnect Google to continue.";
 
 /** The Google connect flow. It is an API route, so it goes on the API origin (`BETTER_AUTH_URL`). */
-export function googleConnectUrl(): URL {
+function googleConnectUrl(): URL {
   return new URL(
     `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${integrationRoutePrefix("google")}/connect`,
   );
 }
 
 /** Only the Google connect flow can repair the credential, so `authorizationUrl` is that flow. */
-export class McpGoogleCredentialRequiredError extends McpOAuthAuthorizationRequiredError {
+class McpGoogleCredentialRequiredError extends McpOAuthAuthorizationRequiredError {
   constructor() {
     super(googleConnectUrl());
     this.name = "McpGoogleCredentialRequiredError";
