@@ -30,6 +30,23 @@ export const POLYLANE_MCP_ENDPOINT_HREF = "https://mcp.polylane.com/mcp" as cons
  */
 export const CLICKUP_MCP_ENDPOINT_HREF = "https://mcp.clickup.com/mcp" as const;
 
+/**
+ * Google Workspace MCP servers (Developer Preview, 2026-11-13). Stateless. No dynamic
+ * registration: each request borrows the Google credential's token (ADR-0126).
+ */
+export const GOOGLE_GMAIL_MCP_ENDPOINT_HREF = "https://gmailmcp.googleapis.com/mcp/v1" as const;
+
+export const GOOGLE_CALENDAR_MCP_ENDPOINT_HREF =
+  "https://calendarmcp.googleapis.com/mcp/v1" as const;
+
+export const GOOGLE_DRIVE_MCP_ENDPOINT_HREF = "https://drivemcp.googleapis.com/mcp/v1" as const;
+
+export const GOOGLE_DOCS_MCP_ENDPOINT_HREF = "https://docsmcp.googleapis.com/mcp/v1" as const;
+
+export const GOOGLE_SHEETS_MCP_ENDPOINT_HREF = "https://sheetsmcp.googleapis.com/mcp/v1" as const;
+
+export const GOOGLE_SLIDES_MCP_ENDPOINT_HREF = "https://slidesmcp.googleapis.com/mcp/v1" as const;
+
 /** Railway MCP. Dynamic registration at `backboard.railway.com` (2026-09-20). */
 export const RAILWAY_MCP_ENDPOINT_HREF = "https://mcp.railway.com/mcp" as const;
 

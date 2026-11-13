@@ -18,7 +18,7 @@ export {
 
 export type { CredentialRow } from "./credentials";
 
-export { getFreshAccessToken, upsertCredential } from "./credentials";
+export { getFreshAccessToken, getGoogleMcpAccessToken, upsertCredential } from "./credentials";
 
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
 

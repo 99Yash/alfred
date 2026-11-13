@@ -35,6 +35,7 @@ import {
   publishGoogleCallbackCompleted,
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
+import { syncGoogleWorkspaceConnections } from "@alfred/assistant/connections/mcp";
 import { authMacro } from "../middleware/auth";
 import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
@@ -150,6 +151,11 @@ export const googleIntegrationRoutes = new Elysia({
 
             throw error;
           }
+
+          // The Google MCP servers follow the credential that remains, or disconnect (ADR-0126).
+          await bestEffort(`failed to sync the Google MCP servers for ${user.id}`, async () => {
+            await syncGoogleWorkspaceConnections(user.id);
+          });
 
           return { id: params.id, ok: true };
         },
@@ -300,6 +306,11 @@ export const googleIntegrationRoutes = new Elysia({
       // Without a watch, mail waits for the 5-minute poll sweep (ADR-0037).
       await bestEffort(`failed to enqueue watch install for ${credentialId}`, async () => {
         await ingestionQueue.add("gmail.watch_install", { credentialId });
+      });
+
+      // Connect the Google MCP servers on the same credential, so chat can use them (ADR-0126).
+      await bestEffort(`failed to sync the Google MCP servers for ${credentialId}`, async () => {
+        await syncGoogleWorkspaceConnections(userId);
       });
 
       await publishGoogleCallbackCompleted(userId, credentialId);

@@ -47,10 +47,13 @@ export {
 } from "./allowlist";
 
 export {
+  builtInBorrowsGoogleCredential,
   builtInProviderForEndpoint,
   builtInReadOnlyResource,
   type BuiltInProvider,
 } from "./built-ins";
+
+export { syncGoogleWorkspaceConnections } from "./google-workspace";
 
 export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
 

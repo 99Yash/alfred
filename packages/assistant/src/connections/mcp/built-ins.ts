@@ -12,6 +12,12 @@ import { hostedEndpointKey } from "../hosted-endpoint";
 import {
   CLICKUP_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ENDPOINT_HREF,
+  GOOGLE_CALENDAR_MCP_ENDPOINT_HREF,
+  GOOGLE_DOCS_MCP_ENDPOINT_HREF,
+  GOOGLE_DRIVE_MCP_ENDPOINT_HREF,
+  GOOGLE_GMAIL_MCP_ENDPOINT_HREF,
+  GOOGLE_SHEETS_MCP_ENDPOINT_HREF,
+  GOOGLE_SLIDES_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
   LINEAR_MCP_ENDPOINT_HREF,
   MCP_OAUTH_PENDING_IDENTITY,
@@ -43,9 +49,18 @@ export type BuiltInClientResolution =
       readonly provider: BuiltInProvider;
     };
 
+/**
+ * How a built-in connection gets its token.
+ * - `oauth`: the connection holds its own grant from the MCP OAuth flow.
+ * - `google_credential`: the connection holds no grant. Each request borrows the access token of
+ *   the user's Google credential (ADR-0126). The Google connect flow owns consent and refresh.
+ */
+type BuiltInAuthKind = "oauth" | "google_credential";
+
 /** One built-in. Every `URL` derives from `endpointHref`. */
 type BuiltInDefinition = {
   readonly instanceKey: string;
+  readonly auth: BuiltInAuthKind;
   readonly canonicalResource: string;
   readonly endpointHref: string;
   /**
@@ -84,8 +99,9 @@ type BuiltInDefinition = {
    * Stripping the keyword fails: GitHub enforces the header in the modern era.
    */
   readonly pinLegacyProtocol: boolean;
+  /** An `oauth` row starts with the pending identity. A `google_credential` row has no identity. */
   readonly initialState: {
-    readonly authServerIdentity: string;
+    readonly authServerIdentity?: string;
     readonly status: "disconnected";
   };
 };
@@ -96,10 +112,29 @@ const BUILT_IN_INITIAL_STATE = {
   status: "disconnected",
 } as const satisfies BuiltInDefinition["initialState"];
 
+/**
+ * A Google Workspace server (ADR-0126). It borrows the Google credential's token, so it has no
+ * OAuth identity, no scope pin, and no client. The servers are read-write, so `mcp.call` keeps
+ * its `high` floor. Code-owned policy entries lower the reads (`built-in-tool-policy.ts`).
+ */
+function googleWorkspaceServer(endpointHref: string): BuiltInDefinition {
+  return {
+    instanceKey: "default",
+    auth: "google_credential",
+    canonicalResource: endpointHref,
+    endpointHref,
+    scopes: [],
+    readOnlyCatalog: false,
+    pinLegacyProtocol: false,
+    initialState: { status: "disconnected" },
+  };
+}
+
 /** One entry per `BUILT_IN_MCP_CATALOG` provider; `satisfies` keeps the two in step. */
 export const BUILT_IN_REGISTRY = {
   github: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
     endpointHref: GITHUB_MCP_ENDPOINT_HREF,
     // The GitHub App's client (ADR-0093 amendment 2026-11-12). The install callback gives
@@ -119,6 +154,7 @@ export const BUILT_IN_REGISTRY = {
   },
   linear: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: LINEAR_MCP_ENDPOINT_HREF,
     endpointHref: LINEAR_MCP_ENDPOINT_HREF,
     // All declared scopes except `openid` and `email`. ADR-0088 keeps every call behind an approval.
@@ -129,6 +165,7 @@ export const BUILT_IN_REGISTRY = {
   },
   notion: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: NOTION_MCP_ENDPOINT_HREF,
     endpointHref: NOTION_MCP_ENDPOINT_HREF,
     // Notion grants access by the pages the owner shares at consent, not by scope.
@@ -139,6 +176,7 @@ export const BUILT_IN_REGISTRY = {
   },
   sentry: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: SENTRY_MCP_ENDPOINT_HREF,
     endpointHref: SENTRY_MCP_ENDPOINT_HREF,
     // `org:read` alone hides the issue and event tools.
@@ -149,6 +187,7 @@ export const BUILT_IN_REGISTRY = {
   },
   polylane: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: POLYLANE_MCP_ENDPOINT_HREF,
     endpointHref: POLYLANE_MCP_ENDPOINT_HREF,
     // Empty on purpose: neither metadata document declares `scopes_supported`.
@@ -159,6 +198,7 @@ export const BUILT_IN_REGISTRY = {
   },
   clickup: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: CLICKUP_MCP_ENDPOINT_HREF,
     endpointHref: CLICKUP_MCP_ENDPOINT_HREF,
     // Both declared scopes. ADR-0088 keeps every call behind an approval.
@@ -169,6 +209,7 @@ export const BUILT_IN_REGISTRY = {
   },
   railway: {
     instanceKey: "default",
+    auth: "oauth",
     canonicalResource: RAILWAY_MCP_ENDPOINT_HREF,
     endpointHref: RAILWAY_MCP_ENDPOINT_HREF,
     // Dynamic registration. The verified pull enforces `RAILWAY_MCP_STORED_ISSUER`.
@@ -179,7 +220,20 @@ export const BUILT_IN_REGISTRY = {
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,
   },
+  gmail: googleWorkspaceServer(GOOGLE_GMAIL_MCP_ENDPOINT_HREF),
+  calendar: googleWorkspaceServer(GOOGLE_CALENDAR_MCP_ENDPOINT_HREF),
+  drive: googleWorkspaceServer(GOOGLE_DRIVE_MCP_ENDPOINT_HREF),
+  docs: googleWorkspaceServer(GOOGLE_DOCS_MCP_ENDPOINT_HREF),
+  sheets: googleWorkspaceServer(GOOGLE_SHEETS_MCP_ENDPOINT_HREF),
+  slides: googleWorkspaceServer(GOOGLE_SLIDES_MCP_ENDPOINT_HREF),
 } as const satisfies Record<BuiltInMCPProvider, BuiltInDefinition>;
+
+/** The built-ins that borrow the Google credential, in catalog order. */
+export const GOOGLE_WORKSPACE_BUILT_INS: readonly BuiltInProvider[] = typedEntries(
+  BUILT_IN_REGISTRY,
+)
+  .filter(([, entry]) => entry.auth === "google_credential")
+  .map(([provider]) => provider);
 
 /** The catalog owns the key space, not `keyof typeof BUILT_IN_REGISTRY`. */
 export type BuiltInProvider = BuiltInMCPProvider;
@@ -223,6 +277,11 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
 /** True for a built-in read-only resource (ADR-0096). False when unsure, so the `high` floor holds. */
 export function builtInReadOnlyResource(endpointUrl: string): boolean {
   return lookupBuiltInHref(endpointUrl)?.readOnlyCatalog ?? false;
+}
+
+/** True for a built-in that borrows the Google credential's token (ADR-0126). */
+export function builtInBorrowsGoogleCredential(endpointUrl: string): boolean {
+  return lookupBuiltInHref(endpointUrl)?.auth === "google_credential";
 }
 
 /** The built-in provider for a stored endpoint. Derived, never stored (ADR-0093). */

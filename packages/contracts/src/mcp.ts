@@ -374,6 +374,44 @@ export const BUILT_IN_MCP_CATALOG = {
     blurb: "Work with ClickUp tasks, docs, and chat.",
     connectedBy: null,
   },
+  // The Google Workspace MCP servers (ADR-0126). They use the Google credential, so the Google
+  // connect opens them all and the Google disconnect ends them. One server for each product.
+  gmail: {
+    slug: "gmail",
+    label: "Gmail",
+    blurb: "Search, read, label, and draft mail.",
+    connectedBy: "google",
+  },
+  calendar: {
+    slug: "calendar",
+    label: "Google Calendar",
+    blurb: "Read and change calendar events.",
+    connectedBy: "google",
+  },
+  drive: {
+    slug: "drive",
+    label: "Google Drive",
+    blurb: "Find, read, and create Drive files.",
+    connectedBy: "google",
+  },
+  docs: {
+    slug: "docs",
+    label: "Google Docs",
+    blurb: "Read and edit documents.",
+    connectedBy: "google",
+  },
+  sheets: {
+    slug: "sheets",
+    label: "Google Sheets",
+    blurb: "Read and edit spreadsheets.",
+    connectedBy: "google",
+  },
+  slides: {
+    slug: "slides",
+    label: "Google Slides",
+    blurb: "Read and edit presentations.",
+    connectedBy: "google",
+  },
 } as const satisfies Record<string, McpBuiltInEntry>;
 
 export type BuiltInMCPProvider = keyof typeof BUILT_IN_MCP_CATALOG;

@@ -25,9 +25,17 @@ import {
   type McpPreparedToolCall,
 } from "./client";
 import { readApiKeyAuthForConnection } from "./api-key";
-import { builtInClientPolicy, builtInProviderForEndpoint } from "./built-ins";
+import {
+  builtInBorrowsGoogleCredential,
+  builtInClientPolicy,
+  builtInProviderForEndpoint,
+} from "./built-ins";
 import { mcpConnectionUsesOAuth } from "./consent";
 import { getMcpEndpointAuthorizer } from "./endpoint-authorization";
+import {
+  GOOGLE_RECONNECT_MESSAGE,
+  googleCredentialTokenSession,
+} from "./google-credential-session";
 import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
 import {
   compareAndSetCatalogRevision,
@@ -190,7 +198,9 @@ function lifecycleStore(persistence: McpConnectionManagerPersistence) {
 function needsConsent(err: unknown, connection: McpConnectionWithServer): boolean {
   return (
     err instanceof McpOAuthAuthorizationRequiredError ||
-    (connection.credentialId !== null && isMcpAuthorizationChallenge(err))
+    ((connection.credentialId !== null ||
+      builtInBorrowsGoogleCredential(connection.server.endpointUrl)) &&
+      isMcpAuthorizationChallenge(err))
   );
 }
 
@@ -214,6 +224,17 @@ class McpConnectionDisconnectedError extends McpClientError {
 /** The text that makes an adopted grant recoverable until its client opens. */
 const ADOPTED_GRANT_PENDING_MESSAGE = "Alfred is opening this connection with a new sign-in.";
 
+/** The `lastError` of a start that needs consent. A borrowed token names the Google reconnect. */
+function consentMessage(err: unknown, connection: McpConnectionWithServer): string {
+  if (builtInBorrowsGoogleCredential(connection.server.endpointUrl)) {
+    return GOOGLE_RECONNECT_MESSAGE;
+  }
+
+  return err instanceof McpOAuthAuthorizationRequiredError
+    ? "Authorization is required to connect this MCP server."
+    : boundedMcpErrorText(err);
+}
+
 class McpConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
     super(`MCP connection '${connectionId}' does not exist`);
@@ -222,10 +243,15 @@ class McpConnectionNotFoundError extends Error {
 }
 
 /**
- * Pick the auth mode for a stored connection: API key first, then OAuth, else `none`.
+ * Pick the auth mode for a stored connection: a built-in that borrows the Google credential
+ * first (ADR-0126), then API key, then OAuth, else `none`.
  * The client cannot import `@alfred/db`, so this is the only production resolver.
  */
 async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promise<McpClientAuth> {
+  if (builtInBorrowsGoogleCredential(connection.server.endpointUrl)) {
+    return { mode: "borrowed", session: googleCredentialTokenSession(connection.userId) };
+  }
+
   const reader = await readApiKeyAuthForConnection(connection.id, connection.userId);
 
   if (reader !== undefined) return { mode: "api_key", reader };
@@ -259,6 +285,26 @@ function liveClientFactory(): McpClientFactory {
       auth,
       // ADR-0094/0095 policy from the registry; the client does not read it itself.
       ...builtInClientPolicy(connection.server.endpointUrl),
+      // A borrowed token: only a Google reconnect repairs it, so the row names that.
+      ...(auth.mode === "borrowed"
+        ? {
+            onAuthorizationRequired: async () => {
+              await updateConnection(connection.id, {
+                status: "auth_required",
+                lastError: GOOGLE_RECONNECT_MESSAGE,
+              });
+            },
+            onInsufficientScope: async (requiredScopes: string[]) => {
+              const suffix =
+                requiredScopes.length > 0 ? ` Required: ${requiredScopes.join(", ")}.` : "";
+
+              await updateConnection(connection.id, {
+                status: "auth_required",
+                lastError: `${GOOGLE_RECONNECT_MESSAGE}${suffix}`,
+              });
+            },
+          }
+        : {}),
       // OAuth only: an API-key connection has no consent screen to send back to.
       ...(auth.mode === "oauth"
         ? {
@@ -462,10 +508,7 @@ export class McpConnectionManager {
         yield* Scope.close(generation.scope, Exit.void);
         yield* this.#store.updateConnection(connectionId, {
           status: "auth_required",
-          lastError:
-            err instanceof McpOAuthAuthorizationRequiredError
-              ? "Authorization is required to connect this MCP server."
-              : boundedMcpErrorText(err),
+          lastError: consentMessage(err, connection),
         });
       } else if (err instanceof McpClientError && err.code === "token_rejected") {
         // A renewed token is not a failure: keep the status and the catalog. Record the error, so

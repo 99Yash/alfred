@@ -2,7 +2,7 @@ import { holdsAnyScope, type AccountPersona } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { credentialVault } from "@alfred/db/credential-vault";
 import { integrationCredentials, type IntegrationCredential } from "@alfred/db/schemas";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { upsertIntegrationCredential } from "../shared/credential-upsert";
 import { GOOGLE_EXCHANGE_METADATA_KEYS, type GoogleExchangeMetadata } from "./credential-metadata";
 import { GoogleReauthRequiredError, refreshAccessToken } from "./oauth";
@@ -171,6 +171,37 @@ export async function getOwnedFreshAccessToken(args: {
   }
 
   return freshAccessToken(current);
+}
+
+/**
+ * The access token that the Google Workspace MCP servers borrow (ADR-0126). One account: the
+ * user's oldest Google row, so a second account never moves the MCP surface. `null` when that
+ * row is absent, holds no refresh token, or is not active, and when Google refuses the refresh
+ * (the row becomes `needs_reauth`). The caller then asks the user to reconnect Google.
+ * Other refresh failures throw, because they can pass.
+ */
+export async function getGoogleMcpAccessToken(userId: string): Promise<string | null> {
+  const [oldest] = await db()
+    .select({ id: integrationCredentials.id })
+    .from(integrationCredentials)
+    .where(
+      and(eq(integrationCredentials.userId, userId), eq(integrationCredentials.provider, "google")),
+    )
+    .orderBy(asc(integrationCredentials.createdAt), asc(integrationCredentials.id))
+    .limit(1);
+
+  if (!oldest) return null;
+  const current = await loadCredential(oldest.id, { ownerId: userId });
+
+  if (current?.status !== "active") return null;
+
+  try {
+    return await freshAccessToken(current);
+  } catch (err) {
+    if (err instanceof GoogleReauthRequiredError) return null;
+
+    throw err;
+  }
 }
 
 async function freshAccessToken(current: StoredCredentialRow): Promise<string> {
