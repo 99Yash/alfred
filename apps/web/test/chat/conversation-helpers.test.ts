@@ -59,7 +59,7 @@ describe("shouldShowThinkingIndicator", () => {
             {
               ...resolveToolCall({
                 toolCallId: "t1",
-                toolName: "gmail.search",
+                toolName: "contacts.search",
                 status: "started",
                 segmentIndex: 0,
               }),

@@ -177,7 +177,7 @@ describe("runtime.tool_load (single owner for every load path)", () => {
   const args = {
     runId: "run_load",
     caller: "sub:sub_a",
-    toolName: "calendar.list_events" as const,
+    toolName: "contacts.list" as const,
     source: "model_load" as const,
     startedAt: new Date("2026-07-16T00:00:00.000Z"),
   };
@@ -189,7 +189,7 @@ describe("runtime.tool_load (single owner for every load path)", () => {
     assert.deepEqual(input.metadata, {
       source: "model_load",
       caller: "sub:sub_a",
-      toolName: "calendar.list_events",
+      toolName: "contacts.list",
     });
   });
 
@@ -212,14 +212,14 @@ describe("runtime.tool_load (single owner for every load path)", () => {
   test("a dispatcher inactive-bounce activation emits the same span through the shared owner (#414)", () => {
     // Same `runtime.tool_load` span as `system.load_tool`, so one count covers every activation.
     const { opened, ended } = capture(() =>
-      recordRoundToolActivation(bossRun, "calendar.list_events", "inactive_bounce"),
+      recordRoundToolActivation(bossRun, "contacts.list", "inactive_bounce"),
     );
 
     assert.equal(opened[0]?.name, "runtime.tool_load");
     assert.deepEqual(opened[0].metadata, {
       source: "inactive_bounce",
       caller: "boss",
-      toolName: "calendar.list_events",
+      toolName: "contacts.list",
     });
     assert.deepEqual(ended, [
       { status: "ok", level: "DEFAULT", metadata: { latencyMs: 0, loaded: true } },
@@ -250,7 +250,7 @@ describe("runtime.tool_search", () => {
   test("a hit records the candidate names, count, and a healthy latency band", () => {
     const { ended } = capture(() =>
       startToolSearchSpan(args).end({
-        candidateNames: ["calendar.list_events", "calendar.list_events", "gmail.search"],
+        candidateNames: ["contacts.list", "contacts.list", "contacts.search"],
         latencyMs: 12,
       }),
     );
@@ -260,7 +260,7 @@ describe("runtime.tool_search", () => {
         status: "hit",
         metadata: {
           candidateCount: 3,
-          candidateTools: "calendar.list_events,calendar.list_events,gmail.search",
+          candidateTools: "contacts.list,contacts.list,contacts.search",
           latencyMs: 12,
           latencyHealth: "ok",
         },
@@ -289,7 +289,7 @@ describe("runtime.tool_search", () => {
   test("a slow search degrades the latency band to red", () => {
     const { ended } = capture(() =>
       startToolSearchSpan(args).end({
-        candidateNames: ["calendar.list_events", "gmail.search"],
+        candidateNames: ["contacts.list", "contacts.search"],
         latencyMs: 150,
       }),
     );
@@ -301,7 +301,7 @@ describe("runtime.tool_search", () => {
     const { ended } = capture(() => {
       const span = startToolSearchSpan(args);
       span.error();
-      span.end({ candidateNames: ["gmail.search"], latencyMs: 3 });
+      span.end({ candidateNames: ["contacts.search"], latencyMs: 3 });
     });
 
     assert.deepEqual(ended, [{ status: "error", level: "ERROR" }]);

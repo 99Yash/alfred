@@ -11,7 +11,7 @@
  *     (database.md shows the hand-rolled shape it is arguing against).
  *   - Code-shaped identifiers only — an internal capital or an underscore.
  *     Prose in backticks ("`overlapped`") is not a symbol claim.
- *   - Dotted names are skipped: tool names like `gmail.read_message` are
+ *   - Dotted names are skipped: tool names like `gmail.send_draft` are
  *     composed from const halves and never appear as one literal.
  *   - Names edged with an underscore are skipped: `VITE_` / `prun_` are prefix
  *     patterns, and `_dmarc` / `_bimi` are DNS labels, not repo symbols.

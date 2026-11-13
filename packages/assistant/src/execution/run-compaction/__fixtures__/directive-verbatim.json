@@ -16,7 +16,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_001",
-          "toolName": "gmail.search",
+          "toolName": "mcp.call",
           "output": {
             "type": "json",
             "value": {

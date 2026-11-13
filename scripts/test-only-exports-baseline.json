@@ -234,7 +234,6 @@
     "buildToolLoadSpanInput",
     "buildToolSearchSpanInput"
   ],
-  "packages/assistant/src/tool-runtime/internal/tools/calendar.ts": ["resolveCalendarListWindow"],
   "packages/assistant/src/tool-runtime/internal/tools/fetch-url.ts": [
     "FetchError",
     "FetchUrlError",

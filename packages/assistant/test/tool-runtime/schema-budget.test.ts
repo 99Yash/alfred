@@ -34,7 +34,7 @@ const FULL_SCHEMA_BYTES_CEILING = 102_000;
 const NON_KERNEL_GIANTS: readonly ToolName[] = [
   "system.create_artifact",
   "system.append_artifact_page",
-  "drive.search_files",
+  "system.update_artifact",
 ];
 
 function toolsByName(names: readonly ToolName[]): RegisteredTool[] {
@@ -65,15 +65,15 @@ describe("tool-schema budget", () => {
     const kernel = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
 
     const preloaded = estimateToolSurfaceBudget(
-      toolsByName([...systemToolKernel(), "calendar.list_events", "gmail.search"]),
+      toolsByName([...systemToolKernel(), "contacts.list", "contacts.search"]),
     );
 
     const loaded = estimateToolSurfaceBudget(
       toolsByName([
         ...systemToolKernel(),
-        "calendar.list_events",
-        "gmail.search",
-        "drive.search_files",
+        "contacts.list",
+        "contacts.search",
+        "sheets.append_values",
       ]),
     );
 
@@ -119,14 +119,14 @@ describe("tool-schema budget", () => {
     const sharedSchema = z.object({ query: z.string() });
 
     const compact = toolSchemaSize({
-      name: "gmail.search",
-      description: "Search mail",
+      name: "contacts.search",
+      description: "Search contacts",
       modelInputSchema: sharedSchema,
     });
 
     const verbose = toolSchemaSize({
-      name: "drive.search_files",
-      description: "Search files, folders, and shared documents across Google Drive",
+      name: "contacts.list",
+      description: "List saved contacts and the people the user emailed across Google Contacts",
       modelInputSchema: sharedSchema,
     });
 
@@ -136,14 +136,14 @@ describe("tool-schema budget", () => {
 
   test("reports UTF-8 bytes separately from character-based token estimates", () => {
     const ascii = toolSchemaSize({
-      name: "gmail.search",
-      description: "Search mail - quickly",
+      name: "contacts.search",
+      description: "Search contacts - quickly",
       modelInputSchema: z.object({}),
     });
 
     const unicode = toolSchemaSize({
-      name: "gmail.search",
-      description: "Search mail — quickly",
+      name: "contacts.search",
+      description: "Search contacts — quickly",
       modelInputSchema: z.object({}),
     });
 

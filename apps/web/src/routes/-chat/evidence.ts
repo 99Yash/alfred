@@ -1,8 +1,5 @@
 import {
   collapseWhitespace,
-  GOOGLE_WORKSPACE_MIME_PREFIX,
-  INTEGRATIONS,
-  getPath,
   isToolName,
   jsonObjectSchema,
   toFiniteNumber,
@@ -127,22 +124,6 @@ export interface RecordListView {
   hasMore?: boolean | undefined;
 }
 
-interface EntityFact {
-  label: string;
-  value: string;
-}
-
-/** A single object a read tool returned (a PR, an email, an issue). */
-export interface EntityView {
-  kind: "entity";
-  faviconDomain: string;
-  title: string;
-  href?: string | undefined;
-  badge?: EvidenceBadge | undefined;
-  facts: EntityFact[];
-  excerpt?: string | undefined;
-}
-
 /** "3d ago" for a real ISO string; anything else gives no meta. */
 function ago(value: unknown): string | undefined {
   const iso = toNonEmptyString(value);
@@ -150,81 +131,10 @@ function ago(value: unknown): string | undefined {
   return iso ? formatRelative(iso) : undefined;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/**
- * Read the wall clock straight from the offset ISO string, not through `Date`.
- * Calendar events then show their scheduled time, not the viewer's zone.
- */
-function formatEventWindow(startIso: string, endIso?: string): string {
-  const start = parseWallClock(startIso);
-
-  if (!start) return startIso;
-  const day = `${MONTHS[start.month - 1]} ${start.day}`;
-  const end = endIso ? parseWallClock(endIso) : null;
-
-  return end ? `${day}, ${clock12(start)} to ${clock12(end)}` : `${day}, ${clock12(start)}`;
-}
-
-interface WallClock {
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-}
-
-function parseWallClock(iso: string): WallClock | null {
-  const m = /^\d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso);
-
-  if (!m) return null;
-
-  return { month: Number(m[1]), day: Number(m[2]), hour: Number(m[3]), minute: Number(m[4]) };
-}
-
-function clock12({ hour, minute }: WallClock): string {
-  const period = hour < 12 ? "AM" : "PM";
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-
-  return minute === 0 ? `${h} ${period}` : `${h}:${String(minute).padStart(2, "0")} ${period}`;
-}
-
-/** Drive MIME type to a short kind ("PDF", "Doc", "Folder"). */
-function driveKind(mimeType: string | undefined): string | undefined {
-  if (!mimeType) return undefined;
-
-  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}folder`) return "Folder";
-
-  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}document`) return "Doc";
-
-  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}spreadsheet`) return "Sheet";
-
-  if (mimeType === `${GOOGLE_WORKSPACE_MIME_PREFIX}presentation`) return "Slides";
-
-  if (mimeType === "application/pdf") return "PDF";
-  const sub = mimeType.split("/")[1];
-
-  return sub ? sub.toUpperCase() : undefined;
-}
-
 function joinMeta(...parts: (string | undefined)[]): string | undefined {
   const kept = parts.filter((p): p is string => Boolean(p));
 
   return kept.length > 0 ? kept.join(" · ") : undefined;
-}
-
-function snippetOf(text: string | undefined, max = 300): string | undefined {
-  if (!text) return undefined;
-  const collapsed = collapseWhitespace(text);
-
-  return collapsed ? collapsed.slice(0, max) : undefined;
-}
-
-/** `gmail.read_message` stores raw RFC822 in `content`, so drop the headers up to the first blank line. */
-function emailBody(content: string | undefined): string | undefined {
-  if (!content) return undefined;
-  const blank = content.indexOf("\n\n");
-
-  return snippetOf(blank >= 0 ? content.slice(blank + 2) : content);
 }
 
 /** Tools whose query is a search intent, for the subline. An allowlist: other tools have a `query` too. */
@@ -234,8 +144,6 @@ const SEARCH_TOOLS = new Set<ToolName>([
   "system.search_context" satisfies ToolName,
   "system.web_search" satisfies ToolName,
   "system.read_chat_history" satisfies ToolName,
-  "gmail.search" satisfies ToolName,
-  "drive.search_files" satisfies ToolName,
 ]);
 
 /**
@@ -246,10 +154,7 @@ export function searchQueryOf(tool: ResolvedToolCall): string | undefined {
   if (!tool.registeredName || !SEARCH_TOOLS.has(tool.registeredName)) return undefined;
   const { args, result } = tool;
 
-  // Gmail names it `q`.
-  return (
-    toNonEmptyString(args?.query) ?? toNonEmptyString(args?.q) ?? toNonEmptyString(result?.query)
-  );
+  return toNonEmptyString(args?.query) ?? toNonEmptyString(result?.query);
 }
 
 function brandOfToolName(name: string | undefined): IntegrationBrand | undefined {
@@ -335,111 +240,10 @@ const LIST_SPECS = new Map<ToolName, ListSpec>([
       },
     },
   ],
-  [
-    "gmail.search",
-    {
-      arrayKey: "messages",
-      faviconDomain: INTEGRATIONS.gmail.domain,
-      hasMore: (result) => toNonEmptyString(result.nextPageToken) !== undefined,
-      row: (item) => {
-        const subject = toNonEmptyString(item.subject);
-        const from = toNonEmptyString(item.from);
-
-        if (!subject && !from) return null;
-
-        return {
-          key: toNonEmptyString(item.messageId) ?? subject ?? from ?? "message",
-          title: subject ?? "(no subject)",
-          href: toNonEmptyString(item.url),
-          meta: joinMeta(from, ago(item.authoredAt)),
-        };
-      },
-    },
-  ],
-  [
-    "calendar.list_events",
-    {
-      arrayKey: "events",
-      faviconDomain: INTEGRATIONS.calendar.domain,
-      row: (item) => {
-        const title = toNonEmptyString(item.title);
-
-        if (!title) return null;
-        const start = toNonEmptyString(item.start);
-        // Google sends an absent location as the string "null".
-        const location = toNonEmptyString(item.location);
-
-        return {
-          key: toNonEmptyString(item.id) ?? title,
-          title,
-          href: toNonEmptyString(item.htmlLink) ?? toNonEmptyString(item.hangoutLink),
-          meta: joinMeta(
-            start ? formatEventWindow(start, toNonEmptyString(item.end)) : undefined,
-            location && location !== "null" ? location : undefined,
-          ),
-        };
-      },
-    },
-  ],
-  [
-    "drive.search_files",
-    {
-      arrayKey: "files",
-      faviconDomain: INTEGRATIONS.drive.domain,
-      row: (item) => {
-        const name = toNonEmptyString(item.name);
-
-        if (!name) return null;
-
-        return {
-          key: toNonEmptyString(item.id) ?? name,
-          title: name,
-          href: toNonEmptyString(item.webViewLink),
-          meta: joinMeta(driveKind(toNonEmptyString(item.mimeType)), ago(item.modifiedTime)),
-        };
-      },
-    },
-  ],
 ]);
 
-const ENTITY_BUILDERS = new Map<ToolName, (result: JsonObject) => EntityView | null>([
-  [
-    "gmail.read_message",
-    (result) => {
-      const subject = toNonEmptyString(result.subject);
-
-      // Newer reads put `from`/`to`/`snippet` at the top level; older ones under `metadata`.
-      const from =
-        toNonEmptyString(result.from) ?? toNonEmptyString(getPath(result, "metadata", "from"));
-
-      const to = toNonEmptyString(result.to) ?? toNonEmptyString(getPath(result, "metadata", "to"));
-
-      if (!subject && !from) return null;
-      const facts: EntityFact[] = [];
-
-      if (from) facts.push({ label: "From", value: from });
-
-      if (to) facts.push({ label: "To", value: to });
-      const date = ago(result.authoredAt);
-
-      if (date) facts.push({ label: "Date", value: date });
-      const snippet = toNonEmptyString(getPath(result, "metadata", "snippet"));
-
-      return {
-        kind: "entity",
-        faviconDomain: INTEGRATIONS.gmail.domain,
-        title: subject ?? "(no subject)",
-        // Often null for Gmail reads.
-        href: toNonEmptyString(result.url),
-        facts,
-        excerpt: snippet ?? emailBody(toNonEmptyString(result.content)),
-      };
-    },
-  ],
-]);
-
-/** A record list or entity for a read tool. `null` keeps the JSON dump. */
-export function presentEvidence(tool: ResolvedToolCall): RecordListView | EntityView | null {
+/** A record list for a read tool. `null` keeps the JSON dump. */
+export function presentEvidence(tool: ResolvedToolCall): RecordListView | null {
   const { result, registeredName } = tool;
 
   if (!result || !registeredName) return null;
@@ -472,10 +276,6 @@ export function presentEvidence(tool: ResolvedToolCall): RecordListView | Entity
       hasMore: listSpec.hasMore?.(result) ?? false,
     };
   }
-
-  const entityBuilder = ENTITY_BUILDERS.get(registeredName);
-
-  if (entityBuilder) return entityBuilder(result);
 
   return null;
 }

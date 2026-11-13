@@ -9,15 +9,15 @@ import {
 
 /** Only a connection-health refusal becomes a connect nudge, never a policy refusal. */
 
-const GMAIL_SEARCH: ToolName = "gmail.search";
+const GMAIL_SEND: ToolName = "gmail.send_draft";
 
-const call = { toolCallId: "call_1", toolName: GMAIL_SEARCH, input: {} };
+const call = { toolCallId: "call_1", toolName: GMAIL_SEND, input: {} };
 
 const floorRefusal = (code: ToolUnavailabilityCode): TerminalToolCallDispatchResult => ({
   kind: "not_allowed",
   result: {
     status: "not_allowed",
-    toolName: GMAIL_SEARCH,
+    toolName: GMAIL_SEND,
     integration: "gmail",
     message: `${code}: Gmail is not usable right now.`,
   },
@@ -56,7 +56,7 @@ describe("completedToolCall → connectNudge", () => {
       kind: "not_allowed",
       result: {
         status: "capability_mismatch",
-        toolName: GMAIL_SEARCH,
+        toolName: GMAIL_SEND,
         integration: "gmail",
         message: "Outside the approved capability envelope.",
       },
@@ -72,7 +72,7 @@ describe("completedToolCall → connectNudge", () => {
       kind: "feature_disabled",
       result: {
         status: "feature_disabled",
-        toolName: GMAIL_SEARCH,
+        toolName: GMAIL_SEND,
         integration: "gmail",
         message: "Tier disabled.",
       },

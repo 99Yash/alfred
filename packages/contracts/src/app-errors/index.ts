@@ -120,8 +120,6 @@ function label(integration: IntegrationSlug): string {
   return INTEGRATION_DISPLAY_NAMES[integration];
 }
 
-const connect = ({ integration }: IntegrationParams): Fix => ({ kind: "connect", integration });
-
 const reconnect = ({ integration }: IntegrationParams): Fix => ({ kind: "reconnect", integration });
 
 export const APP_ERROR_REGISTRY = defineFailureCatalog({
@@ -130,63 +128,6 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The artifact insert or its file write threw before commit.",
     fix: { kind: "retry" },
   },
-  calendar_bounds_order: {
-    message: "Calendar requires timeMax to be after timeMin.",
-    why: "The caller supplied a time window whose end precedes its start.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_account_unknown: {
-    message:
-      "No connected Google account with calendar write access has this accountId. " +
-      "Use the accountId that calendar.list_events returned.",
-    why: "The event reference names an account that is not connected or cannot write events.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_event_not_found: {
-    message:
-      "Google Calendar has no event with this id on this calendar and account. " +
-      "Read the event again with calendar.list_events and use its reference.",
-    why: "Google returned 404 for the event that the reference names.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_event_title_mismatch: {
-    message:
-      "The event with this id has a different title than eventTitle, so nothing changed. " +
-      "Read the event again with calendar.list_events and use its exact id and title.",
-    why: "The model named one event by id and another by title, or the event was renamed.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_event_cancelled: {
-    message: "This calendar event is cancelled, so nothing changed.",
-    why: "Google returned the event with status cancelled, or 410.",
-    fix: { kind: "none" },
-  },
-  calendar_event_not_organizer: {
-    message:
-      "The user is a guest on this event, not its organizer, so only the organizer can change " +
-      "or delete it. To decline it, use calendar.respond_to_event.",
-    why: "organizer.self is false, and the event does not let guests change it.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_event_not_invited: {
-    message:
-      "The user organizes this event or is not on its guest list, so there is no invitation " +
-      "to answer.",
-    why: "The event has no attendee entry with self set, or that entry is the organizer.",
-    fix: { kind: "correct_input" },
-  },
-  calendar_event_changed: {
-    message:
-      "The event changed after Alfred read it, so this change did not apply. " +
-      "Read the event again before you repeat the change.",
-    why: "Google returned 412 because the If-Match etag no longer matched the event.",
-    fix: { kind: "retry" },
-  },
-  connection_required: withParams(integrationParams, {
-    message: ({ integration }) => `${label(integration)} is not connected.`,
-    why: "No usable credential exists for this integration.",
-    fix: connect,
-  }),
   account_read_failed: withParams(integrationParams, {
     message: ({ integration }) => `A connected ${label(integration)} account could not be read.`,
     why: "One credential's provider call failed while a sibling credential may still answer.",
@@ -206,13 +147,6 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
       "Sending the kept draft returned 404, and its thread is gone or has no SENT message from " +
       "after the save.",
     fix: { kind: "none" },
-  },
-  gmail_triage_label_refused: {
-    message:
-      "Alfred's numbered triage labels belong to triage, so this tool does not change them. " +
-      "Change the other labels only.",
-    why: "A label name or id in the input resolved to a triage label.",
-    fix: { kind: "correct_input" },
   },
   run_cancelled: {
     message: "The run was cancelled; this action did not run.",

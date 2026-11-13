@@ -31,7 +31,7 @@ const SKIP = dbBackedSkip("database+redis");
 
 const ID_PREFIX = "test-stop-after-approval-";
 
-const TOOL: ToolName = "gmail.search";
+const TOOL: ToolName = "contacts.search";
 
 const createdUserIds: string[] = [];
 

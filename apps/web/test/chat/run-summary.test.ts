@@ -22,14 +22,14 @@ describe("runSummary", () => {
 
   test("a run where everything failed says so instead of claiming work", () => {
     assert.equal(
-      runSummary([call("gmail.search", "failed"), call("github.search", "failed", "c2")]),
+      runSummary([call("contacts.search", "failed"), call("github.search", "failed", "c2")]),
       "Couldn't finish that",
     );
   });
 
   test("a failed step does not inflate the count of a mixed run", () => {
     const mixed = [
-      call("gmail.search", "succeeded"),
+      call("contacts.search", "succeeded"),
       call("github.search", "failed", "c2"),
       call("linear.search", "failed", "c3"),
     ];
@@ -37,10 +37,10 @@ describe("runSummary", () => {
     // Only one source succeeded, so the summary must not count all three calls.
     assert.equal(mixed.filter((t) => t.status === "succeeded").length, 1);
     assert.notEqual(runSummary(mixed), "Searched multiple sources");
-    assert.equal(runSummary(mixed), runSummary([call("gmail.search", "succeeded")]));
+    assert.equal(runSummary(mixed), runSummary([call("contacts.search", "succeeded")]));
   });
 
   test("a still-running step is not counted as landed", () => {
-    assert.equal(runSummary([call("gmail.search", "started")]), "Worked on it");
+    assert.equal(runSummary([call("contacts.search", "started")]), "Worked on it");
   });
 });

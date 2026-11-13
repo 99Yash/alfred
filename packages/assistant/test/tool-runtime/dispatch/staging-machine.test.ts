@@ -34,7 +34,6 @@ import {
   clearPolicyCacheForTests,
 } from "@alfred/assistant/action-policies/test-support";
 import { clearToolRegistryForTests, liveTool } from "@alfred/assistant/tool-runtime";
-import { calendarTools } from "../../../src/tool-runtime/internal/tools/calendar";
 import { registerReplicachePokeAdapter } from "@alfred/assistant/realtime";
 import { memoryStagingStore, type MemoryStagingStore } from "./memory-staging-store";
 import { runStagingStoreContract, type StagingStoreHarness } from "./staging-store-contract";
@@ -63,34 +62,18 @@ let executeCount = 0;
 
 let lastExecutedInput: unknown;
 
-/** What the Calendar create_event double returns. A test sets it to model a returned failure. */
-interface CalendarDoubleOutput {
+/** What the notifying-write double returns. A test sets it to model a returned failure. */
+interface WriteDoubleOutput {
   ok: boolean;
   status?: string;
   result?: { content: never[] };
 }
 
-let calendarOutput: CalendarDoubleOutput = { ok: true };
+let writeOutput: WriteDoubleOutput = { ok: true };
 
-function requireCalendarCreateEventTool() {
-  const tool = calendarTools.find((candidate) => candidate.name === "calendar.create_event");
-
-  if (!tool) throw new Error("production Calendar registration must include create_event");
-
-  return tool;
-}
-
-const calendarCreateEventTool = requireCalendarCreateEventTool();
-
-const calendarCredentialRequirement = (() => {
-  const requirement = calendarCreateEventTool.availability?.credential;
-
-  if (!requirement) {
-    throw new Error("production Calendar create_event must declare its credential requirement");
-  }
-
-  return requirement;
-})();
+const notifyingWriteInput = z
+  .object({ title: z.string(), notify: z.array(z.string()).default([]) })
+  .strict();
 
 /** The id of the first staged row; fails the test with a clear message when nothing was staged. */
 function firstRowId(): string {
@@ -110,7 +93,7 @@ function baseArgs(overrides: Record<string, unknown> = {}) {
       "system.load_tool",
       "system.spawn_sub_agent",
       "system.fetch_url",
-      "calendar.create_event",
+      "sheets.append_values",
     ] as const,
     input: { slug: "github" },
     userId: USER_ID,
@@ -189,30 +172,24 @@ function registerDoubles(): void {
       }),
     }),
   );
-  // Keep the real schema and tier hooks. Replace only the provider call.
-  registerTool({
-    ...calendarCreateEventTool,
-    bind: (raw) => {
-      const binding = calendarCreateEventTool.bind(raw);
+  // A medium write whose tier rises to high when it notifies people (ADR-0088).
+  registerTool(
+    liveTool({
+      integration: "sheets",
+      action: "append_values",
+      riskTier: "medium",
+      replay: "unsafe",
+      description: "test double — medium, and high when it notifies people",
+      inputSchema: notifyingWriteInput,
+      resolveRiskTier: (input) => Promise.resolve(input.notify.length > 0 ? "high" : "medium"),
+      execute: async (input) => {
+        executeCount += 1;
+        lastExecutedInput = input;
 
-      if (!binding.success) return binding;
-
-      const { call } = binding;
-
-      return {
-        success: true,
-        call: {
-          ...call,
-          execute: async () => {
-            executeCount += 1;
-            lastExecutedInput = call.input;
-
-            return { output: calendarOutput, effects: {}, spanFacts: {} };
-          },
-        },
-      };
-    },
-  });
+        return writeOutput;
+      },
+    }),
+  );
 }
 
 function installMachineFixture(): void {
@@ -226,23 +203,8 @@ function installMachineFixture(): void {
   });
 
   const availability: IntegrationAvailabilitySnapshot = {
-    integrations: new Map([["calendar", { health: "active", accountLabel: null }]]),
-    providers: new Map([
-      [
-        calendarCredentialRequirement.provider,
-        [
-          {
-            credentialId: "cred_calendar",
-            accountId: "account_calendar",
-            status: "active",
-            scopes: new Set(calendarCredentialRequirement.anyOfScopes),
-            installationId: null,
-            accountLabel: null,
-            metadata: {},
-          },
-        ],
-      ],
-    ]),
+    integrations: new Map([["sheets", { health: "active", accountLabel: null }]]),
+    providers: new Map(),
     passthroughEnabled: new Map(),
   };
 
@@ -254,14 +216,14 @@ function installMachineFixture(): void {
   });
   executeCount = 0;
   lastExecutedInput = undefined;
-  calendarOutput = { ok: true };
+  writeOutput = { ok: true };
   registerDoubles();
   clearPolicyCacheForTests();
   _primePolicyCacheForTests({
     ...defaultActionPolicy(USER_ID),
     integrationRules: {
       system: { mode: "autonomy" },
-      calendar: { mode: "autonomy" },
+      sheets: { mode: "autonomy" },
     },
   });
 }
@@ -525,18 +487,13 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.doesNotMatch(JSON.stringify(display), /topsecret42/, "no secret in display_input");
   });
 
-  test("a Calendar event without attendees stays medium and executes under autonomy", async () => {
-    const input = {
-      summary: "Focus block",
-      start: "2026-08-12T10:00:00+05:30",
-      end: "2026-08-12T11:00:00+05:30",
-      attendees: [],
-    };
+  test("a dynamic-risk write that notifies nobody stays medium and executes under autonomy", async () => {
+    const input = { title: "Focus block", notify: [] };
 
     const result = await dispatchToolCall(
       baseArgs({
-        toolCallId: "tc_calendar_no_attendees",
-        toolName: "calendar.create_event",
+        toolCallId: "tc_write_no_notify",
+        toolName: "sheets.append_values",
         input,
       }),
     );
@@ -546,26 +503,19 @@ describe("dispatch staging machine (DB-free)", () => {
     const [row] = store.rows();
     assert.equal(row?.riskTier, "medium");
     assert.equal(row.requiresApproval, false);
-    assert.deepEqual(lastExecutedInput, { calendarId: "primary", ...input });
+    assert.deepEqual(lastExecutedInput, input);
   });
 
-  test("the live-chat hint keeps dynamic Calendar risk in the serial approval lane", async () => {
-    assert.equal(await forecastToolApproval(USER_ID, "calendar.create_event"), "waivable");
+  test("the live-chat hint keeps a dynamic-risk tool in the serial approval lane", async () => {
+    assert.equal(await forecastToolApproval(USER_ID, "sheets.append_values"), "waivable");
   });
 
-  test("a Calendar invite becomes high, stages, and resumes with every attendee", async () => {
-    const attendees = ["ada@example.com", "grace@example.com"];
-
-    const input = {
-      summary: "Planning",
-      start: "2026-08-12T10:00:00+05:30",
-      end: "2026-08-12T11:00:00+05:30",
-      attendees,
-    };
+  test("a write that notifies people becomes high, stages, and resumes with every person", async () => {
+    const input = { title: "Planning", notify: ["ada@example.com", "grace@example.com"] };
 
     const args = baseArgs({
-      toolCallId: "tc_calendar_invite",
-      toolName: "calendar.create_event",
+      toolCallId: "tc_write_notify",
+      toolName: "sheets.append_values",
       input,
     });
 
@@ -575,29 +525,21 @@ describe("dispatch staging machine (DB-free)", () => {
     const [row] = store.rows();
     assert.equal(row?.riskTier, "high");
     assert.equal(row.requiresApproval, true);
-    assert.deepEqual(row.proposedInput, {
-      calendarId: "primary",
-      ...input,
-    });
+    assert.deepEqual(row.proposedInput, input);
 
     store.decide(row.id, { status: "approved" });
     const resumed = await dispatchToolCall(args);
     assert.equal(resumed.kind, "executed");
     assert.equal(executeCount, 1);
-    assert.deepEqual(lastExecutedInput, {
-      calendarId: "primary",
-      ...input,
-    });
+    assert.deepEqual(lastExecutedInput, input);
   });
 
-  test("a pending pre-floor Calendar invite is promoted to approval before resume", async () => {
-    const toolCallId = "tc_calendar_invite_before_floor";
+  test("a pending pre-floor notifying write is promoted to approval before resume", async () => {
+    const toolCallId = "tc_write_notify_before_floor";
 
-    const input: unknown = calendarCreateEventTool.inputSchema.parse({
-      summary: "Legacy planning",
-      start: "2026-08-12T10:00:00+05:30",
-      end: "2026-08-12T11:00:00+05:30",
-      attendees: ["ada@example.com"],
+    const input: unknown = notifyingWriteInput.parse({
+      title: "Legacy planning",
+      notify: ["ada@example.com"],
     });
 
     await store.upsertStaging({
@@ -605,13 +547,13 @@ describe("dispatch staging machine (DB-free)", () => {
       runId: RUN_ID,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "calendar.create_event",
-      integration: "calendar",
+      toolName: "sheets.append_values",
+      integration: "sheets",
       riskTier: "medium",
       proposedInput: jsonValueSchema.parse(input),
       displayInput: jsonValueSchema.parse(input),
-      proposedInputHash: hashToolInput("calendar.create_event", input),
-      requestHash: hashToolRequest("calendar.create_event", input, undefined),
+      proposedInputHash: hashToolInput("sheets.append_values", input),
+      requestHash: hashToolRequest("sheets.append_values", input, undefined),
       requiresApproval: false,
       status: "pending",
     });
@@ -619,53 +561,48 @@ describe("dispatch staging machine (DB-free)", () => {
     const result = await dispatchToolCall(
       baseArgs({
         toolCallId,
-        toolName: "calendar.create_event",
+        toolName: "sheets.append_values",
         input,
       }),
     );
 
     assert.equal(result.kind, "staged", "the new high-risk floor must dominate the old row");
-    assert.equal(executeCount, 0, "an old autonomous row must not execute the invite");
+    assert.equal(executeCount, 0, "an old autonomous row must not execute the notifying write");
     const [row] = store.rows();
     assert.equal(row?.riskTier, "high");
     assert.equal(row.requiresApproval, true);
   });
 
   test("a policy change promotes a pending medium-risk autonomous row", async () => {
-    const toolCallId = "tc_calendar_policy_change";
+    const toolCallId = "tc_write_policy_change";
 
-    const input: unknown = calendarCreateEventTool.inputSchema.parse({
-      summary: "Focus block",
-      start: "2026-08-12T10:00:00+05:30",
-      end: "2026-08-12T11:00:00+05:30",
-      attendees: [],
-    });
+    const input: unknown = notifyingWriteInput.parse({ title: "Focus block", notify: [] });
 
     await store.upsertStaging({
       userId: USER_ID,
       runId: RUN_ID,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "calendar.create_event",
-      integration: "calendar",
+      toolName: "sheets.append_values",
+      integration: "sheets",
       riskTier: "medium",
       proposedInput: jsonValueSchema.parse(input),
       displayInput: jsonValueSchema.parse(input),
-      proposedInputHash: hashToolInput("calendar.create_event", input),
-      requestHash: hashToolRequest("calendar.create_event", input, undefined),
+      proposedInputHash: hashToolInput("sheets.append_values", input),
+      requestHash: hashToolRequest("sheets.append_values", input, undefined),
       requiresApproval: false,
       status: "pending",
     });
     clearPolicyCacheForTests();
     _primePolicyCacheForTests({
       ...defaultActionPolicy(USER_ID),
-      integrationRules: { calendar: { mode: "gated" } },
+      integrationRules: { sheets: { mode: "gated" } },
     });
 
     const result = await dispatchToolCall(
       baseArgs({
         toolCallId,
-        toolName: "calendar.create_event",
+        toolName: "sheets.append_values",
         input,
       }),
     );
@@ -872,7 +809,7 @@ describe("dispatch staging machine (DB-free)", () => {
 
   test("an executed action whose result has ok false commits failed and closes its span as an error", async () => {
     // The shape of an `mcp.call` `tool_error`: the tool ran and its result reports a failure.
-    calendarOutput = { ok: false, status: "tool_error", result: { content: [] } };
+    writeOutput = { ok: false, status: "tool_error", result: { content: [] } };
     const spans: Array<{ toolName: string; closed: "success" | "error"; message?: string }> = [];
 
     const restoreSpans = _setDispatchTraceSinksForTests({
@@ -886,13 +823,8 @@ describe("dispatch staging machine (DB-free)", () => {
       const result = await dispatchToolCall(
         baseArgs({
           toolCallId: "tc_returned_failure",
-          toolName: "calendar.create_event",
-          input: {
-            summary: "Focus block",
-            start: "2026-08-12T10:00:00+05:30",
-            end: "2026-08-12T11:00:00+05:30",
-            attendees: [],
-          },
+          toolName: "sheets.append_values",
+          input: { title: "Focus block", notify: [] },
         }),
       );
 
@@ -902,9 +834,9 @@ describe("dispatch staging machine (DB-free)", () => {
       assert.equal(row.outcome, "failed", "a returned failure is not a success on the record");
       assert.deepEqual(spans, [
         {
-          toolName: "calendar.create_event",
+          toolName: "sheets.append_values",
           closed: "error",
-          message: "calendar.create_event returned failed (status tool_error)",
+          message: "sheets.append_values returned failed (status tool_error)",
         },
       ]);
     } finally {
@@ -926,13 +858,8 @@ describe("dispatch staging machine (DB-free)", () => {
       await dispatchToolCall(
         baseArgs({
           toolCallId: "tc_returned_success",
-          toolName: "calendar.create_event",
-          input: {
-            summary: "Focus block",
-            start: "2026-08-12T10:00:00+05:30",
-            end: "2026-08-12T11:00:00+05:30",
-            attendees: [],
-          },
+          toolName: "sheets.append_values",
+          input: { title: "Focus block", notify: [] },
         }),
       );
 

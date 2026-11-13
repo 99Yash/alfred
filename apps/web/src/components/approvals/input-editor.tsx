@@ -1,6 +1,5 @@
 import {
   assertNever,
-  type calendarListEventsInput,
   fieldValue,
   toolInputFields,
   toJsonValue,
@@ -10,14 +9,11 @@ import {
   jsonObjectSchema,
 } from "@alfred/contracts";
 import { useState } from "react";
-import type { z } from "zod";
 import { AppDateTimePicker, AppInput, AppSelect, AppSwitch, AppTextarea } from "~/components/ui/v2";
 import { formatDateTime } from "~/lib/date-format";
 import { formatJson, parseJson } from "./format";
 
 type FieldControlSpec = Exclude<FieldSpec, { kind: "boolean" }>;
-
-type CalendarListEventsKey = keyof z.infer<typeof calendarListEventsInput>;
 
 /**
  * Edit a staged write's input. Controls derive from the tool's zod `inputSchema`
@@ -44,11 +40,10 @@ export function ApprovalInputEditor({
   }
 
   const record = parsed.data;
-  const fields = editorFieldsForTool(toolName, fieldSpecs, record);
 
   return (
     <div className="grid gap-3 rounded-surface bg-app-bg-2/60 p-3 shadow-[0_0_0_1px_var(--app-bg-a2)] sm:grid-cols-2">
-      {fields.map((field) => (
+      {fieldSpecs.map((field) => (
         <EditableField
           key={field.key}
           id={`${idPrefix}-${field.key}`}
@@ -86,7 +81,7 @@ export function ApprovalInputFacts({ toolName, value }: { toolName: ToolName; va
 
   const record = parsed.data;
 
-  const facts = editorFieldsForTool(toolName, fieldSpecs, record).flatMap((field) => {
+  const facts = fieldSpecs.flatMap((field) => {
     const text = factText(field, record);
 
     return text === null ? [] : [{ field, text }];
@@ -159,47 +154,6 @@ function factText(field: FieldSpec, record: JsonObject): string | null {
     default:
       return assertNever(field, "field kind");
   }
-}
-
-// JSON Schema loses calendarListEventsInput's explicit-vs-relative refine, so
-// mirror it here. Typed on z.infer (z.input is `unknown`) so renames fail to compile.
-const CALENDAR_EXPLICIT_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
-  "timeMin",
-  "timeMax",
-]);
-
-const CALENDAR_RELATIVE_TIME_KEYS: ReadonlySet<CalendarListEventsKey> = new Set([
-  "window",
-  "partOfDay",
-]);
-
-function editorFieldsForTool(
-  toolName: ToolName,
-  fields: FieldSpec[],
-  record: JsonObject,
-): FieldSpec[] {
-  if (toolName !== "calendar.list_events") return fields;
-
-  const hasExplicitWindow = [...CALENDAR_EXPLICIT_TIME_KEYS].some((key) =>
-    hasFieldValue(record, key),
-  );
-
-  if (hasExplicitWindow) {
-    return fields.filter((field) => !hasCalendarListKey(CALENDAR_RELATIVE_TIME_KEYS, field.key));
-  }
-
-  return fields.filter((field) => !hasCalendarListKey(CALENDAR_EXPLICIT_TIME_KEYS, field.key));
-}
-
-function hasCalendarListKey(keys: ReadonlySet<CalendarListEventsKey>, key: string): boolean {
-  // SAFETY: widening only types `.has`'s argument; a miss is the intended false.
-  return (keys as ReadonlySet<string>).has(key);
-}
-
-function hasFieldValue(record: JsonObject, key: CalendarListEventsKey): boolean {
-  const value = record[key];
-
-  return value !== undefined && value !== null && value !== "";
 }
 
 function EditableField({

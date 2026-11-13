@@ -127,10 +127,10 @@ describe("guardUnreportedToolFailures", () => {
   test("still fires when another call with the same tool name succeeded", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "sheets.update_values", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
         {
           toolCallId: "tc_2",
-          toolName: "sheets.update_values",
+          toolName: "sheets.append_values",
           status: "succeeded",
           segmentIndex: 0,
         },
@@ -147,7 +147,7 @@ describe("guardUnreportedToolFailures", () => {
     const last = transcript.at(-1);
     assert.ok(last);
     const note = toDisplayText(last.content);
-    assert.match(note, /sheets\.update_values/);
+    assert.match(note, /sheets\.append_values/);
     assert.match(note, /completed the user's goal another way/);
   });
 
@@ -217,11 +217,11 @@ describe("guardUnreportedToolFailures", () => {
   test("does not fire for a failed read (non-mutating) tool", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "gmail.search", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_1", toolName: "contacts.search", status: "failed", segmentIndex: 0 },
       ],
     });
 
-    const { deps } = recorder(["gmail.search"]);
+    const { deps } = recorder(["contacts.search"]);
     const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
     assert.equal(result, null);
   });
@@ -229,7 +229,7 @@ describe("guardUnreportedToolFailures", () => {
   test("does not fire for sensitive read tools that use non-no_risk tiers", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "docs.get_document", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_1", toolName: "contacts.get", status: "failed", segmentIndex: 0 },
       ],
     });
 
@@ -309,7 +309,7 @@ describe("guardUnreportedToolFailures", () => {
       toolCallsLog: [
         {
           toolCallId: "tc_1",
-          toolName: "drive.search_files",
+          toolName: "contacts.list",
           status: "failed",
           segmentIndex: 0,
         },
@@ -333,7 +333,7 @@ describe("guardUnreportedToolFailures", () => {
           status: "succeeded",
           segmentIndex: 0,
         },
-        { toolCallId: "tc_2", toolName: "sheets.batch_update", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_2", toolName: "gmail.send_draft", status: "failed", segmentIndex: 0 },
       ],
     });
 
@@ -346,7 +346,7 @@ describe("guardUnreportedToolFailures", () => {
     const last = transcript.at(-1);
     assert.ok(last);
     const note = toDisplayText(last.content);
-    assert.match(note, /sheets\.batch_update/);
+    assert.match(note, /gmail\.send_draft/);
     assert.ok(!note.includes("append_values"));
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_2"]);
   });
@@ -374,14 +374,14 @@ describe("guardUnreportedToolFailures", () => {
         toolCallsLog: [
           {
             toolCallId: "tc_bounce",
-            toolName: "gmail.search",
+            toolName: "contacts.search",
             status: "failed",
             nonExecution: true,
             segmentIndex: 0,
           },
           {
             toolCallId: "tc_retry",
-            toolName: "gmail.search",
+            toolName: "contacts.search",
             status: "succeeded",
             segmentIndex: 1,
           },
@@ -401,7 +401,7 @@ describe("guardUnreportedToolFailures", () => {
         toolCallsLog: [
           {
             toolCallId: "tc_connect",
-            toolName: "gmail.search",
+            toolName: "gmail.send_draft",
             status: "failed",
             nonExecution: true,
             connectNudge: { integration: "gmail", action: "connect" },
@@ -414,7 +414,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.deepEqual(fields.toolCalls, [
       {
         toolCallId: "tc_connect",
-        toolName: "gmail.search",
+        toolName: "gmail.send_draft",
         status: "failed",
         nonExecution: true,
         connectNudge: { integration: "gmail", action: "connect" },
@@ -424,9 +424,9 @@ describe("guardUnreportedToolFailures", () => {
   });
 
   test("publishes optimistic cards only for active tools", () => {
-    assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.search"), true);
-    assert.equal(shouldPublishToolStarted([], "gmail.search"), false);
-    assert.equal(shouldPublishToolStarted(["gmail.search"], "gmail.invented"), false);
+    assert.equal(shouldPublishToolStarted(["contacts.search"], "contacts.search"), true);
+    assert.equal(shouldPublishToolStarted([], "contacts.search"), false);
+    assert.equal(shouldPublishToolStarted(["contacts.search"], "contacts.invented"), false);
   });
 });
 

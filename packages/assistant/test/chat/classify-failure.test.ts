@@ -12,7 +12,7 @@ const CURRENT_IMAGE = { currentTurnHasImage: true, historicalHasImage: false };
 const HISTORICAL_IMAGE = { currentTurnHasImage: false, historicalHasImage: true };
 
 test("ADR-0072: no image anywhere never classifies as attachment, regardless of text", () => {
-  // Regression #269: a drive.export_file error mentioning "file" read as `attachment`.
+  // Regression #269: a Drive export error mentioning "file" read as `attachment`.
   assert.equal(
     classifyChatFailure(new Error("could not process file export"), NO_IMAGE),
     "generic",
@@ -58,17 +58,11 @@ test("an unrelated tool failure with an image present still classifies generic",
 test("a drive export failure mentioning 'file' stays generic in an image-bearing thread", () => {
   // "unsupported file" or "unsupported media" counts only with an explicit image mention.
   assert.equal(
-    classifyChatFailure(
-      new Error("drive.export_file: unsupported file export type"),
-      CURRENT_IMAGE,
-    ),
+    classifyChatFailure(new Error("Drive export: unsupported file export type"), CURRENT_IMAGE),
     "generic",
   );
   assert.equal(
-    classifyChatFailure(
-      new Error("drive.export_file: unsupported file export type"),
-      HISTORICAL_IMAGE,
-    ),
+    classifyChatFailure(new Error("Drive export: unsupported file export type"), HISTORICAL_IMAGE),
     "generic",
   );
   assert.equal(

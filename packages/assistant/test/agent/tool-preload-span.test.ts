@@ -62,7 +62,7 @@ describe("runtime.tool.preload", () => {
 
   test("reports selected canonical names and the resulting surface size", () => {
     const { opened, ended } = capture(() => {
-      startToolPreloadSpan(args).end(["calendar.list_events", "calendar.get_event"], 10, 42);
+      startToolPreloadSpan(args).end(["contacts.list", "contacts.get"], 10, 42);
     });
 
     assert.equal(opened.length, 1);
@@ -71,7 +71,7 @@ describe("runtime.tool.preload", () => {
         status: "selected",
         metadata: {
           selectedCount: 2,
-          selectedTools: "calendar.list_events,calendar.get_event",
+          selectedTools: "contacts.list,contacts.get",
           activeAfter: 10,
           promptChars: 42,
         },
@@ -91,7 +91,7 @@ describe("runtime.tool.preload", () => {
     const failed = capture(() => {
       const span = startToolPreloadSpan(args);
       span.error();
-      span.end(["gmail.search"], 9, 42);
+      span.end(["contacts.search"], 9, 42);
     });
 
     assert.deepEqual(failed.ended, [{ status: "error", level: "ERROR" }]);

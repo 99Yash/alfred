@@ -187,19 +187,19 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
   });
 
   test("a context-gate refusal short-circuits before any snapshot read", async () => {
-    const gmailSearch = liveTool({
-      integration: "gmail",
+    const contactsSearch = liveTool({
+      integration: "contacts",
       action: "search",
       riskTier: "no_risk",
       replay: "safe",
-      description: "test gmail search",
+      description: "test contacts search",
       availability: { callers: ["boss"] },
       inputSchema: z.object({}).loose(),
       execute: async () => ({ ok: true }),
     });
 
     const result = await resolveToolAvailability({
-      tool: gmailSearch,
+      tool: contactsSearch,
       allowed: new Set(),
       context: { caller: "sub_agent", interaction: "live_chat" },
       loadSnapshot: exploding,
@@ -211,12 +211,12 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
   });
 
   test("a credential-bearing tool DOES read the snapshot, and honors its health", async () => {
-    const gmailSearch = liveTool({
-      integration: "gmail",
+    const contactsSearch = liveTool({
+      integration: "contacts",
       action: "search",
       riskTier: "no_risk",
       replay: "safe",
-      description: "test gmail search",
+      description: "test contacts search",
       inputSchema: z.object({}).loose(),
       execute: async () => ({ ok: true }),
     });
@@ -224,13 +224,13 @@ describe("resolveToolAvailability reads the credential snapshot only when it cou
     let reads = 0;
 
     const snapshot: IntegrationAvailabilitySnapshot = {
-      integrations: new Map([["gmail", { health: "needs_reauth", accountLabel: null }]]),
+      integrations: new Map([["contacts", { health: "needs_reauth", accountLabel: null }]]),
       providers: new Map(),
       passthroughEnabled: new Map(),
     };
 
     const result = await resolveToolAvailability({
-      tool: gmailSearch,
+      tool: contactsSearch,
       allowed: new Set(),
       context: { caller: "boss", interaction: "live_chat" },
       loadSnapshot: async () => {

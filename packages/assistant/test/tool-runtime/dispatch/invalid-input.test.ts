@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { calendarListEventsInput } from "@alfred/contracts";
+import { contactsListInput } from "@alfred/contracts";
 import { z } from "zod";
 import {
   acceptedParamNames,
@@ -10,28 +10,27 @@ import {
 
 describe("enrichInvalidInputMessage", () => {
   test("appends the accepted params when the model invents an unknown key", () => {
-    // Not a window value on purpose: a key holding "today" would be promoted to `window`.
-    const parsed = calendarListEventsInput.safeParse({ gibberish: "nonsense" });
+    const parsed = contactsListInput.safeParse({ gibberish: "nonsense" });
     assert.equal(parsed.success, false);
 
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,
-      calendarListEventsInput,
+      contactsListInput,
       parsed.error.issues,
     );
 
     assert.match(enriched, /This tool accepts only these parameters:/);
-    assert.match(enriched, /window/);
-    assert.match(enriched, /timeMin, timeMax, window, partOfDay, maxResults/);
+    assert.match(enriched, /pageToken/);
+    assert.match(enriched, /source, pageSize, pageToken/);
   });
 
   test("leaves non-unrecognized-key errors untouched", () => {
-    const parsed = calendarListEventsInput.safeParse({ timeMin: "not-a-datetime" });
+    const parsed = contactsListInput.safeParse({ pageToken: 123 });
     assert.equal(parsed.success, false);
 
     const enriched = enrichInvalidInputMessage(
       parsed.error.message,
-      calendarListEventsInput,
+      contactsListInput,
       parsed.error.issues,
     );
 
@@ -40,13 +39,7 @@ describe("enrichInvalidInputMessage", () => {
   });
 
   test("acceptedParamNames returns the schema's top-level keys", () => {
-    assert.deepEqual(acceptedParamNames(calendarListEventsInput), [
-      "timeMin",
-      "timeMax",
-      "window",
-      "partOfDay",
-      "maxResults",
-    ]);
+    assert.deepEqual(acceptedParamNames(contactsListInput), ["source", "pageSize", "pageToken"]);
   });
 
   test("acceptedParamNames is best-effort and never throws", () => {

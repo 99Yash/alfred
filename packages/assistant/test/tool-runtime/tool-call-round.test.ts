@@ -157,12 +157,12 @@ describe("executeToolCallRound", () => {
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
-      ["gmail.search"],
+      ["contacts.search"],
       async () => {
         const outcome = await executeToolCallRound({
-          calls: [call("a", "gmail.search"), call("b", "gmail.search")],
+          calls: [call("a", "contacts.search"), call("b", "contacts.search")],
           transcript: [],
-          activeNames: ["gmail.search"],
+          activeNames: ["contacts.search"],
           run: backgroundRun,
         });
 
@@ -248,21 +248,23 @@ describe("executeToolCallRound", () => {
         },
         dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
         forecastApproval: (_userId, name) =>
-          Promise.resolve(name.startsWith("gmail.") ? "waivable" : "none"),
+          Promise.resolve(
+            name === "gmail.send_draft" || name === "sheets.append_values" ? "waivable" : "none",
+          ),
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
-      ["system.await_sub_agent", "gmail.send_draft", "gmail.search"],
+      ["system.await_sub_agent", "gmail.send_draft", "sheets.append_values"],
       async () => {
         const outcome = await executeToolCallRound({
           calls: [
             call("child", "system.await_sub_agent"),
             call("send", "gmail.send_draft"),
-            call("archive", "gmail.search"),
+            call("archive", "sheets.append_values"),
           ],
           transcript: [],
-          activeNames: ["system.await_sub_agent", "gmail.send_draft", "gmail.search"],
+          activeNames: ["system.await_sub_agent", "gmail.send_draft", "sheets.append_values"],
           run: liveRun,
         });
 
@@ -282,16 +284,16 @@ describe("executeToolCallRound", () => {
           kind: "inactive_tool",
           result: {
             status: "inactive_tool",
-            toolName: "gmail.search",
+            toolName: "contacts.search",
             message: "activate",
-            recovery: { kind: "activate_and_reissue", toolName: "gmail.search" },
+            recovery: { kind: "activate_and_reissue", toolName: "contacts.search" },
           },
         },
       ],
       [
         "load",
-        executed({ ok: true, name: "calendar.list_events" }, false, {
-          activation: { kind: "load", name: "calendar.list_events" },
+        executed({ ok: true, name: "contacts.list" }, false, {
+          activation: { kind: "load", name: "contacts.list" },
         }),
       ],
     ]);
@@ -310,10 +312,10 @@ describe("executeToolCallRound", () => {
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
-      ["system.load_tool", "gmail.search", "calendar.list_events"],
+      ["system.load_tool", "contacts.search", "contacts.list"],
       async () => {
         const outcome = await executeToolCallRound({
-          calls: [call("inactive", "gmail.search"), call("load", "system.load_tool")],
+          calls: [call("inactive", "contacts.search"), call("load", "system.load_tool")],
           transcript: [],
           activeNames: ["system.load_tool"],
           run: backgroundRun,
@@ -322,8 +324,8 @@ describe("executeToolCallRound", () => {
         assert.equal(outcome.kind, "completed");
 
         assert.deepEqual(outcome.activeNames, [
-          "calendar.list_events",
-          "gmail.search",
+          "contacts.list",
+          "contacts.search",
           "system.load_tool",
         ]);
         assert.equal(outcome.reissue, true);
@@ -347,12 +349,12 @@ describe("executeToolCallRound", () => {
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
-      ["system.update_artifact", "gmail.search"],
+      ["system.update_artifact", "contacts.search"],
       async () => {
         const outcome = await executeToolCallRound({
-          calls: [call("artifact", "system.update_artifact"), call("read", "gmail.search")],
+          calls: [call("artifact", "system.update_artifact"), call("read", "contacts.search")],
           transcript: [],
-          activeNames: ["system.update_artifact", "gmail.search"],
+          activeNames: ["system.update_artifact", "contacts.search"],
           run: backgroundRun,
         });
 

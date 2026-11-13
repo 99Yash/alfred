@@ -1,13 +1,14 @@
 /**
- * End-to-end smoke for a brief-only run: the run completes, Calendar tools
- * activate mid-run, stagings land, one `api_call_log` row per boss turn
- * (ADR-0026), and the output has a summary.
+ * End-to-end smoke for a brief-only run: the run completes, `mcp.call` activates
+ * mid-run for the Gmail and Google Calendar MCP servers (ADR-0126), stagings land,
+ * one `api_call_log` row per boss turn (ADR-0026), and the output has a summary.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-brief-execution.ts
  *
  * Pre-reqs:
  *   - A server process running (`pnpm dev`). This script auto-approves pending stagings.
- *   - A user with Google connected (gmail + calendar scopes).
+ *   - A user with Google connected (gmail + calendar scopes), so the Gmail and
+ *     Google Calendar MCP servers are reachable.
  */
 
 import { randomUUID } from "node:crypto";
@@ -283,14 +284,7 @@ async function main(): Promise<void> {
     stagings.filter((s) => s.status === "executed").map((s) => s.toolName),
   );
 
-  assert(
-    Array.from(executedToolNames).some((n) => n.startsWith("gmail.")),
-    "expected at least one executed gmail.* staging",
-  );
-  assert(
-    Array.from(executedToolNames).some((n) => n.startsWith("calendar.")),
-    "expected at least one executed calendar.* staging",
-  );
+  assert(executedToolNames.has("mcp.call"), "expected at least one executed mcp.call staging");
 
   const activeTools = final.state.activeTools;
   assert(
@@ -298,8 +292,8 @@ async function main(): Promise<void> {
     `expected state.activeTools to be string[], got ${JSON.stringify(activeTools)}`,
   );
   assert(
-    activeTools.includes("calendar.list_events"),
-    `state.activeTools did not grow to include calendar.list_events: ${JSON.stringify(activeTools)}`,
+    activeTools.includes("mcp.call"),
+    `state.activeTools did not grow to include mcp.call: ${JSON.stringify(activeTools)}`,
   );
 
   const apiCallCount = await countApiCalls(runId);

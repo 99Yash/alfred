@@ -8,9 +8,9 @@ import { deriveToolDiscovery } from "../src/tool-runtime/internal/metadata-defau
 describe("deriveToolDiscovery", () => {
   test("derives a searchable baseline from identity, action, and schema fields", () => {
     const discovery = deriveToolDiscovery({
-      integration: "calendar",
-      action: "create_event",
-      description: "Create a calendar event under an organizer.",
+      integration: "system",
+      action: "create_artifact",
+      description: "Create an artifact under an organizer.",
       inputSchema: z
         .object({
           title: z.string(),
@@ -21,16 +21,16 @@ describe("deriveToolDiscovery", () => {
         .strict(),
     });
 
-    assert.equal(discovery.title, "Create Event", "title defaults to the humanized action");
+    assert.equal(discovery.title, "Create Artifact", "title defaults to the humanized action");
     assert.equal(
       discovery.summary,
-      "Create a calendar event under an organizer.",
+      "Create an artifact under an organizer.",
       "summary defaults to the description",
     );
-    assert.ok(discovery.tags?.includes("calendar"), "the server identity becomes a tag");
+    assert.ok(discovery.tags?.includes("system"), "the server identity becomes a tag");
     assert.ok(discovery.verbs?.includes("create"), "the leading action token is a verb");
     assert.ok(discovery.verbs?.includes("add"), "generic verb synonyms improve recall");
-    assert.ok(discovery.entities?.includes("event"), "trailing action tokens are entities");
+    assert.ok(discovery.entities?.includes("artifact"), "trailing action tokens are entities");
     assert.ok(
       discovery.entities?.includes("title") && discovery.entities.includes("content"),
       "meaningful schema field names become entities",
@@ -41,8 +41,8 @@ describe("deriveToolDiscovery", () => {
       "plumbing field tokens are excluded",
     );
     assert.ok(
-      discovery.aliases?.includes("create event") &&
-        discovery.aliases.includes("calendar create event"),
+      discovery.aliases?.includes("create artifact") &&
+        discovery.aliases.includes("system create artifact"),
       "aliases map likely phrasings onto the capability",
     );
     assert.equal(discovery.relatedTools, undefined, "relatedTools is authored-only");
@@ -72,7 +72,7 @@ describe("deriveToolDiscovery", () => {
         aliases: ["find email"],
         tags: ["communication"],
         entities: ["message"],
-        relatedTools: ["gmail.read_message"],
+        relatedTools: ["gmail.send_draft"],
       },
     });
 
@@ -89,7 +89,7 @@ describe("deriveToolDiscovery", () => {
     assert.ok(discovery.verbs?.includes("search"), "the derived verb survives when not overridden");
     assert.deepEqual(
       discovery.relatedTools,
-      ["gmail.read_message"],
+      ["gmail.send_draft"],
       "authored relatedTools pass through",
     );
   });
@@ -111,13 +111,13 @@ describe("deriveToolDiscovery", () => {
 
   test("degrades to identity-only entities when the schema is not an object", () => {
     const discovery = deriveToolDiscovery({
-      integration: "docs",
-      action: "get_document",
-      description: "Read a document.",
+      integration: "vercel",
+      action: "list_projects",
+      description: "List projects.",
       inputSchema: z.string(),
     });
 
-    assert.ok(discovery.entities?.includes("document"), "action-derived entities still present");
+    assert.ok(discovery.entities?.includes("project"), "action-derived entities still present");
     assert.ok(Array.isArray(discovery.entities), "no throw on a non-object schema");
   });
 });

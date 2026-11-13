@@ -181,7 +181,7 @@ export function presentTool(
     return { icon, fallbackIcon, running: verb, done: verb, failed: `Couldn't ${verb}` };
   }
 
-  // Integration-scoped tool, e.g. `gmail.search`.
+  // Integration-scoped tool, e.g. `gmail.send_draft`.
   const provider = getIntegrationPage(slug);
   const brand = provider?.brand ?? (slug === "web" ? "web" : undefined);
 

@@ -195,23 +195,23 @@ describe("preloadToolCatalog against the real registry", () => {
 describe("migrateActiveTools", () => {
   test("new-format checkpoint drops a retired tool and keeps + sorts the rest", () => {
     const migrated = migrateActiveTools(
-      [RETIRED_TOOL, "system.load_tool", "gmail.search"],
+      [RETIRED_TOOL, "system.load_tool", "contacts.search"],
       undefined,
       [],
     );
 
-    assert.deepEqual(migrated, ["gmail.search", "system.load_tool"]);
+    assert.deepEqual(migrated, ["contacts.search", "system.load_tool"]);
     assert.ok(!(migrated as string[]).includes(RETIRED_TOOL));
   });
 
   test("new-format checkpoint dedupes repeated names", () => {
     const migrated = migrateActiveTools(
-      ["gmail.search", "gmail.search", "system.load_tool"],
+      ["contacts.search", "contacts.search", "system.load_tool"],
       undefined,
       [],
     );
 
-    assert.deepEqual(migrated, ["gmail.search", "system.load_tool"]);
+    assert.deepEqual(migrated, ["contacts.search", "system.load_tool"]);
   });
 
   test("an empty new-format checkpoint is authoritative — it does not re-seed the kernel", () => {
@@ -246,8 +246,8 @@ describe("migrateActiveTools", () => {
   });
 
   test("legacy expansion unions a valid pending tool from outside the active integrations", () => {
-    const migrated = migrateActiveTools(undefined, ["gmail"], ["calendar.list_events"]);
-    assert.ok(migrated.includes("calendar.list_events"));
+    const migrated = migrateActiveTools(undefined, ["gmail"], ["contacts.search"]);
+    assert.ok(migrated.includes("contacts.search"));
   });
 
   test("empty legacy state yields exactly the kernel", () => {

@@ -479,7 +479,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountId: accountRef,
         accountLabel: "test@example.test",
         accessToken: UNSEALED_TEST_TOKEN,
-        scopes: [GOOGLE_SCOPE.gmail.readonly],
+        scopes: [GOOGLE_SCOPE.gmail.modify, GOOGLE_SCOPE.gmail.send],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });
@@ -494,11 +494,11 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       definition: {
         name: "Credential loss",
         description: null,
-        brief: "Search Gmail.",
+        brief: "Send the weekly note.",
         trigger: { kind: "manual" },
         allowedIntegrations: ["gmail"],
-        allowedTools: ["gmail.search"],
-        requiredCapabilities: [{ tool: "gmail.search", accountRef }],
+        allowedTools: ["gmail.send_draft"],
+        requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
       },
       tx: "own",
     });
@@ -560,7 +560,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountId: accountRef,
         accountLabel: "stale@example.test",
         accessToken: UNSEALED_TEST_TOKEN,
-        scopes: [GOOGLE_SCOPE.gmail.readonly],
+        scopes: [GOOGLE_SCOPE.gmail.modify, GOOGLE_SCOPE.gmail.send],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });
@@ -575,11 +575,11 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       definition: {
         name: "Old Gmail revision",
         description: null,
-        brief: "Search Gmail.",
+        brief: "Send the weekly note.",
         trigger: { kind: "manual" },
         allowedIntegrations: ["gmail"],
-        allowedTools: ["gmail.search"],
-        requiredCapabilities: [{ tool: "gmail.search", accountRef }],
+        allowedTools: ["gmail.send_draft"],
+        requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
       },
       tx: "own",
     });
@@ -797,11 +797,11 @@ describe("workflow revision content hash (#555)", () => {
       description: null,
       brief: "Report new inbox messages.",
       trigger: { kind: "manual" },
-      allowedIntegrations: ["gmail", "system"],
-      allowedTools: ["gmail.search", "system.current_time"],
+      allowedIntegrations: ["contacts", "system"],
+      allowedTools: ["contacts.search", "system.current_time"],
       requiredCapabilities: [
         {
-          tool: "gmail.search",
+          tool: "contacts.search",
           accountRef: "primary",
           resourceScope: { label: "inbox", unreadOnly: true },
         },
@@ -815,11 +815,11 @@ describe("workflow revision content hash (#555)", () => {
         {
           resourceScope: { unreadOnly: true, label: "inbox" },
           accountRef: "primary",
-          tool: "gmail.search",
+          tool: "contacts.search",
         },
       ],
-      allowedTools: ["system.current_time", "gmail.search"],
-      allowedIntegrations: ["system", "gmail"],
+      allowedTools: ["system.current_time", "contacts.search"],
+      allowedIntegrations: ["system", "contacts"],
       trigger: { kind: "manual" },
       brief: "Report new inbox messages.",
       description: null,

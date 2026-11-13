@@ -239,11 +239,11 @@ describe("buildDispatchRejectionSpanPayload", () => {
 
   const base = {
     runId: "run_1",
-    toolName: "sheets.update_values",
+    toolName: "sheets.append_values",
     toolCallId: "tc_1",
     outcome: "invalid_input" as const,
     reason: "Invalid input: expected array, received string",
-    signature: "sheets.update_values:invalid_input:invalid_type@values",
+    signature: "sheets.append_values:invalid_input:invalid_type@values",
     userId: "user_1",
     caller: "boss",
     stepId: "dispatch-tools",
@@ -255,13 +255,13 @@ describe("buildDispatchRejectionSpanPayload", () => {
   test("omits input and issue detail when capture is off", () => {
     const payload = buildDispatchRejectionSpanPayload(base, false);
 
-    assert.equal(payload.span.name, "tool:sheets.update_values");
+    assert.equal(payload.span.name, "tool:sheets.append_values");
     assert.equal(payload.span.input, undefined);
     assert.deepEqual(payload.span.metadata, {
       kind: "tool",
       outcome: "invalid_input",
-      rejectionSignature: "sheets.update_values:invalid_input:invalid_type@values",
-      toolName: "sheets.update_values",
+      rejectionSignature: "sheets.append_values:invalid_input:invalid_type@values",
+      toolName: "sheets.append_values",
       candidateToolName: undefined,
       toolCallId: "tc_1",
       caller: "boss",
@@ -272,7 +272,7 @@ describe("buildDispatchRejectionSpanPayload", () => {
     });
     assert.deepEqual(payload.end, {
       level: "WARNING",
-      statusMessage: "sheets.update_values:invalid_input:invalid_type@values",
+      statusMessage: "sheets.append_values:invalid_input:invalid_type@values",
     });
   });
 
@@ -514,7 +514,7 @@ describe("v5 emission shape (in-memory exporter)", () => {
   test("a tool span exports under the run trace with structural metadata", async () => {
     const closer = startToolSpan({
       runId: "run_tools",
-      toolName: "sheets.update_values",
+      toolName: "sheets.append_values",
       toolCallId: "tc_1",
       userId: "user_1",
       caller: "boss",
@@ -523,7 +523,7 @@ describe("v5 emission shape (in-memory exporter)", () => {
 
     closer.success({ ok: true }, { truncated: true });
 
-    const span = (await emittedSpans()).find((s) => s.name === "tool:sheets.update_values");
+    const span = (await emittedSpans()).find((s) => s.name === "tool:sheets.append_values");
 
     assert.ok(span, "tool span exported");
     assert.equal(span.spanContext().traceId, langfuseTraceId("run_tools"));

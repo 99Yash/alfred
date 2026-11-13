@@ -54,7 +54,7 @@ describe("workflow authoring tool contracts (#556)", () => {
     const base = {
       name: "Inbox summary",
       brief: "Summarize new inbox messages.",
-      capabilities: [{ tool: "gmail.search" as const }],
+      capabilities: [{ tool: "gmail.send_draft" as const }],
       intent: "Summarize my inbox.",
       assumptions: [],
       externalEffects: [],
@@ -127,7 +127,7 @@ describe("workflow authoring tool contracts (#556)", () => {
       name: "Inbox summary",
       brief: "Summarize every new inbox message.",
       trigger: { kind: "event", source: "gmail", type: "message_received" },
-      capabilities: [{ tool: "gmail.search" }, { tool: "gmail.search" }],
+      capabilities: [{ tool: "gmail.send_draft" }, { tool: "gmail.send_draft" }],
       intent: "Summarize my inbox.",
       assumptions: [],
       externalEffects: [],
@@ -135,8 +135,8 @@ describe("workflow authoring tool contracts (#556)", () => {
 
     const definition = definitionFromProposal(input);
     assert.deepEqual(definition.allowedIntegrations, ["gmail"]);
-    assert.deepEqual(definition.allowedTools, ["gmail.search"]);
-    assert.deepEqual(definition.requiredCapabilities, [{ tool: "gmail.search" }]);
+    assert.deepEqual(definition.allowedTools, ["gmail.send_draft"]);
+    assert.deepEqual(definition.requiredCapabilities, [{ tool: "gmail.send_draft" }]);
   });
 
   test("accepts an unsupported requested capability so readiness can preserve the draft", () => {
@@ -487,7 +487,7 @@ describe("workflow authoring and activation acceptance (#556)", { skip: SKIP }, 
         name: "Disconnected inbox review",
         brief: "Review Gmail.",
         trigger: { kind: "manual" },
-        capabilities: [{ tool: "gmail.search" }],
+        capabilities: [{ tool: "gmail.send_draft" }],
         intent: "Review my inbox.",
         assumptions: [],
         externalEffects: [],

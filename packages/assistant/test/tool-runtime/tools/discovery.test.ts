@@ -29,72 +29,72 @@ beforeEach(resetToolFixtures);
 
 afterEach(resetToolFixtures);
 
-const gmailSearch = liveTool({
-  integration: "gmail",
+const contactsSearch = liveTool({
+  integration: "contacts",
   action: "search",
   riskTier: "no_risk",
   replay: "safe",
-  description: "Search mail messages.",
+  description: "Search saved contacts.",
   discovery: {
-    title: "Search email",
-    summary: "Find messages in the inbox.",
-    aliases: ["find mail", "common task"],
-    tags: ["communication"],
-    entities: ["message"],
+    title: "Search contacts",
+    summary: "Find people in the address book.",
+    aliases: ["find person", "common task"],
+    tags: ["people"],
+    entities: ["person"],
     verbs: ["search"],
   },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const calendarCreate = liveTool({
-  integration: "calendar",
-  action: "create_event",
+const vercelRedeploy = liveTool({
+  integration: "vercel",
+  action: "redeploy",
   riskTier: "medium",
   replay: "safe",
-  description: "Create a calendar event.",
+  description: "Redeploy a Vercel deployment.",
   discovery: {
-    title: "Create event",
-    summary: "Schedule a new meeting.",
-    aliases: ["book meeting", "common task"],
-    tags: ["calendar"],
-    entities: ["meeting"],
-    verbs: ["schedule"],
+    title: "Redeploy",
+    summary: "Ship a deployment again.",
+    aliases: ["ship again", "common task"],
+    tags: ["deploys"],
+    entities: ["release"],
+    verbs: ["ship"],
   },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const calendarList = liveTool({
-  integration: "calendar",
-  action: "list_events",
+const vercelList = liveTool({
+  integration: "vercel",
+  action: "list_deployments",
   riskTier: "no_risk",
   replay: "safe",
-  description: "List calendar events.",
+  description: "List Vercel deployments.",
   discovery: {
-    title: "List events",
-    summary: "Show upcoming calendar events.",
-    aliases: ["what's on my calendar", "common task"],
-    tags: ["calendar"],
-    entities: ["calendar", "event", "meeting"],
+    title: "List deployments",
+    summary: "Show recent deployments.",
+    aliases: ["what's live", "common task"],
+    tags: ["deploys"],
+    entities: ["deploys", "deployment", "release"],
     verbs: ["list", "show", "read"],
   },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const gmailRead = liveTool({
-  integration: "gmail",
-  action: "read_message",
+const contactsGet = liveTool({
+  integration: "contacts",
+  action: "get",
   riskTier: "low",
   replay: "safe",
-  description: "Read mail messages.",
+  description: "Read a contact.",
   discovery: { aliases: ["mail task", "common task"], entities: ["mail"], verbs: ["handle"] },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const gmailSend = liveTool({
+const greleaseRedeploy = liveTool({
   integration: "gmail",
   action: "send_draft",
   riskTier: "high",
@@ -116,7 +116,7 @@ const systemFetch = liveTool({
   execute: async () => ({ ok: true }),
 });
 
-const tools: readonly RegisteredTool[] = [gmailSearch, calendarCreate];
+const tools: readonly RegisteredTool[] = [contactsSearch, vercelRedeploy];
 
 function provider(
   status: ProviderAvailability["status"],
@@ -141,7 +141,7 @@ function access(
   const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
 
-  for (const tool of [gmailSearch, gmailRead, gmailSend, calendarCreate, calendarList]) {
+  for (const tool of [contactsSearch, contactsGet, greleaseRedeploy, vercelRedeploy, vercelList]) {
     // Like evaluateToolCatalog, the allowlist is decided first as `not_allowed`.
     availability.set(
       tool.name,
@@ -167,53 +167,53 @@ function access(
 describe("tool discovery", () => {
   test("ranks exact canonical names first", () => {
     const found = searchToolCatalog({
-      query: "gmail.search",
+      query: "contacts.search",
       tools,
-      access: access(["gmail", "calendar"]),
+      access: access(["contacts", "vercel"]),
     });
 
-    assert.equal(found[0]?.name, "gmail.search");
+    assert.equal(found[0]?.name, "contacts.search");
     assert.equal(found[0].reason, "exact tool name");
     assert.equal("inputSchema" in found[0], false, "search must not expose schemas");
   });
 
   test("matches aliases", () => {
     const found = searchToolCatalog({
-      query: "find mail",
+      query: "find person",
       tools,
-      access: access(["gmail"]),
+      access: access(["contacts"]),
     });
 
-    assert.equal(found[0]?.name, "gmail.search");
+    assert.equal(found[0]?.name, "contacts.search");
     assert.match(found[0].reason, /alias/);
   });
 
   test("matches tags, entities, and verbs", () => {
-    const catalogAccess = access(["gmail", "calendar"]);
+    const catalogAccess = access(["contacts", "vercel"]);
     assert.equal(
-      searchToolCatalog({ query: "communication", tools, access: catalogAccess })[0]?.name,
-      "gmail.search",
+      searchToolCatalog({ query: "people", tools, access: catalogAccess })[0]?.name,
+      "contacts.search",
     );
     assert.equal(
-      searchToolCatalog({ query: "message", tools, access: catalogAccess })[0]?.name,
-      "gmail.search",
+      searchToolCatalog({ query: "person", tools, access: catalogAccess })[0]?.name,
+      "contacts.search",
     );
     assert.equal(
-      searchToolCatalog({ query: "schedule", tools, access: catalogAccess })[0]?.name,
-      "calendar.create_event",
+      searchToolCatalog({ query: "ship", tools, access: catalogAccess })[0]?.name,
+      "vercel.redeploy",
     );
   });
 
   test("omits tools whose integration is unavailable", () => {
-    const found = searchToolCatalog({ query: "find mail", tools, access: access(["calendar"]) });
+    const found = searchToolCatalog({ query: "find person", tools, access: access(["vercel"]) });
     assert.deepEqual(found, []);
   });
 
   test("omits tools outside the workflow allowlist", () => {
     const found = searchToolCatalog({
-      query: "find mail",
+      query: "find person",
       tools,
-      access: access(["gmail", "calendar"], ["calendar"]),
+      access: access(["contacts", "vercel"], ["vercel"]),
     });
 
     assert.deepEqual(found, []);
@@ -252,12 +252,12 @@ describe("tool discovery", () => {
   });
 
   test("exact load returns the specific unavailability code and reason, not a generic string", async () => {
-    registerTool(slidesCreate);
-    // No Slides connection, so the model gets `not_connected`, not a generic refusal.
+    registerTool(projectsList);
+    // No Vercel connection, so the model gets `not_connected`, not a generic refusal.
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
-        name: "slides.create_presentation",
+        name: "vercel.list_projects",
         allowedIntegrations: [],
         context: { caller: "boss", interaction: "live_chat" },
         availability: {
@@ -266,16 +266,16 @@ describe("tool discovery", () => {
           passthroughEnabled: new Map(),
         },
       }),
-      { ok: false, status: "not_connected", reason: "Slides is not connected." },
+      { ok: false, status: "not_connected", reason: "Vercel is not connected." },
     );
   });
 
   test("exact load reports the allowlist as not_allowed", async () => {
-    registerTool(slidesCreate);
+    registerTool(projectsList);
     assert.deepEqual(
       await resolveExactToolLoad({
         userId: "user_1",
-        name: "slides.create_presentation",
+        name: "vercel.list_projects",
         allowedIntegrations: ["gmail"],
         context: { caller: "boss", interaction: "live_chat" },
         availability: {
@@ -311,30 +311,30 @@ describe("tool discovery", () => {
 
   test("deterministically preloads likely exact tools and skips active ones", () => {
     const args = {
-      prompt: "Please schedule a meeting tomorrow",
+      prompt: "Please ship the release tomorrow",
       tools,
-      access: access(["gmail", "calendar"]),
+      access: access(["contacts", "vercel"]),
     } as const;
 
-    assert.deepEqual(preloadToolCatalog({ ...args, activeTools: [] }), ["calendar.create_event"]);
-    assert.deepEqual(preloadToolCatalog({ ...args, activeTools: ["calendar.create_event"] }), []);
+    assert.deepEqual(preloadToolCatalog({ ...args, activeTools: [] }), ["vercel.redeploy"]);
+    assert.deepEqual(preloadToolCatalog({ ...args, activeTools: ["vercel.redeploy"] }), []);
   });
 
   test("preloads intent matches without activating a sibling write from a generic noun", () => {
     const args = {
-      tools: [calendarList, calendarCreate],
-      access: access(["calendar"]),
+      tools: [vercelList, vercelRedeploy],
+      access: access(["vercel"]),
       activeTools: [],
     } as const;
 
-    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "What's on my calendar Friday?" }), [
-      "calendar.list_events",
+    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "What's live on Friday?" }), [
+      "vercel.list_deployments",
     ]);
-    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "calendar Friday" }), []);
+    assert.deepEqual(preloadToolCatalog({ ...args, prompt: "deploys Friday" }), []);
   });
 
   test("applies the preload limit after removing already-active candidates", () => {
-    const ranked = [calendarCreate, calendarList, gmailRead, gmailSearch, gmailSend];
+    const ranked = [vercelRedeploy, vercelList, contactsGet, contactsSearch, greleaseRedeploy];
     const activeTools = ranked.slice(0, 4).map((tool) => tool.name);
     assert.deepEqual(
       preloadToolCatalog({
@@ -355,14 +355,14 @@ describe("tool discovery", () => {
 });
 
 test("exact availability respects tool scopes and caller context", () => {
-  const readonlyScope = "gmail.readonly";
+  const readonlyScope = "contacts.readonly";
 
   const read = liveTool({
-    integration: "gmail",
+    integration: "contacts",
     action: "search",
     riskTier: "no_risk",
     replay: "safe",
-    description: "Search mail.",
+    description: "Search contacts.",
     availability: { credential: { provider: "google", anyOfScopes: [readonlyScope] } },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
@@ -391,7 +391,10 @@ test("exact availability respects tool scopes and caller context", () => {
   });
 
   const snapshot: IntegrationAvailabilitySnapshot = {
-    integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
+    integrations: new Map([
+      ["contacts", { health: "active", accountLabel: null }],
+      ["gmail", { health: "active", accountLabel: null }],
+    ]),
     providers: new Map([["google", [provider("active", [readonlyScope])]]]),
     passthroughEnabled: new Map(),
   };
@@ -403,19 +406,19 @@ test("exact availability respects tool scopes and caller context", () => {
         interaction: "background",
       }),
     ],
-    ["gmail.search"],
+    ["contacts.search"],
   );
 });
 
 describe("evaluateToolAvailability reason codes (#413)", () => {
-  const scoped = "gmail.readonly";
+  const scoped = "contacts.readonly";
 
   const search = liveTool({
-    integration: "gmail",
+    integration: "contacts",
     action: "search",
     riskTier: "no_risk",
     replay: "safe",
-    description: "Search mail.",
+    description: "Search contacts.",
     availability: { credential: { provider: "google", anyOfScopes: [scoped] } },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
@@ -446,7 +449,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
   const ctx = { caller: "boss", interaction: "live_chat" } as const;
 
   const active = (scopes: string[]): IntegrationAvailabilitySnapshot => ({
-    integrations: new Map([["gmail", { health: "active", accountLabel: null }]]),
+    integrations: new Map([["contacts", { health: "active", accountLabel: null }]]),
     providers: new Map([["google", [provider("active", scopes)]]]),
     passthroughEnabled: new Map(),
   });
@@ -471,7 +474,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
   test("needs_reauth when a credential exists but is not active", () => {
     const snapshot: IntegrationAvailabilitySnapshot = {
-      integrations: new Map([["gmail", { health: "needs_reauth", accountLabel: null }]]),
+      integrations: new Map([["contacts", { health: "needs_reauth", accountLabel: null }]]),
       providers: new Map([["google", [provider("needs_reauth", [scoped])]]]),
       passthroughEnabled: new Map(),
     };
@@ -481,7 +484,7 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
   });
 
   test("missing_scope when active but the required scope is absent", () => {
-    const result = evaluateToolAvailability(active(["gmail.other"]), search, new Set(), ctx);
+    const result = evaluateToolAvailability(active(["contacts.other"]), search, new Set(), ctx);
     assert.equal(result.available === false && result.code, "missing_scope");
   });
 
@@ -509,53 +512,53 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
 // Tools without authored discovery use the derived baseline. Strong unavailable matches show a
 // reason.
-const slidesCreate = liveTool({
-  integration: "slides",
-  action: "create_presentation",
+const projectsList = liveTool({
+  integration: "vercel",
+  action: "list_projects",
   riskTier: "medium",
   replay: "safe",
-  description: "Create a Slides presentation under a parent.",
+  description: "List Vercel projects under a team.",
   inputSchema: z.object({ title: z.string(), content: z.string() }).strict(),
   execute: async () => ({ ok: true }),
 });
 
-const slidesGet = liveTool({
-  integration: "slides",
-  action: "get_presentation",
+const deploymentsList = liveTool({
+  integration: "vercel",
+  action: "list_deployments",
   riskTier: "no_risk",
   replay: "safe",
-  description: "Fetch a presentation by id from the workspace.",
-  inputSchema: z.object({ presentationId: z.string() }).strict(),
+  description: "Fetch deployments by id from the workspace.",
+  inputSchema: z.object({ deploymentId: z.string() }).strict(),
   execute: async () => ({ ok: true }),
 });
 
 describe("derived-metadata discovery (#413)", () => {
   test("finds a tool with no authored discovery by capability, identity, and schema field", () => {
     const catalog = {
-      tools: [slidesCreate, slidesGet],
+      tools: [projectsList, deploymentsList],
       access: {
         allowedIntegrations: [],
         availability: new Map<ToolName, ToolAvailabilityResult>([
-          [slidesCreate.name, { available: true }],
-          [slidesGet.name, { available: true }],
+          [projectsList.name, { available: true }],
+          [deploymentsList.name, { available: true }],
         ]),
       },
     } as const;
 
     assert.equal(
-      searchToolCatalog({ query: "create presentation", ...catalog })[0]?.name,
-      "slides.create_presentation",
+      searchToolCatalog({ query: "list projects", ...catalog })[0]?.name,
+      "vercel.list_projects",
       "matches the derived verb + entity",
     );
     assert.ok(
-      searchToolCatalog({ query: "slides", ...catalog }).some(
-        (c) => c.name === "slides.create_presentation",
+      searchToolCatalog({ query: "vercel", ...catalog }).some(
+        (c) => c.name === "vercel.list_projects",
       ),
       "matches the derived identity tag",
     );
     assert.equal(
       searchToolCatalog({ query: "content", ...catalog })[0]?.name,
-      "slides.create_presentation",
+      "vercel.list_projects",
       "matches a derived schema-field entity",
     );
   });
@@ -564,25 +567,25 @@ describe("derived-metadata discovery (#413)", () => {
     const access: ToolCatalogAccess = {
       allowedIntegrations: [],
       availability: new Map<ToolName, ToolAvailabilityResult>([
-        [slidesGet.name, { available: true }],
+        [deploymentsList.name, { available: true }],
         [
-          slidesCreate.name,
-          { available: false, code: "not_connected", reason: "Slides is not connected." },
+          projectsList.name,
+          { available: false, code: "not_connected", reason: "Vercel is not connected." },
         ],
       ]),
     };
 
     const found = searchToolCatalog({
-      query: "presentation",
-      tools: [slidesCreate, slidesGet],
+      query: "list",
+      tools: [projectsList, deploymentsList],
       access,
       includeUnavailable: true,
     });
 
-    const create = found.find((c) => c.name === "slides.create_presentation");
+    const create = found.find((c) => c.name === "vercel.list_projects");
     assert.equal(create?.availability, "unavailable");
-    assert.equal(create.unavailableReason, "Slides is not connected.");
-    const get = found.find((c) => c.name === "slides.get_presentation");
+    assert.equal(create.unavailableReason, "Vercel is not connected.");
+    const get = found.find((c) => c.name === "vercel.list_deployments");
     assert.equal(get?.availability, "available");
     assert.ok(
       found.indexOf(get) < found.indexOf(create),
@@ -595,14 +598,14 @@ describe("derived-metadata discovery (#413)", () => {
       allowedIntegrations: [],
       availability: new Map<ToolName, ToolAvailabilityResult>([
         [
-          slidesCreate.name,
-          { available: false, code: "not_connected", reason: "Slides is not connected." },
+          projectsList.name,
+          { available: false, code: "not_connected", reason: "Vercel is not connected." },
         ],
       ]),
     };
 
     assert.deepEqual(
-      searchToolCatalog({ query: "create presentation", tools: [slidesCreate], access }),
+      searchToolCatalog({ query: "list projects", tools: [projectsList], access }),
       [],
       "no includeUnavailable → hidden",
     );
@@ -612,13 +615,13 @@ describe("derived-metadata discovery (#413)", () => {
     // A description-only match scores below the floor for unavailable tools.
     const found = searchToolCatalog({
       query: "workspace",
-      tools: [slidesGet],
+      tools: [deploymentsList],
       access: {
         allowedIntegrations: [],
         availability: new Map<ToolName, ToolAvailabilityResult>([
           [
-            slidesGet.name,
-            { available: false, code: "not_connected", reason: "Slides is not connected." },
+            deploymentsList.name,
+            { available: false, code: "not_connected", reason: "Vercel is not connected." },
           ],
         ]),
       },
@@ -631,13 +634,13 @@ describe("derived-metadata discovery (#413)", () => {
   test("never surfaces tools outside the workflow allowlist, available or not", () => {
     // The user cannot fix `not_allowed` in-run, so it stays hidden even with includeUnavailable.
     const found = searchToolCatalog({
-      query: "create presentation",
-      tools: [slidesCreate],
+      query: "list projects",
+      tools: [projectsList],
       access: {
         allowedIntegrations: ["gmail"],
         availability: new Map<ToolName, ToolAvailabilityResult>([
           [
-            slidesCreate.name,
+            projectsList.name,
             {
               available: false,
               code: "not_allowed",
@@ -655,60 +658,60 @@ describe("derived-metadata discovery (#413)", () => {
 
 // Plural nouns and generic read verbs must preload, but never a write sibling.
 describe("preload recall for natural phrasing (#414)", () => {
-  const mailSearch = liveTool({
-    integration: "gmail",
-    action: "search",
+  const releaseList = liveTool({
+    integration: "vercel",
+    action: "list_deployments",
     riskTier: "no_risk",
     replay: "safe",
-    description: "Search mail.",
-    discovery: { entities: ["email", "message"], verbs: ["search", "find"] },
+    description: "Search releases.",
+    discovery: { entities: ["release", "build"], verbs: ["search", "find"] },
     inputSchema: z.object({ query: z.string() }).strict(),
     execute: async () => ({ ok: true }),
   });
 
-  const mailSend = liveTool({
-    integration: "gmail",
-    action: "send_draft",
+  const releaseRedeploy = liveTool({
+    integration: "vercel",
+    action: "redeploy",
     riskTier: "high",
     replay: "safe",
-    description: "Send a mail draft.",
-    discovery: { entities: ["email", "draft"], verbs: ["send", "reply"] },
+    description: "Ship a release again.",
+    discovery: { entities: ["release", "rollout"], verbs: ["ship", "promote"] },
     inputSchema: z.object({ to: z.string() }).strict(),
     execute: async () => ({ ok: true }),
   });
 
   const catalog = {
-    tools: [mailSearch, mailSend],
+    tools: [releaseList, releaseRedeploy],
     access: {
       allowedIntegrations: [],
       availability: new Map<ToolName, ToolAvailabilityResult>([
-        [mailSearch.name, { available: true }],
-        [mailSend.name, { available: true }],
+        [releaseList.name, { available: true }],
+        [releaseRedeploy.name, { available: true }],
       ]),
     },
   } as const;
 
   test("a plural prompt matches a singular authored entity", () => {
     assert.ok(
-      searchToolCatalog({ query: "anything new in my emails", ...catalog }).some(
-        (candidate) => candidate.name === "gmail.search",
+      searchToolCatalog({ query: "anything new in my releases", ...catalog }).some(
+        (candidate) => candidate.name === "vercel.list_deployments",
       ),
     );
   });
 
   test("a generic read request preloads the read tool but never the write sibling", () => {
-    // The send tool shares the entity but no verb, so a read request must not load it.
+    // The redeploy tool shares the entity but no verb, so a read request must not load it.
     assert.deepEqual(
       preloadToolCatalog({
-        prompt: "Give me a summary of my emails",
+        prompt: "Give me a summary of my releases",
         activeTools: [],
         ...catalog,
       }),
-      ["gmail.search"],
+      ["vercel.list_deployments"],
     );
   });
 
   test("a bare noun with no verb of any kind still preloads nothing", () => {
-    assert.deepEqual(preloadToolCatalog({ prompt: "emails", activeTools: [], ...catalog }), []);
+    assert.deepEqual(preloadToolCatalog({ prompt: "releases", activeTools: [], ...catalog }), []);
   });
 });

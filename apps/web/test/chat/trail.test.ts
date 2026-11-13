@@ -40,7 +40,7 @@ describe("buildTrail", () => {
 
   test("segments ascend and narration precedes its own segment's tools", () => {
     const trail = buildTrail(
-      [call("gmail.search", "succeeded", 1)],
+      [call("contacts.search", "succeeded", 1)],
       [
         { index: 0, text: "First I'll look" },
         { index: 1, text: "Now searching" },
@@ -58,9 +58,9 @@ describe("buildTrail", () => {
   test("consecutive identical calls fold into one row, a failure breaks it", () => {
     const folded = buildTrail(
       [
-        call("gmail.search", "succeeded", 0, "a"),
-        call("gmail.search", "succeeded", 0, "b"),
-        call("gmail.search", "failed", 0, "c"),
+        call("contacts.search", "succeeded", 0, "a"),
+        call("contacts.search", "succeeded", 0, "b"),
+        call("contacts.search", "failed", 0, "c"),
       ],
       [],
     );
@@ -84,7 +84,7 @@ describe("buildTrail", () => {
 
   test("narration between two identical calls breaks the run", () => {
     const trail = buildTrail(
-      [call("gmail.search", "succeeded", 0, "a"), call("gmail.search", "succeeded", 1, "b")],
+      [call("contacts.search", "succeeded", 0, "a"), call("contacts.search", "succeeded", 1, "b")],
       [{ index: 1, text: "One more pass" }],
     );
 

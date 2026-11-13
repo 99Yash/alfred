@@ -8,7 +8,7 @@ test("hashToolInput canonicalizes own enumerable object properties", () => {
   }
 
   assert.equal(
-    hashToolInput("gmail.search", new Box()),
-    hashToolInput("gmail.search", { value: 1 }),
+    hashToolInput("contacts.search", new Box()),
+    hashToolInput("contacts.search", { value: 1 }),
   );
 });

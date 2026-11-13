@@ -36,8 +36,8 @@ describe("boundedNameList", () => {
 
   test("joins a short list verbatim", () => {
     assert.equal(
-      boundedNameList(["gmail.search", "calendar.list_events"]),
-      "gmail.search,calendar.list_events",
+      boundedNameList(["contacts.search", "contacts.list"]),
+      "contacts.search,contacts.list",
     );
   });
 

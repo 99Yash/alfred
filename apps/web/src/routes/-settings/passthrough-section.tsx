@@ -3,18 +3,7 @@ import {
   SUPPORTED_PASSTHROUGH_SLUGS,
   type SupportedPassthroughSlug,
 } from "@alfred/contracts";
-import {
-  AlertCircle,
-  CalendarDays,
-  FileText,
-  HardDrive,
-  Mail,
-  Presentation,
-  RefreshCw,
-  Table2,
-  Triangle,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertCircle, RefreshCw, Triangle, type LucideIcon } from "lucide-react";
 import { AppButton, AppCard } from "~/components/ui/v2";
 import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { usePassthroughFlags } from "~/lib/replicache/use-passthrough-flags";
@@ -32,38 +21,6 @@ interface PassthroughMeta {
 
 // Exhaustive over SUPPORTED_PASSTHROUGH_SLUGS, so a new slug cannot ship without a row.
 const PASSTHROUGH_META = {
-  gmail: {
-    helper: "Raw read-only Gmail API: list labels, read message metadata beyond the curated tools.",
-    icon: Mail,
-    tint: "green",
-  },
-  calendar: {
-    helper:
-      "Raw read-only Calendar API: calendar lists, settings, and event fields we never modeled.",
-    icon: CalendarDays,
-    tint: "sky",
-  },
-  drive: {
-    helper: "Raw read-only Drive API: file metadata, permissions, and revisions.",
-    icon: HardDrive,
-    tint: "amber",
-  },
-  docs: {
-    helper:
-      "Raw read-only Docs API: document structure and metadata (content stays in the curated tools).",
-    icon: FileText,
-    tint: "sky",
-  },
-  sheets: {
-    helper: "Raw read-only Sheets API: spreadsheet structure, named ranges, and metadata.",
-    icon: Table2,
-    tint: "green",
-  },
-  slides: {
-    helper: "Raw read-only Slides API: presentation structure and metadata.",
-    icon: Presentation,
-    tint: "orange",
-  },
   vercel: {
     helper: "Raw read-only Vercel REST: project and deployment detail.",
     icon: Triangle,

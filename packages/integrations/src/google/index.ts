@@ -51,8 +51,6 @@ export type {
   StartWatchResult,
 } from "./gmail";
 
-export type { GoogleService } from "./http";
-
 // The token-taking Gmail calls stay inside this package: reach a mailbox through `gmailMailbox`.
 export {
   extractAttachments,
@@ -110,8 +108,6 @@ export {
   GoogleReauthRequiredError,
   scopesForFeatures,
 } from "./oauth";
-
-export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";
 
 export { isSelfAuthored, selfSenderEmail } from "./self-mail";
 

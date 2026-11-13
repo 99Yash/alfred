@@ -7,9 +7,10 @@
  * Pre-reqs:
  *   - A server process running (`pnpm dev`), so the worker runs the run and its child.
  *     This script auto-approves pending stagings.
- *   - One user with Google connected (gmail.send scope).
+ *   - One user with Google connected (gmail.send and contacts scopes), so the Gmail MCP
+ *     server is reachable (ADR-0126).
  *
- * Gmail runs on autonomy with `gmail.send_draft` gated, so one run covers both
+ * Gmail and Contacts run on autonomy with `gmail.send_draft` gated, so one run covers both
  * dispatch paths. The user's real policy row is restored in `finally`.
  */
 
@@ -81,6 +82,7 @@ async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
       mode: "autonomy" as const,
       toolOverrides: { "gmail.send_draft": "gated" as const },
     },
+    contacts: { mode: "autonomy" as const },
   };
 
   await db()
@@ -125,15 +127,15 @@ async function resetSmokeRows(userId: string): Promise<void> {
 }
 
 async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<void> {
-  // `gmail.read_message` reads ingested `documents`, not the Gmail API, so give the brief a real doc id.
+  // The sub-agent reads one real thread through the Gmail MCP server, so give the brief its id.
   const [doc] = await db()
-    .select({ id: documents.id, title: documents.title })
+    .select({ id: documents.id, sourceThreadId: documents.sourceThreadId })
     .from(documents)
     .where(and(eq(documents.userId, userId), eq(documents.source, "gmail")))
     .orderBy(desc(documents.authoredAt))
     .limit(1);
 
-  if (!doc) {
+  if (!doc?.sourceThreadId) {
     throw new Error(
       "[smoke-boss] no ingested gmail documents for this user — run gmail ingestion first",
     );
@@ -141,13 +143,14 @@ async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<v
 
   const brief = [
     "@gmail — This is a delegation smoke test. You are the BOSS and you MUST delegate the",
-    "reading work to a sub-agent. Do NOT call gmail.read_message yourself — that is the",
+    "reading work to a sub-agent. Do NOT read the email yourself — that is the",
     "sub-agent's job. Follow these steps exactly and in order:",
     "",
-    "1. Call gmail.search with q='in:inbox newer_than:7d' to confirm inbox access. (Search only — do not read bodies.)",
+    `1. Call contacts.search with query '${selfEmail}' to confirm Google access. (Search only — do not read email.)`,
     "2. You MUST call system.spawn_sub_agent with subId 'inbox', allowedIntegrations ['gmail'], and",
     "   this EXACT brief for the sub-agent (copy it verbatim):",
-    `     "Call gmail.read_message with documentId '${doc.id}', then write a one-sentence summary`,
+    `     "Read the Gmail thread '${doc.sourceThreadId}' through the Gmail MCP server (find its get_thread`,
+    "      tool with mcp.list_tools, then call it with mcp.call), then write a one-sentence summary",
     '      of that email to the scratch key scratch.inbox.summary."',
     "3. Then call system.read_scratch for 'scratch.inbox.summary'. If it is empty, the sub-agent",
     "   has not finished yet — call system.read_scratch again on your next turn until it returns content.",
@@ -165,7 +168,7 @@ async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<v
       name: "Smoke boss",
       brief,
       trigger: { kind: "manual" },
-      allowedIntegrations: ["gmail"],
+      allowedIntegrations: ["gmail", "contacts"],
       status: "active",
       isBuiltin: false,
     });
@@ -321,12 +324,12 @@ async function main(): Promise<void> {
       console.log(`   - ${s.toolName} status=${s.status} requiresApproval=${s.requiresApproval}`);
     }
 
-    // 1. gmail.search executed via autonomy (no approval needed).
-    const search = stagings.find((s) => s.toolName === "gmail.search");
-    assert(search !== undefined, "expected a gmail.search staging");
+    // 1. contacts.search executed via autonomy (no approval needed).
+    const search = stagings.find((s) => s.toolName === "contacts.search");
+    assert(search !== undefined, "expected a contacts.search staging");
     assert(
       search.status === "executed" && search.requiresApproval === false,
-      `expected gmail.search executed via autonomy, got status=${search.status} requiresApproval=${search.requiresApproval}`,
+      `expected contacts.search executed via autonomy, got status=${search.status} requiresApproval=${search.requiresApproval}`,
     );
 
     // 2. The boss spawned a sub-agent → a child run row exists.
