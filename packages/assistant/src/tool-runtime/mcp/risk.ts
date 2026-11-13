@@ -1,7 +1,7 @@
 /**
  * Effective risk tier for `mcp.call` at the dispatch gate.
- * `mcp.call` defaults to `high`. A reviewed policy (ADR-0069) or a read-only
- * built-in resource (ADR-0096) can lower it. Any doubt keeps `high`.
+ * `mcp.call` defaults to `high`. A reviewed policy (ADR-0069), a code-owned built-in entry, or
+ * a read-only built-in resource (ADR-0096) can lower it. Any doubt keeps `high`.
  * Reads the persisted catalog in one joined query; runs on every call.
  */
 
@@ -31,7 +31,7 @@ export async function resolveMcpCallRiskTier(
 /**
  * The tier a resolved identity grants. Recovery reuses it so a successor cannot
  * carry a tier the gate would refuse. Precedence: reviewed policy, then drifted
- * review (floor), then structural read-only, then the floor.
+ * review (floor), then the code-owned entry, then structural read-only, then the floor.
  */
 export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolRiskTier {
   if (identity.status !== "resolved") return MCP_CALL_RISK_FLOOR;
@@ -50,6 +50,12 @@ export function effectiveMcpRiskTier(identity: McpToolIdentityResolution): ToolR
 
   // Reviewed, then drifted. Do not let the structural branch undo a raised review.
   if (identity.reviewed) return MCP_CALL_RISK_FLOOR;
+
+  // Code pins the exact descriptor (ADR-0096 amendment, 2026-11-13). Like a review, it lowers
+  // only a tool that claims `readOnlyHint`: neither the pin nor the hint is enough alone.
+  if (identity.codePolicy !== undefined) {
+    return identity.readOnly ? identity.codePolicy.riskTier : MCP_CALL_RISK_FLOOR;
+  }
 
   // Both come from durable state: the built-in registry (ADR-0094) and the published descriptor.
   if (identity.readOnlyResource && identity.readOnly) return MCP_READ_ONLY_STRUCTURAL_TIER;
