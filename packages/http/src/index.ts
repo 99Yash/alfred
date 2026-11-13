@@ -24,6 +24,7 @@ import { sharingRoutes } from "./sharing";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
+import { resendWebhookRoutes } from "./resend-webhook";
 import { workflowRoutes } from "./workflows";
 
 // The package's only entry point: no subpaths, because `exports` entries rot when files move.
@@ -96,6 +97,7 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
   .use(approvalsRoutes)
   .use(chatRoutes)
   .use(connections)
+  .use(resendWebhookRoutes)
   .use(mcpIntegrationRoutes)
   .use(integrationsRoutes)
   .use(meRoutes)

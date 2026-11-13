@@ -12,7 +12,7 @@ import { assertNever } from "@alfred/contracts";
  * Gmail uses `gmail-webhook.ts` (OIDC, and it carries a pointer, not the event).
  */
 
-const rawBodyRoute = {
+export const rawBodyRoute = {
   // Raw text, so the HMAC covers the provider's exact bytes.
   parse: ({ request }: { request: Request }) => request.text(),
   body: t.String(),
