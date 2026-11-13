@@ -491,3 +491,118 @@ describe("sanitizeChatMessageFields — voice enforcement", () => {
     assert.equal(fields.content, clean);
   });
 });
+
+describe("guardUnreportedToolFailures with an unconfirmed effect", () => {
+  /** The action record of `unconfirmedIds` has `retry: "blocked"`, so `selectWrites` marks them. */
+  function unconfirmedRecorder(
+    unconfirmedIds: string[],
+    judgeReply: GuardUnreportedToolFailuresDeps["judgeReply"],
+  ): Recorder {
+    const published: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+
+    const deps: GuardUnreportedToolFailuresDeps = {
+      selectWrites: async (_ctx, calls) =>
+        calls.map((call) =>
+          unconfirmedIds.includes(call.toolCallId) ? { ...call, effectUnconfirmed: true } : call,
+        ),
+      judgeReply,
+      publish: async (event) => {
+        published.push({ kind: event.kind, payload: event.payload });
+      },
+    };
+
+    return { deps, published };
+  }
+
+  /** The reply check failed, so the guard appends the fallback note from code. */
+  const judgeFails: GuardUnreportedToolFailuresDeps["judgeReply"] = async () => null;
+
+  test("the fallback note for an unconfirmed write says it may have gone through", async () => {
+    const state = baseState({
+      assistantText: "Here is what I found.",
+      toolCallsLog: [
+        { toolCallId: "tc_mcp", toolName: "mcp.call", status: "failed", segmentIndex: 0 },
+      ],
+    });
+
+    const { deps } = unconfirmedRecorder(["tc_mcp"], judgeFails);
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+
+    assert.equal(result, null, "the guard keeps the answer and appends a note");
+    assert.doesNotMatch(state.assistantText, /Nothing changed/);
+    assert.match(state.assistantText, /I couldn't confirm call a connected tool\./);
+    assert.match(state.assistantText, /It may have gone through/);
+  });
+
+  test("the fallback note for a plain failed write keeps 'Nothing changed there.'", async () => {
+    const state = baseState({
+      assistantText: "Here is what I found.",
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
+      ],
+    });
+
+    const { deps } = unconfirmedRecorder([], judgeFails);
+    await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+
+    assert.match(
+      state.assistantText,
+      /I couldn't append spreadsheet rows\. Nothing changed there\./,
+    );
+    assert.doesNotMatch(state.assistantText, /may have gone through/);
+  });
+
+  test("a mixed turn says 'Nothing changed' only for the write that did not land", async () => {
+    const state = baseState({
+      assistantText: "Here is what I found.",
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_mcp", toolName: "mcp.call", status: "failed", segmentIndex: 0 },
+      ],
+    });
+
+    const { deps } = unconfirmedRecorder(["tc_mcp"], judgeFails);
+    await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+
+    assert.match(
+      state.assistantText,
+      /I couldn't append spreadsheet rows\. Nothing changed there\. I couldn't confirm call a connected tool\. It may have gone through/,
+    );
+  });
+
+  test("on claims_success the regenerate note names the unconfirmed tool", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        { toolCallId: "tc_mcp", toolName: "mcp.call", status: "failed", segmentIndex: 0 },
+      ],
+    });
+
+    const { deps } = unconfirmedRecorder(["tc_mcp"], claimsSuccess);
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+
+    assert.ok(result, "a false success claim regenerates the reply");
+    assert.equal(result.kind, "next");
+    const last = result.transcript?.at(-1);
+    assert.ok(last);
+    const note = toDisplayText(last.content);
+    assert.match(note, /For mcp\.call, an attempt may have reached the target/);
+    assert.match(note, /do not say that nothing changed/);
+  });
+
+  test("on claims_success a plain failed write gets no unconfirmed sentence", async () => {
+    const state = baseState({
+      toolCallsLog: [
+        { toolCallId: "tc_1", toolName: "sheets.append_values", status: "failed", segmentIndex: 0 },
+      ],
+    });
+
+    const { deps } = unconfirmedRecorder([], claimsSuccess);
+    const result = await guardUnreportedToolFailures(baseCtx(state), state, [], deps);
+
+    assert.ok(result);
+    assert.equal(result.kind, "next");
+    const last = result.transcript?.at(-1);
+    assert.ok(last);
+    assert.doesNotMatch(toDisplayText(last.content), /may have reached the target/);
+  });
+});

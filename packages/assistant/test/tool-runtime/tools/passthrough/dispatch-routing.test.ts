@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { ToolName } from "@alfred/contracts";
 import { isRecord } from "@alfred/contracts";
 import {
+  executedResultOutcome,
   isNonExecutionFailure,
   toolCallLogStatus,
   toolResultMessage,
@@ -92,5 +93,58 @@ describe("an executed result carries `editedByUser` to the model", () => {
     const value = executedValue(false);
     assert.ok(isRecord(value));
     assert.equal(value.editedByUser, false);
+  });
+});
+
+describe("executedResultOutcome gives one outcome to the log, the record, and the span", () => {
+  const MCP_CALL: ToolName = "mcp.call";
+
+  const executed = (
+    toolResult: unknown,
+  ): Extract<ToolCallDispatchResult, { kind: "executed" }> => ({
+    kind: "executed",
+    stagingId: "s1",
+    toolResult,
+    effects: {},
+    editedByUser: false,
+  });
+
+  const toolError = { ok: false, status: "tool_error", result: { content: [] } };
+
+  const blocked = {
+    ok: false,
+    status: "blocked",
+    retry: "blocked",
+    reason: "unresolved_effect",
+    message: "An earlier attempt may have landed.",
+  };
+
+  const unknownEnvelope = { status: "unknown", retry: "blocked", message: "ambiguous delivery" };
+
+  test("an mcp.call tool_error result is failed", () => {
+    assert.equal(executedResultOutcome(MCP_CALL, toolError), "failed");
+    assert.equal(toolCallLogStatus(MCP_CALL, executed(toolError)), "failed");
+  });
+
+  test("an mcp.call blocked result is failed", () => {
+    assert.equal(executedResultOutcome(MCP_CALL, blocked), "failed");
+    assert.equal(toolCallLogStatus(MCP_CALL, executed(blocked)), "failed");
+  });
+
+  test("an unknown-effect envelope is unknown, and the log shows it as failed", () => {
+    assert.equal(executedResultOutcome(MCP_CALL, unknownEnvelope), "unknown");
+    assert.equal(toolCallLogStatus(MCP_CALL, executed(unknownEnvelope)), "failed");
+  });
+
+  test("an mcp.call completed result is succeeded", () => {
+    const completed = { status: "completed", result: { content: [] } };
+    assert.equal(executedResultOutcome(MCP_CALL, completed), "succeeded");
+    assert.equal(toolCallLogStatus(MCP_CALL, executed(completed)), "succeeded");
+  });
+
+  test("a system workflow draft that is blocked and ok stays succeeded", () => {
+    const draft = { ok: true, status: "blocked" };
+    assert.equal(executedResultOutcome("system.author_workflow", draft), "succeeded");
+    assert.equal(toolCallLogStatus("system.author_workflow", executed(draft)), "succeeded");
   });
 });

@@ -63,6 +63,15 @@ let executeCount = 0;
 
 let lastExecutedInput: unknown;
 
+/** What the Calendar create_event double returns. A test sets it to model a returned failure. */
+interface CalendarDoubleOutput {
+  ok: boolean;
+  status?: string;
+  result?: { content: never[] };
+}
+
+let calendarOutput: CalendarDoubleOutput = { ok: true };
+
 function requireCalendarCreateEventTool() {
   const tool = calendarTools.find((candidate) => candidate.name === "calendar.create_event");
 
@@ -198,7 +207,7 @@ function registerDoubles(): void {
             executeCount += 1;
             lastExecutedInput = call.input;
 
-            return { output: { ok: true }, effects: {}, spanFacts: {} };
+            return { output: calendarOutput, effects: {}, spanFacts: {} };
           },
         },
       };
@@ -245,6 +254,7 @@ function installMachineFixture(): void {
   });
   executeCount = 0;
   lastExecutedInput = undefined;
+  calendarOutput = { ok: true };
   registerDoubles();
   clearPolicyCacheForTests();
   _primePolicyCacheForTests({
@@ -858,6 +868,79 @@ describe("dispatch staging machine (DB-free)", () => {
     assert.equal(replay.kind, "blocked", "a replay of an unresolved unknown effect is blocked");
     assert.equal(executeCount, 1, "the replay must not execute");
     assert.equal(store.rows().length, 1, "the blocked replay writes no row");
+  });
+
+  test("an executed action whose result has ok false commits failed and closes its span as an error", async () => {
+    // The shape of an `mcp.call` `tool_error`: the tool ran and its result reports a failure.
+    calendarOutput = { ok: false, status: "tool_error", result: { content: [] } };
+    const spans: Array<{ toolName: string; closed: "success" | "error"; message?: string }> = [];
+
+    const restoreSpans = _setDispatchTraceSinksForTests({
+      toolSpanStarter: (input) => ({
+        success: () => spans.push({ toolName: input.toolName, closed: "success" }),
+        error: (message) => spans.push({ toolName: input.toolName, closed: "error", message }),
+      }),
+    });
+
+    try {
+      const result = await dispatchToolCall(
+        baseArgs({
+          toolCallId: "tc_returned_failure",
+          toolName: "calendar.create_event",
+          input: {
+            summary: "Focus block",
+            start: "2026-08-12T10:00:00+05:30",
+            end: "2026-08-12T11:00:00+05:30",
+            attendees: [],
+          },
+        }),
+      );
+
+      assert.equal(result.kind, "executed", "the tool ran, so the call is executed");
+      const [row] = store.rows();
+      assert.equal(row?.status, "executed");
+      assert.equal(row.outcome, "failed", "a returned failure is not a success on the record");
+      assert.deepEqual(spans, [
+        {
+          toolName: "calendar.create_event",
+          closed: "error",
+          message: "calendar.create_event returned failed (status tool_error)",
+        },
+      ]);
+    } finally {
+      restoreSpans();
+    }
+  });
+
+  test("an executed action whose result succeeds commits succeeded and closes its span as a success", async () => {
+    const spans: Array<"success" | "error"> = [];
+
+    const restoreSpans = _setDispatchTraceSinksForTests({
+      toolSpanStarter: () => ({
+        success: () => spans.push("success"),
+        error: () => spans.push("error"),
+      }),
+    });
+
+    try {
+      await dispatchToolCall(
+        baseArgs({
+          toolCallId: "tc_returned_success",
+          toolName: "calendar.create_event",
+          input: {
+            summary: "Focus block",
+            start: "2026-08-12T10:00:00+05:30",
+            end: "2026-08-12T11:00:00+05:30",
+            attendees: [],
+          },
+        }),
+      );
+
+      assert.equal(store.rows()[0]?.outcome, "succeeded");
+      assert.deepEqual(spans, ["success"]);
+    } finally {
+      restoreSpans();
+    }
   });
 
   // Not tested: the `default:` status arm. `parseStagingRow` rejects an unknown status first,
