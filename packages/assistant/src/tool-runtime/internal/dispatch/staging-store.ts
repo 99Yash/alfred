@@ -169,7 +169,8 @@ export type StagingCommit =
   | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
   | {
       status: "executed";
-      outcome: "succeeded" | "unknown";
+      /** `failed`: the tool ran and its result reports a failure (`executedResultOutcome`). */
+      outcome: "succeeded" | "failed" | "unknown";
       result: JsonValue | undefined;
       sanitized: boolean;
       /** Written with `result`, so a replay returns the effects of the live call. */
