@@ -21,14 +21,14 @@ import { toolAlwaysWaitsForApproval } from "@alfred/assistant/tool-runtime/appro
  */
 
 const CONNECTED_HEADER =
-  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it. A line marks the calls that wait for the user's approval: each one shows the user an approval card, and that card is the confirmation. Any other call may run at once.";
+  "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it. A line marks the calls that wait for the user's approval: each one shows the user an approval card, and that card is the confirmation. Any other call may run at once.";
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
 
 /**
- * A live provider with no curated tool (GitHub, ADR-0125) gets a line only when it needs
- * reauth. Its MCP connection line names its tools.
+ * A live provider with no curated tool (GitHub, ADR-0125; Calendar, Drive, Docs, and Slides,
+ * ADR-0126) gets a line only when it needs reauth. Its MCP connection line names its tools.
  */
 export async function buildConnectedSummaryFromAvailability(
   userId: string,

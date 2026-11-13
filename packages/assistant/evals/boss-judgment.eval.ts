@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { type ChatModelTier, route } from "@alfred/ai";
 import {
-  calendarListEventsInput,
   fetchUrlInput,
-  gmailReadMessageInput,
-  gmailSearchInput,
   getStringPath,
   isRecord,
   type JsonValue,
@@ -49,12 +46,6 @@ const WEB_SEARCH_TOOL = "system.web_search";
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
 
 const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
-
-const GMAIL_SEARCH_TOOL = "gmail.search";
-
-const GMAIL_READ_MESSAGE_TOOL = "gmail.read_message";
-
-const CALENDAR_TOOL = "calendar.list_events";
 
 const FETCH_URL_TOOL = "system.fetch_url";
 
@@ -109,6 +100,24 @@ const GITHUB_ARGUMENT_VALIDATORS = new Map(
 
 /** The record the GitHub case asks about. A drill earns credit only on this record. */
 const GITHUB_REQUESTED_PR = { owner: "acme", repo: "web", number: 482 };
+
+// Gmail and Google Calendar are Google Workspace MCP built-ins (ADR-0126). The model finds their
+// tools in the catalog and calls them through mcp.call, so the eval names the remote tools.
+const GMAIL_CONNECTION = { id: "mcp_conn_gmail", instanceKey: "gmail", label: "Gmail" };
+
+const CALENDAR_CONNECTION = {
+  id: "mcp_conn_google_calendar",
+  instanceKey: "calendar",
+  label: "Google Calendar",
+};
+
+const GOOGLE_CATALOG_REVISION = "rev_google_eval";
+
+const GMAIL_SEARCH_REMOTE = "search_threads";
+
+const GMAIL_READ_THREAD_REMOTE = "get_thread";
+
+const CALENDAR_LIST_REMOTE = "list_events";
 
 const TIERS: ChatModelTier[] = ["standard", "deep"];
 
@@ -171,10 +180,80 @@ function readsRequestedPullRequest(call: ToolCall): boolean {
   );
 }
 
+type McpConnection = typeof GMAIL_CONNECTION;
+
+function googleMcpHit(connection: McpConnection, remoteName: string, description: string) {
+  return {
+    ref: {
+      kind: "mcp",
+      connectionId: connection.id,
+      remoteName,
+      catalogRevision: GOOGLE_CATALOG_REVISION,
+    },
+    namespace: connection.instanceKey,
+    connection,
+    description,
+  };
+}
+
+const GOOGLE_MCP_HITS = [
+  googleMcpHit(
+    GMAIL_CONNECTION,
+    GMAIL_SEARCH_REMOTE,
+    "Search the user's Gmail threads with Gmail search operators. Each hit has the thread id, sender, subject, and snippet.",
+  ),
+  googleMcpHit(
+    GMAIL_CONNECTION,
+    GMAIL_READ_THREAD_REMOTE,
+    "Read one Gmail thread by its thread id: every message's sender, date, and body.",
+  ),
+  googleMcpHit(
+    CALENDAR_CONNECTION,
+    CALENDAR_LIST_REMOTE,
+    "List the events on the user's calendar in a time range.",
+  ),
+];
+
+/** The catalog page that mcp.list_tools returns, scoped like production. */
+function googleMcpCatalog(input: {
+  connectionId?: string | undefined;
+  namespace?: string | undefined;
+}) {
+  const tools = GOOGLE_MCP_HITS.filter(
+    (hit) =>
+      (input.connectionId === undefined || hit.ref.connectionId === input.connectionId) &&
+      (input.namespace === undefined || hit.namespace === input.namespace),
+  );
+
+  return { status: "tools", tools, nextCursor: null };
+}
+
+function isGoogleMcpCall(call: ToolCall, connection: McpConnection, remoteName: string): boolean {
+  return (
+    call.name === MCP_CALL_TOOL &&
+    getStringPath(call.input, "connectionId") === connection.id &&
+    getStringPath(call.input, "remoteName") === remoteName
+  );
+}
+
+const MCP_LIST_TOOLS_DESCRIPTION =
+  "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.";
+
+const MCP_CALL_DESCRIPTION =
+  "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
+
+function mcpServerLine(connection: McpConnection, toolCount: number): string {
+  return `- ${JSON.stringify(connection.label)} MCP server (connectionId ${connection.id}) — ${toolCount} tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`;
+}
+
+function calledCalendar(calls: readonly ToolCall[]): boolean {
+  return calls.some((c) => isGoogleMcpCall(c, CALENDAR_CONNECTION, CALENDAR_LIST_REMOTE));
+}
+
 const CONNECTED_SUMMARY = [
-  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail.search, gmail.read_message — the user's email",
-  "- calendar.list_events, calendar.create_event — the user's calendar",
+  "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
+  mcpServerLine(GMAIL_CONNECTION, 10),
+  mcpServerLine(CALENDAR_CONNECTION, 9),
   "- system.read_user_context — Alfred's stored memory about the user",
   "- system.web_search — live public web search",
   "- system.fetch_url — read a known URL's page as text",
@@ -324,19 +403,15 @@ function toolSurface(): Record<string, Tool> {
       description: "Wait for a spawned sub-agent to finish and read its real result.",
       inputSchema: awaitSubAgentInput,
     }),
-    [GMAIL_SEARCH_TOOL]: tool({
-      description:
-        "Search Gmail messages. Each hit carries sender, subject, snippet, timestamp, ids, and a url.",
-      inputSchema: gmailSearchInput,
+    [MCP_LIST_TOOLS_TOOL]: tool({
+      description: MCP_LIST_TOOLS_DESCRIPTION,
+      inputSchema: mcpToolSearchInputSchema,
+      execute: async (input) => googleMcpCatalog(input),
     }),
-    [GMAIL_READ_MESSAGE_TOOL]: tool({
-      description: "Read one Gmail message body by message id or document id.",
-      inputSchema: gmailReadMessageInput,
-    }),
-    [CALENDAR_TOOL]: tool({
-      description:
-        "List Google Calendar events. Use this for calendar availability and event count questions.",
-      inputSchema: calendarListEventsInput,
+    // No `execute`: the run stops at the remote call, and the scorer reads its target.
+    [MCP_CALL_TOOL]: tool({
+      description: MCP_CALL_DESCRIPTION,
+      inputSchema: mcpCallInput,
     }),
   };
 
@@ -351,6 +426,8 @@ async function runSourceChoice(input: string): Promise<TaskOutput> {
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
+    // The calendar read is a catalog lookup, then the remote call.
+    stopWhen: isStepCount(3),
     tools: toolSurface(),
   });
 
@@ -378,7 +455,7 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
       name: "Reaches the expected source class",
       scorer: ({ output, expected }) => {
         const reachedWeb = output.toolNames.includes(WEB_SEARCH_TOOL);
-        const reachedCalendar = output.toolNames.includes(CALENDAR_TOOL);
+        const reachedCalendar = calledCalendar(output.calls);
         const ok = expected === "web" ? reachedWeb : reachedCalendar;
 
         return {
@@ -394,8 +471,7 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
       scorer: ({ output, expected }) => {
         if (expected !== "calendar") return { score: 1, metadata: "n/a" };
 
-        const ok =
-          output.toolNames.includes(CALENDAR_TOOL) && !output.toolNames.includes(WEB_SEARCH_TOOL);
+        const ok = calledCalendar(output.calls) && !output.toolNames.includes(WEB_SEARCH_TOOL);
 
         return {
           score: ok ? 1 : 0,
@@ -408,17 +484,46 @@ evalite<string, TaskOutput, SourceCase["expected"]>("Boss judgment — source la
   ],
 });
 
-const clickUpSearchResultSchema = z.object({
-  messages: z.array(
-    z.object({
-      from: z.string(),
-      subject: z.string(),
-      snippet: z.string(),
-      authoredAt: z.string(),
-      url: z.string(),
-    }),
-  ),
-});
+/** The Gmail MCP answers for the thin person replay: ClickUp notifications only. */
+function thinGmailMcpResult(remoteName: string) {
+  if (remoteName === GMAIL_SEARCH_REMOTE) {
+    return {
+      threads: [
+        {
+          id: "clickup_thread_1",
+          from: "ClickUp <notifications@clickup.com>",
+          subject: "Sakshi Jindal mentioned you in a task",
+          snippet:
+            "Sakshi Jindal commented on a ClickUp task. Open ClickUp to see the full task thread and project details.",
+          date: "2026-07-01T10:15:00.000Z",
+        },
+        {
+          id: "clickup_thread_2",
+          from: "ClickUp <notifications@clickup.com>",
+          subject: "Task updated by Sakshi Jindal",
+          snippet:
+            "A task involving Sakshi Jindal was updated in ClickUp. The details are in ClickUp.",
+          date: "2026-07-01T09:00:00.000Z",
+        },
+      ],
+    };
+  }
+
+  if (remoteName === GMAIL_READ_THREAD_REMOTE) {
+    return {
+      id: "clickup_thread_1",
+      messages: [
+        {
+          from: "ClickUp <notifications@clickup.com>",
+          subject: "Sakshi Jindal mentioned you in a task",
+          body: "Sakshi Jindal commented on a ClickUp task. The email only contains a notification preview; open ClickUp for the task thread and project details.",
+        },
+      ],
+    };
+  }
+
+  return { error: `Unknown tool ${remoteName} in catalog ${GOOGLE_CATALOG_REVISION}.` };
+}
 
 async function runThinPersonResearchReplay(
   userMessage: string,
@@ -451,44 +556,15 @@ async function runThinPersonResearchReplay(
           recentMemory: [],
         }),
       }),
-      [GMAIL_SEARCH_TOOL]: tool({
-        description:
-          "Search Gmail messages. Each hit carries sender, subject, snippet, timestamp, ids, and a url.",
-        inputSchema: gmailSearchInput,
-        execute: async () =>
-          clickUpSearchResultSchema.parse({
-            messages: [
-              {
-                from: "ClickUp <notifications@clickup.com>",
-                subject: "Sakshi Jindal mentioned you in a task",
-                snippet:
-                  "Sakshi Jindal commented on a ClickUp task. Open ClickUp to see the full task thread and project details.",
-                authoredAt: "2026-07-01T10:15:00.000Z",
-                url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_1",
-              },
-              {
-                from: "ClickUp <notifications@clickup.com>",
-                subject: "Task updated by Sakshi Jindal",
-                snippet:
-                  "A task involving Sakshi Jindal was updated in ClickUp. The details are in ClickUp.",
-                authoredAt: "2026-07-01T09:00:00.000Z",
-                url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_2",
-              },
-            ],
-            nextPageToken: null,
-          }),
+      [MCP_LIST_TOOLS_TOOL]: tool({
+        description: MCP_LIST_TOOLS_DESCRIPTION,
+        inputSchema: mcpToolSearchInputSchema,
+        execute: async (input) => googleMcpCatalog(input),
       }),
-      [GMAIL_READ_MESSAGE_TOOL]: tool({
-        description: "Read one Gmail message body by message id or document id.",
-        inputSchema: gmailReadMessageInput,
-        execute: async () => ({
-          messageId: "clickup_sakshi_1",
-          threadId: "clickup_thread",
-          from: "ClickUp <notifications@clickup.com>",
-          subject: "Sakshi Jindal mentioned you in a task",
-          text: "Sakshi Jindal commented on a ClickUp task. The email only contains a notification preview; open ClickUp for the task thread and project details.",
-          url: "https://mail.google.com/mail/u/0/#all/clickup_sakshi_1",
-        }),
+      [MCP_CALL_TOOL]: tool({
+        description: MCP_CALL_DESCRIPTION,
+        inputSchema: mcpCallInput,
+        execute: async ({ remoteName }) => thinGmailMcpResult(remoteName),
       }),
       [WEB_SEARCH_TOOL]: tool({
         description: WEB_SEARCH_DESCRIPTION,
@@ -959,8 +1035,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
         }),
       }),
       [MCP_LIST_TOOLS_TOOL]: tool({
-        description:
-          "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.",
+        description: MCP_LIST_TOOLS_DESCRIPTION,
         inputSchema: mcpToolSearchInputSchema,
         execute: async () => ({ status: "tools", tools: GITHUB_MCP_HITS, nextCursor: null }),
       }),
@@ -981,8 +1056,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
             : { status: "not_found", ref, message: "This MCP tool is not in the current catalog." },
       }),
       [MCP_CALL_TOOL]: tool({
-        description:
-          "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
+        description: MCP_CALL_DESCRIPTION,
         inputSchema: mcpCallInput,
         execute: async (input) => githubMcpResult(input),
       }),
