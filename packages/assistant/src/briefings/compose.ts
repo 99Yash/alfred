@@ -486,7 +486,8 @@ function itemThreadUrl(item: BriefingItem): string | null {
 function formatItemText(item: BriefingItem): string {
   const subject = item.subject?.trim() || "(no subject)";
   const fromShort = mailboxLabel(item.from);
-  const head = fromShort ? `• ${subject} — ${fromShort}` : `• ${subject}`;
+  const spamNote = item.inSpam ? " (Gmail filed it as spam)" : "";
+  const head = fromShort ? `• ${subject} — ${fromShort}${spamNote}` : `• ${subject}${spamNote}`;
   const rationale = item.rationale ? `\n    ${item.rationale}` : "";
   const threadUrl = itemThreadUrl(item);
   const link = threadUrl ? `\n    ${threadUrl}` : "";
@@ -557,9 +558,13 @@ function renderItemHtml(item: BriefingItem): string {
   const subject = escapeHtml(item.subject?.trim() || "(no subject)");
   const fromShort = mailboxLabel(item.from);
 
-  const fromHtml = fromShort
-    ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>`
+  const spamHtml = item.inSpam
+    ? `<span style="${MUTED_INLINE_STYLE}"> (Gmail filed it as spam)</span>`
     : "";
+
+  const fromHtml = fromShort
+    ? `<span style="${MUTED_INLINE_STYLE}"> — ${escapeHtml(fromShort)}</span>${spamHtml}`
+    : spamHtml;
 
   const threadUrl = itemThreadUrl(item);
 

@@ -88,6 +88,12 @@ const emailContributionItemSchema = z.object({
   threadId: z.string(),
   // Account email of the connection that holds the thread. Absent on old rows, and when no active credential maps the account.
   mailbox: z.string().min(1).optional(),
+  /**
+   * True when Gmail itself filed the mail as spam (`SPAM` label at ingest or the last label
+   * reconcile). Absent on old rows and when no labels were captured, so the filing is unknown.
+   * A consumer presents the filing rather than treating the mail as an ordinary demand.
+   */
+  inSpam: z.boolean().optional(),
   subject: z.string(),
   sender: z.string(),
   snippet: z.string(),
