@@ -1,6 +1,6 @@
 {
-  "id": "a28fb0ee-8f95-4069-8cd8-a123462007a5",
-  "prevId": "b87ad94c-2903-4dad-ae53-ed1ab484e143",
+  "id": "ce4dafff-d556-4e5b-bfeb-53df8169dc5c",
+  "prevId": "f2af3668-0b45-4569-924f-7b420467daaf",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8994,7 +8994,7 @@
       "checkConstraints": {
         "email_sends_kind_valid": {
           "name": "email_sends_kind_valid",
-          "value": "\"email_sends\".\"kind\" IN ('approval', 'briefing', 'delivery_alert', 'evening_recap', 'health_alert', 'skill_documented', 'workflow_blocked')"
+          "value": "\"email_sends\".\"kind\" IN ('approval', 'briefing', 'delivery_alert', 'evening_recap', 'health_alert', 'inbound_forward', 'skill_documented', 'workflow_blocked')"
         },
         "email_sends_status_valid": {
           "name": "email_sends_status_valid",
