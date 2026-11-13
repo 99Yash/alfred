@@ -6,7 +6,12 @@ import {
   type ToolRunContext,
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
-import { listOwnedConnections } from "@alfred/assistant/connections/mcp";
+import {
+  listOwnedConnections,
+  mcpScopeAdmits,
+  mcpServerIdsAdmittedBy,
+  type McpServerScope,
+} from "@alfred/assistant/connections/mcp";
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
 import { toolAlwaysWaitsForApproval } from "@alfred/assistant/tool-runtime/approval-rule";
 
@@ -64,7 +69,9 @@ export async function buildConnectedSummaryFromAvailability(
   }
 
   if (availableByIntegration.get("mcp")?.includes("mcp.call")) {
-    lines.push(...(await mcpConnectionLines(userId)));
+    // The same scope as discovery and the broker, so the list names only reachable servers.
+    const scope = await mcpServerIdsAdmittedBy(userId, allowedIntegrations);
+    lines.push(...(await mcpConnectionLines(userId, scope)));
   }
 
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
@@ -101,11 +108,15 @@ async function approvalLabel(userId: string, tools: readonly ToolName[]): Promis
 /**
  * One line per MCP connection. The curated registry does not list them, so without these
  * lines the header told the model that a connected server such as Railway did not exist.
+ * `scope` is required: the header calls the list authoritative, so a server outside the run's
+ * integrations must not appear.
  */
-async function mcpConnectionLines(userId: string): Promise<string[]> {
+async function mcpConnectionLines(userId: string, scope: McpServerScope): Promise<string[]> {
   const lines: string[] = [];
 
   for (const connection of await listOwnedConnections(userId)) {
+    if (!mcpScopeAdmits(scope, connection.serverId)) continue;
+
     const name = `${JSON.stringify(connection.label)} MCP server (connectionId ${connection.id})`;
 
     if (connection.status === "auth_required") {

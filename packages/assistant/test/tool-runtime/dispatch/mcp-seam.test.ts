@@ -514,6 +514,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       stagingId,
       ref,
       arguments: input.arguments,
+      serverScope: null,
     });
 
     await awaitGate(

@@ -237,6 +237,12 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The arguments failed the tool's imported JSON Schema before delivery. Search results do not carry the full schema, so the model guessed a property name.",
     fix: { kind: "correct_input" },
   },
+  mcp_connection_outside_scope: {
+    message:
+      "This MCP connection is outside the integrations of this run, so the server was not called. Use a connection of an allowed integration.",
+    why: "The run has an integration allowlist, and the connection's server belongs to no listed integration. The check reads the input that runs, after any approval edit.",
+    fix: { kind: "correct_input" },
+  },
   mcp_effect_not_applied: {
     message: "You confirmed that this MCP operation did not apply. It was not repeated.",
     why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",

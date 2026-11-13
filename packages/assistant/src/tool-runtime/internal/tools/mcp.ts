@@ -11,10 +11,11 @@ import {
   mcpToolSearchInputSchema,
   unknownEffectEnvelopeSchema,
 } from "@alfred/contracts";
-import { AppError } from "@alfred/contracts/app-errors";
+import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
   McpClientError,
+  mcpScopeAdmits,
   mcpServerIdsAdmittedBy,
   needsMcpReauthorization,
   readOwnedConnection,
@@ -111,6 +112,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         catalogRevision: input.catalogRevision,
       }),
     // Before the staging row, so a call outside the run's integrations gets no approval card.
+    // Only a fresh proposal runs this. The broker checks the connection that runs again.
     refuseProposal: async (input, ctx) => {
       const serverIds = await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations);
 
@@ -119,9 +121,9 @@ export const mcpTools: readonly RegisteredTool[] = [
       const connection = await readOwnedConnection(input.connectionId, ctx.userId);
 
       // An unknown connection fails in the broker with its own error.
-      if (!connection || serverIds.includes(connection.serverId)) return null;
+      if (!connection || mcpScopeAdmits(serverIds, connection.serverId)) return null;
 
-      return "This MCP connection is outside the integrations of this run. Use a connection of an allowed integration.";
+      return publicAppError("mcp_connection_outside_scope").message;
     },
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
@@ -147,6 +149,8 @@ export const mcpTools: readonly RegisteredTool[] = [
           traceId: ctx.runId,
           ref,
           arguments: input.arguments,
+          // `input` is the effective input (an approval edit included), on a resume and a replay too.
+          serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {
@@ -155,7 +159,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           throw new AppError("mcp_reauth_required", { cause: error });
         }
 
-        // A generic "try again" makes the model resend the same call, so these two name the next step.
+        // A generic "try again" makes the model resend the same call, so these name the next step.
         if (error instanceof McpClientError) {
           // The broker already published the live catalog, so a new search returns a current ref.
           if (error.code === "catalog_stale") {
@@ -164,6 +168,10 @@ export const mcpTools: readonly RegisteredTool[] = [
 
           if (error.code === "arguments_rejected") {
             throw new AppError("mcp_arguments_rejected", { cause: error });
+          }
+
+          if (error.code === "outside_scope") {
+            throw new AppError("mcp_connection_outside_scope", { cause: error });
           }
         }
 

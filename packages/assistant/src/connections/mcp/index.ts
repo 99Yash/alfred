@@ -39,7 +39,12 @@ export {
 
 export { persistApiKeyCredential, readApiKeyAuthForConnection } from "./api-key";
 
-export { mcpServerIdsAdmittedBy } from "./allowlist";
+export {
+  integrationOfMcpConnection,
+  mcpScopeAdmits,
+  mcpServerIdsAdmittedBy,
+  type McpServerScope,
+} from "./allowlist";
 
 export {
   builtInProviderForEndpoint,
