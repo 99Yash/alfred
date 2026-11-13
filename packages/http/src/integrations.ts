@@ -2,7 +2,7 @@ import { readIntegrationStatus, readRawReceiptInventory } from "@alfred/assistan
 import { riskTierCountsForIntegration } from "@alfred/assistant/tool-runtime";
 import {
   Errors,
-  isLiveProviderSlug,
+  isInboundEventSource,
   LOADABLE_INTEGRATION_SLUGS,
   type RiskTierCounts,
 } from "@alfred/contracts";
@@ -34,8 +34,9 @@ export const integrationsRoutes = new Elysia({
       .get(
         "/raw-kinds/:slug",
         ({ user, params }) => {
-          // A planned provider has no credentials, so it has no receipts.
-          if (!isLiveProviderSlug(params.slug)) throw Errors.NotFoundError("Unknown integration");
+          // Only an inbound event source stores raw receipts. The web sends one (`useRawReceiptKinds`).
+          if (!isInboundEventSource(params.slug))
+            throw Errors.NotFoundError("Unknown event source");
 
           return readRawReceiptInventory(user.id, params.slug);
         },

@@ -1191,6 +1191,13 @@
       "when": 1794545366636,
       "tag": "0169_builtin_mcp_labels_drop_mcp",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1794546358888,
+      "tag": "0170_disconnect_keeps_receipts",
+      "breakpoints": true
     }
   ]
 }

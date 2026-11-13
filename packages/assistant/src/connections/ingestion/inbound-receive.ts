@@ -164,7 +164,7 @@ export async function receiveInboundDelivery(
 /**
  * Report an unattributable delivery (#1033). An `unscoped` drop (GitHub's app-level kinds) never
  * reaches this. The drop itself stays (ADR-0097 alternative (e)):
- * `credential_id` is `NOT NULL` and a retry cannot change the body. Tags carry the provider
+ * a receipt is stored only for a credential that owns it, and a retry cannot change the body. Tags carry the provider
  * reference under its credential column, to tell "no credential" from "credential for another
  * account". Never the payload: unbounded, unknown sensitivity. `warning`, not `error`:
  * `installation.created` can arrive before the connect flow stores its credential.
@@ -194,7 +194,7 @@ function reportOwnerlessDelivery(
 type ReceiptInsert =
   | { kind: "inserted"; id: string }
   | ({ kind: "existing" } & Pick<EventReceipt, "id" | "processingStatus">)
-  /** The row vanished before the read-back (credential deletion cascade). */
+  /** The row vanished before the read-back (user deletion cascade). */
   | { kind: "gone" };
 
 /** Insert for both tiers. The `(provider, provider_delivery_id)` unique index is the only dedup. */

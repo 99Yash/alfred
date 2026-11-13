@@ -19,7 +19,8 @@ import { logger } from "@alfred/logging";
  * carries a pointer (receipt id and dedup key), never the body. Raw receipts publish `<source>.raw`
  * with `raw_kind`, so this reads the table, not the typed view. `completed` is a no-op, so retries
  * cannot publish twice. A typed receipt with an unknown event type is marked `failed` and not
- * retried, because it cannot change.
+ * retried, because it cannot change. A receipt whose credential was deleted (Disconnect) has
+ * `credential_id` NULL, so the inner join drops it and it is not published.
  */
 export async function deliverInboundReceipt(receiptId: string): Promise<void> {
   const [row] = await db()
@@ -40,7 +41,7 @@ export async function deliverInboundReceipt(receiptId: string): Promise<void> {
     .limit(1);
 
   if (!row) {
-    logger.warn(`[ingress] receipt ${receiptId} not found; skipping delivery`);
+    logger.warn(`[ingress] receipt ${receiptId} not found or has no credential; skipping delivery`);
 
     return;
   }

@@ -9,7 +9,8 @@ import type { GithubActivityDocument, GithubSelf } from "./github-activity";
 /**
  * Reads for the GitHub activity reducer. The body comes from `documents.raw`, not
  * `event_receipts.payload`: the payload reaper releases a receipt body only when its document
- * keeps it, and a credential cascade deletes receipts but not documents (ADR-0118 residual risk).
+ * keeps it, and receipts from before migration 0167 were deleted by a credential cascade, but
+ * their documents stayed (ADR-0118 residual risk).
  */
 
 const GITHUB_DOCUMENT_COLUMNS = {

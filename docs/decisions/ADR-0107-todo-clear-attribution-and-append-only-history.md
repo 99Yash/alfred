@@ -28,7 +28,8 @@ agent_run_id` and rejects removal or replacement of identity-bearing
    (the #355 cap evicts them oldest-first); every other ref must survive.
 4. **Receipts are evidence-append-only, not update-free.** Triggers reject
    direct DELETE on `event_receipts` (FK-cascade from a user/credential wipe
-   is allowed) and reject UPDATEs touching any evidence or
+   is allowed; *amended 2026-11-13:* a credential delete now sets
+   `credential_id` to NULL and keeps the row, migration 0167) and reject UPDATEs touching any evidence or
    identity column — but allow `processing_status / processed_at /
 updated_at`, the lifecycle the `ingress.deliver` job owns
    (`markProcessed`). A literal "UPDATE rejected" rule would break delivery;
