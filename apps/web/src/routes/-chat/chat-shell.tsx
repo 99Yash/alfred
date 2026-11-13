@@ -226,7 +226,7 @@ export function ChatShell({ threadId, thread, title }: ChatShellProps) {
     threadId,
     tier,
     send,
-    turn: { onScreen: showStream, streaming: isStreaming, stream },
+    turn: { onScreen: showStream, streaming: isStreaming },
     canSteer,
     stopGeneration: onStopGeneration,
   });

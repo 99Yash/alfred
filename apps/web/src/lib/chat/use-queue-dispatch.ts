@@ -1,6 +1,5 @@
 import { isEmptyChatTurnInput, type ChatModelTier } from "@alfred/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { StreamingMessage } from "./chat-stream-state";
 import { useChatQueue, type QueuedEdit, type QueuedMessage } from "./use-chat-queue";
 import type { SendMessage } from "./use-send-message";
 
@@ -15,7 +14,7 @@ export interface QueueDispatchInput {
   tier: ChatModelTier;
   send: SendMessage;
   /** The turn on screen, from `useChatStream` + `shouldShowStream`. */
-  turn: { onScreen: boolean; streaming: boolean; stream: StreamingMessage | null };
+  turn: { onScreen: boolean; streaming: boolean };
   /** A reply streams and no approval waits. */
   canSteer: boolean;
   /** Freeze the bubble and stop the run. */
@@ -68,7 +67,7 @@ export function useQueueDispatch({
   stopGeneration,
 }: QueueDispatchInput): QueueDispatch {
   const { queue, sendingId, enqueue, remove, update, promote, run } = useChatQueue(threadId);
-  const { onScreen: showStream, streaming: isStreaming, stream } = turn;
+  const { onScreen: showStream, streaming: isStreaming } = turn;
   // The queued message open for an in-place edit. The flush waits while it is next.
   const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
   // The queued message a steer stopped the reply for. Its row shows "Steering…".
@@ -83,7 +82,6 @@ export function useQueueDispatch({
   // in-flight flush whose number is old writes no flags after its await.
   const flushOwnerRef = useRef(0);
   const prevShowStreamRef = useRef(false);
-  const lastErrorStreamIdRef = useRef<string | null>(null);
   // Reset during render so the old thread's `showStream` cannot flush the new thread's queue.
   // The send in flight is not reset: its hold belongs to its own thread until it settles.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
@@ -100,7 +98,6 @@ export function useQueueDispatch({
   // one commit in order, so this runs before the flush effects below see the new thread.
   useEffect(() => {
     prevShowStreamRef.current = false;
-    lastErrorStreamIdRef.current = null;
     busyAttemptsRef.current = 0;
 
     // Not the flush effect's cleanup: that one re-runs when the flush holds the thread.
@@ -165,35 +162,17 @@ export function useQueueDispatch({
   );
 
   // On completion (stream done and synced), arm the flush of the oldest queued message.
-  const streamDone = stream?.done ?? false;
-  const streamError = stream?.error ?? null;
-  const streamRunId = stream?.runId ?? null;
   useEffect(() => {
     const prev = prevShowStreamRef.current;
     prevShowStreamRef.current = showStream;
     const completed = prev && !showStream;
 
-    // A done stream with an error and no durable message (SSE drop) counts as complete.
-    // Arm once per `runId+error` to avoid a retry loop.
-    const errorId =
-      streamDone && streamError ? `${streamRunId ?? "unknown"}:${String(streamError)}` : null;
-
-    const isNewErrorCompletion =
-      Boolean(errorId) &&
-      errorId !== lastErrorStreamIdRef.current &&
-      queue.length > 0 &&
-      !isStreaming;
-
-    if (isNewErrorCompletion && errorId) lastErrorStreamIdRef.current = errorId;
-
-    if (!streamDone || !streamError) lastErrorStreamIdRef.current = null;
-
-    if ((completed || isNewErrorCompletion) && queue.length > 0) {
+    if (completed && queue.length > 0) {
       // Each completion gives the head the full retry budget, also when a stream cut the last flush short.
       busyAttemptsRef.current = 0;
       setFlushArmed(true);
     }
-  }, [showStream, queue.length, isStreaming, streamDone, streamError, streamRunId]);
+  }, [showStream, queue.length]);
 
   // An armed flush with nothing left to send disarms during render, so it cannot fire on a later enqueue.
   if (flushArmed && sendingId === null && !isStreaming && queue.length === 0) setFlushArmed(false);

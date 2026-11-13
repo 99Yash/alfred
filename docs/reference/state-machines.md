@@ -494,28 +494,29 @@ The memory extraction stamp (row present means extracted; the graph capture time
 
 ### Chat stream cell
 
-`apps/web/src/lib/chat/chat-stream-state.ts` is an explicit reducer: `applyChatFrame`, `applyChatSeed`, `applyOptimisticStop`, and `applyStreamError` are the transitions. The state is the current stream ref plus the retired run ids. The flags are not exclusive.
+`apps/web/src/lib/chat/chat-stream-state.ts` is an explicit reducer: `applyChatFrame`, `applyChatSeed`, `applyOptimisticStop`, and `applySyncedClose` are the transitions. The state is the current stream ref plus the retired run ids. The flags are not exclusive.
 
-States: Empty, Seeded, Streaming, Compacting, AwaitingCapacity, AwaitingApproval, Completed, Stopped, Failed.
+States: Empty, Seeded, Streaming, Compacting, AwaitingCapacity, AwaitingApproval, Completed, Stopped. A failed run is Completed here; its synced row shows the failure.
 
-| From                       | To                    | Event                                          | Guard                                               | Where                                        |
-| -------------------------- | --------------------- | ---------------------------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| any                        | Seeded                | send ack (`applyChatSeed`)                     | not the same (message, run); the old run is retired | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Empty or another turn      | Streaming             | first started, delta, reasoning, or tool frame | frame id at or above the mount id; run not retired  | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Seeded                     | Streaming             | first frame of the same turn                   | mount id taken from the frame                       | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Streaming                  | Compacting and back   | compaction started, finished                   | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Streaming                  | AwaitingCapacity      | capacity retry                                 | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Streaming                  | AwaitingApproval      | approval requested                             | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| AwaitingApproval           | Streaming             | any accepted delta, reasoning, or tool frame   | stop and sequence guards                            | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| live                       | Completed             | message completed                              | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| not stopped                | Stopped               | Stop button (`applyOptimisticStop`)            | not stopped; not awaiting approval (SM-16)          | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| not stopped, not done      | Failed                | fatal bus close or the 45 s watchdog           | not stopped and not done                            | `apps/web/src/lib/chat/use-chat-stream.ts`   |
-| Stopped, Failed            | same (frames dropped) | any frame for the run                          | stopped                                             | `apps/web/src/lib/chat/chat-stream-state.ts` |
-| Stopped, Failed, Completed | replaced              | a newer turn frame or seed                     | as above                                            | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| From                  | To                    | Event                                                   | Guard                                               | Where                                        |
+| --------------------- | --------------------- | ------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| any                   | Seeded                | send ack (`applyChatSeed`)                              | not the same (message, run); the old run is retired | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Empty or another turn | Streaming             | first started, delta, reasoning, or tool frame          | frame id at or above the mount id; run not retired  | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Seeded                | Streaming             | first frame of the same turn                            | mount id taken from the frame                       | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Streaming             | Compacting and back   | compaction started, finished                            | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Streaming             | AwaitingCapacity      | capacity retry                                          | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Streaming             | AwaitingApproval      | approval requested                                      | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| AwaitingApproval      | Streaming             | any accepted delta, reasoning, or tool frame            | stop and sequence guards                            | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| live                  | Completed             | message completed                                       | same run; not stopped                               | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| not stopped           | Stopped               | Stop button (`applyOptimisticStop`)                     | not stopped; not awaiting approval (SM-16)          | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| live                  | Completed             | 45 s watchdog finds the synced row (`applySyncedClose`) | same message; not done; not awaiting approval       | `apps/web/src/lib/chat/use-chat-stream.ts`   |
+| live                  | same (bus reconnects) | 45 s watchdog finds no synced row                       | not awaiting approval                               | `apps/web/src/lib/chat/use-chat-stream.ts`   |
+| Stopped               | same (frames dropped) | any frame for the run                                   | stopped                                             | `apps/web/src/lib/chat/chat-stream-state.ts` |
+| Stopped, Completed    | replaced              | a newer turn frame or seed                              | as above                                            | `apps/web/src/lib/chat/chat-stream-state.ts` |
 
-Invariants (code): a replayed older turn cannot blank the live turn. A terminal tool card stays terminal. A late close after completed does not turn the completion into a failure. A stop or error drops later frames for that run only. Sub-agent frames never mount a turn. By design and tested: a fatal bus close freezes every live turn, even when the reconnect succeeds.
+Invariants (code): a replayed older turn cannot blank the live turn. A terminal tool card stays terminal. A late close after completed does not turn the completion into a failure. A stop drops later frames for that run only. Sub-agent frames never mount a turn. No client event fails a turn: a fatal bus close or a watchdog stall reconnects the bus in silence, and the `?since` replay resends the lost frames. The delta logs and tool cards drop a replayed frame.
 
-The outer store in `apps/web/src/lib/chat/use-chat-stream.ts` keeps one stream per thread and releases an entry with no listeners once it is done. The watchdog is global, re-arms on any frame, and is armed only while a turn is not done and not awaiting approval.
+The outer store in `apps/web/src/lib/chat/use-chat-stream.ts` keeps one stream per thread and releases an entry with no listeners once it is done. The watchdog is global, re-arms on any frame, and is armed only while a turn is not done and not awaiting approval. When it fires, it reads the synced row of each live turn through Replicache, closes a turn that has one, and reconnects the bus for the rest.
 
 ### Live artifact stream
 
@@ -526,7 +527,6 @@ The outer store in `apps/web/src/lib/chat/use-chat-stream.ts` keeps one stream p
 | none    | Writing  | first artifact delta                                       | none                                           | `apps/web/src/lib/chat/use-artifact-stream.ts` |
 | Writing | Writing  | artifact delta                                             | sequence increases; not done                   | `apps/web/src/lib/chat/use-artifact-stream.ts` |
 | Writing | Done     | tool frame succeeded or failed for that call               | none                                           | `apps/web/src/lib/chat/use-artifact-stream.ts` |
-| Writing | Done     | fatal bus error                                            | none                                           | `apps/web/src/lib/chat/use-artifact-stream.ts` |
 | Writing | dropped  | `completed` message frame of the run (`applyRunCompleted`) | the stream belongs to that run and is not done | `apps/web/src/lib/chat/use-artifact-stream.ts` |
 | entry   | released | no listeners and every stream done                         | none                                           | `apps/web/src/lib/chat/use-artifact-stream.ts` |
 
@@ -540,7 +540,7 @@ An implicit machine in `apps/web/src/lib/chat/use-queue-dispatch.ts` and `apps/w
 | --------------- | ----------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
 | Idle            | Sending           | submit with no turn on screen and an empty queue    | none                                                              |
 | Idle, Streaming | Queued            | submit while a turn shows or the queue is not empty | queue cap                                                         |
-| Queued          | Armed             | the stream stops showing, or a new error completion | once per run and error                                            |
+| Queued          | Armed             | the stream stops showing                            | none                                                              |
 | Armed           | Sending (head)    | effect                                              | not paused; nothing sending; not streaming; head not being edited |
 | Sending         | Idle              | ok                                                  | entry removed                                                     |
 | Sending         | Armed (retry)     | busy                                                | fewer than 5 attempts; 1 s sleep                                  |
@@ -802,11 +802,11 @@ Status: open (not yet verified independently)
 - Severity: medium
 - Confidence: likely
 - Machine: chat stream cell (client)
-- Interleaving: a turn starts and the server publishes compaction started. Foreground compaction runs for up to 2 minutes and publishes nothing. After 45 s the watchdog in `apps/web/src/lib/chat/use-chat-stream.ts` fires. It exempts approval waits but not compaction. `applyStreamError` marks the ref stopped, so compaction finished, every later delta, and completed are dropped.
+- Interleaving: a turn starts and the server publishes compaction started. Foreground compaction runs for up to 2 minutes and publishes nothing. After 45 s the watchdog in `apps/web/src/lib/chat/use-chat-stream.ts` fires. It exempts approval waits but not compaction. Before the fix, the watchdog marked the ref stopped, so compaction finished, every later delta, and completed were dropped.
 - Evidence: the server knows the 45 s budget for the capacity backoff but has no keepalive for compaction. The SSE heartbeat is a comment line, so it never reaches the frame handler. An unrelated frame on the bus re-arms the watchdog, which hides the problem on a busy bus. A single tool call that runs longer than 45 s with no frames can do the same (speculative).
 - Impact: "Connection stalled", then a frozen partial bubble until the synced message replaces it. The run-complete notice also fires (SM-32).
 
-Status: open (not yet verified independently)
+Status: fixed in #1747
 
 ### SM-19 A run that fails while holding a pending card leaves a card nobody can decide
 
@@ -1098,15 +1098,16 @@ Status: open (not yet verified independently)
 
 ## Issues
 
-| Issue | Fix   | Group                             | Findings                                                                                                                                                                                                                              |
-| ----- | ----- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #1694 | #1698 | Gmail ingestion cursor            | SM-01                                                                                                                                                                                                                                 |
-| #1695 | #1699 | Email delivery and briefing retry | SM-02, SM-04                                                                                                                                                                                                                          |
-| #1696 | #1700 | Run dedup blocks regenerate       | SM-03                                                                                                                                                                                                                                 |
-| #1697 | #1701 | Terminal-state consistency        | SM-05, SM-06, SM-07                                                                                                                                                                                                                   |
-| #1703 | #1708 | Stop against approval             | SM-08, SM-16                                                                                                                                                                                                                          |
-| #1704 | #1709 | Thread delete leaves a live run   | SM-14                                                                                                                                                                                                                                 |
-| #1705 | #1710 | Stale artifact stream             | SM-10                                                                                                                                                                                                                                 |
-| #1706 | #1711 | Pinned triage side effects        | SM-09                                                                                                                                                                                                                                 |
-| #1712 | #1713 | Briefing row left live            | SM-11                                                                                                                                                                                                                                 |
-| none  | none  | Not yet scheduled                 | SM-12, SM-13, SM-15, SM-17, SM-18, SM-19, SM-20, SM-21, SM-22, SM-23, SM-24, SM-25, SM-26, SM-27, SM-28, SM-29, SM-30, SM-31, SM-32, SM-33, SM-34, SM-35, SM-36, SM-37, SM-38, SM-39, SM-40, SM-41, SM-42, SM-43, SM-44, SM-45, SM-46 |
+| Issue | Fix   | Group                             | Findings                                                                                                                                                                                                                       |
+| ----- | ----- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #1694 | #1698 | Gmail ingestion cursor            | SM-01                                                                                                                                                                                                                          |
+| #1695 | #1699 | Email delivery and briefing retry | SM-02, SM-04                                                                                                                                                                                                                   |
+| #1696 | #1700 | Run dedup blocks regenerate       | SM-03                                                                                                                                                                                                                          |
+| #1697 | #1701 | Terminal-state consistency        | SM-05, SM-06, SM-07                                                                                                                                                                                                            |
+| #1703 | #1708 | Stop against approval             | SM-08, SM-16                                                                                                                                                                                                                   |
+| #1704 | #1709 | Thread delete leaves a live run   | SM-14                                                                                                                                                                                                                          |
+| #1705 | #1710 | Stale artifact stream             | SM-10                                                                                                                                                                                                                          |
+| #1706 | #1711 | Pinned triage side effects        | SM-09                                                                                                                                                                                                                          |
+| #1712 | #1713 | Briefing row left live            | SM-11                                                                                                                                                                                                                          |
+| none  | #1747 | Silent stream recovery            | SM-18                                                                                                                                                                                                                          |
+| none  | none  | Not yet scheduled                 | SM-12, SM-13, SM-15, SM-17, SM-19, SM-20, SM-21, SM-22, SM-23, SM-24, SM-25, SM-26, SM-27, SM-28, SM-29, SM-30, SM-31, SM-32, SM-33, SM-34, SM-35, SM-36, SM-37, SM-38, SM-39, SM-40, SM-41, SM-42, SM-43, SM-44, SM-45, SM-46 |

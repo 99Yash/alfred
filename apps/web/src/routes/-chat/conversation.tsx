@@ -477,15 +477,6 @@ function FeedFooter() {
             <ConnectNudgeRows nudges={stream.connectNudges} />
           ) : null}
 
-          {stream.error ? (
-            <div
-              role="alert"
-              className="rounded-control-sm border border-app-red-2 bg-app-red-1 px-3 py-2.5 text-[13px] leading-snug text-app-red-4"
-            >
-              {stream.error}
-            </div>
-          ) : null}
-
           {stream.done ? <SourcesStrip sources={collectSources(stream.tools)} /> : null}
 
           {/* Holds the copy button until the durable copy syncs in. It fades in once, here;
