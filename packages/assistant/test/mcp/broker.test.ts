@@ -217,7 +217,7 @@ async function liveRevision(protocol: FakeProtocol, connectionId: string): Promi
       }),
   });
 
-  const client = await manager.getReadyClient(connectionId);
+  const client = await manager.openForOwner(connectionId);
   const revision = client.catalog?.revision;
   assert.ok(revision);
 

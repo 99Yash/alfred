@@ -453,7 +453,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         }),
     });
 
-    const client = await manager.getReadyClient(connection.id);
+    const client = await manager.openForOwner(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
     // Split on purpose: `readOnlyHint` lets `low` run (ADR-0069), and the reviewed `write`
@@ -615,7 +615,7 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
         }),
     });
 
-    const client = await manager.getReadyClient(connection.id);
+    const client = await manager.openForOwner(connection.id);
     const catalogRevision = client.catalog?.revision;
     assert.ok(catalogRevision);
     // Same split fixture as the ambiguity test: the `write` class mints the barrier.

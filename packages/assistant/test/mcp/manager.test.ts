@@ -124,12 +124,12 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("getReadyClient connects, publishes the catalog, and marks ready", async () => {
+  test("an owner open connects, publishes the catalog, and marks ready", async () => {
     const connId = await seedConnection();
     const protocol = new FakeProtocol([tool("tool_a")]);
     const manager = managerWith(protocol);
 
-    const client = await manager.getReadyClient(connId);
+    const client = await manager.openForOwner(connId);
     assert.ok(client.catalog);
 
     const row = await readConnection(connId);
@@ -144,7 +144,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("tool_a")]);
     const manager = managerWith(protocol);
 
-    await manager.getReadyClient(connId);
+    await manager.openForOwner(connId);
     const firstRevisionId = (await readConnection(connId))?.currentCatalogRevisionId;
 
     // Same tools give the same revision; the pointer does not move.
@@ -163,7 +163,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("tool_a")]);
     const manager = managerWith(protocol);
 
-    await manager.getReadyClient(connId);
+    await manager.openForOwner(connId);
     const first = await readConnection(connId);
     assert.ok(first?.currentCatalogRevisionId);
 
@@ -182,7 +182,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const protocol = new FakeProtocol([tool("tool_a")]);
     const manager = managerWith(protocol);
 
-    const client = await manager.getReadyClient(connId);
+    const client = await manager.openForOwner(connId);
     const revision = client.catalog?.revision;
     assert.ok(revision);
 
@@ -206,7 +206,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     );
     const manager = managerWith(protocol);
 
-    await assert.rejects(() => manager.getReadyClient(connId));
+    await assert.rejects(() => manager.openForOwner(connId));
 
     const row = await readConnection(connId);
     assert.equal(row?.status, "failed");
@@ -220,7 +220,7 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     const connId = await seedConnection();
     const manager = managerWith(new FakeProtocol([tool("tool_a")]));
 
-    await manager.getReadyClient(connId);
+    await manager.openForOwner(connId);
     const ownerId = (await readConnection(connId))?.userId;
     assert.ok(ownerId);
     await manager.disconnect(connId, ownerId);
