@@ -78,6 +78,7 @@ export function McpConnectionCardView({ connection, actions }: McpConnectionCard
         connection={connection}
         actions={actions}
         custom
+        canDisconnect
         onReconnect={needsConsent || needsRepair ? null : actions.onReconnect}
       />
     </McpTile>

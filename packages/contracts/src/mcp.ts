@@ -5,7 +5,8 @@
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import type { CatalogSlug } from "./integrations";
+import type { CatalogSlug, CredentialProvider } from "./integrations";
+import { integrationRoutePrefix } from "./integrations/slugs";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
 import { typedKeys } from "./records";
@@ -37,6 +38,19 @@ export function mcpConnectionAuthorizePath(connectionId: string): string {
 /** The connect route for a built-in. It creates the row if there is none, then goes to consent. */
 export function mcpBuiltInConnectPath(provider: BuiltInMCPProvider): string {
   return `/api/integrations/mcp/built-ins/${provider}/connect`;
+}
+
+/**
+ * The one connect door for a built-in. A built-in that its integration connects goes to that
+ * integration's connect route (owner rule 2026-11-13: one GitHub control). Every MCP consent door
+ * for such a row sends the browser there too.
+ */
+export function builtInMCPConnectPath(provider: BuiltInMCPProvider): string {
+  const owner = BUILT_IN_MCP_CATALOG[provider].connectedBy;
+
+  return owner === null
+    ? mcpBuiltInConnectPath(provider)
+    : `${integrationRoutePrefix(owner)}/connect`;
 }
 
 // Snapshot of the negotiated server identity, stored on `mcp_connections.server_identity`.
@@ -310,6 +324,11 @@ export interface McpBuiltInEntry {
    */
   readonly label: string;
   readonly blurb: string;
+  /**
+   * The integration whose connect and disconnect also open and end this server, or `null`. Such a
+   * server has no lifecycle control of its own (owner rule 2026-11-13: one GitHub control).
+   */
+  readonly connectedBy: CredentialProvider | null;
 }
 
 export const BUILT_IN_MCP_CATALOG = {
@@ -317,36 +336,43 @@ export const BUILT_IN_MCP_CATALOG = {
     slug: "github",
     label: "GitHub",
     blurb: "Read pull requests, issues, and code.",
+    connectedBy: "github",
   },
   linear: {
     slug: "linear",
     label: "Linear",
     blurb: "Work with Linear issues, projects, and cycles.",
+    connectedBy: null,
   },
   notion: {
     slug: "notion",
     label: "Notion",
     blurb: "Work with Notion pages and databases.",
+    connectedBy: null,
   },
   sentry: {
     slug: "sentry",
     label: "Sentry",
     blurb: "Investigate Sentry issues and error events.",
+    connectedBy: null,
   },
   railway: {
     slug: "railway",
     label: "Railway",
     blurb: "Read Railway deployment status.",
+    connectedBy: null,
   },
   polylane: {
     slug: "polylane",
     label: "Polylane",
     blurb: "Read production logs, metrics, traces, and tracked issues.",
+    connectedBy: null,
   },
   clickup: {
     slug: "clickup",
     label: "ClickUp",
     blurb: "Work with ClickUp tasks, docs, and chat.",
+    connectedBy: null,
   },
 } as const satisfies Record<string, McpBuiltInEntry>;
 

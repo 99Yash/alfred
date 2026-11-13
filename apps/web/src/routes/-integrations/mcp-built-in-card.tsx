@@ -159,8 +159,9 @@ function McpBuiltInCardView({
             }
 
             // The connection's own consent door. `mcpConsentAsk` decides if a screen is needed.
+            // A built-in that its integration connects has one door: that integration's connect.
             openAuthorizationTab(
-              state.kind === "needs_consent"
+              state.kind === "needs_consent" && entry.connectedBy === null
                 ? mcpAuthorizeUrl(state.connection.id)
                 : mcpBuiltInConnectUrl(provider),
             );
@@ -174,6 +175,8 @@ function McpBuiltInCardView({
           connection={connection}
           actions={actions}
           custom={false}
+          // Its integration's disconnect ends it too (owner rule 2026-11-13: one GitHub control).
+          canDisconnect={entry.connectedBy === null}
           onReconnect={
             state.kind === "connected"
               ? () => openAuthorizationTab(mcpBuiltInConnectUrl(provider))

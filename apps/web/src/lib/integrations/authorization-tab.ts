@@ -66,17 +66,52 @@ const CALLBACK_ERROR_PARAM_SUFFIX = "_error";
 /** RFC 6749 §4.1.2.1: the user refused the consent screen. */
 const OAUTH_ACCESS_DENIED = "access_denied";
 
-/** The callback error in `search`, as a sentence for the user, or `null` when there is none. */
-export function readAuthorizationError(search: string): string | null {
-  for (const [key, code] of new URLSearchParams(search)) {
-    if (!key.endsWith(CALLBACK_ERROR_PARAM_SUFFIX) || !code) continue;
+/**
+ * The GitHub App connected, but its grant did not open chat reads. Not a refusal: GitHub is
+ * connected. The value is `auth_required` or `failed`; the GitHub page shows the detail.
+ */
+const GITHUB_MCP_ERROR_PARAM = "github_mcp_error";
 
-    return code === OAUTH_ACCESS_DENIED
-      ? "You declined access. Nothing changed."
-      : `The provider sent back "${code}". Nothing changed.`;
+/**
+ * A callback outcome for the user: a short title and one sentence. `refused`: nothing changed.
+ * `partial`: the connect worked, but one part of it did not.
+ */
+export interface AuthorizationError {
+  readonly kind: "refused" | "partial";
+  readonly title: string;
+  readonly description: string;
+}
+
+/** The callback error in `search` for the user, or `null` when there is none. */
+export function readAuthorizationError(search: string): AuthorizationError | null {
+  const params = new URLSearchParams(search);
+  const grantCode = params.get(GITHUB_MCP_ERROR_PARAM);
+
+  for (const [key, code] of params) {
+    if (key === GITHUB_MCP_ERROR_PARAM || !key.endsWith(CALLBACK_ERROR_PARAM_SUFFIX) || !code) {
+      continue;
+    }
+
+    return {
+      kind: "refused",
+      title: "Not connected",
+      description:
+        code === OAUTH_ACCESS_DENIED
+          ? "You declined access. Nothing changed."
+          : `The provider sent back "${code}". Nothing changed.`,
+    };
   }
 
-  return null;
+  if (!grantCode) return null;
+
+  return {
+    kind: "partial",
+    title: "GitHub connected",
+    description:
+      grantCode === "auth_required"
+        ? "Chat can't read GitHub until you grant access. Open GitHub in Integrations."
+        : "Chat can't read GitHub yet. Open GitHub in Integrations to retry.",
+  };
 }
 
 export function continueAfterAuthorization(): void {

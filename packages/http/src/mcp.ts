@@ -1,5 +1,7 @@
 import {
   assertNever,
+  BUILT_IN_MCP_CATALOG,
+  builtInMCPConnectPath,
   Errors,
   isApiError,
   isBuiltInMCPProvider,
@@ -13,6 +15,7 @@ import {
   mcpToolPolicyReviewInputSchema,
   mcpToolPolicyStateSchema,
   mcpToolSearchInputSchema,
+  type BuiltInMCPProvider,
   type ExternalToolRef,
   type McpConnectionToolTarget,
   type McpHealthMappingState as McpHealthMappingWireState,
@@ -92,7 +95,7 @@ type McpOAuthCallbackConnection = Pick<McpConnection, "id" | "userId"> & {
 interface McpOAuthCallbackDependencies {
   endpointAuthorizer: McpEndpointAuthorizer;
   providerForConnection(input: McpOAuthProviderForConnectionInput): McpOAuthCallbackProvider;
-  connectionManager: Pick<McpConnectionManager, "getReadyClient">;
+  connectionManager: Pick<McpConnectionManager, "openForOwner">;
 }
 
 /** The one callback phase where a transport failure can recover with stored tokens. */
@@ -136,7 +139,7 @@ export async function completeMcpOAuthCallback(input: {
       for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
           // Writes status only when it opens a new client; each consent door drops the old one first.
-          await dependencies.connectionManager.getReadyClient(connection.id);
+          await dependencies.connectionManager.openForOwner(connection.id);
 
           return;
         } catch (error) {
@@ -308,6 +311,32 @@ async function beginAuthorization(input: {
   }
 }
 
+/**
+ * A built-in that its integration connects has no consent door of its own. Send the browser to
+ * that integration's connect route, which also opens this row (owner rule 2026-11-13).
+ */
+function redirectToOwnerConnect(set: Context["set"], provider: BuiltInMCPProvider): null {
+  set.status = 302;
+  // An API route, so it goes on the API origin (`BETTER_AUTH_URL`).
+  set.headers["Location"] =
+    `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${builtInMCPConnectPath(provider)}`;
+
+  return null;
+}
+
+/** The built-in of an owned row when its integration owns its lifecycle, or `undefined`. */
+async function integrationConnectedBuiltIn(
+  connectionId: string,
+  userId: string,
+): Promise<BuiltInMCPProvider | undefined> {
+  const owned = await readOwnedConnection(connectionId, userId);
+  const provider = owned ? builtInProviderForEndpoint(owned.server.endpointUrl) : undefined;
+
+  return provider !== undefined && BUILT_IN_MCP_CATALOG[provider].connectedBy !== null
+    ? provider
+    : undefined;
+}
+
 /** These are browser navigations, so send errors back to the card. The row carries the reason. */
 function redirectToIntegrations(set: Context["set"]): null {
   set.status = 302;
@@ -334,7 +363,7 @@ async function navigateToConsent(
       return null;
     }
 
-    await getMcpConnectionManager().getReadyClient(input.connectionId);
+    await getMcpConnectionManager().openForOwner(input.connectionId);
   } catch (error) {
     // A missing row has no card to show the reason, so it stays a 404.
     if (isApiError(error, "NOT_FOUND")) throw error;
@@ -428,6 +457,10 @@ export const mcpIntegrationRoutes = new Elysia({
             throw Errors.NotFoundError("Unknown built-in MCP provider");
           }
 
+          if (BUILT_IN_MCP_CATALOG[params.provider].connectedBy !== null) {
+            return redirectToOwnerConnect(set, params.provider);
+          }
+
           let connectionId: string;
 
           try {
@@ -451,6 +484,10 @@ export const mcpIntegrationRoutes = new Elysia({
       .get(
         "/connections/:id/authorize",
         async ({ params, user, set }) => {
+          const connectedBy = await integrationConnectedBuiltIn(params.id, user.id);
+
+          if (connectedBy) return redirectToOwnerConnect(set, connectedBy);
+
           await getMcpConnectionManager().disconnect(params.id, user.id);
 
           return navigateToConsent(set, { connectionId: params.id, userId: user.id });
@@ -460,6 +497,10 @@ export const mcpIntegrationRoutes = new Elysia({
       .get(
         "/connections/:id/reconsent",
         async ({ params, user, set }) => {
+          const connectedBy = await integrationConnectedBuiltIn(params.id, user.id);
+
+          if (connectedBy) return redirectToOwnerConnect(set, connectedBy);
+
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
 
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");
@@ -497,6 +538,15 @@ export const mcpIntegrationRoutes = new Elysia({
       .post(
         "/connections/:id/disconnect",
         async ({ params, user }) => {
+          // Its integration's disconnect ends it too, so a second control would split one connection.
+          const connectedBy = await integrationConnectedBuiltIn(params.id, user.id);
+
+          if (connectedBy) {
+            throw Errors.BadRequestError(
+              `Disconnect ${BUILT_IN_MCP_CATALOG[connectedBy].label} on its account card`,
+            );
+          }
+
           const disconnected = await getMcpConnectionManager().disconnect(params.id, user.id);
 
           if (!disconnected) throw Errors.NotFoundError("MCP connection not found");

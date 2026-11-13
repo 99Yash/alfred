@@ -501,6 +501,27 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
 
+/**
+ * Remove the tokens of a grant that its owner detached. Under the refresh lock, so a refresh that
+ * runs now cannot write the old grant back. The client registration and discovery stay.
+ */
+export async function clearMcpOAuthGrant(
+  input: { readonly connectionId: string; readonly userId: string },
+  store: McpOAuthCredentialStore = DEFAULT_STORE,
+): Promise<void> {
+  await store.withRefreshLock(input.connectionId, async (locked) => {
+    const credential = await locked.readForConnection(input.connectionId, input.userId);
+
+    if (!credential) return;
+
+    await locked.update(credential.id, input.userId, {
+      accessToken: null,
+      refreshToken: null,
+      idToken: null,
+    });
+  });
+}
+
 function canonicalIssuer(value: string): string {
   return new URL(value).href;
 }

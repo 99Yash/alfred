@@ -1,7 +1,8 @@
 import {
+  assertNever,
+  builtInMCPConnectPath,
   Errors,
   integrationRoutePrefix,
-  mcpBuiltInConnectPath,
   type CredentialProvider,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -14,13 +15,19 @@ import {
   findUserInstallation,
   getInstallation,
   hasPersonalInstallation,
+  listGithubCredentials,
   upsertGithubCredential,
   userTokenExpiresAt,
 } from "@alfred/integrations/github";
 import { deleteIntegrationCredential } from "@alfred/integrations/shared";
 import { Elysia, t } from "elysia";
 import { oauthHandshake } from "@alfred/assistant/connections";
-import { adoptGithubAppGrant, type GithubAppUserGrant } from "@alfred/assistant/connections/mcp";
+import {
+  adoptGithubAppGrant,
+  detachGithubAppGrant,
+  type GithubAppGrantOutcome,
+  type GithubAppUserGrant,
+} from "@alfred/assistant/connections/mcp";
 import { authMacro } from "../middleware/auth";
 import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
@@ -34,13 +41,21 @@ import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 const PROVIDER = "github" satisfies CredentialProvider;
 
 /**
- * One GitHub screen on connect. GitHub, not the Alfred rows, tells if the App is installed,
- * because an Alfred disconnect keeps the App installed. With no personal installation, the
- * install screen also authorizes the user (`request_oauth_on_install`). With one, the user
- * authorization shows one screen, or none when the user authorized the App before.
+ * One GitHub screen on connect. A stored installation goes to the user authorization: the
+ * callback keeps that installation, and the install page never comes back for an installed App.
+ * With no stored installation, GitHub tells if the App is installed, because an Alfred disconnect
+ * keeps the App installed. With no personal installation, the install screen also authorizes the
+ * user (`request_oauth_on_install`). With one, the user authorization shows one screen, or none
+ * when the user authorized the App before.
  */
-async function connectUrl(state: string): Promise<string> {
+async function connectUrl(userId: string, state: string): Promise<string> {
   try {
+    const credentials = await listGithubCredentials(userId);
+
+    if (credentials.some((credential) => credential.installationId !== null)) {
+      return buildUserAuthorizeUrl(state);
+    }
+
     return (await hasPersonalInstallation())
       ? buildUserAuthorizeUrl(state)
       : buildInstallUrl(state);
@@ -51,6 +66,49 @@ async function connectUrl(state: string): Promise<string> {
     logger.warn({ err }, "[github.connect] installation check failed; using user authorization");
 
     return buildUserAuthorizeUrl(state);
+  }
+}
+
+/**
+ * The installation for a callback with a `code` and no `installation_id`. The installation that
+ * this account stored before stays while the user can still reach it: an org installation must
+ * not change to a personal one on a renewed grant, or org webhooks lose their owner. Only the
+ * install screen, which sends an explicit `installation_id`, switches it.
+ */
+async function installationForGrant(input: {
+  readonly userId: string;
+  readonly accessToken: string;
+  readonly accountId: string;
+}): Promise<string | null> {
+  const stored = (await listGithubCredentials(input.userId)).find(
+    (credential) => credential.accountId === input.accountId,
+  )?.installationId;
+
+  if (
+    stored &&
+    (await canUserAccessInstallation({
+      accessToken: input.accessToken,
+      installationId: stored,
+    }))
+  ) {
+    return stored;
+  }
+
+  return findUserInstallation({ accessToken: input.accessToken, accountId: input.accountId });
+}
+
+/** The GitHub MCP outcome on the redirect. The web app tells the owner when chat cannot read. */
+function grantOutcomeParam(outcome: GithubAppGrantOutcome | null): string {
+  if (outcome === null) return "";
+
+  switch (outcome.outcome) {
+    case "connected":
+      return "";
+    case "auth_required":
+    case "failed":
+      return `&github_mcp_error=${outcome.outcome}`;
+    default:
+      return assertNever(outcome, "GitHub App grant outcome");
   }
 }
 
@@ -68,7 +126,7 @@ export const githubIntegrationRoutes = new Elysia({
       const state = await handshake.begin({ userId: user.id });
 
       set.status = 302;
-      set.headers["Location"] = await connectUrl(state);
+      set.headers["Location"] = await connectUrl(user.id, state);
 
       return null;
     }),
@@ -85,6 +143,10 @@ export const githubIntegrationRoutes = new Elysia({
         });
 
         if (!deleted) throw Errors.NotFoundError("Credential not found");
+
+        // One GitHub control: chat reads end too. The grant has no account on its row, so any
+        // GitHub disconnect detaches it, and the next GitHub connect opens it again.
+        await detachGithubAppGrant(user.id);
 
         return { id: deleted.id, ok: true };
       },
@@ -152,14 +214,14 @@ export const githubIntegrationRoutes = new Elysia({
 
           installationId = query.installation_id;
         } else {
-          const found = await findUserInstallation({
+          const found = await installationForGrant({
+            userId,
             accessToken: tokens.accessToken,
             accountId: tokens.accountId,
           });
 
-          // Authorized, but the App is not on the user's own account: install it. That screen
-          // comes back with both. `/connect` sends a user here only when the App is on another
-          // personal account, or when its installation check failed.
+          // Authorized, but no stored installation that the user can reach, and the App is not on
+          // the user's own account: install it. That screen comes back with both.
           if (!found) {
             set.status = 302;
             set.headers["Location"] = buildInstallUrl(await handshake.begin({ userId }));
@@ -217,17 +279,19 @@ export const githubIntegrationRoutes = new Elysia({
       const stillOnboarding = userRow?.onboardedAt === null;
       const connectedParam = `github_connected=${encodeURIComponent(accountLogin)}`;
 
-      // The same App grant connects the GitHub MCP. A failure goes on the MCP row, not here.
-      if (grant) await adoptGithubAppGrant({ userId, grant });
+      // The same App grant connects the GitHub MCP. Its failure does not fail the GitHub connect,
+      // but the redirect names it, so the page shows it.
+      const grantOutcome = grant ? await adoptGithubAppGrant({ userId, grant }) : null;
+      const grantParam = grantOutcomeParam(grantOutcome);
 
       const target = stillOnboarding
-        ? `${origin}/onboarding?step=2&${connectedParam}`
+        ? `${origin}/onboarding?step=2&${connectedParam}${grantParam}`
         : grant
-          ? `${origin}/integrations?${connectedParam}`
-          : // No `code` (`setup_action=update`): the MCP consent uses the same App, so
-            // GitHub shows no second screen. That route needs onboarding, so skip it there.
-            // It is an API route, so it goes on the API origin (`BETTER_AUTH_URL`).
-            `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${mcpBuiltInConnectPath("github")}`;
+          ? `${origin}/integrations?${connectedParam}${grantParam}`
+          : // No `code` (`setup_action=update`): the GitHub connect authorizes the user, and that
+            // grant opens the GitHub MCP. The App is already authorized, so GitHub shows no
+            // screen. It is an API route, so it goes on the API origin (`BETTER_AUTH_URL`).
+            `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${builtInMCPConnectPath("github")}`;
 
       set.status = 302;
       set.headers["Location"] = target;

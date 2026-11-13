@@ -19,7 +19,9 @@ export function RootLayout() {
     if (returnTab) return;
     const error = readAuthorizationError(window.location.search);
 
-    if (error) toast.error({ message: "Not connected", description: error });
+    if (!error) return;
+    const show = error.kind === "refused" ? toast.error : toast.warning;
+    show({ message: error.title, description: error.description });
   }, [returnTab]);
 
   if (returnTab) {

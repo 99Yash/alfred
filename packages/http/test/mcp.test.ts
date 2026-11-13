@@ -322,7 +322,7 @@ describe("mcpIntegrationRoutes", () => {
 
     const connectionManager = {
       events,
-      async getReadyClient() {
+      async openForOwner() {
         this.events.push("ready");
 
         return readyClient;

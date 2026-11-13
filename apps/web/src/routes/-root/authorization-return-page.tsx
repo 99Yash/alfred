@@ -63,11 +63,11 @@ export function AuthorizationReturnPage() {
         </div>
 
         <h1 className="mt-20 bg-[linear-gradient(90deg,#999_0%,#fff_38%,#999_100%)] bg-clip-text text-[28px] leading-tight font-medium text-balance text-transparent sm:mt-24 sm:text-[32px]">
-          {error ? "Not connected" : "Return to Alfred"}
+          {error ? error.title : "Return to Alfred"}
         </h1>
         <p className="mt-3 max-w-md text-base leading-7 text-pretty text-[#a0a0a0]">
           {error
-            ? `${error} You can close this tab and try again from your original tab.`
+            ? `${error.description} You can close this tab and go back to your original tab.`
             : "Authorization has returned to Alfred. You can close this tab and check the connection in your original tab."}
         </p>
         <button

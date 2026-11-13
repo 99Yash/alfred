@@ -194,6 +194,26 @@ function needsConsent(err: unknown, connection: McpConnectionWithServer): boolea
   );
 }
 
+/**
+ * Who opens a client. `owner`: an owner connect (add, consent, reconnect, an adopted grant).
+ * `use`: a call, a catalog read, or recovery. Only `owner` opens a `disconnected` row (SM-12).
+ */
+type McpOpener = "owner" | "use";
+
+/** A `use` open of a row that the owner disconnected. Nothing is written: the row stays as is. */
+class McpConnectionDisconnectedError extends McpClientError {
+  constructor(connectionId: string) {
+    super(
+      "not_connected",
+      `MCP connection '${connectionId}' is disconnected. The owner must connect it again.`,
+    );
+    this.name = "McpConnectionDisconnectedError";
+  }
+}
+
+/** The text that makes an adopted grant recoverable until its client opens. */
+const ADOPTED_GRANT_PENDING_MESSAGE = "Alfred is opening this connection with a new sign-in.";
+
 class McpConnectionNotFoundError extends Error {
   constructor(connectionId: string) {
     super(`MCP connection '${connectionId}' does not exist`);
@@ -280,19 +300,39 @@ export class McpConnectionManager {
     this.#store = lifecycleStore(this.#persistence);
   }
 
-  /** A connected client with a published catalog, cached per connection. On failure, mark the row `failed`. */
+  /**
+   * A connected client with a published catalog, cached per connection. On failure, mark the row
+   * `failed`. It never opens a `disconnected` row: only {@link openForOwner} does (SM-12).
+   */
   async getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
+    return this.#getReadyClientRetrying(connectionId, "use", trace);
+  }
+
+  /** {@link getReadyClient} for an owner connect. It opens a `disconnected` row too. */
+  async openForOwner(connectionId: string): Promise<McpRawClient> {
+    return this.#getReadyClientRetrying(connectionId, "owner");
+  }
+
+  async #getReadyClientRetrying(
+    connectionId: string,
+    opener: McpOpener,
+    trace?: McpTraceContext,
+  ): Promise<McpRawClient> {
     try {
-      return await this.#getReadyClient(connectionId, trace);
+      return await this.#getReadyClient(connectionId, opener, trace);
     } catch (err) {
       // The start renewed a rejected token. One more start uses it.
       if (!(err instanceof McpClientError) || err.code !== "token_rejected") throw err;
 
-      return this.#getReadyClient(connectionId, trace);
+      return this.#getReadyClient(connectionId, opener, trace);
     }
   }
 
-  async #getReadyClient(connectionId: string, trace?: McpTraceContext): Promise<McpRawClient> {
+  async #getReadyClient(
+    connectionId: string,
+    opener: McpOpener,
+    trace?: McpTraceContext,
+  ): Promise<McpRawClient> {
     this.#assertAdmission(connectionId);
     await this.#waitForCatalogRefresh(connectionId);
     this.#assertAdmission(connectionId);
@@ -300,17 +340,25 @@ export class McpConnectionManager {
 
     if (current?.client) return current.client;
 
-    if (current?.start) return this.#settle(connectionId, Fiber.await(current.start));
+    if (current?.start) {
+      try {
+        return await this.#settle(connectionId, Fiber.await(current.start));
+      } catch (err) {
+        // A `use` start refused the disconnected row. The owner's open starts again.
+        if (opener !== "owner" || !(err instanceof McpConnectionDisconnectedError)) throw err;
+      }
+    }
 
     const generation = newGeneration(connectionId);
     this.#generations.set(connectionId, generation);
-    generation.start = Effect.runFork(this.#startClient(generation, trace));
+    generation.start = Effect.runFork(this.#startClient(generation, opener, trace));
 
     return this.#settle(connectionId, Fiber.await(generation.start));
   }
 
   #startClient(
     generation: McpManagerGeneration,
+    opener: McpOpener,
     trace?: McpTraceContext,
   ): Effect.Effect<McpRawClient, unknown> {
     const { connectionId } = generation;
@@ -319,6 +367,11 @@ export class McpConnectionManager {
       const connection = yield* this.#store.readConnection(connectionId);
 
       if (!connection) return yield* Effect.fail(new McpConnectionNotFoundError(connectionId));
+
+      // Before the client exists, so the refusal writes no row state.
+      if (connection.status === "disconnected" && opener !== "owner") {
+        return yield* Effect.fail(new McpConnectionDisconnectedError(connectionId));
+      }
 
       const client = yield* Effect.acquireRelease(
         step(async () => this.#clientFactory(connection)),
@@ -500,7 +553,7 @@ export class McpConnectionManager {
     await this.disconnect(connectionId, userId);
 
     try {
-      await this.getReadyClient(connectionId);
+      await this.openForOwner(connectionId);
     } catch (error) {
       if (needsConsent(error, before)) return { outcome: "auth_required" };
 
@@ -520,36 +573,54 @@ export class McpConnectionManager {
 
   /**
    * Store a grant that another owner connect got for this connection, then open the client on it.
-   * The GitHub App install is the one caller (ADR-0093 amendment 2026-11-12). That install is the
+   * The GitHub App connect is the one caller (ADR-0093 amendment 2026-11-12). That connect is the
    * owner's connect for both halves, so this opens a `disconnected` row too.
-   * `store` runs first; then the old generation closes, so no session outlives the old grant.
    * When `store` fails, write `failed` with a CAS on a null pointer: a row with a working catalog
-   * keeps it, as after a failed reconnect. A failed start writes its own state. Throws the error.
+   * keeps it, as after a failed reconnect.
+   * After `store`, the row is `connecting` with an error text, which the recovery pass reopens if
+   * the process stops before the open. The old client closes with no status write, so the row
+   * keeps its catalog pointer until the new open publishes or fails. A failed open writes its own
+   * state. Never throws for a failed open or store: the outcome names it.
    */
   async adoptGrant(
     connectionId: string,
     userId: string,
     store: () => Promise<void>,
-  ): Promise<void> {
+  ): Promise<McpConnectionReconnectOutcome> {
     const owned = await this.#persistence.readOwnedConnection(connectionId, userId);
 
-    if (!owned) throw new McpConnectionNotFoundError(connectionId);
+    if (!owned) return { outcome: "not_found" };
 
     try {
       await store();
     } catch (err) {
+      const lastError = boundedMcpErrorText(err);
+
       await this.#persistence.compareAndSetCatalogRevision({
         connectionId,
         expectedCurrentRevisionId: null,
         nextRevisionId: null,
-        patch: { status: "failed", lastError: boundedMcpErrorText(err) },
+        patch: { status: "failed", lastError },
       });
 
-      throw err;
+      return { outcome: "failed", lastError };
     }
 
-    await this.disconnect(connectionId, userId);
-    await this.getReadyClient(connectionId);
+    await this.#persistence.updateConnection(connectionId, {
+      status: "connecting",
+      lastError: ADOPTED_GRANT_PENDING_MESSAGE,
+    });
+    await this.invalidateLiveClient(connectionId);
+
+    try {
+      await this.openForOwner(connectionId);
+    } catch (error) {
+      if (needsConsent(error, owned)) return { outcome: "auth_required" };
+
+      return { outcome: "failed", lastError: boundedMcpErrorText(error) };
+    }
+
+    return { outcome: "connected" };
   }
 
   /** Rename an owned connection. Built-ins are refused: `ensureBuiltInConnection` resets their label. */

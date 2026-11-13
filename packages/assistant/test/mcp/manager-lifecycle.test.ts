@@ -446,7 +446,7 @@ describe("mcp connection manager lifecycle", () => {
     releaseDisconnectedPatch.resolve();
     await disconnect;
     persistence.onUpdate = null;
-    await manager.getReadyClient(persistence.connection.id);
+    await manager.openForOwner(persistence.connection.id);
     assert.equal(protocol.connectCount, 2);
   });
 
@@ -503,7 +503,7 @@ describe("mcp connection manager lifecycle", () => {
     protocol.onClose = null;
     persistence.onReadOwned = null;
     persistence.onUpdate = null;
-    await manager.getReadyClient(persistence.connection.id);
+    await manager.openForOwner(persistence.connection.id);
     assert.equal(protocol.connectCount, 2);
   });
 
@@ -820,7 +820,7 @@ function connection(): McpConnectionWithServer {
     authServerIdentity: null,
     credentialId: null,
     grantedScopes: [],
-    status: "disconnected",
+    status: "connecting",
     negotiatedProtocolVersion: null,
     serverIdentity: null,
     currentCatalogRevisionId: null,

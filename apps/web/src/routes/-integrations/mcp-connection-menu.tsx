@@ -46,17 +46,20 @@ export function McpActionErrorText({
  * The secondary actions of one MCP connection behind a "..." trigger, so a tile
  * shows a main button only when the user must act. Built-in rows cannot be renamed
  * (the server refuses it), and they keep their row, so `custom` gates Rename and Remove.
- * `onReconnect` is set when the tile has no main reconnect button.
+ * `onReconnect` is set when the tile has no main reconnect button. `canDisconnect` is false for a
+ * built-in that its integration disconnects.
  */
 export function McpConnectionMenu({
   connection,
   actions,
   custom,
+  canDisconnect,
   onReconnect,
 }: {
   connection: McpConnection;
   actions: McpConnectionActions;
   custom: boolean;
+  canDisconnect: boolean;
   onReconnect: (() => void) | null;
 }) {
   // The menu portals outside `.app`; stamp the resolved theme so tokens resolve.
@@ -123,7 +126,7 @@ export function McpConnectionMenu({
                 Rename
               </DropdownMenu.Item>
             ) : null}
-            {connection.status !== "disconnected" ? (
+            {canDisconnect && connection.status !== "disconnected" ? (
               <DropdownMenu.Item
                 className={appMenuItemClass}
                 disabled={busy}
