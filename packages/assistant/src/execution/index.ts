@@ -56,7 +56,6 @@ export {
   approvalNotificationWorker,
   isTerminalChildStatus,
   listSpawnedChildRuns,
-  subAgentParentRunIdMatches,
   EFFECT_RECEIPT_CAP,
   effectReceiptColumns,
   toEffectReceipt,
