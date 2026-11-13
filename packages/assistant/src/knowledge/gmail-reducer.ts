@@ -1,5 +1,4 @@
 import {
-  getStringPath,
   gmailEmailMessagePayloadSchema,
   parseEmailIdentity,
   parseGmailDocumentMetadata,
@@ -14,7 +13,12 @@ import {
   type ObservationParticipantRole,
 } from "@alfred/contracts";
 import { sha256Canonical, sha256Hex } from "@alfred/db/hash";
-import { parseStoredGmailMessage, type GmailMessage } from "@alfred/integrations/google";
+import {
+  gmailHeaderLookup,
+  parseStoredGmailMessage,
+  type GmailHeaderLookup,
+  type GmailMessage,
+} from "@alfred/integrations/google";
 import type { GmailPayloadSignals } from "./entity-kind-classifier";
 
 const GMAIL_REDUCER_VERSION = 1;
@@ -54,15 +58,11 @@ interface ParsedAddress {
   readonly raw: string;
 }
 
-interface HeaderLookup {
-  readonly get: (name: string) => string | null;
-}
-
 export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReductionResult {
   const issues: GmailReductionIssue[] = [];
   // One parse of `documents.raw`; a row that is not a Gmail message falls back to metadata.
   const message = parseStoredGmailMessage(row.raw);
-  const headers = headersFromList(message?.payload?.headers);
+  const headers = gmailHeaderLookup(message?.payload?.headers);
   const metadata = parseGmailDocumentMetadata(row.metadata);
 
   const occurredAt = row.authoredAt ?? internalDateFromMessage(message);
@@ -161,7 +161,7 @@ function skip(documentId: string, code: string, message: string): GmailReduction
 
 /** List/bulk signals from a raw `payload.headers` array, so a scan never loads bodies (#1198). */
 export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSignals {
-  const lookup = headersFromList(headers);
+  const lookup = gmailHeaderLookup(headers);
 
   return {
     listId: lookup.get("list-id"),
@@ -171,28 +171,8 @@ export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSi
   };
 }
 
-function headersFromList(headers: unknown): HeaderLookup {
-  const out = new Map<string, string>();
-
-  if (!Array.isArray(headers)) {
-    return { get: () => null };
-  }
-
-  for (const h of headers) {
-    const name = getStringPath(h, "name");
-    const value = getStringPath(h, "value");
-
-    if (name === undefined || value === undefined) continue;
-    const key = name.trim().toLowerCase();
-
-    if (key && !out.has(key)) out.set(key, value);
-  }
-
-  return { get: (name) => normalizeHeader(out.get(name.toLowerCase()) ?? null) };
-}
-
 function headerOrMetadata(
-  headers: HeaderLookup,
+  headers: GmailHeaderLookup,
   metadata: GmailDocumentMetadata,
   name: "from" | "to" | "cc",
 ): string | null {

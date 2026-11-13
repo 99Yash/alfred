@@ -299,7 +299,6 @@ function observations(): Observations {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
       hasSecurityKeyword: false,
-      hasCalendarInvite: false,
       hasInvestorNotice: false,
       hasPublicEventLanguage: false,
     },

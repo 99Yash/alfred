@@ -20,6 +20,7 @@ import {
 import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
+import { evalMailFacts } from "./lib/stored-mail";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
@@ -908,6 +909,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     senderRelationshipIsCold: c.isColdContact ?? false,
     senderKind: c.senderKind ?? null,
     labelIds: c.labelIds ?? ["INBOX"],
+    mailFacts: evalMailFacts({ from: c.from, to: USER.email, labelIds: c.labelIds ?? ["INBOX"] }),
     signalText,
   });
 

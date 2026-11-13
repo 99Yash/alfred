@@ -85,7 +85,6 @@ function observations(overrides: Partial<Observations> = {}): Observations {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
       hasSecurityKeyword: false,
-      hasCalendarInvite: false,
       hasInvestorNotice: false,
       hasPublicEventLanguage: false,
     },
@@ -2645,7 +2644,7 @@ describe("classifyCallOptions", () => {
     const options = call(new AbortController().signal);
     assert.equal(options.temperature, 0);
     assert.equal(options.schema, triageClassificationSchema);
-    assert.equal(options.maxOutputTokens, 400);
+    assert.equal(options.maxOutputTokens, 460);
     assert.deepEqual(options.timeout, { totalMs: 30_000 });
   });
 

@@ -79,10 +79,6 @@ describe("extractContentFlags", () => {
     }
   });
 
-  test("detects an embedded calendar invite", () => {
-    assert.equal(extractContentFlags("BEGIN:VCALENDAR\nBEGIN:VEVENT").hasCalendarInvite, true);
-  });
-
   test("detects investor/shareholder/AGM notice language", () => {
     assert.equal(
       extractContentFlags("Notice of the 63rd Annual General Meeting for shareholders")
@@ -157,6 +153,7 @@ describe("assembleObservations", () => {
         displayName: "Engineering",
       },
       labelIds: ["INBOX", "CATEGORY_UPDATES"],
+      mailFacts: null,
       signalText: "Your invoice for $42.00 is ready. Unsubscribe",
     });
 
@@ -181,6 +178,7 @@ describe("assembleObservations", () => {
       standingInstructions: null,
       userContext: null,
       userContextReadFailed: false,
+      mail: null,
       gmail: {
         categories: ["updates"],
         important: false,
@@ -193,7 +191,6 @@ describe("assembleObservations", () => {
         hasUnsubscribe: true,
         hasCurrencyAmount: true,
         hasSecurityKeyword: false,
-        hasCalendarInvite: false,
         hasInvestorNotice: false,
         hasPublicEventLanguage: false,
       },
@@ -210,6 +207,7 @@ describe("assembleObservations", () => {
       senderRelationship: null,
       senderKind: null,
       labelIds: [],
+      mailFacts: null,
       signalText: "hey, quick question",
     });
 

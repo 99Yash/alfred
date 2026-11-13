@@ -82,7 +82,7 @@ import {
   todoSourceKey,
   toMessage,
 } from "@alfred/contracts";
-import { gmailMailbox } from "@alfred/integrations/google";
+import { gmailMailbox, type MailFacts } from "@alfred/integrations/google";
 import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { triageRunReasonSchema } from "./workflow-input";
 import { z } from "zod";
@@ -1138,7 +1138,12 @@ export async function gatherObservations(args: {
   settings: UserSettings;
   documentId: string;
   sourceThreadId: string;
-  document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
+  document: {
+    title: string | null;
+    content: string;
+    metadata: GmailDocumentMetadata;
+    mailFacts: MailFacts | null;
+  };
   /** Scopes a per-account standing instruction. */
   accountId: string | null;
   persona: AccountPersona | null;
@@ -1237,6 +1242,7 @@ export async function gatherObservations(args: {
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
     labelIds,
+    mailFacts: args.document.mailFacts,
     signalText,
   });
 

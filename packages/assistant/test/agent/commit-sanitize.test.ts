@@ -83,7 +83,6 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
       hasUnsubscribe: false,
       hasCurrencyAmount: false,
       hasSecurityKeyword: false,
-      hasCalendarInvite: false,
       hasInvestorNotice: false,
       hasPublicEventLanguage: false,
     },

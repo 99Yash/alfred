@@ -36,6 +36,8 @@ If a mail needs the user, it gets a loud label, whatever kind of mail it is. A q
 
 The model weighs the instructions, the corrections, the triage profile, sender facts, the user's actions, and the mail. The user's words win over an inference, specific wins over general, and newer wins over older. Instructions arrive with dates, oldest to newest. The label's reason names the evidence that decided it.
 
+"The mail" is the text and one object of **mail facts**: the headers that tell who sent the mail, to whom, and if it is genuine (`From`, `Reply-To`, `To`, `Cc`, `Delivered-To`, `Return-Path`, `Authentication-Results`, `List-Id`, `Precedence`, `Auto-Submitted`, and each header whose name ends in `-Reason` or `-Class`), the presence of `List-Unsubscribe`, Gmail's `labelIds`, a calendar-invite flag, and the attachment names. Code copies each value as Gmail recorded it at arrival and does not interpret it. Code computes no verdict and adds no vendor rule. The model writes a `legitimacy` verdict (`genuine`, `doubtful`, or `fake`, with a short basis) as the first key of its answer, and then it writes the label. A `fake` mail gets a quiet label unless the user owns the obligation. The verdict goes to the trace and the reason only. No column stores it, and no floor reads it. Gmail's `SPAM` label is evidence, and Gmail is correct on most mail it files there.
+
 ### 5. Alfred's own labels are never evidence
 
 `sender_priors` stops counting the model's category. A per-sender history may hold only what the user did: corrections and replies.

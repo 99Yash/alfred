@@ -27,6 +27,11 @@ import type {
   TriageTodoDecision,
   TriageTodoSuggestion,
 } from "@alfred/contracts";
+import {
+  parseStoredGmailMessage,
+  readMailFacts,
+  type MailFacts,
+} from "@alfred/integrations/google";
 import { and, eq, ne, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
@@ -481,6 +486,8 @@ export interface TriageDocumentContext {
     authoredAt: Date | null;
     ingestedAt: Date;
     metadata: GmailDocumentMetadata;
+    /** From `documents.raw`; null when the stored row is not a Gmail message. */
+    mailFacts: MailFacts | null;
   };
   credentialId: string;
   /** Null for credentials connected before persona detection. */
@@ -490,6 +497,12 @@ export interface TriageDocumentContext {
    * primary app email. `mailboxAddress` is authoritative; null means unknown.
    */
   identity: { name: string | null; email: string | null; mailboxAddress: string | null };
+}
+
+function readStoredMailFacts(raw: unknown): MailFacts | null {
+  const message = parseStoredGmailMessage(raw);
+
+  return message ? readMailFacts(message) : null;
 }
 
 /** Null when the doc is gone. Throws when it is not Gmail or has no credential. */
@@ -550,6 +563,7 @@ export async function loadTriageContext(
       authoredAt: doc.authoredAt,
       ingestedAt: doc.ingestedAt,
       metadata: parseGmailDocumentMetadata(doc.metadata),
+      mailFacts: readStoredMailFacts(doc.raw),
     },
     credentialId: cred.id,
     persona: cred.persona ?? null,

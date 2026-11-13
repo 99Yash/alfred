@@ -25,6 +25,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
   standingInstructions: null,
   userContext: null,
   userContextReadFailed: false,
+  mail: null,
   gmail: {
     categories: ["updates"],
     important: false,
@@ -37,7 +38,6 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
     hasUnsubscribe: false,
     hasCurrencyAmount: false,
     hasSecurityKeyword: false,
-    hasCalendarInvite: false,
     hasInvestorNotice: false,
     hasPublicEventLanguage: false,
   },
@@ -157,7 +157,6 @@ async function main() {
           hasUnsubscribe: false,
           hasCurrencyAmount: c.hasCurrencyAmount ?? false,
           hasSecurityKeyword: false,
-          hasCalendarInvite: false,
           hasInvestorNotice: false,
           hasPublicEventLanguage: false,
         },
