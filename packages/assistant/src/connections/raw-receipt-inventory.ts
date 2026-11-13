@@ -8,7 +8,7 @@ import { and, count, desc, eq, isNotNull, max } from "drizzle-orm";
 /**
  * Raw kinds one event source has sent the user, with count and last arrival, newest first.
  * Scoped by `user_id` and `provider`, not by credential: a Disconnect keeps the receipts with
- * `credential_id` NULL, and a reconnect makes a new credential row (migration 0167).
+ * `credential_id` NULL, and a reconnect makes a new credential row (migration 0170).
  */
 function rawKindGroups(userId: string, source: InboundEventSource) {
   const lastSeenAt = max(eventReceipts.deliveredAt);
