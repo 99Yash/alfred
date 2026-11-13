@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { Replicache } from "replicache";
+import { SYNC_MODEL, type ClientMutators } from "@alfred/sync";
 import { authClient } from "~/lib/auth/auth-client";
 import { frameThreadId, type EventStreamFrame } from "~/lib/events/frame";
-import { openEventStream } from "~/lib/events/stream";
-import { toast } from "~/lib/toast";
+import { openEventStream, reconnectEventStream } from "~/lib/events/stream";
+import { useReplicache } from "~/lib/replicache/context";
 import {
   applyChatFrame,
   applyChatSeed,
   applyOptimisticStop,
-  applyStreamError,
+  applySyncedClose,
   createChatStreamCell,
   settleDrip,
   streamSnapshotsEqual,
@@ -15,7 +17,7 @@ import {
   type ChatStreamCell,
   type StreamingMessage,
 } from "./chat-stream-state";
-import { assertNever } from "@alfred/contracts";
+import { assertNever, toMessage } from "@alfred/contracts";
 
 export interface ChatStream {
   stream: StreamingMessage | null;
@@ -23,13 +25,11 @@ export interface ChatStream {
   stopStream: () => void;
 }
 
-/** A dead bus with no terminal frame would leave the stop button up forever. */
+/**
+ * No frame for a live turn in this time starts a recovery. The server heartbeat is an SSE
+ * comment, which `EventSource` does not show, so silence is the only sign of a dead connection.
+ */
 const WATCHDOG_MS = 45_000;
-
-const STREAM_ERROR_MESSAGE = "Live updates disconnected. The reply may be incomplete.";
-
-const WATCHDOG_ERROR_MESSAGE =
-  "Connection stalled. No updates received. The reply may be incomplete.";
 
 /**
  * One thread's live turn. It outlives the thread page: the shared event bus does not
@@ -47,6 +47,9 @@ interface ThreadStream {
 const threads = new Map<string, ThreadStream>();
 
 let watchdogId: number | null = null;
+
+/** The signed-in user's sync client. The watchdog reads synced rows through it. */
+let syncedRows: Replicache<ClientMutators> | null = null;
 
 function threadStream(threadId: string): ThreadStream {
   const existing = threads.get(threadId);
@@ -115,6 +118,16 @@ function releaseIfSettled(threadId: string, entry: ThreadStream): void {
   threads.delete(threadId);
 }
 
+/**
+ * A turn that expects frames: live, and not parked on an approval. A parked run is silent by
+ * design (ADR-0099).
+ */
+function expectsFrames(entry: ThreadStream): boolean {
+  const cur = entry.cell.current;
+
+  return cur !== null && !cur.done && !cur.awaitingApproval;
+}
+
 /** Any frame proves the bus is alive, so each one moves the deadline for every live turn. */
 function armWatchdog(): void {
   if (watchdogId !== null) {
@@ -122,29 +135,66 @@ function armWatchdog(): void {
     watchdogId = null;
   }
 
-  // A run parked on an approval is silent by design (ADR-0099). The next frame re-arms.
-  const live = [...threads.values()].some(({ cell }) => {
-    const cur = cell.current;
-
-    return cur !== null && !cur.done && !cur.awaitingApproval;
-  });
-
-  if (!live) return;
+  if (![...threads.values()].some(expectsFrames)) return;
   watchdogId = window.setTimeout(() => {
     watchdogId = null;
-    let stalled = false;
-
-    for (const entry of threads.values()) {
-      if (entry.cell.current?.awaitingApproval) continue;
-
-      if (applyStreamError(entry.cell, WATCHDOG_ERROR_MESSAGE)) {
-        stalled = true;
-        scheduleProjection(entry);
-      }
-    }
-
-    if (stalled) toast.error("Connection stalled. Live updates stopped. Please retry.");
+    void recoverStalledTurns();
   }, WATCHDOG_MS);
+}
+
+/** The ids in `messageIds` that have a synced row. A failed read gives none. */
+async function readSyncedMessageIds(messageIds: string[]): Promise<Set<string>> {
+  const rep = syncedRows;
+
+  if (!rep) return new Set();
+
+  return rep
+    .query(async (tx) => {
+      const found = new Set<string>();
+
+      for (const id of messageIds) {
+        if ((await SYNC_MODEL.chatmsg.get(tx, { id })) !== null) found.add(id);
+      }
+
+      return found;
+    })
+    .catch((err: unknown) => {
+      console.warn("[chat] synced row read failed:", toMessage(err));
+
+      return new Set<string>();
+    });
+}
+
+/**
+ * No frame came for a live turn. Do not fail it: the run can be healthy and silent (a long tool
+ * call, a compaction). A turn whose synced row is here closed on the server, so close it; the row
+ * shows the outcome, a failure too. For the rest, reconnect the bus in silence, so the `?since`
+ * replay resends any frame the old connection lost. The next deadline repeats this check.
+ */
+async function recoverStalledTurns(): Promise<void> {
+  const stalled = [...threads].flatMap(([threadId, entry]) => {
+    const cur = entry.cell.current;
+
+    return cur !== null && expectsFrames(entry)
+      ? [{ threadId, entry, messageId: cur.messageId }]
+      : [];
+  });
+
+  if (stalled.length === 0) return;
+  const closed = await readSyncedMessageIds(stalled.map(({ messageId }) => messageId));
+
+  for (const { threadId, entry, messageId } of stalled) {
+    // A sign-out during the read cleared the map.
+    if (threads.get(threadId) !== entry || !closed.has(messageId)) continue;
+
+    if (applySyncedClose(entry.cell, messageId)) scheduleProjection(entry);
+    releaseIfSettled(threadId, entry);
+  }
+
+  // A frame during the read re-armed the watchdog, so the bus is alive.
+  if (watchdogId !== null || ![...threads.values()].some(expectsFrames)) return;
+  reconnectEventStream();
+  armWatchdog();
 }
 
 /** Kinds that can mount a turn. Others only address a turn that is already there. */
@@ -189,21 +239,6 @@ function onFrame(frame: EventStreamFrame): void {
   armWatchdog();
 }
 
-function onBusError(): void {
-  let failed = false;
-
-  for (const entry of threads.values()) {
-    if (applyStreamError(entry.cell, STREAM_ERROR_MESSAGE)) {
-      failed = true;
-      scheduleProjection(entry);
-    }
-  }
-
-  armWatchdog();
-
-  if (failed) toast.error(`${STREAM_ERROR_MESSAGE} Please retry.`);
-}
-
 /**
  * Keep every thread's live turn current while the app runs. Mount once, in the app shell,
  * so a turn keeps its frames while the user is on another page.
@@ -211,10 +246,20 @@ function onBusError(): void {
 export function useChatStreamStore(): void {
   const { data: session } = authClient.useSession();
   const userId = session?.user.id;
+  const rep = useReplicache();
+
+  useEffect(() => {
+    syncedRows = rep;
+
+    return () => {
+      if (syncedRows === rep) syncedRows = null;
+    };
+  }, [rep]);
 
   useEffect(() => {
     if (!userId) return;
-    const close = openEventStream({ onFrame, onError: onBusError });
+    // A fatal bus close reconnects in silence, and the `?since` replay resumes each turn.
+    const close = openEventStream({ onFrame });
 
     return () => {
       close();

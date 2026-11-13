@@ -264,23 +264,6 @@ function onFrame(frame: EventStreamFrame): void {
   }
 }
 
-/** Freeze live bodies so the sidebar does not spin forever. The synced rows follow. */
-function onBusError(): void {
-  for (const [threadId, entry] of threads) {
-    let changed = false;
-
-    for (const [id, stream] of entry.streams) {
-      if (!stream.done) {
-        entry.streams.set(id, { ...stream, done: true });
-        changed = true;
-      }
-    }
-
-    if (changed) publish(entry);
-    releaseIfSettled(threadId, entry);
-  }
-}
-
 /**
  * Keep every thread's live artifact bodies current while the app runs. Mount once, in the
  * app shell, so a body keeps its frames while the user is on another page.
@@ -291,7 +274,8 @@ export function useArtifactStreamStore(): void {
 
   useEffect(() => {
     if (!userId) return;
-    const close = openEventStream({ onFrame, onError: onBusError });
+    // A fatal bus close reconnects in silence, and the `?since` replay resumes each body.
+    const close = openEventStream({ onFrame });
 
     return () => {
       close();

@@ -6,12 +6,10 @@ import { getEventStreamStatus, setEventStreamStatus } from "./event-stream-statu
 
 export interface OpenEventStreamOptions {
   onFrame: (frame: EventStreamFrame) => void;
-  onError?: ((err: Event) => void) | undefined;
 }
 
 interface EventStreamSubscriber {
   onFrame: (frame: EventStreamFrame) => void;
-  onError?: ((err: Event) => void) | undefined;
 }
 
 interface SharedEventStream {
@@ -71,15 +69,11 @@ function attachSource(shared: SharedEventStream): void {
     setEventStreamStatus("connected");
   };
 
-  source.onerror = (err) => {
+  source.onerror = () => {
     // A non-2xx goes to CLOSED with no auto-retry. A transport drop stays CONNECTING and retries.
     const isFatal = source.readyState === EventSource.CLOSED;
 
     if (isFatal) {
-      for (const subscriber of shared.subscribers.values()) {
-        subscriber.onError?.(err);
-      }
-
       // Keep the subscriber map so a reconnect needs no re-subscribe.
       try {
         source.close();
@@ -137,7 +131,7 @@ function attachSource(shared: SharedEventStream): void {
 /**
  * Subscribe to the one shared SSE connection to /api/events. Returns the unsubscribe.
  * A reload loses `Last-Event-ID`, so the persisted cursor goes out as `?since`.
- * A fatal error calls each `onError` once, so a live chat turn can fail instead of hang.
+ * A fatal close retries with backoff, and the `?since` replay resends what the gap lost.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
   if (!sharedStream) {
@@ -159,10 +153,7 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
   const stream = sharedStream;
   const subscriberId = stream.nextId;
   stream.nextId += 1;
-  stream.subscribers.set(subscriberId, {
-    onFrame: opts.onFrame,
-    onError: opts.onError,
-  });
+  stream.subscribers.set(subscriberId, { onFrame: opts.onFrame });
 
   return () => {
     stream.subscribers.delete(subscriberId);
@@ -187,4 +178,27 @@ export function openEventStream(opts: OpenEventStreamOptions): () => void {
       setEventStreamStatus("disconnected");
     }
   };
+}
+
+/**
+ * Replace the shared source now, with no status change. A half-open connection gives no error,
+ * so a caller that expects frames calls this. The new URL takes the `?since` anchor, so the replay
+ * resends the frames the old source lost. A pending backoff retry already does the same.
+ */
+export function reconnectEventStream(): void {
+  const shared = sharedStream;
+
+  if (!shared || shared.subscribers.size === 0 || shared.reconnectTimer) return;
+
+  if (shared.source) {
+    try {
+      shared.source.close();
+    } catch {
+      // ignore
+    }
+
+    shared.source = null;
+  }
+
+  attachSource(shared);
 }

@@ -78,8 +78,6 @@ export interface StreamingMessage {
   awaitingCapacity: boolean;
   /** The synced message replaces this soon. */
   done: boolean;
-  /** Client-side stream failure (SSE disconnect, watchdog). */
-  error: string | null;
 }
 
 interface SubAgentTrailRef extends Omit<SubAgentTrail, "tools"> {
@@ -118,7 +116,6 @@ interface StreamRef {
   compacting: boolean;
   awaitingCapacity: boolean;
   done: boolean;
-  error: string | null;
   /**
    * The user hit stop locally. Freeze now and drop late frames for this run,
    * so the bubble does not wait on the worker's ~400ms stop-flag poll.
@@ -227,7 +224,6 @@ function createStreamRef(
     compacting: false,
     awaitingCapacity: false,
     done: false,
-    error: null,
     stopped: false,
   };
 }
@@ -607,7 +603,7 @@ function freezeReasoningMs(ref: StreamRef, ts: number): void {
 }
 
 /** Cut both buffers at what is shown and mark the turn done and stopped. */
-function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
+function freezeAndFinalizeTurn(ref: StreamRef): void {
   const eased = anchorEasedSegment(ref);
   // This bypasses the logs' marks. Safe: the ref is `stopped` below, so no later delta reads them.
   ref.text.segments.set(eased.segment, eased.text.slice(0, eased.shown));
@@ -619,7 +615,6 @@ function freezeAndFinalizeTurn(ref: StreamRef, error: string | null): void {
     budget = Math.max(0, budget - text.length);
   }
 
-  if (error !== null) ref.error = error;
   ref.stopped = true;
   ref.done = true;
   ref.awaitingApproval = false;
@@ -638,20 +633,24 @@ export function applyOptimisticStop(cell: ChatStreamCell): boolean {
   // The server refuses to stop a run parked on an approval. A local stop would freeze the bubble
   // and drop every frame after the user decides, so the turn would show no reply (SM-16).
   if (!r || r.stopped || r.awaitingApproval) return false;
-  freezeAndFinalizeTurn(r, null);
+  freezeAndFinalizeTurn(r);
 
   return true;
 }
 
-/** The SSE transport died mid-turn. Freeze like a stop and record `error` to show inline. */
-export function applyStreamError(cell: ChatStreamCell, message: string): boolean {
+/**
+ * The synced row of this turn is here, so the run closed on the server, but its `completed`
+ * frame never came (a replay gap). End the turn as `completed` would. The row carries the
+ * outcome, a failure too, and replaces the bubble. Returns `false` for another turn or a done one.
+ */
+export function applySyncedClose(cell: ChatStreamCell, messageId: string): boolean {
   const r = cell.current;
 
-  if (!r || r.stopped) return false;
-
-  // A late CLOSED after `completed` must not turn a finish into a failure.
-  if (r.done) return false;
-  freezeAndFinalizeTurn(r, message);
+  if (!r || r.done || r.messageId !== messageId) return false;
+  r.done = true;
+  r.awaitingApproval = false;
+  r.compacting = false;
+  r.awaitingCapacity = false;
 
   return true;
 }
@@ -770,7 +769,6 @@ export function tickDrip(
       compacting: ref.compacting,
       awaitingCapacity: ref.awaitingCapacity,
       done: ref.done,
-      error: ref.error,
     },
     caughtUp: shown >= eased.text.length && ref.reasoningShown >= reasoning.length,
   };
@@ -809,7 +807,6 @@ export function streamSnapshotsEqual(a: StreamingMessage | null, b: StreamingMes
     a.compacting !== b.compacting ||
     a.awaitingCapacity !== b.awaitingCapacity ||
     a.done !== b.done ||
-    a.error !== b.error ||
     a.tools.length !== b.tools.length ||
     a.connectNudges.length !== b.connectNudges.length ||
     a.subAgents.length !== b.subAgents.length ||
