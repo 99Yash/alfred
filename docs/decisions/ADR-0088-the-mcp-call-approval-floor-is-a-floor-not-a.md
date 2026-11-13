@@ -31,3 +31,7 @@ The live-chat scheduling hint has no validated input or execution context. It th
 ## Amendment — 2026-10-26: the bound call owns the clamp
 
 The clamp moved from the dispatcher into `BoundToolCall.effectiveRiskTier` in `tool-runtime/internal/registry.ts`. No member of `BoundToolCall` returns an unclamped tier. `effectiveRiskTier` returns the clamped tier. A second reader, for example an input-aware gate predictor, gets the clamp with no change to the reader. Dispatch still reads the tier at the gate. The fail-closed branch, the downgrade rule, and the three log events do not change.
+
+## Amendment — 2026-11-13: a code-owned entry is a third authority ([ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md))
+
+`mcp_tool_policy` stays the store of the owner's reviews. A built-in read can also have a code-owned entry with the same fields, bound to the exact descriptor hash (ADR-0096 amendment, 2026-11-13). `resolveMcpToolIdentity` returns it as `codePolicy`, beside `policy`, and only when no review of the tool exists. The fail-closed rule does not change: a hash miss, a stale revision, or a missing `readOnlyHint` keeps the `high` floor. `mcp.call` names the entry in its `riskTierDowngradeReason`. Residual (1) grows: the staging row now hides which of three authorities waived the floor.

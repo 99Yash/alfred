@@ -61,6 +61,15 @@ The allowlist is the only code that keeps Alfred single-user, but removing it is
 
 `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` are the same OAuth client used by the Gmail/Calendar integration flow at `/api/integrations/google/callback`. Better Auth derives its own callback URL: `${BETTER_AUTH_URL}/api/auth/callback/google`. Both URIs must be listed in the OAuth client's authorized redirect URIs in GCP Console. Calendar additionally requires the Google Calendar API to be enabled in the GCP project.
 
+### The Google Workspace MCP servers
+
+The six Google Workspace MCP servers (Gmail, Calendar, Drive, Docs, Sheets, Slides) borrow the token of this same client (ADR-0126). Their `mcp_connections` rows hold no grant. Each request reads the access token of the user's oldest Google credential row, and `getGoogleMcpAccessToken` refreshes it through the Google credential code. Thus:
+
+- Add no redirect URI for them. Google has no dynamic registration, and the servers use no consent of their own.
+- The GCP project must stay in the Workspace Developer Preview. The servers are pre-GA.
+- A Google reconnect repairs them. Their repair doors send the user to `/api/integrations/google/connect`. The Google callback and the Google disconnect call `syncGoogleWorkspaceConnections`, which connects or disconnects the six rows.
+- The grant must hold the scopes of the tools: `gmail.modify`, `calendar.events`, `drive`, `documents`, `spreadsheets`, and `presentations`. The full Google grant (ADR-0044) holds them.
+
 ## GitHub setup
 
 **GitHub App** (ADR-0052, migrated from the classic OAuth App 2026-06-08). Auth in `packages/integrations/src/github/app.ts`:

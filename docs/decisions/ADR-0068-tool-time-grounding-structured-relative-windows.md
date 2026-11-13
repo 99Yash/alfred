@@ -11,3 +11,5 @@
 **Amended 2026-10-26 (#1559).** The dispatcher no longer reads settings. Each tool run carries its own zone (`ToolCallRunBase.timezone`, required). Chat and brief runs use their snapshot. Reply drafting uses the zone that `gather` froze.
 
 **Amended 2026-11-12 by [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md).** The GitHub half is deleted with `github.search`: the model now writes GitHub search syntax for the GitHub MCP search tool. `githubSearchDateTime` stays for the briefing merged read. The calendar half does not change.
+
+**Amended 2026-11-13 by [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md).** The calendar half is deleted with `calendar.list_events`. The model now writes the times for the Google Calendar MCP tools. `ToolExecuteContext.timezone` stays for the other tools.

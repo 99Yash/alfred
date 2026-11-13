@@ -6,7 +6,7 @@ Per ADR-0011 + ADR-0022 (v2 amendment) alfred runs one lifetime-once self-resear
 
 **Scope is the account holder only.** Company, role, team, and publicly attested relationship/family facts may land as `user_facts`/`memory_chunks` _about the user_; third parties get at most a one-line relation mention, never recursive research or their own rows.
 
-**v2.0 is web-only** because new users default to `gated`, which would park live Gmail/Calendar reads in a watcher-less onboarding run. Read-only `calendar.list_events` + `gmail.search` aspects are a v2.1 follow-up, gated on the run-scoped autonomy override; `gmail.read_message` stays unavailable at callback time because it reads the not-yet-ingested `documents` store.
+**v2.0 is web-only** because new users default to `gated`, which would park live Gmail/Calendar reads in a watcher-less onboarding run. Read-only Calendar and Gmail search aspects are a v2.1 follow-up, gated on the run-scoped autonomy override.
 
 ## The pipeline
 
