@@ -12,6 +12,7 @@ export const NOTIFICATION_KINDS = [
   "health_alert",
   "delivery_alert",
   "workflow_blocked",
+  "inbound_forward",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -29,6 +30,7 @@ export type EmailSendStatus = (typeof EMAIL_SEND_STATUSES)[number];
  *   `approval:{stagingId}`
  *   `health_alert:{userId}:{metric}:{local day}`
  *   `delivery_alert:{userId}:{source}:{local day}` (ADR-0100)
+ *   `inbound_forward:{Resend received-email id}`
  *
  * `delivery_alert` is its own kind so weekly dedup reads only connection alerts. The sender
  * reads every page of recent sent rows, including arbitrary MCP connection ids.

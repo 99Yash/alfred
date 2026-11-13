@@ -1170,6 +1170,13 @@
       "when": 1794453384666,
       "tag": "0166_mcp_oauth_keepalive",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1794537656625,
+      "tag": "0167_inbound_forward_kind",
+      "breakpoints": true
     }
   ]
 }

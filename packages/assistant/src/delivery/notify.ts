@@ -2,6 +2,7 @@ import { db } from "@alfred/db";
 import { emailSends, type NotificationKind } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, ne } from "drizzle-orm";
+import type { Attachment } from "resend";
 import { getResendClient } from "./resend-client";
 import { toMessage, type JsonObject } from "@alfred/contracts";
 import { userIdentity } from "@alfred/assistant/settings";
@@ -22,6 +23,10 @@ export interface NotifyArgs {
   payload?: JsonObject;
   /** Defaults to the user's account email. */
   toAddress?: string;
+  /** Where a reply goes. Unset means the sender. */
+  replyTo?: string[];
+  /** Passed to Resend as is. An entry with a `path` makes Resend fetch the file. */
+  attachments?: Attachment[];
 }
 
 /** What a compose function hands to `notify`. */
@@ -97,6 +102,8 @@ export async function notify(args: NotifyArgs): Promise<NotifyResult> {
         subject: args.subject,
         html: args.html,
         text: args.text,
+        ...(args.replyTo ? { replyTo: args.replyTo } : {}),
+        ...(args.attachments?.length ? { attachments: args.attachments } : {}),
         headers: {
           "X-Alfred-Idempotency-Key": args.idempotencyKey,
           "X-Alfred-Kind": args.kind,

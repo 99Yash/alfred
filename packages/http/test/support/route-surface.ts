@@ -41,6 +41,7 @@ const ROUTE_SURFACE = [
   "POST /webhooks/gmail",
   "POST /webhooks/inbound/:source",
   "POST /webhooks/github",
+  "POST /webhooks/resend",
   "GET /api/integrations/mcp/connections",
   "POST /api/integrations/mcp/connections",
   "GET /api/integrations/mcp/recovery",

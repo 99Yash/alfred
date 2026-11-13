@@ -105,6 +105,12 @@ in `packages/assistant/src/runtime/adapters/trigger-consumers.ts`. The
 object-state owner therefore holds the code that feeds the projection, and
 runtime adapters hold no provider lifecycle code.
 
+Resend Receiving deliveries enter through `POST /webhooks/resend`, not through the
+ADR-0097 ingress. The route forwards each received mail to the owner's account email
+([email reference](./email-sender-bimi.md#received-mail-forward-to-the-owner)). It writes no
+`event_receipts` row and no corpus document, because the mail is not a product input. The
+`email_sends` row of the forward is its dedup record.
+
 Google credential connect and disconnect mutations enter through the
 connections-owned credential lifecycle interface
 (`packages/assistant/src/connections/google-credential-lifecycle.ts`). Runtime composition owns the
