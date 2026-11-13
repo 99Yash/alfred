@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { type ChatModelTier, route } from "@alfred/ai";
 import {
@@ -9,6 +10,7 @@ import {
   isRecord,
   type McpCallInput,
   mcpCallInput,
+  mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
   parseIanaTimezone,
   readUserContextInput,
@@ -18,6 +20,7 @@ import {
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { type Tool, generateText, isStepCount, tool } from "ai";
+import { Ajv } from "ajv";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
@@ -68,6 +71,44 @@ const GITHUB_SEARCH_REMOTE = "search_pull_requests";
 
 const GITHUB_READ_PR_REMOTE = "pull_request_read";
 
+const MCP_INSPECT_TOOL = "mcp.inspect_tool";
+
+/**
+ * The hosted descriptors, captured on 2026-11-13 from the catalog of a connected
+ * `https://api.githubcopilot.com/mcp/readonly` row (icons removed). Production validates the
+ * arguments against these schemas before it sends a call, so the eval uses the same schemas.
+ */
+const githubDescriptorSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  annotations: z.record(z.string(), z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()),
+});
+
+const GITHUB_DESCRIPTORS = z
+  .array(githubDescriptorSchema)
+  .parse(
+    JSON.parse(
+      readFileSync(
+        path.resolve(import.meta.dirname, "fixtures/github-mcp-descriptors.json"),
+        "utf8",
+      ),
+    ),
+  );
+
+const githubSchemaValidator = new Ajv({ strict: false, allErrors: true });
+
+/** The ajv validator of each captured descriptor, as production compiles it. */
+const GITHUB_ARGUMENT_VALIDATORS = new Map(
+  GITHUB_DESCRIPTORS.map((descriptor) => [
+    descriptor.name,
+    githubSchemaValidator.compile(descriptor.inputSchema),
+  ]),
+);
+
+/** The record the GitHub case asks about. A drill earns credit only on this record. */
+const GITHUB_REQUESTED_PR = { owner: "acme", repo: "web", number: 482 };
+
 const TIERS: ChatModelTier[] = ["standard", "deep"];
 
 // Depth means a lead and then a drill into a record from the same source. Unrelated calls do not count.
@@ -80,41 +121,53 @@ const WEB_INVESTIGATION_TOOLS = new Set<string>([
 const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
   READ_CONTEXT_TOOL,
   MCP_LIST_TOOLS_TOOL,
+  MCP_INSPECT_TOOL,
   MCP_CALL_TOOL,
 ]);
 
-/** Catalog reads find a tool. They are not an angle of the investigation. */
-const DISCOVERY_TOOLS = new Set<string>([READ_CONTEXT_TOOL, MCP_LIST_TOOLS_TOOL]);
-
-/** The arguments each remote tool needs. A call without them fails in production. */
-function requiredGithubArguments(remoteName: string): readonly string[] | undefined {
-  if (remoteName === GITHUB_SEARCH_REMOTE) return ["query"];
-
-  if (remoteName === GITHUB_READ_PR_REMOTE) return ["owner", "repo", "pullNumber"];
-
-  return undefined;
-}
+/** Catalog reads find a tool or its schema. They are not an angle of the investigation. */
+const DISCOVERY_TOOLS = new Set<string>([READ_CONTEXT_TOOL, MCP_LIST_TOOLS_TOOL, MCP_INSPECT_TOOL]);
 
 /**
- * Whether production would accept this call: the connection and revision from the catalog ref,
- * and the arguments that the remote tool needs. A call that fails here earns no credit.
+ * Why production would refuse this call, or `null` when it would send it: the connection and
+ * revision from the catalog ref, and arguments that pass the captured schema of the remote tool.
  */
-function isAcceptedGithubCall(input: unknown, remoteName: string): boolean {
-  const args = isRecord(input) ? input.arguments : undefined;
-  const required = requiredGithubArguments(remoteName);
+function githubCallRejection(input: unknown, remoteName: string): string | null {
+  if (
+    getStringPath(input, "remoteName") !== remoteName ||
+    getStringPath(input, "connectionId") !== GITHUB_CONNECTION.id ||
+    getStringPath(input, "catalogRevision") !== GITHUB_CATALOG_REVISION
+  ) {
+    return "The ref does not match the catalog. Use the exact ref from mcp.list_tools.";
+  }
 
-  return (
-    getStringPath(input, "remoteName") === remoteName &&
-    getStringPath(input, "connectionId") === GITHUB_CONNECTION.id &&
-    getStringPath(input, "catalogRevision") === GITHUB_CATALOG_REVISION &&
-    required !== undefined &&
-    isRecord(args) &&
-    required.every((key) => args[key] !== undefined && args[key] !== "")
-  );
+  const validate = GITHUB_ARGUMENT_VALIDATORS.get(remoteName);
+
+  if (!validate) return `MCP tool '${remoteName}' is not in the current catalog.`;
+
+  const args = isRecord(input) ? input.arguments : undefined;
+
+  if (validate(args)) return null;
+
+  return `Arguments for MCP tool '${remoteName}' failed its imported schema: ${githubSchemaValidator.errorsText(validate.errors)}`;
 }
 
 function isMcpCallTo(call: ToolCall, remoteName: string): boolean {
-  return call.name === MCP_CALL_TOOL && isAcceptedGithubCall(call.input, remoteName);
+  return call.name === MCP_CALL_TOOL && githubCallRejection(call.input, remoteName) === null;
+}
+
+/** A valid `pull_request_read` of the record that the case asks about. */
+function readsRequestedPullRequest(call: ToolCall): boolean {
+  if (!isMcpCallTo(call, GITHUB_READ_PR_REMOTE)) return false;
+
+  const args = isRecord(call.input) ? call.input.arguments : undefined;
+
+  return (
+    isRecord(args) &&
+    args.owner === GITHUB_REQUESTED_PR.owner &&
+    args.repo === GITHUB_REQUESTED_PR.repo &&
+    args.pullNumber === GITHUB_REQUESTED_PR.number
+  );
 }
 
 const CONNECTED_SUMMARY = [
@@ -217,8 +270,9 @@ function investigationDepthVerdict(calls: ToolCall[], kind: "web" | "github"): D
     kind === "web" ? c.name === WEB_SEARCH_TOOL : isMcpCallTo(c, GITHUB_SEARCH_REMOTE),
   );
 
+  // GitHub: the drill must read the requested pull request, not any record the mock returns.
   const drilled = relevant.some((c) =>
-    kind === "web" ? c.name === FETCH_URL_TOOL : isMcpCallTo(c, GITHUB_READ_PR_REMOTE),
+    kind === "web" ? c.name === FETCH_URL_TOOL : readsRequestedPullRequest(c),
   );
 
   const ok = offDomain.length === 0 && distinct.size >= 2 && searched && drilled;
@@ -718,70 +772,130 @@ const SUB_SYSTEM = buildSubAgentSystemPrompt(
   "sub-eval",
 );
 
-const GITHUB_MCP_HITS = [
-  {
-    ref: {
-      kind: "mcp",
-      connectionId: GITHUB_CONNECTION.id,
-      remoteName: GITHUB_SEARCH_REMOTE,
-      catalogRevision: GITHUB_CATALOG_REVISION,
-    },
-    namespace: GITHUB_CONNECTION.instanceKey,
-    connection: GITHUB_CONNECTION,
-    description:
-      "Search for pull requests in GitHub repositories using issues search syntax already scoped to is:pr.",
-  },
-  {
-    ref: {
-      kind: "mcp",
-      connectionId: GITHUB_CONNECTION.id,
-      remoteName: GITHUB_READ_PR_REMOTE,
-      catalogRevision: GITHUB_CATALOG_REVISION,
-    },
-    namespace: GITHUB_CONNECTION.instanceKey,
-    connection: GITHUB_CONNECTION,
-    description:
-      "Get information on a specific pull request in a GitHub repository: its details, diff, files, reviews, or status.",
-  },
-];
+function githubDescriptor(remoteName: string) {
+  const descriptor = GITHUB_DESCRIPTORS.find((d) => d.name === remoteName);
 
+  if (!descriptor) throw new Error(`The fixture has no descriptor for ${remoteName}`);
+
+  return descriptor;
+}
+
+function githubRef(remoteName: string) {
+  return {
+    kind: "mcp" as const,
+    connectionId: GITHUB_CONNECTION.id,
+    remoteName,
+    catalogRevision: GITHUB_CATALOG_REVISION,
+  };
+}
+
+const GITHUB_MCP_HITS = [GITHUB_SEARCH_REMOTE, GITHUB_READ_PR_REMOTE].map((remoteName) => ({
+  ref: githubRef(remoteName),
+  namespace: GITHUB_CONNECTION.instanceKey,
+  connection: GITHUB_CONNECTION,
+  description: githubDescriptor(remoteName).description,
+}));
+
+/** The production `mcp.call` result of a completed read: the MCP result with one JSON text block. */
+function completedMcpResult(payload: unknown) {
+  return {
+    status: "completed",
+    result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
+  };
+}
+
+/** GitHub reports a read failure as an MCP tool error, which `mcp.call` returns as `tool_error`. */
+function githubToolError(text: string) {
+  return { status: "tool_error", result: { isError: true, content: [{ type: "text", text }] } };
+}
+
+const PR_482 = {
+  number: 482,
+  title: "Refactor auth middleware",
+  html_url: "https://github.com/acme/web/pull/482",
+  state: "open",
+  draft: false,
+  user: { login: "lena" },
+  body: "Splits the auth middleware into per-provider handlers. One review still requested; CI is green.",
+  additions: 240,
+  deletions: 180,
+  changed_files: 7,
+  mergeable_state: "blocked",
+};
+
+/** What GitHub returns for each `pull_request_read` method on the requested pull request. */
+function pullRequestReadPayload(method: unknown): unknown {
+  switch (method) {
+    case "get":
+      return PR_482;
+    case "get_files":
+      return [
+        { filename: "src/auth/middleware.ts", status: "modified", additions: 120, deletions: 160 },
+        { filename: "src/auth/providers/google.ts", status: "added", additions: 60, deletions: 0 },
+      ];
+    case "get_diff":
+      return "diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts\n@@ -1,4 +1,2 @@";
+    case "get_reviews":
+      return [{ user: { login: "omar" }, state: "CHANGES_REQUESTED" }];
+    case "get_status":
+    case "get_check_runs":
+      return { state: "success", total_count: 4 };
+    default:
+      return [];
+  }
+}
+
+/**
+ * The production path for an `mcp.call` to the GitHub MCP: a refused ref or invalid arguments
+ * never reach GitHub, and a valid call returns only the record that it names.
+ */
 function githubMcpResult(input: McpCallInput) {
   const { remoteName } = input;
+  const rejection = githubCallRejection(input, remoteName);
 
-  if (!isAcceptedGithubCall(input, remoteName)) {
+  if (rejection) {
     return {
-      status: "tool_error",
-      error: `The call to ${remoteName} has a wrong connectionId or catalogRevision, or misses a required argument. Use the exact ref from mcp.list_tools.`,
+      status: "failed",
+      error:
+        rejection +
+        " Call mcp.inspect_tool with the same ref to read the exact schema, then call mcp.call again.",
     };
   }
 
+  const args = input.arguments;
+
   if (remoteName === GITHUB_SEARCH_REMOTE) {
-    return {
-      total_count: 1,
+    return completedMcpResult({
+      total_count: 2,
+      incomplete_results: false,
       items: [
         {
           number: 482,
-          title: "Refactor auth middleware",
-          html_url: "https://github.com/acme/web/pull/482",
+          title: PR_482.title,
+          html_url: PR_482.html_url,
           state: "open",
+          repository_url: "https://api.github.com/repos/acme/web",
+        },
+        {
+          number: 471,
+          title: "Add rate limits to the auth endpoints",
+          html_url: "https://github.com/acme/web/pull/471",
+          state: "closed",
+          repository_url: "https://api.github.com/repos/acme/web",
         },
       ],
-    };
+    });
   }
 
-  if (remoteName === GITHUB_READ_PR_REMOTE) {
-    return {
-      number: 482,
-      title: "Refactor auth middleware",
-      state: "open",
-      body: "Splits the auth middleware into per-provider handlers. One review still requested; CI is green.",
-      additions: 240,
-      deletions: 180,
-      changed_files: 7,
-    };
+  if (
+    args.owner !== GITHUB_REQUESTED_PR.owner ||
+    args.repo !== GITHUB_REQUESTED_PR.repo ||
+    args.pullNumber !== GITHUB_REQUESTED_PR.number
+  ) {
+    return githubToolError("failed to get pull request: GET 404 Not Found");
   }
 
-  return { error: `Unknown tool ${remoteName} in catalog ${GITHUB_CATALOG_REVISION}.` };
+  return completedMcpResult(pullRequestReadPayload(args.method));
 }
 
 interface SubAgentCase {
@@ -851,6 +965,22 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
           "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.",
         inputSchema: mcpToolSearchInputSchema,
         execute: async () => ({ status: "tools", tools: GITHUB_MCP_HITS, nextCursor: null }),
+      }),
+      [MCP_INSPECT_TOOL]: tool({
+        description:
+          "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
+        inputSchema: mcpToolInspectInputSchema,
+        execute: async ({ ref }) =>
+          ref.connectionId === GITHUB_CONNECTION.id &&
+          ref.catalogRevision === GITHUB_CATALOG_REVISION &&
+          GITHUB_DESCRIPTORS.some((d) => d.name === ref.remoteName)
+            ? {
+                status: "tool",
+                ref,
+                connection: GITHUB_CONNECTION,
+                tool: githubDescriptor(ref.remoteName),
+              }
+            : { status: "not_found", ref, message: "This MCP tool is not in the current catalog." },
       }),
       [MCP_CALL_TOOL]: tool({
         description:
