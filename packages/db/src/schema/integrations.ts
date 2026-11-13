@@ -122,7 +122,7 @@ export const ingestionState = pgTable(
  * `raw_kind` is set and `event_type` is `<slug>.raw`. Typed readers use `typedEventReceipts`.
  */
 // Append-only: a trigger rejects a direct DELETE (migration 0134).
-// Only the user or credential cascade deletes rows.
+// Only the user cascade deletes rows. A credential delete (Disconnect) keeps them (migration 0170).
 // Retention sets only `payload` to NULL. The dedup key, `history_id`, and `delivered_at` stay.
 export const eventReceipts = pgTable(
   "event_receipts",
@@ -134,9 +134,14 @@ export const eventReceipts = pgTable(
     provider: text("provider").notNull(),
     /** Pub/Sub messageId or the source's dedup key. Stable across redeliveries. */
     providerDeliveryId: text("provider_delivery_id").notNull(),
-    credentialId: text("credential_id")
-      .notNull()
-      .references(() => integrationCredentials.id, { onDelete: "cascade" }),
+    /**
+     * The credential that received the delivery. NULL after that credential is deleted: a
+     * Disconnect keeps the receipt as evidence (migration 0170). A reconnect makes a new
+     * credential row, so a reader of the whole history scopes by `user_id` and `provider`.
+     */
+    credentialId: text("credential_id").references(() => integrationCredentials.id, {
+      onDelete: "set null",
+    }),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

@@ -604,8 +604,8 @@ export const activityPayloadSchema = z
     /** The `documents` row that keeps the body. It outlives a credential. */
     documentId: z.string().min(1),
     /**
-     * The `event_receipts` id of the delivery. A credential cascade can delete that row (ADR-0118
-     * residual risk), so read the body through `documentId`.
+     * The `event_receipts` id of the delivery. A credential cascade deleted the rows from before
+     * migration 0170 (ADR-0118 residual risk), so read the body through `documentId`.
      */
     receiptId: z.string().min(1),
     /** The provider account that delivered the event, as `documents.account_id`. */
