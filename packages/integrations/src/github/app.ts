@@ -11,7 +11,8 @@ import { GITHUB_API, GITHUB_REST_HEADERS } from "./rest";
  * GitHub App auth (ADR-0052), no Octokit. Three credentials:
  * - App JWT: mints installation tokens. Lives at most 10 min, never stored.
  * - Installation token: used by REST calls. Lives about 1h, cached in process.
- * - User-to-server token: proves the user's login. Stored on the credential row.
+ * - User-to-server token: proves the user's login. The credential row keeps the access token
+ *   only. The GitHub MCP connection holds the refresh token and is the only refresher.
  */
 
 const TOKEN_BASE = "https://github.com/login/oauth/access_token";
@@ -50,11 +51,113 @@ export function getGithubAppConfig(): GithubAppConfig {
   };
 }
 
-/** With request_oauth_on_install, installs the App and authorizes the user on one screen. */
+/**
+ * With request_oauth_on_install, installs the App and authorizes the user on one screen.
+ * If the App is already installed, GitHub shows the installation settings and never
+ * returns. So a caller sends a user here only when GitHub reports no installation on a
+ * personal account: {@link hasPersonalInstallation} in `/connect`, or
+ * {@link findUserInstallation} in the callback.
+ */
 export function buildInstallUrl(state: string): string {
   const { slug } = getGithubAppConfig();
 
   return `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(state)}`;
+}
+
+/**
+ * The App's user authorization. A user who already authorized the App sees no screen.
+ * The callback gets a `code` and no `installation_id`; {@link findUserInstallation} finds it.
+ */
+export function buildUserAuthorizeUrl(state: string): string {
+  const { clientId, redirectUri } = getGithubAppConfig();
+  const url = new URL("https://github.com/login/oauth/authorize");
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("state", state);
+
+  return url.toString();
+}
+
+const userInstallationsSchema = z.object({
+  installations: z.array(
+    z.object({
+      id: z.number(),
+      account: z.object({ id: z.number() }).nullable().optional(),
+    }),
+  ),
+});
+
+/** GitHub's REST maximum for `per_page`. */
+const GITHUB_MAX_PER_PAGE = 100;
+
+/**
+ * This App's installation on the user's own account, or `null`. `null` sends the caller to
+ * the install screen, where the user picks the target. An org installation is never picked
+ * here, because the user did not choose it on this connect. `GET /user/installations` lists
+ * only this App's installations, so we read one full page and do not paginate. A user with
+ * more than {@link GITHUB_MAX_PER_PAGE} of them can miss their own, and the install page then
+ * does not come back.
+ */
+export async function findUserInstallation(args: {
+  accessToken: string;
+  accountId: string;
+}): Promise<string | null> {
+  const url = new URL(`${GITHUB_API}/user/installations`);
+  url.searchParams.set("per_page", String(GITHUB_MAX_PER_PAGE));
+
+  const res = await githubFetch(url, {
+    headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${args.accessToken}` },
+  });
+
+  if (!res.ok) {
+    throw await httpErrorFromResponse("github.app", res, { url: url.toString() });
+  }
+
+  const { installations } = userInstallationsSchema.parse(await res.json());
+
+  const chosen = installations.find(
+    (installation) => String(installation.account?.id) === args.accountId,
+  );
+
+  return chosen ? String(chosen.id) : null;
+}
+
+const appInstallationsSchema = z.array(
+  z.object({
+    id: z.number(),
+    // A user or org account has `type`. An enterprise account has no `type`.
+    account: z.object({ type: z.string().optional() }).nullable().optional(),
+  }),
+);
+
+/**
+ * Whether this App has an installation on a personal (`User`) account. GitHub is the source,
+ * not the Alfred credential rows, because an Alfred disconnect keeps the App installed.
+ * Alfred has one user, and the App belongs to that user, so a personal installation is the
+ * user's. Reads `GET /app/installations` with the App JWT, one full page at a time.
+ */
+export async function hasPersonalInstallation(): Promise<boolean> {
+  const jwt = await mintAppJwt();
+
+  for (let page = 1; ; page++) {
+    const url = new URL(`${GITHUB_API}/app/installations`);
+    url.searchParams.set("per_page", String(GITHUB_MAX_PER_PAGE));
+    url.searchParams.set("page", String(page));
+
+    const res = await githubFetch(url, {
+      headers: { ...GITHUB_REST_HEADERS, Authorization: `Bearer ${jwt}` },
+    });
+
+    if (!res.ok) {
+      throw await httpErrorFromResponse("github.app", res, { url: url.toString() });
+    }
+
+    const installations = appInstallationsSchema.parse(await res.json());
+
+    if (installations.some((installation) => installation.account?.type === "User")) return true;
+
+    if (installations.length < GITHUB_MAX_PER_PAGE) return false;
+  }
 }
 
 /** For a callback with `installation_id` but no `code` (`setup_action=update`). */
@@ -185,13 +288,18 @@ export interface ExchangeUserCodeResult {
   accountName: string | null;
   accessToken: string;
   refreshToken: string | null;
-  /** Far-future sentinel when user tokens do not expire. */
-  expiresAt: Date;
+  /** `expires_in` as sent, `null` when user tokens do not expire. See {@link userTokenExpiresAt}. */
+  expiresInSeconds: number | null;
   scopes: string[];
   tokenType: string;
 }
 
 const FAR_FUTURE = () => new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+
+/** The credential row's expiry for a user token. A token with no expiry gets a far-future sentinel. */
+export function userTokenExpiresAt(expiresInSeconds: number | null): Date {
+  return expiresInSeconds === null ? FAR_FUTURE() : new Date(Date.now() + expiresInSeconds * 1000);
+}
 
 /** Exchange the post-install `code` for a user token, then identify the user. */
 export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeResult> {
@@ -242,9 +350,7 @@ export async function exchangeUserCode(code: string): Promise<ExchangeUserCodeRe
     accountName: user.name ?? null,
     accessToken: parsed.data.access_token,
     refreshToken: parsed.data.refresh_token ?? null,
-    expiresAt: parsed.data.expires_in
-      ? new Date(Date.now() + parsed.data.expires_in * 1000)
-      : FAR_FUTURE(),
+    expiresInSeconds: parsed.data.expires_in ?? null,
     scopes: parseOAuthScopeList(parsed.data.scope),
     tokenType: parsed.data.token_type ?? "bearer",
   };

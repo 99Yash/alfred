@@ -90,3 +90,13 @@ GitHub omits the hint from nothing. The 28 names it serves at `/mcp/readonly` ar
 - **A user-added server is unaffected.** `readOnlyCatalog` is false for every endpoint no built-in claims, so a user-added server keeps whatever catalog it discovered. The ADR-0088 approval floor is the only control there, by design.
 - **The registry is keyed on the stored ENDPOINT, not on `canonical_resource`.** `ensureServerDefinition` may retarget an endpoint that moves UNDER an unchanged resource. After such a move, `builtInReadOnlyResource` answers `false` for the stored row and the tool falls back to the `high` floor. That is the direction to fail in — keying on the resource would keep a downgrade alive for an endpoint that had moved — but the LOSS is silent. For GitHub it is loud instead, because the same miss also drops the era pin and the connection then fails admission on `x-mcp-header`. A future built-in that declares no such keyword would lose its read-only flag with nothing reporting it.
 - **The refusal is total.** If GitHub drops the hint from one read tool, Alfred's whole GitHub MCP connection goes dark until someone changes code. That is the chosen direction, not an oversight.
+
+---
+
+## Amendment, 2026-11-12 — the GitHub scope baseline is empty
+
+The GitHub MCP connection now uses the GitHub App's client (ADR-0093 amendment, same date). An App user token has no OAuth scopes: the token response sends `scope: ""`. The App's permissions and its installed repos limit the token. Measured on 2026-11-12 with a `ghu_` token from the dev App: `/mcp/readonly` listed all 28 tools. The 8-tool catalog in "The forced trade" applies only to an OAuth App token with an empty scope.
+
+So `BUILT_IN_REGISTRY.github.scopes` is empty. A non-empty baseline would never appear in the grant, and `mcpConsentAsk` would then force a consent on every connect. Sub-decision 1 still holds for the other built-ins. The resource pin and the per-tool `readOnlyHint` refusal do not change. The App's own permissions are read-only too (ADR-0052), so this token cannot write through any surface.
+
+**Open consequence: nothing verifies the tool count.** The count of 28 is one measurement with the dev App. It is not a checked property. GitHub hides a tool when the token cannot reach it ("The forced trade"). An App user token reaches what the App's permissions allow. Thus, if the production App lacks a permission that the dev App has, the catalog is smaller, and nothing reports it. The `readOnlyHint` refusal rejects a write tool only. `maxCatalogTools` is an upper limit only. `mcp_catalog_revisions.tool_count` records the count, and the integrations page shows it. No code compares it with an expected count or with the last revision. This ADR does not settle a check for it.

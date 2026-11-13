@@ -18,7 +18,10 @@ export function catalogWords(text: string): Set<string> {
   return words;
 }
 
-/** The words of a connection label that name it: "Railway MCP" gives `railway`. */
+/**
+ * The words of a connection label that name it: "Railway" gives `railway`, and a user label
+ * "Acme MCP server" gives `acme`. Built-in labels have no "MCP" (2026-11-12); user labels can.
+ */
 export function connectionNameWords(label: string): Set<string> {
   const words = catalogWords(label);
 

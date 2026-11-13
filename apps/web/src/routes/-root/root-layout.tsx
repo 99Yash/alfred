@@ -1,12 +1,30 @@
 import { HeadContent, Outlet } from "@tanstack/react-router";
 import { LazyMotion, MotionConfig } from "motion/react";
+import { useEffect } from "react";
 import { Toaster } from "sonner";
-import { isAuthorizationReturnTab } from "~/lib/integrations/authorization-tab";
+import {
+  isAuthorizationReturnTab,
+  readAuthorizationError,
+} from "~/lib/integrations/authorization-tab";
 import { AppShell, loadMotionFeatures } from "~/lib/shell/app-shell";
+import { toast } from "~/lib/toast";
 import { AuthorizationReturnPage } from "./authorization-return-page";
 
 export function RootLayout() {
-  if (isAuthorizationReturnTab()) {
+  const returnTab = isAuthorizationReturnTab();
+
+  // A blocked tab sends the callback to this tab, so a refused authorization shows here.
+  // The callback is a full page load, so this runs once for it.
+  useEffect(() => {
+    if (returnTab) return;
+    const error = readAuthorizationError(window.location.search);
+
+    if (!error) return;
+    const show = error.kind === "refused" ? toast.error : toast.warning;
+    show({ message: error.title, description: error.description });
+  }, [returnTab]);
+
+  if (returnTab) {
     return <AuthorizationReturnPage />;
   }
 

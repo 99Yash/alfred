@@ -101,7 +101,7 @@ async function approvalLabel(userId: string, tools: readonly ToolName[]): Promis
 
 /**
  * One line per MCP connection. The curated registry does not list them, so without these
- * lines the header told the model that a connected server such as Railway MCP did not exist.
+ * lines the header told the model that a connected server such as Railway did not exist.
  */
 async function mcpConnectionLines(userId: string): Promise<string[]> {
   const lines: string[] = [];

@@ -1,10 +1,14 @@
 export {
   getGithubAppConfig,
   buildInstallUrl,
+  buildUserAuthorizeUrl,
+  findUserInstallation,
+  hasPersonalInstallation,
   mintAppJwt,
   getInstallationToken,
   getInstallation,
   exchangeUserCode,
+  userTokenExpiresAt,
   canUserAccessInstallation,
   verifyWebhookSignature,
 } from "./app";
@@ -13,6 +17,7 @@ export type { GithubAppConfig, InstallationToken, ExchangeUserCodeResult } from 
 
 export {
   upsertGithubCredential,
+  listGithubCredentials,
   getInstallationTokenForUser,
   githubInstallationId,
 } from "./credentials";

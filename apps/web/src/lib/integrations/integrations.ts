@@ -1,8 +1,8 @@
 import {
   CATALOG_SLUGS,
   INTEGRATIONS,
+  builtInMCPProvidersOf,
   integrationConnectPath,
-  isBuiltInMCPProvider,
   isCatalogSlug,
   recordFromKeys,
   type CatalogSlug,
@@ -341,7 +341,7 @@ function buildPage(slug: CatalogSlug): IntegrationPage {
   const entry = INTEGRATIONS[slug];
   const live = entry.status === "live";
   // A planned provider with a built-in MCP server connects on its detail page.
-  const mcpOnly = !live && isBuiltInMCPProvider(slug);
+  const mcpOnly = !live && builtInMCPProvidersOf(slug).length > 0;
 
   return {
     slug,

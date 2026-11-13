@@ -180,10 +180,18 @@ function classifyRefreshRefusal(code: string, clientKind: McpOAuthClientKind): R
  * One refresh per connection in this process. A server that rotates refresh tokens
  * (Railway does) rejects the second use of the old one, and that ends the grant.
  */
-const refreshFlights = new Map<string, Promise<RefreshOutcome>>();
+const refreshFlights = new Map<string, Promise<McpOAuthRefreshOutcome>>();
 
-/** `fresh`: a usable access token is stored. `dead`: only a new consent can help. */
-type RefreshOutcome = "fresh" | "dead";
+/**
+ * `fresh`: a usable access token is stored. `dead`: only a new consent can help.
+ * `grantAuthorizedAt` is the `lastAuthorizedAt` of the grant that the dead verdict judged, read
+ * under the refresh lock. A later grant save changes it, so a write after the lock compares it.
+ */
+export type McpOAuthRefreshOutcome =
+  | { readonly verdict: "fresh" }
+  | { readonly verdict: "dead"; readonly grantAuthorizedAt: Date | null };
+
+const FRESH: McpOAuthRefreshOutcome = { verdict: "fresh" };
 
 /**
  * Why a refresh runs. `expiry`: the stored token is near its end. `rejected`: the server
@@ -493,6 +501,27 @@ class DbMcpOAuthCredentialStore implements McpOAuthCredentialStore {
 
 const DEFAULT_STORE = new DbMcpOAuthCredentialStore();
 
+/**
+ * Remove the tokens of a grant that its owner detached. Under the refresh lock, so a refresh that
+ * runs now cannot write the old grant back. The client registration and discovery stay.
+ */
+export async function clearMcpOAuthGrant(
+  input: { readonly connectionId: string; readonly userId: string },
+  store: McpOAuthCredentialStore = DEFAULT_STORE,
+): Promise<void> {
+  await store.withRefreshLock(input.connectionId, async (locked) => {
+    const credential = await locked.readForConnection(input.connectionId, input.userId);
+
+    if (!credential) return;
+
+    await locked.update(credential.id, input.userId, {
+      accessToken: null,
+      refreshToken: null,
+      idToken: null,
+    });
+  });
+}
+
 function canonicalIssuer(value: string): string {
   return new URL(value).href;
 }
@@ -779,12 +808,8 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         information: {
           client_id: client.clientId,
           issuer: client.issuer,
-          ...(client.clientSecret
-            ? {
-                client_secret: client.clientSecret,
-                token_endpoint_auth_method: "client_secret_post",
-              }
-            : {}),
+          client_secret: client.clientSecret,
+          token_endpoint_auth_method: "client_secret_post",
         },
       };
     }
@@ -825,26 +850,40 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   }
 
   async saveTokens(value: StoredOAuthTokens, ctx?: OAuthClientInformationContext): Promise<void> {
+    await this.#writeTokens(value, ctx, "keep_omitted");
+  }
+
+  /**
+   * `keep_omitted`: a field that the response omits keeps its stored value. RFC 6749 permits a
+   * refresh response to omit the refresh token. `replace`: the response is a whole new grant, so
+   * an omitted field is cleared. An old refresh token must not pair with a new access token.
+   */
+  async #writeTokens(
+    value: StoredOAuthTokens,
+    ctx: OAuthClientInformationContext | undefined,
+    omitted: "keep_omitted" | "replace",
+  ): Promise<void> {
     const parsed = oauthTokensSchema.parse(value);
     const issuer = new URL(ctx?.issuer ?? parsed.issuer ?? "").href;
     const credential = await this.#requireCredential(issuer);
     const vault = this.#vault;
+    const prior = omitted === "keep_omitted" ? credential : null;
+    const scope = parsed.scope ?? prior?.scope ?? null;
     await this.#store.update(credential.id, this.#userId, {
       accessToken: vault.seal(parsed.access_token),
-      // RFC 6749 permits refresh responses to omit the prior refresh token.
       refreshToken: parsed.refresh_token
         ? vault.seal(parsed.refresh_token)
-        : credential.refreshToken,
-      idToken: parsed.id_token ? vault.seal(parsed.id_token) : credential.idToken,
+        : (prior?.refreshToken ?? null),
+      idToken: parsed.id_token ? vault.seal(parsed.id_token) : (prior?.idToken ?? null),
       tokenType: parsed.token_type,
       expiresIn: parsed.expires_in ?? null,
-      scope: parsed.scope ?? credential.scope,
+      scope,
       lastAuthorizedAt: new Date(),
     });
     await this.#store.updateConnectionAuthorization({
       connectionId: this.#connectionId,
       userId: this.#userId,
-      grantedScopes: parseOAuthScopeList(parsed.scope ?? credential.scope),
+      grantedScopes: parseOAuthScopeList(scope),
     });
 
     if (this.#attemptStateHash) {
@@ -994,7 +1033,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
 
       if (
         credential?.refreshToken &&
-        (await this.#refreshShared({ kind: "expiry" }, options)) === "fresh"
+        (await this.#refreshShared({ kind: "expiry" }, options)).verdict === "fresh"
       ) {
         return "AUTHORIZED";
       }
@@ -1046,7 +1085,10 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
    * Refresh a grant that has not been refreshed since `staleBefore`, so that a grant that is not
    * used does not expire. A transient failure throws and keeps the refresh token.
    */
-  keepAlive(staleBefore: Date, options: McpOAuthRequestOptions = {}): Promise<"fresh" | "dead"> {
+  keepAlive(
+    staleBefore: Date,
+    options: McpOAuthRequestOptions = {},
+  ): Promise<McpOAuthRefreshOutcome> {
     return this.#refreshShared({ kind: "keepalive", staleBefore }, options);
   }
 
@@ -1056,7 +1098,52 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   ): Promise<boolean> {
     const reason = { kind: "rejected", token: rejectedAccessToken } as const;
 
-    return (await this.#refreshShared(reason, options)) === "fresh";
+    return (await this.#refreshShared(reason, options)).verdict === "fresh";
+  }
+
+  /**
+   * Store a grant that another flow got from this connection's own static client, with no
+   * consent screen here. The GitHub App install is the one caller. Under the refresh lock,
+   * so a keep-alive with the old refresh token cannot clear the new grant afterwards.
+   * It replaces every token field, nulls included. A grant with no refresh token is still
+   * usable: `authorize` accepts a stored access token that does not expire.
+   * Throws when the resolved client is not the static client with `clientId`.
+   */
+  async adoptGrant(
+    grant: { readonly clientId: string; readonly tokens: StoredOAuthTokens },
+    options: McpOAuthRequestOptions = {},
+  ): Promise<void> {
+    await this.#store.withRefreshLock(this.#connectionId, (store) =>
+      new McpOAuthProvider({ ...this.#options, store, vault: this.#vault }).#adoptLocked(
+        grant,
+        options,
+      ),
+    );
+  }
+
+  async #adoptLocked(
+    grant: { readonly clientId: string; readonly tokens: StoredOAuthTokens },
+    options: McpOAuthRequestOptions,
+  ): Promise<void> {
+    const fetchFn = timeoutBoundFetch(
+      this.#authorization.fetch,
+      options.timeoutMs ?? MCP_OAUTH_FETCH_TIMEOUT_MS,
+    );
+
+    const discovery = await this.#refreshDiscovery(fetchFn);
+
+    const issuer =
+      discovery.authorizationServerMetadata?.issuer ?? discovery.authorizationServerUrl;
+
+    const client = await this.#resolveClient({ issuer });
+
+    // A stored registration or another client could not refresh this grant.
+    if (client?.kind !== "static" || client.information.client_id !== grant.clientId) {
+      throw new Error("The adopted grant is not from this connection's static OAuth client");
+    }
+
+    // A whole new grant: a refresh or ID token that it omits must not survive from the old one.
+    await this.#writeTokens({ ...grant.tokens, issuer }, { issuer }, "replace");
   }
 
   /**
@@ -1066,7 +1153,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async #refreshShared(
     reason: RefreshReason,
     options: McpOAuthRequestOptions,
-  ): Promise<RefreshOutcome> {
+  ): Promise<McpOAuthRefreshOutcome> {
     const existing = refreshFlights.get(this.#connectionId);
 
     if (existing && reason.kind !== "rejected") return existing;
@@ -1102,15 +1189,20 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
   async #refreshLocked(
     reason: RefreshReason,
     options: McpOAuthRequestOptions,
-  ): Promise<RefreshOutcome> {
+  ): Promise<McpOAuthRefreshOutcome> {
     const credential = await this.#readCredential();
     const stored = credential?.accessToken ? this.#vault.open(credential.accessToken) : undefined;
 
     if (credential && stored !== undefined && !needsRefresh(reason, credential, stored)) {
-      return "fresh";
+      return FRESH;
     }
 
-    if (!credential?.refreshToken) return "dead";
+    const dead: McpOAuthRefreshOutcome = {
+      verdict: "dead",
+      grantAuthorizedAt: credential?.lastAuthorizedAt ?? null,
+    };
+
+    if (!credential?.refreshToken) return dead;
 
     const fetchFn = timeoutBoundFetch(
       this.#authorization.fetch,
@@ -1131,7 +1223,7 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
         idToken: null,
       });
 
-      return "dead";
+      return dead;
     }
 
     const resource = await selectResourceURL(
@@ -1186,12 +1278,12 @@ export class McpOAuthProvider implements OAuthClientProvider, McpBoundOAuthSessi
           : {}),
       });
 
-      return "dead";
+      return dead;
     }
 
     await this.saveTokens({ ...tokens, issuer }, { issuer });
 
-    return "fresh";
+    return FRESH;
   }
 
   /**

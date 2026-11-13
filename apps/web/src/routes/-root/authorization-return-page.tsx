@@ -1,8 +1,13 @@
 import { ArrowRight, Plug } from "lucide-react";
-import { continueAfterAuthorization } from "~/lib/integrations/authorization-tab";
+import {
+  continueAfterAuthorization,
+  readAuthorizationError,
+} from "~/lib/integrations/authorization-tab";
 
-/** The quiet return screen for a provider tab opened from Integrations. */
+/** The quiet return screen for a provider tab opened from Integrations. It names a refusal. */
 export function AuthorizationReturnPage() {
+  const error = readAuthorizationError(window.location.search);
+
   return (
     <main className="app-media relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-[#0a0a0a] px-6 py-16 text-app-fg-4 antialiased">
       <div className="relative z-10 flex w-full max-w-lg flex-col items-center text-center">
@@ -58,11 +63,12 @@ export function AuthorizationReturnPage() {
         </div>
 
         <h1 className="mt-20 bg-[linear-gradient(90deg,#999_0%,#fff_38%,#999_100%)] bg-clip-text text-[28px] leading-tight font-medium text-balance text-transparent sm:mt-24 sm:text-[32px]">
-          Return to Alfred
+          {error ? error.title : "Return to Alfred"}
         </h1>
         <p className="mt-3 max-w-md text-base leading-7 text-pretty text-[#a0a0a0]">
-          Authorization has returned to Alfred. You can close this tab and check the connection in
-          your original tab.
+          {error
+            ? `${error.description} You can close this tab and go back to your original tab.`
+            : "Authorization has returned to Alfred. You can close this tab and check the connection in your original tab."}
         </p>
         <button
           className="mt-8 inline-flex min-h-11 items-center justify-center gap-2 rounded-surface bg-[linear-gradient(145deg,#6b57e9,#4f37cb)] px-5 text-sm font-medium text-app-fg-4 shadow-[inset_0_1px_1px_#ffffff55,0_8px_24px_#281b7555,0_0_0_1px_#ffffff26] transition-[scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)] hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a4acfd] active:scale-[0.96]"

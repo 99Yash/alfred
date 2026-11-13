@@ -20,7 +20,20 @@ import {
   type NewMcpServer,
 } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
 import { MCP_DISCOVERY_SCAN_BUDGET } from "./discovery-policy";
 import { compareMcpToolNames, projectCatalogRevision } from "./hash";
@@ -220,13 +233,14 @@ export async function closeKeepAliveFailureRun(
 /**
  * A keep-alive refresh failed: open a failure run at `at`, or keep the open one. A run that
  * started at or before `lastAuthorizedAt` is closed, because a later refresh worked.
- * Returns the start of the open run, or `undefined` when the grant row is gone. No token changes.
+ * Returns the start of the open run and the `lastAuthorizedAt` of the grant that the run is
+ * about, or `undefined` when the grant row is gone. No token changes.
  */
 export async function openKeepAliveFailureRun(
   target: McpOAuthKeepAliveTarget,
   at: Date,
   runner: DbRunner = db(),
-): Promise<Date | undefined> {
+): Promise<{ failingSince: Date; grantAuthorizedAt: Date | null } | undefined> {
   const failingSince = mcpOauthCredentials.keepaliveFailingSince;
   const lastAuthorizedAt = mcpOauthCredentials.lastAuthorizedAt;
 
@@ -241,20 +255,36 @@ export async function openKeepAliveFailureRun(
       end`,
     })
     .where(keepAliveTargetWhere(target))
-    .returning({ keepaliveFailingSince: failingSince });
+    .returning({ keepaliveFailingSince: failingSince, lastAuthorizedAt });
 
-  return row?.keepaliveFailingSince ?? undefined;
+  if (!row?.keepaliveFailingSince) return undefined;
+
+  return { failingSince: row.keepaliveFailingSince, grantAuthorizedAt: row.lastAuthorizedAt };
 }
 
 /**
  * Compare-and-set to `auth_required` when the stored grant has ended. It applies only while the
- * row is `ready` or `stale` and still points at `credentialId`. So a disconnect or a reconnect
- * that came first wins. Returns true when the row changed.
+ * row is `ready` or `stale`, still points at `credentialId`, and that credential still holds the
+ * grant that the verdict read: its `lastAuthorizedAt` equals `grantAuthorizedAt`. A grant save
+ * stamps a new `lastAuthorizedAt`. So a disconnect, a reconnect, or a newer grant (a consent or a
+ * GitHub App adopt) that came first wins. Returns true when the row changed.
  */
 export async function markConnectionGrantEnded(
-  input: { connectionId: string; credentialId: string; lastError: string },
+  input: {
+    connectionId: string;
+    credentialId: string;
+    grantAuthorizedAt: Date | null;
+    lastError: string;
+  },
   runner: DbRunner = db(),
 ): Promise<boolean> {
+  const sameGrant = and(
+    eq(mcpOauthCredentials.id, input.credentialId),
+    input.grantAuthorizedAt === null
+      ? isNull(mcpOauthCredentials.lastAuthorizedAt)
+      : eq(mcpOauthCredentials.lastAuthorizedAt, input.grantAuthorizedAt),
+  );
+
   const rows = await runner
     .update(mcpConnections)
     .set({ status: "auth_required", lastError: input.lastError })
@@ -263,6 +293,9 @@ export async function markConnectionGrantEnded(
         eq(mcpConnections.id, input.connectionId),
         inArray(mcpConnections.status, ["ready", "stale"]),
         eq(mcpConnections.credentialId, input.credentialId),
+        exists(
+          runner.select({ id: mcpOauthCredentials.id }).from(mcpOauthCredentials).where(sameGrant),
+        ),
       ),
     )
     .returning({ id: mcpConnections.id });

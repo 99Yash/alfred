@@ -1,12 +1,12 @@
 /**
  * Built-in MCP providers: endpoint, resource, and client policy pinned in code.
  * Browser-safe copy lives in `BUILT_IN_MCP_CATALOG`; this file holds what Alfred sends.
- * A static client's id and secret come from env on each read, never from a row,
- * so a rotated secret applies on the next token exchange.
+ * A static client's id and secret come from the boot env (`serverEnv()`), never from a row.
+ * A rotated secret applies only after a restart.
  */
 
 import { integrationDisplayName, typedEntries, type BuiltInMCPProvider } from "@alfred/contracts";
-import { envFieldValue, type ServerEnv } from "@alfred/env/server";
+import { serverEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
 import {
@@ -24,30 +24,19 @@ import {
 export type BuiltInOAuthConfig = {
   readonly issuer: string;
   readonly clientId: string;
-  readonly clientSecret?: string;
+  readonly clientSecret: string;
 };
-
-/**
- * Only `*_MCP_CLIENT_ID` env keys. Plain `keyof ServerEnv` would let
- * `"CLOUDFLARE_AI_GATEWAY_TOKEN"` compile and be sent to a third-party server.
- */
-type McpClientIdEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_ID`>;
-
-type McpClientSecretEnvKey = Extract<keyof ServerEnv, `${string}_MCP_CLIENT_SECRET`>;
 
 /**
  * How to get the OAuth client. `unavailable` is a refusal: never fall through to
  * dynamic registration, which the SDK does when it sees no client.
- * The loopback arm names the provider, not an env key, because no setting fixes it.
+ * No arm names a missing client id or secret: the one pinned client is the GitHub App's,
+ * and the boot parse requires both (`min(1)`). So a `static` client is always confidential.
  */
 export type BuiltInClientResolution =
   | { readonly kind: "dynamic" }
   | { readonly kind: "static"; readonly client: BuiltInOAuthConfig }
-  | {
-      readonly kind: "unavailable";
-      readonly reason: "missing_client_id" | "issuer_not_bound";
-      readonly envKey: McpClientIdEnvKey;
-    }
+  | { readonly kind: "unavailable"; readonly reason: "issuer_not_bound" }
   | {
       readonly kind: "unavailable";
       readonly reason: "authorization_server_requires_loopback";
@@ -61,12 +50,14 @@ type BuiltInDefinition = {
   readonly endpointHref: string;
   /**
    * A pre-registered client and its issuer. Absent means RFC 7591 dynamic registration.
-   * GitHub needs it: no dynamic registration and no URL-based client ids.
+   * GitHub needs it: no dynamic registration and no URL-based client ids. Its MCP uses the
+   * GitHub App's client (ADR-0093 amendment 2026-11-12). The env keys are literals, not
+   * `keyof ServerEnv`, which would let `"CLOUDFLARE_AI_GATEWAY_TOKEN"` go to a third party.
    */
   readonly staticClient?: {
     readonly issuer: string;
-    readonly clientIdKey: McpClientIdEnvKey;
-    readonly clientSecretKey: McpClientSecretEnvKey;
+    readonly clientIdKey: "GITHUB_APP_CLIENT_ID";
+    readonly clientSecretKey: "GITHUB_APP_CLIENT_SECRET";
   };
   /**
    * `"loopback-only"`: the server's dynamic registration accepts only
@@ -111,14 +102,17 @@ export const BUILT_IN_REGISTRY = {
     instanceKey: "default",
     canonicalResource: GITHUB_MCP_ENDPOINT_HREF,
     endpointHref: GITHUB_MCP_ENDPOINT_HREF,
+    // The GitHub App's client (ADR-0093 amendment 2026-11-12). The install callback gives
+    // its user token to this connection (`adoptGithubAppGrant`), so one screen connects both.
     staticClient: {
       issuer: GITHUB_MCP_ISSUER,
-      clientIdKey: "GITHUB_MCP_CLIENT_ID",
-      clientSecretKey: "GITHUB_MCP_CLIENT_SECRET",
+      clientIdKey: "GITHUB_APP_CLIENT_ID",
+      clientSecretKey: "GITHUB_APP_CLIENT_SECRET",
     },
-    // `repo` unhides PR and issue tools, `read:org` the team reads. `repo` grants
-    // write, so the read-only endpoint is what keeps the token off write tools.
-    scopes: ["repo", "read:org"],
+    // Empty on purpose: an App user token has no scopes (`scope: ""`). The App's permissions and
+    // its installed repos limit it. With such a token the endpoint lists all 28 tools (2026-11-12).
+    // A non-empty pin would never be in the grant, and `mcpConsentAsk` would ask again each time.
+    scopes: [],
     readOnlyCatalog: true,
     pinLegacyProtocol: true,
     initialState: BUILT_IN_INITIAL_STATE,
@@ -269,7 +263,6 @@ export type BuiltInClientRequest = {
 
 /**
  * How to get the OAuth client for `request.endpoint`. On `unavailable`, fail the authorize.
- * A secret without an id is `missing_client_id`.
  * `issuerHint` from discovery must share the pinned issuer's origin.
  */
 export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClientResolution {
@@ -290,24 +283,17 @@ export function resolveBuiltInClient(request: BuiltInClientRequest): BuiltInClie
   }
 
   if (!staticClient) return { kind: "dynamic" };
-  const envKey = staticClient.clientIdKey;
-  const clientId = envFieldValue(envKey);
-
-  if (clientId === undefined) {
-    return { kind: "unavailable", reason: "missing_client_id", envKey };
-  }
-
   const issuer = issuerHint ? boundIssuer(definition, issuerHint) : staticClient.issuer;
 
-  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound", envKey };
-  const clientSecret = envFieldValue(staticClient.clientSecretKey);
+  if (!issuer) return { kind: "unavailable", reason: "issuer_not_bound" };
+  const env = serverEnv();
 
   return {
     kind: "static",
     client: {
       issuer,
-      clientId,
-      ...(clientSecret === undefined ? {} : { clientSecret }),
+      clientId: env[staticClient.clientIdKey],
+      clientSecret: env[staticClient.clientSecretKey],
     },
   };
 }
@@ -323,9 +309,7 @@ export function builtInClientUnavailableMessage(
     );
   }
 
-  return resolution.reason === "missing_client_id"
-    ? `This server needs a pre-registered OAuth client. Set ${resolution.envKey}.`
-    : "The authorization server does not match this server's pinned issuer.";
+  return "The authorization server does not match this server's pinned issuer.";
 }
 
 function boundIssuer(definition: ResolvedDefinition, issuerHint: string): string | undefined {

@@ -193,9 +193,6 @@ const serverEnvSchema = z
     GITHUB_WEBHOOK_SECRET: z.string().min(1),
     /** OAuth callback, e.g. `https://api.alfred.beauty/api/integrations/github/callback`. */
     GITHUB_APP_REDIRECT_URI: z.url(),
-    /** Static OAuth client for the GitHub MCP. GitHub has no DCR, so unset means connect fails. */
-    GITHUB_MCP_CLIENT_ID: optionalSecret(),
-    GITHUB_MCP_CLIENT_SECRET: optionalSecret(),
     /** Vercel integration. The slug builds `https://vercel.com/integrations/<slug>/new`. */
     VERCEL_CLIENT_ID: optionalSecret(),
     VERCEL_CLIENT_SECRET: optionalSecret(),

@@ -116,7 +116,7 @@ export async function addUserMcpServer(
     await getMcpConnectionManager().invalidateLiveClient(connection.id);
   }
 
-  await getMcpConnectionManager().getReadyClient(connection.id);
+  await getMcpConnectionManager().openForOwner(connection.id);
 
   return { outcome: "connected", connectionId: connection.id };
 }

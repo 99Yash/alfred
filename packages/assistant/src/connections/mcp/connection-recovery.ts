@@ -9,7 +9,7 @@ import { PeriodicTask } from "@alfred/assistant/realtime/periodic-task";
 import { logger } from "@alfred/logging";
 import { MCP_DEFAULT_REQUEST_TIMEOUT_MS, MCP_RECONNECT_MESSAGE } from "./client";
 import { getMcpEndpointAuthorizer, withMcpEndpointAuthorization } from "./endpoint-authorization";
-import { mcpOAuthProviderForConnection } from "./oauth";
+import { mcpOAuthProviderForConnection, type McpOAuthRefreshOutcome } from "./oauth";
 import {
   closeKeepAliveFailureRun,
   listOAuthConnectionsToKeepAlive,
@@ -72,9 +72,9 @@ async function recordKeepAliveFailure(
   target: McpOAuthKeepAliveTarget,
   err: unknown,
 ): Promise<void> {
-  const failingSince = await openKeepAliveFailureRun(target, new Date());
+  const run = await openKeepAliveFailureRun(target, new Date());
 
-  if (!failingSince || Date.now() - failingSince.getTime() < KEEPALIVE_GIVE_UP_AFTER_MS) {
+  if (!run || Date.now() - run.failingSince.getTime() < KEEPALIVE_GIVE_UP_AFTER_MS) {
     // The refresh token stays, and the next hourly pass tries again.
     logger.warn(
       { event: "mcp_oauth_keepalive_failed", connectionId: connection.id, err },
@@ -84,8 +84,10 @@ async function recordKeepAliveFailure(
     return;
   }
 
+  // The run's grant: a grant saved after the run's write is newer, and it wins.
   await getMcpConnectionManager().markGrantEnded(connection.id, {
     credentialId: connection.credentialId,
+    grantAuthorizedAt: run.grantAuthorizedAt,
     lastError: KEEPALIVE_GAVE_UP_MESSAGE,
   });
   logger.warn(
@@ -105,7 +107,7 @@ async function keepAliveConnection(
 
   await markKeepAliveAttempted(target, new Date());
 
-  let outcome: "fresh" | "dead";
+  let outcome: McpOAuthRefreshOutcome;
 
   try {
     outcome = await withMcpEndpointAuthorization(
@@ -125,15 +127,17 @@ async function keepAliveConnection(
     return;
   }
 
-  if (outcome === "fresh") {
+  if (outcome.verdict === "fresh") {
     await closeKeepAliveFailureRun(target);
 
     return;
   }
 
-  // The refresh already cleared the dead tokens. Show it now, not at the next call.
+  // The refresh already cleared the dead tokens. Show it now, not at the next call. The lock is
+  // gone by now, so a grant saved since then (a consent, a GitHub App adopt) must win.
   await getMcpConnectionManager().markGrantEnded(connection.id, {
     credentialId: connection.credentialId,
+    grantAuthorizedAt: outcome.grantAuthorizedAt,
     lastError: MCP_RECONNECT_MESSAGE,
   });
 }

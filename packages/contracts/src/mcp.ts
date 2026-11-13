@@ -5,7 +5,8 @@
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import type { CatalogSlug } from "./integrations";
+import type { CatalogSlug, CredentialProvider } from "./integrations";
+import { integrationRoutePrefix } from "./integrations/slugs";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
 import { typedKeys } from "./records";
@@ -32,6 +33,24 @@ export const mcpConnectionStatusSchema = z.enum(mcpConnectionStatusValues);
  */
 export function mcpConnectionAuthorizePath(connectionId: string): string {
   return `/api/integrations/mcp/connections/${encodeURIComponent(connectionId)}/authorize`;
+}
+
+/** The connect route for a built-in. It creates the row if there is none, then goes to consent. */
+export function mcpBuiltInConnectPath(provider: BuiltInMCPProvider): string {
+  return `/api/integrations/mcp/built-ins/${provider}/connect`;
+}
+
+/**
+ * The one connect door for a built-in. A built-in that its integration connects goes to that
+ * integration's connect route (owner rule 2026-11-13: one GitHub control). Every MCP consent door
+ * for such a row sends the browser there too.
+ */
+export function builtInMCPConnectPath(provider: BuiltInMCPProvider): string {
+  const owner = BUILT_IN_MCP_CATALOG[provider].connectedBy;
+
+  return owner === null
+    ? mcpBuiltInConnectPath(provider)
+    : `${integrationRoutePrefix(owner)}/connect`;
 }
 
 // Snapshot of the negotiated server identity, stored on `mcp_connections.server_identity`.
@@ -299,46 +318,61 @@ export type McpRenameConnectionBody = z.infer<typeof mcpRenameConnectionBodySche
 export interface McpBuiltInEntry {
   /** The slug whose logo the tile uses. Only `CatalogSlug` entries have a logo. */
   readonly slug: CatalogSlug;
-  /** Names the server, not the product: one product can have more than one server. */
+  /**
+   * The product name, with no "MCP" in it (owner rule, 2026-11-12). The owner sees one
+   * integration, not a protocol. A second server for one product adds a qualifier, not "MCP".
+   */
   readonly label: string;
   readonly blurb: string;
+  /**
+   * The integration whose connect and disconnect also open and end this server, or `null`. Such a
+   * server has no lifecycle control of its own (owner rule 2026-11-13: one GitHub control).
+   */
+  readonly connectedBy: CredentialProvider | null;
 }
 
 export const BUILT_IN_MCP_CATALOG = {
   github: {
     slug: "github",
-    label: "GitHub MCP",
+    label: "GitHub",
     blurb: "Read pull requests, issues, and code.",
+    connectedBy: "github",
   },
   linear: {
     slug: "linear",
-    label: "Linear MCP",
+    label: "Linear",
     blurb: "Work with Linear issues, projects, and cycles.",
+    connectedBy: null,
   },
   notion: {
     slug: "notion",
-    label: "Notion MCP",
+    label: "Notion",
     blurb: "Work with Notion pages and databases.",
+    connectedBy: null,
   },
   sentry: {
     slug: "sentry",
-    label: "Sentry MCP",
+    label: "Sentry",
     blurb: "Investigate Sentry issues and error events.",
+    connectedBy: null,
   },
   railway: {
     slug: "railway",
-    label: "Railway MCP",
+    label: "Railway",
     blurb: "Read Railway deployment status.",
+    connectedBy: null,
   },
   polylane: {
     slug: "polylane",
-    label: "Polylane MCP",
+    label: "Polylane",
     blurb: "Read production logs, metrics, traces, and tracked issues.",
+    connectedBy: null,
   },
   clickup: {
     slug: "clickup",
-    label: "ClickUp MCP",
+    label: "ClickUp",
     blurb: "Work with ClickUp tasks, docs, and chat.",
+    connectedBy: null,
   },
 } as const satisfies Record<string, McpBuiltInEntry>;
 
@@ -349,6 +383,15 @@ export const BUILT_IN_MCP_PROVIDERS: readonly BuiltInMCPProvider[] =
   typedKeys(BUILT_IN_MCP_CATALOG);
 
 export const isBuiltInMCPProvider = enumGuard(BUILT_IN_MCP_PROVIDERS);
+
+/**
+ * The built-ins of one integration, in catalog order. The two key spaces stay separate
+ * (ADR-0093): a built-in key names a server, and its `slug` names the integration. Today
+ * each key equals its slug by chance, so never test an integration slug as a built-in key.
+ */
+export function builtInMCPProvidersOf(slug: CatalogSlug): readonly BuiltInMCPProvider[] {
+  return BUILT_IN_MCP_PROVIDERS.filter((provider) => BUILT_IN_MCP_CATALOG[provider].slug === slug);
+}
 
 // MCP `ContentBlock` types, plus `unknown` for any future shape.
 export const mcpContentKindValues = [
