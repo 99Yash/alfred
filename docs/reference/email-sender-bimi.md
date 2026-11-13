@@ -21,6 +21,44 @@ Alfred sends transactional email (briefings, approvals, OTP fallbacks) through
 - `_dmarc` TXT → `v=DMARC1; p=quarantine; rua=mailto:dmarc@alfred.beauty; adkim=r; aspf=r`
 - `default._bimi` TXT → `v=BIMI1; l=https://alfred.beauty/bimi/alfred-bimi.svg; a=`
 
+## Received mail: forward to the owner
+
+The apex MX of `alfred.beauty` (`10 inbound-smtp.eu-west-1.amazonaws.com`) sends all mail for
+`*@alfred.beauty` to Resend Receiving. Resend keeps the mail, but it has no forward rule. Replies
+to `hey@alfred.beauty` also arrive there. Alfred forwards each received mail to the owner's
+account email (`user.email`).
+
+| Thing        | Value                                                                                        |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Route        | `POST /webhooks/resend` (`packages/http/src/resend-webhook.ts`)                              |
+| Logic        | `receiveResendWebhook` in `packages/assistant/src/delivery/inbound-forward.ts`               |
+| Resend event | `email.received`                                                                             |
+| Env          | `RESEND_WEBHOOK_SECRET` (the `whsec_...` signing secret). Unset means the route answers 503. |
+| API key      | `RESEND_API_KEY` must have "Full access". A "Sending access" key cannot read received mail.  |
+| Ledger       | One `email_sends` row with kind `inbound_forward` and key `inbound_forward:{email id}`       |
+
+The route does these steps:
+
+1. It checks the Svix signature over the raw body. A missing header or a bad signature gets 400.
+2. It ignores all events other than `email.received`.
+3. It ignores mail from the Alfred sender (`RESEND_FROM_EMAIL`). This stops a forward loop.
+4. It finds the owner: the one user with a verified email. If there is not exactly one, it reports an error and does not forward.
+5. It does not forward when the owner's address is on a receiving domain, because the forward would come back.
+6. It reads the body (`html_format: "cid"`) and all the attachments from Resend.
+7. It sends through `notify`: from the Alfred sender, with the original subject. Reply-To is the original Reply-To, or else the original sender.
+8. The body starts with the original From, To, Cc, Date, and Subject. Resend fetches each attachment from its `download_url`. An inline image keeps its content id.
+
+A failed read or send gets 500, so Resend retries. A retry reuses the `email_sends` row and the
+Resend idempotency key, so the owner gets one copy. The forward is plumbing. The mail does not go
+to triage, the corpus, or the briefing.
+
+### Set it up
+
+1. Make sure that `RESEND_API_KEY` on Railway `server` has "Full access".
+2. In the Resend dashboard, open Webhooks and add the endpoint `https://api.alfred.beauty/webhooks/resend`.
+3. Select only the event `email.received`.
+4. Copy the signing secret into `RESEND_WEBHOOK_SECRET` on Railway `server`, then redeploy.
+
 ## Sender logo (BIMI) — what's done, what's left
 
 The "DP" next to the sender in Gmail is driven by **BIMI**. Two prerequisites
