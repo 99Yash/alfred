@@ -1629,6 +1629,82 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     assert.equal((await invocationsForStaging(stagingId)).length, 0);
   });
 
+  // The run scope is checked on the connection that runs, so an approval edit or a resume
+  // cannot reach a server outside the run's integrations.
+  test("a connection outside the run scope is refused before a client opens", async () => {
+    const userId = await seedUser();
+
+    const connection = await ensureConnection({
+      userId,
+      label: "User MCP",
+      instanceKey: "default",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://mcp.example.test/mcp"),
+    });
+
+    const protocol = new FakeProtocol([tool("search")]);
+    const revision = await liveRevision(protocol, connection.id);
+    // A client that opens now fails with another error, so the assertion proves no client opened.
+    protocol.connectError = new Error("a client opened");
+
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connection.id,
+      remoteName: "search",
+      catalogRevision: revision,
+    };
+
+    for (const serverScope of [[], [`mcps_${randomUUID()}`]]) {
+      const stagingId = await seedStaging(userId);
+
+      await assert.rejects(
+        brokerWith(protocol).callTool({ userId, stagingId, ref, serverScope, arguments: {} }),
+        (err: unknown) => err instanceof McpClientError && err.code === "outside_scope",
+      );
+
+      assert.equal((await invocationsForStaging(stagingId)).length, 0, "no ledger row is minted");
+    }
+
+    assert.equal(protocol.calls, 0, "an out-of-scope call never reaches the network");
+  });
+
+  test("a scope that lists the server, and a null scope, let the call run", async () => {
+    const userId = await seedUser();
+
+    const connection = await ensureConnection({
+      userId,
+      label: "User MCP",
+      instanceKey: "default",
+      canonicalResource: `mcp://test/${randomUUID()}`,
+      endpoint: new URL("https://mcp.example.test/mcp"),
+    });
+
+    const protocol = new FakeProtocol([tool("search")]);
+    const revision = await liveRevision(protocol, connection.id);
+
+    const ref: ExternalToolRef = {
+      kind: "mcp",
+      connectionId: connection.id,
+      remoteName: "search",
+      catalogRevision: revision,
+    };
+
+    for (const serverScope of [[connection.serverId], null]) {
+      const outcome = await brokerWith(protocol).callTool({
+        userId,
+        stagingId: await seedStaging(userId),
+        ref,
+        serverScope,
+        // Different arguments, so the second call does not meet the barrier of the first.
+        arguments: { scope: serverScope === null ? "none" : "listed" },
+      });
+
+      assert.equal(outcome.status, "completed");
+    }
+
+    assert.equal(protocol.calls, 2);
+  });
+
   // The ledger copies `run_id` / `step_id` / `tool_call_id` from the staging row at mint.
   // The two phase timestamps are stamped in order. Observability only; the barrier keys on `argsHash`.
   test("correlation ids are copied from the staging row and phase timestamps persisted", async () => {
