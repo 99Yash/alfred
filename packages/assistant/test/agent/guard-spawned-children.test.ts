@@ -449,7 +449,7 @@ describe("FINALIZE_GUARD_SEQUENCE", () => {
   test("runs the spawned-children guard before the honesty guard", () => {
     assert.deepEqual(
       FINALIZE_GUARD_SEQUENCE.map((guard) => guard.id),
-      ["spawned_children", "unreported_tool_failures", "false_provenance"],
+      ["spawned_children", "unreported_tool_failures"],
     );
   });
 

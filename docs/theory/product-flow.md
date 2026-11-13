@@ -124,7 +124,9 @@ The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This sectio
 
 ## 5. Chat (the boss agent)
 
-**Owner's model.** Not stated yet. On 2026-10-22 the owner asked for the verified model first.
+**Owner's model.** Not stated yet as a whole. On 2026-10-22 the owner asked for the verified model first.
+
+- **The reply text is not checked for source claims** (owner decision, 2026-11-13). Alfred follows the Dimension model. The prompt tells the model to describe outcomes and not mechanisms (`chat-turn.ts:170`), so a reply has no "I used MCP" claim to check. The tool cards show the user which source each answer came from. Dimension never checks or regenerates a final reply (`-dimension-ai-ai/apps/agent/agent/boss/main.py:733-740`). The regex guard `false_provenance` was removed because it read quoted data as a claim. A quoted PR title made one local run regenerate 41 times. A guard that checks a code fact, such as a failed write, can stay. It must note each fact one time, so it cannot loop.
 
 **Verified model** (at `1ec1f0082`).
 
