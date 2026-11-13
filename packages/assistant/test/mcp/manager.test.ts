@@ -3,14 +3,19 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { user } from "@alfred/db/schemas";
+import { mcpConnections, mcpOauthCredentials, user } from "@alfred/db/schemas";
 import type { Tool } from "@modelcontextprotocol/client";
-import { inArray, like } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 
 import { McpConnectionManager } from "../../src/connections/mcp/manager";
-import { ensureConnection, readConnection } from "../../src/connections/mcp/persistence";
+import {
+  ensureConnection,
+  listRecoverableCredentialedConnectionIds,
+  readConnection,
+} from "../../src/connections/mcp/persistence";
 import { permissiveMcpEndpointAuthorizerForTests } from "../../src/connections/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
+import { unsealedTestSecret } from "../support/unsealed-secret";
 import { McpRawClient } from "../../src/connections/mcp/client";
 import type {
   McpNegotiatedServer,
@@ -96,17 +101,48 @@ async function seedConnection(): Promise<string> {
   return conn.id;
 }
 
-function managerWith(protocol: FakeProtocol): McpConnectionManager {
+function managerWith(
+  protocol: FakeProtocol,
+  beforeClient?: () => Promise<void>,
+): McpConnectionManager {
   return new McpConnectionManager({
-    clientFactory: (connection) =>
-      new McpRawClient({
+    clientFactory: async (connection) => {
+      await beforeClient?.();
+
+      return new McpRawClient({
         auth: { mode: "none" },
         connectionId: connection.id,
         endpoint: connection.server,
         endpointAuthorizer: permissiveMcpEndpointAuthorizerForTests(),
         protocolFactory: () => protocol,
-      }),
+      });
+    },
   });
+}
+
+/** What a grant store does: a credential with a token, selected on the connection. */
+async function storeGrantForTest(connectionId: string, userId: string): Promise<void> {
+  const [credential] = await db()
+    .insert(mcpOauthCredentials)
+    .values({
+      userId,
+      connectionId,
+      issuer: "https://auth.adopt.example.test",
+      accessToken: unsealedTestSecret("adopted-access-token"),
+      tokenType: "bearer",
+    })
+    .returning({ id: mcpOauthCredentials.id });
+
+  assert.ok(credential);
+  await db()
+    .update(mcpConnections)
+    .set({ credentialId: credential.id })
+    .where(eq(mcpConnections.id, connectionId));
+}
+
+/** Every recoverable id. The cutoff is in the future, so a row written now is old enough. */
+async function recoverableIds(): Promise<string[]> {
+  return listRecoverableCredentialedConnectionIds(new Date(Date.now() + 60_000), 100_000);
 }
 
 describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
@@ -214,6 +250,40 @@ describe("mcp connection manager (DB-backed)", { skip: SKIP }, () => {
     assert.ok(!lastError.includes(secret), "the upstream body's token must not be persisted");
     assert.match(lastError, /\[\+\d+ chars\]$/, "an over-long body must read as clipped");
     assert.ok(lastError.length < 600, `lastError should be bounded, got ${lastError.length}`);
+  });
+
+  test("an adopted grant is recoverable from its store until its new client opens", async () => {
+    const connId = await seedConnection();
+    const ownerId = (await readConnection(connId))?.userId;
+    assert.ok(ownerId);
+    let reachedOpen: (() => void) | undefined;
+    let releaseOpen: (() => void) | undefined;
+    const atOpen = new Promise<void>((resolve) => (reachedOpen = resolve));
+    const held = new Promise<void>((resolve) => (releaseOpen = resolve));
+
+    const manager = managerWith(new FakeProtocol([tool("tool_a")]), async () => {
+      reachedOpen?.();
+      await held;
+    });
+
+    assert.ok(!(await recoverableIds()).includes(connId), "a new row is not recoverable");
+
+    const adoption = manager.adoptGrant(connId, ownerId, () => storeGrantForTest(connId, ownerId));
+    await atOpen;
+
+    // A process stop here leaves this row. The recovery pass must find it.
+    const pending = await readConnection(connId);
+    assert.equal(pending?.status, "connecting");
+    assert.ok(pending.lastError, "the pending row needs an error text, or recovery skips it");
+    assert.ok((await recoverableIds()).includes(connId));
+
+    releaseOpen?.();
+    assert.deepEqual(await adoption, { outcome: "connected" });
+
+    const opened = await readConnection(connId);
+    assert.equal(opened?.status, "ready");
+    assert.equal(opened.lastError, null);
+    assert.ok(!(await recoverableIds()).includes(connId), "a ready row is not recoverable");
   });
 
   test("disconnect closes the client and marks the row disconnected", async () => {

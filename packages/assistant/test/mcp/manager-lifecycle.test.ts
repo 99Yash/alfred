@@ -7,6 +7,7 @@ import type { Tool } from "@modelcontextprotocol/client";
 import {
   McpClientError,
   McpConnectionManager,
+  McpOAuthAuthorizationRequiredError,
   type McpTraceContext,
 } from "@alfred/assistant/connections/mcp";
 import { permissiveMcpEndpointAuthorizerForTests } from "@alfred/assistant/connections/mcp/test-support";
@@ -758,6 +759,204 @@ describe("mcp connection manager lifecycle", () => {
     assert.equal(protocol.closeCount, 1);
     // The removal close intent writes no durable row, so the deleted row stays unchanged in the fake.
     assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("a use open refuses a disconnected row and writes nothing; an owner open opens it (SM-12)", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    persistence.connection.status = "disconnected";
+    const manager = managerWith(protocol, persistence);
+
+    const notConnected = (error: unknown) =>
+      error instanceof McpClientError && error.code === "not_connected";
+
+    // A catalog read or the recovery pass, then a model call.
+    await assert.rejects(manager.getReadyClient(persistence.connection.id), notConnected);
+    await assert.rejects(manager.prepareToolCall(persistence.connection.id), notConnected);
+    assert.equal(protocol.connectCount, 0);
+    assert.deepEqual(persistence.updates, []);
+    assert.equal(persistence.connection.status, "disconnected");
+
+    await manager.openForOwner(persistence.connection.id);
+    assert.equal(protocol.connectCount, 1);
+    assert.equal(persistence.connection.status, "ready");
+    // After the owner open, a use reads the same client.
+    await manager.prepareToolCall(persistence.connection.id);
+    assert.equal(protocol.connectCount, 1);
+  });
+
+  test("an owner open starts again after a use start refuses the disconnected row", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    persistence.connection.status = "disconnected";
+    const manager = managerWith(protocol, persistence);
+
+    const use = manager.getReadyClient(persistence.connection.id);
+    const owner = manager.openForOwner(persistence.connection.id);
+
+    await assert.rejects(
+      use,
+      (error: unknown) => error instanceof McpClientError && error.code === "not_connected",
+    );
+    await owner;
+    assert.equal(protocol.connectCount, 1);
+    assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("adoptGrant stores, writes a recoverable connecting, and keeps the catalog until the new open publishes", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.openForOwner(persistence.connection.id);
+    assert.equal(persistence.connection.currentCatalogRevisionId, "revision-1");
+
+    const events: string[] = [];
+    const pointer = () => persistence.connection.currentCatalogRevisionId;
+    persistence.onUpdate = (patch) => {
+      if (patch.status === undefined) return;
+      events.push(`update:${patch.status}:${patch.lastError ? "error" : "no-error"}:${pointer()}`);
+    };
+
+    protocol.onClose = () => void events.push(`close:${pointer()}`);
+    protocol.onConnect = () => void events.push(`connect:${pointer()}`);
+    persistence.onPublish = () => void events.push(`publish:${pointer()}`);
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => void events.push(`store:${persistence.connection.status}`),
+    );
+
+    assert.deepEqual(outcome, { outcome: "connected" });
+    assert.deepEqual(events, [
+      "store:ready",
+      // The recovery pass lists `connecting` only with an error text.
+      "update:connecting:error:revision-1",
+      // The old client closes with no status write, and the pointer stays.
+      "close:revision-1",
+      "update:connecting:no-error:revision-1",
+      "connect:revision-1",
+      "publish:revision-1",
+    ]);
+    assert.equal(persistence.connection.status, "ready");
+    assert.equal(persistence.connection.lastError, null);
+    assert.equal(pointer(), "revision-2");
+    assert.equal(protocol.connectCount, 2);
+    assert.equal(protocol.closeCount, 1);
+  });
+
+  test("adoptGrant opens a disconnected row, because the grant is an owner connect", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    persistence.connection.status = "disconnected";
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => undefined,
+    );
+
+    assert.deepEqual(outcome, { outcome: "connected" });
+    assert.equal(persistence.connection.status, "ready");
+  });
+
+  test("adoptGrant returns auth_required when the new open needs consent", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    protocol.onConnect = () => {
+      throw new McpOAuthAuthorizationRequiredError(new URL("https://auth.example.test/authorize"));
+    };
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => undefined,
+    );
+
+    assert.deepEqual(outcome, { outcome: "auth_required" });
+    assert.equal(persistence.connection.status, "auth_required");
+  });
+
+  test("adoptGrant returns failed with the bounded error when the new open fails", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    protocol.onConnect = () => {
+      throw new Error("upstream refused the session");
+    };
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => undefined,
+    );
+
+    assert.equal(outcome.outcome, "failed");
+    assert.match(outcome.lastError, /upstream refused/);
+    assert.equal(persistence.connection.status, "failed");
+    assert.match(persistence.connection.lastError ?? "", /upstream refused/);
+  });
+
+  test("a failed grant store writes failed on a row with no catalog and opens nothing", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => {
+        throw new Error("token write failed");
+      },
+    );
+
+    assert.equal(outcome.outcome, "failed");
+    assert.match(outcome.lastError, /token write failed/);
+    assert.equal(persistence.connection.status, "failed");
+    assert.match(persistence.connection.lastError ?? "", /token write failed/);
+    assert.equal(protocol.connectCount, 0);
+  });
+
+  test("a failed grant store keeps a working catalog and its client", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    await manager.openForOwner(persistence.connection.id);
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      persistence.connection.userId,
+      async () => {
+        throw new Error("token write failed");
+      },
+    );
+
+    assert.equal(outcome.outcome, "failed");
+    assert.equal(persistence.connection.status, "ready");
+    assert.equal(persistence.connection.currentCatalogRevisionId, "revision-1");
+    assert.equal(protocol.closeCount, 0);
+    assert.equal(protocol.connectCount, 1);
+  });
+
+  test("adoptGrant for another user's row is not found and stores nothing", async () => {
+    const protocol = new FakeProtocol();
+    const persistence = new MemoryPersistence();
+    const manager = managerWith(protocol, persistence);
+    let stored = false;
+
+    const outcome = await manager.adoptGrant(
+      persistence.connection.id,
+      "another-user",
+      async () => {
+        stored = true;
+      },
+    );
+
+    assert.deepEqual(outcome, { outcome: "not_found" });
+    assert.equal(stored, false);
+    assert.deepEqual(persistence.updates, []);
   });
 
   test("cold connect and catalog refresh inherit the invocation trace", async () => {

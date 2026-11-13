@@ -40,6 +40,21 @@ import { readOnboarding, requireOnboarded } from "../middleware/onboarding";
 
 const PROVIDER = "github" satisfies CredentialProvider;
 
+/** The GitHub and credential reads that pick an installation. A test passes its own. */
+interface GithubInstallationReads {
+  listGithubCredentials: typeof listGithubCredentials;
+  hasPersonalInstallation: typeof hasPersonalInstallation;
+  canUserAccessInstallation: typeof canUserAccessInstallation;
+  findUserInstallation: typeof findUserInstallation;
+}
+
+const GITHUB_READS: GithubInstallationReads = {
+  listGithubCredentials,
+  hasPersonalInstallation,
+  canUserAccessInstallation,
+  findUserInstallation,
+};
+
 /**
  * One GitHub screen on connect. A stored installation goes to the user authorization: the
  * callback keeps that installation, and the install page never comes back for an installed App.
@@ -48,15 +63,22 @@ const PROVIDER = "github" satisfies CredentialProvider;
  * user (`request_oauth_on_install`). With one, the user authorization shows one screen, or none
  * when the user authorized the App before.
  */
-async function connectUrl(userId: string, state: string): Promise<string> {
+export async function connectUrl(
+  userId: string,
+  state: string,
+  reads: Pick<
+    GithubInstallationReads,
+    "listGithubCredentials" | "hasPersonalInstallation"
+  > = GITHUB_READS,
+): Promise<string> {
   try {
-    const credentials = await listGithubCredentials(userId);
+    const credentials = await reads.listGithubCredentials(userId);
 
     if (credentials.some((credential) => credential.installationId !== null)) {
       return buildUserAuthorizeUrl(state);
     }
 
-    return (await hasPersonalInstallation())
+    return (await reads.hasPersonalInstallation())
       ? buildUserAuthorizeUrl(state)
       : buildInstallUrl(state);
   } catch (err) {
@@ -75,18 +97,24 @@ async function connectUrl(userId: string, state: string): Promise<string> {
  * not change to a personal one on a renewed grant, or org webhooks lose their owner. Only the
  * install screen, which sends an explicit `installation_id`, switches it.
  */
-async function installationForGrant(input: {
-  readonly userId: string;
-  readonly accessToken: string;
-  readonly accountId: string;
-}): Promise<string | null> {
-  const stored = (await listGithubCredentials(input.userId)).find(
+export async function installationForGrant(
+  input: {
+    readonly userId: string;
+    readonly accessToken: string;
+    readonly accountId: string;
+  },
+  reads: Pick<
+    GithubInstallationReads,
+    "listGithubCredentials" | "canUserAccessInstallation" | "findUserInstallation"
+  > = GITHUB_READS,
+): Promise<string | null> {
+  const stored = (await reads.listGithubCredentials(input.userId)).find(
     (credential) => credential.accountId === input.accountId,
   )?.installationId;
 
   if (
     stored &&
-    (await canUserAccessInstallation({
+    (await reads.canUserAccessInstallation({
       accessToken: input.accessToken,
       installationId: stored,
     }))
@@ -94,7 +122,7 @@ async function installationForGrant(input: {
     return stored;
   }
 
-  return findUserInstallation({ accessToken: input.accessToken, accountId: input.accountId });
+  return reads.findUserInstallation({ accessToken: input.accessToken, accountId: input.accountId });
 }
 
 /** The GitHub MCP outcome on the redirect. The web app tells the owner when chat cannot read. */
@@ -110,6 +138,33 @@ function grantOutcomeParam(outcome: GithubAppGrantOutcome | null): string {
     default:
       return assertNever(outcome, "GitHub App grant outcome");
   }
+}
+
+/**
+ * Where the callback sends the browser. `grantOutcome` is `null` when the callback had no `code`,
+ * so no grant went to the GitHub MCP.
+ */
+export function callbackTarget(input: {
+  readonly stillOnboarding: boolean;
+  readonly accountLogin: string;
+  readonly grantOutcome: GithubAppGrantOutcome | null;
+}): string {
+  const env = serverEnv();
+  const connectedParam = `github_connected=${encodeURIComponent(input.accountLogin)}`;
+  const grantParam = grantOutcomeParam(input.grantOutcome);
+
+  if (input.stillOnboarding) {
+    return `${env.CORS_ORIGIN}/onboarding?step=2&${connectedParam}${grantParam}`;
+  }
+
+  if (input.grantOutcome !== null) {
+    return `${env.CORS_ORIGIN}/integrations?${connectedParam}${grantParam}`;
+  }
+
+  // No `code` (`setup_action=update`): the GitHub connect authorizes the user, and that grant
+  // opens the GitHub MCP. The App is already authorized, so GitHub shows no screen. It is an
+  // API route, so it goes on the API origin (`BETTER_AUTH_URL`).
+  return `${env.BETTER_AUTH_URL.replace(/\/$/, "")}${builtInMCPConnectPath("github")}`;
 }
 
 const handshake = oauthHandshake(PROVIDER);
@@ -276,25 +331,16 @@ export const githubIntegrationRoutes = new Elysia({
         readOnboarding(userId),
       ]);
 
-      const stillOnboarding = userRow?.onboardedAt === null;
-      const connectedParam = `github_connected=${encodeURIComponent(accountLogin)}`;
-
       // The same App grant connects the GitHub MCP. Its failure does not fail the GitHub connect,
       // but the redirect names it, so the page shows it.
       const grantOutcome = grant ? await adoptGithubAppGrant({ userId, grant }) : null;
-      const grantParam = grantOutcomeParam(grantOutcome);
-
-      const target = stillOnboarding
-        ? `${origin}/onboarding?step=2&${connectedParam}${grantParam}`
-        : grant
-          ? `${origin}/integrations?${connectedParam}${grantParam}`
-          : // No `code` (`setup_action=update`): the GitHub connect authorizes the user, and that
-            // grant opens the GitHub MCP. The App is already authorized, so GitHub shows no
-            // screen. It is an API route, so it goes on the API origin (`BETTER_AUTH_URL`).
-            `${serverEnv().BETTER_AUTH_URL.replace(/\/$/, "")}${builtInMCPConnectPath("github")}`;
 
       set.status = 302;
-      set.headers["Location"] = target;
+      set.headers["Location"] = callbackTarget({
+        stillOnboarding: userRow?.onboardedAt === null,
+        accountLogin,
+        grantOutcome,
+      });
 
       // For tests; the browser follows the redirect.
       return { id: credential.id };
