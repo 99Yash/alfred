@@ -136,4 +136,6 @@ export { approvalNotificationWorker } from "./approval-notification-worker";
 
 export { isTerminalChildStatus, listSpawnedChildRuns, type ChildRunOutcome } from "./sub-agents";
 
+export { subAgentParentRunIdMatches } from "./sub-agent-metadata";
+
 export type { AgentDbExecutor } from "./registry";
