@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client, parseEdenBody } from "~/lib/eden";
 import { INTEGRATION_PAGES, type IntegrationPage } from "~/lib/integrations/integrations";
+import { MCP_CONNECTIONS_QUERY_KEY } from "~/lib/integrations/mcp-connections";
 
 /** A catalog page with `GET /api/integrations` credential state laid over it. */
 export interface ResolvedIntegration extends IntegrationPage {
@@ -68,7 +69,13 @@ export function useDisconnectIntegration(provider: CredentialProvider) {
 
       return res.data;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY }),
+    // A GitHub disconnect also disconnects its MCP row (one GitHub control), so the MCP card
+    // must read the new state too.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: INTEGRATION_STATUS_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: MCP_CONNECTIONS_QUERY_KEY }),
+      ]),
   });
 }
 
