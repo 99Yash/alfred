@@ -388,8 +388,9 @@ export interface RegisteredTool {
 }
 
 /**
- * Whether an allowlist admits the tool. `mcp` is never on an allowlist, because it names the
- * transport. The `mcp.*` tools pass when a listed integration has a built-in MCP server, and the
+ * Whether an allowlist admits the tool. `mcp` names the transport, so `mcp` on a list admits
+ * nothing. Workflow authoring still writes it for an `mcp.call` step, so such a workflow fails
+ * activation (ADR-0125 item 6, an accepted gap). The `mcp.*` tools pass when a listed integration has a built-in MCP server, and the
  * tools then reach only the servers of those integrations (`mcpServerIdsAdmittedBy`).
  */
 function allowlistAdmits(tool: RegisteredTool, allowed: ReadonlySet<IntegrationSlug>): boolean {

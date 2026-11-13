@@ -1,6 +1,6 @@
 /**
- * The MCP servers that a run's integration allowlist admits. `mcp` names the transport, so it is
- * never on an allowlist. A built-in server belongs to one integration (`BUILT_IN_MCP_CATALOG`),
+ * The MCP servers that a run's integration allowlist admits. `mcp` names the transport, so `mcp`
+ * on a list admits no server (ADR-0125 item 6). A built-in server belongs to one integration (`BUILT_IN_MCP_CATALOG`),
  * derived from its pinned endpoint, never stored (ADR-0093).
  */
 
