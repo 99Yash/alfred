@@ -95,6 +95,11 @@ const serverEnvSchema = z
     RESEND_API_KEY: z.string().min(1),
     RESEND_FROM_EMAIL: z.string().min(1),
     /**
+     * Signing secret (`whsec_...`) of the Resend `email.received` webhook. Unset means
+     * `POST /webhooks/resend` answers 503 and no received mail is forwarded.
+     */
+    RESEND_WEBHOOK_SECRET: optionalSecret(),
+    /**
      * Cloudflare AI Gateway (Unified Billing). Every model call goes through it; there are no
      * direct provider keys. Required outside tests, see the refinement below.
      */
