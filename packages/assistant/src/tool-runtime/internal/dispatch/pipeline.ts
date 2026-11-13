@@ -22,7 +22,7 @@ import {
   isIntegrationSlug,
   isTerminalStatus,
   isToolName,
-  isUnknownEffectEnvelope,
+  getStringPath,
   joinToolInput,
   jsonValueSchema,
   sanitizeErrorMessage,
@@ -88,6 +88,7 @@ import {
   passthroughTruncationTelemetry,
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../../context";
+import { executedResultOutcome } from "../result-routing";
 import { forecastToolApproval, toolRequiresApproval } from "../../approval-rule";
 import {
   getTool,
@@ -1412,14 +1413,25 @@ async function executeToolWithSpan(
   try {
     const execution = await call.execute(ctx);
     const truncation = execution.spanFacts.passthroughTruncation;
+    const outcome = executedResultOutcome(tool.name, execution.output);
 
     // ADR-0074: record passthrough truncation in span metadata, which is kept even with I/O capture off.
-    if (truncation) {
-      const thermometer = passthroughTruncationTelemetry(tool.name, ctx.runId, truncation);
+    const thermometer = truncation
+      ? passthroughTruncationTelemetry(tool.name, ctx.runId, truncation)
+      : null;
+
+    if (thermometer) {
       logger.info(
         { event: "passthrough_truncation", ...thermometer },
         "Passthrough result truncated",
       );
+    }
+
+    if (outcome !== "succeeded") {
+      // A returned failure is not a span success. The status is a code, so it holds no PII.
+      const status = getStringPath(execution.output, "status") ?? "ok: false";
+      span.error(`${tool.name} returned ${outcome} (status ${status})`);
+    } else if (thermometer) {
       span.success(execution.output, { thermometer: toJsonValue(thermometer) });
     } else {
       span.success(execution.output);
@@ -1720,8 +1732,9 @@ async function executeAndCommit(
     );
   }
 
-  // Possibly delivered without confirmation, so the repeat barrier must see `unknown`.
-  const outcome = isUnknownEffectEnvelope(persistedResult) ? "unknown" : "succeeded";
+  // Possibly delivered without confirmation, so the repeat barrier must see `unknown`. A result that
+  // reports its own failure is `failed`, as the chat trail shows it.
+  const outcome = executedResultOutcome(call.tool.name, persistedResult);
   await commitAndPoke(runRow, ctx, {
     status: "executed",
     outcome,

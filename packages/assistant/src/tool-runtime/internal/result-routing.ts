@@ -5,6 +5,7 @@ import {
   getStringPath,
   isActionTool,
   isRecord,
+  isUnknownEffectEnvelope,
   toJsonValue,
   type ChatConnectNudge,
   type ToolUnavailabilityCode,
@@ -104,6 +105,20 @@ function executedResultIsIncomplete(value: unknown): boolean {
   return status !== undefined && INCOMPLETE_ACTION_STATUSES.has(status);
 }
 
+/**
+ * The outcome of one executed attempt, from its returned result. The action record, the trace
+ * span, and the chat trail all read it, so they report the same facts.
+ * `unknown`: the write may have landed, and nothing confirmed it.
+ */
+export function executedResultOutcome(
+  toolName: string,
+  value: unknown,
+): "succeeded" | "failed" | "unknown" {
+  if (isUnknownEffectEnvelope(value)) return "unknown";
+
+  return isActionTool(toolName) && executedResultIsIncomplete(value) ? "failed" : "succeeded";
+}
+
 export function toolCallLogStatus(
   toolName: string,
   result: TerminalToolCallDispatchResult,
@@ -113,11 +128,10 @@ export function toolCallLogStatus(
 
   if (result.kind !== "executed") return "failed";
 
-  if (isActionTool(toolName) && executedResultIsIncomplete(result.toolResult)) {
-    return "failed";
-  }
-
-  return "succeeded";
+  // A possibly-delivered write logs as failed, never as a quiet success.
+  return executedResultOutcome(toolName, result.toolResult) === "succeeded"
+    ? "succeeded"
+    : "failed";
 }
 
 export function isNonExecutionFailure(result: TerminalToolCallDispatchResult): boolean {

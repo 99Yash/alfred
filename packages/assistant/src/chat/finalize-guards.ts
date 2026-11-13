@@ -4,6 +4,7 @@ import {
   humanizeToolName,
   INTEGRATION_SLUGS,
   isActionTool,
+  leavesEffectUnconfirmed,
   mcpCallInput,
   SPAWN_SUB_AGENT_TOOL,
   toDisplayText,
@@ -33,7 +34,7 @@ import {
   type ChatRunState,
   type ToolCallLogEntry,
 } from "./chat-turn-state";
-import { judgeFailedWriteReport } from "./failed-write-report";
+import { judgeFailedWriteReport, type FailedWrite } from "./failed-write-report";
 
 /**
  * The work between "the model answered" and "the turn may complete".
@@ -199,7 +200,7 @@ export interface GuardUnreportedToolFailuresDeps {
   selectWrites: (
     ctx: StepContext<ChatRunState>,
     calls: readonly ToolCallLogEntry[],
-  ) => Promise<ToolCallLogEntry[]>;
+  ) => Promise<FailedWrite[]>;
   judgeReply: typeof judgeFailedWriteReport;
   publish: typeof publishEvent;
 }
@@ -208,40 +209,45 @@ export interface GuardUnreportedToolFailuresDeps {
  * `mcp.call` is one name for every remote tool, so its name says nothing. Judge the
  * selected remote tool at the revision the call named. A call with no staging row or
  * no parseable input stays a write: guessing "read" would hide a failure.
+ * The action record also says if the target may hold the effect (`leavesEffectUnconfirmed`).
  */
 async function selectWriteCalls(
   ctx: StepContext<ChatRunState>,
   calls: readonly ToolCallLogEntry[],
-): Promise<ToolCallLogEntry[]> {
-  const mcpCallIds = calls.filter((c) => c.toolName === "mcp.call").map((c) => c.toolCallId);
+): Promise<FailedWrite[]> {
+  const rows = await db()
+    .select({
+      toolCallId: actionStagings.toolCallId,
+      input: actionStagings.proposedInput,
+      decidedInput: actionStagings.decidedInput,
+      executeResult: actionStagings.executeResult,
+    })
+    .from(actionStagings)
+    .where(
+      and(
+        eq(actionStagings.userId, ctx.userId),
+        eq(actionStagings.runId, ctx.runId),
+        inArray(
+          actionStagings.toolCallId,
+          calls.map((c) => c.toolCallId),
+        ),
+      ),
+    );
 
-  const rows =
-    mcpCallIds.length > 0
-      ? await db()
-          .select({
-            toolCallId: actionStagings.toolCallId,
-            input: actionStagings.proposedInput,
-            decidedInput: actionStagings.decidedInput,
-          })
-          .from(actionStagings)
-          .where(
-            and(
-              eq(actionStagings.userId, ctx.userId),
-              eq(actionStagings.runId, ctx.runId),
-              inArray(actionStagings.toolCallId, mcpCallIds),
-            ),
-          )
-      : [];
-
-  const writes: ToolCallLogEntry[] = [];
+  const writes: FailedWrite[] = [];
 
   for (const call of calls) {
+    const row = rows.find((r) => r.toolCallId === call.toolCallId);
+
+    const write: FailedWrite = leavesEffectUnconfirmed(row?.executeResult)
+      ? { ...call, effectUnconfirmed: true }
+      : call;
+
     if (call.toolName !== "mcp.call") {
-      if (isActionTool(call.toolName)) writes.push(call);
+      if (isActionTool(call.toolName)) writes.push(write);
       continue;
     }
 
-    const row = rows.find((r) => r.toolCallId === call.toolCallId);
     // The broker reads the same pair, so this names the tool that ran.
     const parsed = mcpCallInput.safeParse(row?.decidedInput ?? row?.input);
 
@@ -249,7 +255,7 @@ async function selectWriteCalls(
     const isRead =
       parsed.success && (await isSelectedMcpToolReadOnly({ userId: ctx.userId, ...parsed.data }));
 
-    if (!isRead) writes.push(call);
+    if (!isRead) writes.push(write);
   }
 
   return writes;
@@ -261,11 +267,26 @@ const defaultGuardUnreportedToolFailuresDeps: GuardUnreportedToolFailuresDeps = 
   publish: publishEvent,
 };
 
-/** Code supplies the fact when the model gives no note: which actions did not happen. */
-function fallbackFailureNote(failed: readonly ToolCallLogEntry[]): string {
-  const actions = [...new Set(failed.map((call) => humanizeToolName(call.toolName)))];
+/**
+ * Code supplies the fact when the model gives no note: which actions did not happen, and which
+ * may have happened with no confirmation. "Nothing changed" is only true for the first kind.
+ */
+function fallbackFailureNote(failed: readonly FailedWrite[]): string {
+  const names = (calls: readonly FailedWrite[]) => [
+    ...new Set(calls.map((call) => humanizeToolName(call.toolName))),
+  ];
 
-  return `I couldn't ${actions.join(", or ")}. Nothing changed there.`;
+  const notDone = names(failed.filter((call) => !call.effectUnconfirmed));
+  const unconfirmed = names(failed.filter((call) => call.effectUnconfirmed));
+
+  return [
+    notDone.length > 0 ? `I couldn't ${notDone.join(", or ")}. Nothing changed there.` : "",
+    unconfirmed.length > 0
+      ? `I couldn't confirm ${unconfirmed.join(", or ")}. It may have gone through, so check it before you try again.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function nonExecutionRecoveredByLaterSuccess(
@@ -350,8 +371,18 @@ export async function guardUnreportedToolFailures(
       "Write the complete reply again. Restate in full everything from it that is still true, and do not point to it ('above', 'as I said'). "
     : "";
 
+  const unconfirmed = [
+    ...new Set(unreported.filter((t) => t.effectUnconfirmed).map((t) => t.toolName)),
+  ].join(", ");
+
+  // The model must not turn "not confirmed" into "nothing changed".
+  const unconfirmedNote = unconfirmed
+    ? `For ${unconfirmed}, an attempt may have reached the target and nothing confirmed it: do not say that nothing changed. Tell the user to check it before trying again. `
+    : "";
+
   const note =
     `These action attempts did not complete this turn — their tool calls failed: ${names}. ` +
+    unconfirmedNote +
     withdrawal +
     "Do NOT tell the user a failed attempt succeeded. If a later successful tool result in the transcript completed the user's goal another way, say what succeeded and mention any meaningful limitation. " +
     "Otherwise, say plainly, in user terms, what you couldn't do and the best next step. Hide the mechanism (tool names, error details), never the outcome.";

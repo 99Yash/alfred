@@ -30,9 +30,11 @@ import {
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 interface McpBrokerToolResult {
   /**
-   * `false` when the remote tool failed or nothing was sent. The tool log reads it
-   * (`toolCallLogStatus`), so the chat trail shows the call as failed. `tool_error` and `blocked`
-   * are not failure statuses for every tool: a `system.*_workflow` draft is `blocked` and `ok`.
+   * `false` when the remote tool failed or nothing was sent. `executedResultOutcome` reads it, so
+   * the action record, the trace span, and the chat trail all show the call as failed. `tool_error`
+   * and `blocked` are not failure statuses for every tool: a `system.*_workflow` draft is `blocked`
+   * and `ok`. A `blocked` result keeps `retry: "blocked"`, because an earlier attempt may have
+   * landed (`leavesEffectUnconfirmed`).
    */
   ok?: false;
   status: string;

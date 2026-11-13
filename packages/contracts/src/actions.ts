@@ -54,3 +54,14 @@ export type UnknownEffectEnvelope = z.infer<typeof unknownEffectEnvelopeSchema>;
 export function isUnknownEffectEnvelope(value: unknown): value is UnknownEffectEnvelope {
   return unknownEffectEnvelopeSchema.validate(value);
 }
+
+/**
+ * A tool result with `retry: "blocked"`: the target may hold the effect of this action, and
+ * nothing confirmed it. This attempt may have landed (`unknown`), or a repeat was refused because
+ * an earlier attempt may have landed (an MCP `blocked`). A reader must not say that nothing changed.
+ */
+const unconfirmedEffectResultSchema = z.object({ retry: z.literal("blocked") });
+
+export function leavesEffectUnconfirmed(value: unknown): boolean {
+  return unconfirmedEffectResultSchema.validate(value);
+}
