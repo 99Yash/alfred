@@ -899,7 +899,14 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   // Some tools resolve their tier from input (Calendar invites go up, `mcp.call` can go down).
   const riskTier = await call.effectiveRiskTier(ctx);
-  const policyMode = await resolvePolicyMode(args.userId, toolName);
+
+  // A built-in `mcp.call` reads its provider's rule, so the GitHub setting governs GitHub reads.
+  const policyMode = await resolvePolicyMode(
+    args.userId,
+    toolName,
+    await call.policyIntegration(ctx),
+  );
+
   const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier);
 
   // Read only when a card would stage, so the normal path makes no read. Never waives a question.

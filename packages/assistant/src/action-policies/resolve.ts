@@ -6,8 +6,12 @@
  * It holds a Promise, so a burst of reads for one user makes one DB read.
  */
 
-import type { PolicyMode, ToolName } from "@alfred/contracts";
-import { integrationFromToolName, resolveToolMode } from "@alfred/contracts";
+import type { IntegrationSlug, PolicyMode, ToolName } from "@alfred/contracts";
+import {
+  integrationFromToolName,
+  resolveIntegrationMode,
+  resolveToolMode,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies, type UserActionPolicy } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -97,13 +101,24 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
  * `system.*` returns `autonomy` before the row is read (ADR-0040 D5), so no data bug
  * or user toggle can gate it. The seeded `integrationRules.system` is only a second line.
  * `system.*` can still stage on the ADR-0069 `high`-tier floor, which `toolRequiresApproval` adds.
+ * `policyIntegration` is the integration of the call when its input names another one
+ * (`BoundToolCall.policyIntegration`): `mcp.call` on the GitHub MCP reads the `github` rule.
+ * The tool overrides of the tool's own integration do not apply then.
  */
-export async function resolvePolicyMode(userId: string, toolName: ToolName): Promise<PolicyMode> {
+export async function resolvePolicyMode(
+  userId: string,
+  toolName: ToolName,
+  policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
+): Promise<PolicyMode> {
   const integration = integrationFromToolName(toolName);
 
   if (integration === "system") return "autonomy";
 
   const policy = await getResolvedPolicy(userId);
+
+  if (policyIntegration !== integration) {
+    return resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode);
+  }
 
   return resolveToolMode(policy.integrationRules, toolName, policy.defaultMode);
 }

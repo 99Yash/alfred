@@ -72,6 +72,9 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
 
   if (arm.forcesApproval) return true;
 
+  // The input picks the policy rule (`mcp.call` on a built-in), so another rule can run it with no card.
+  if (tool.resolvesPolicyIntegration) return false;
+
   // A declared downgrade can take the tier below `high`. The bound call clamps an undeclared one.
   const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
 

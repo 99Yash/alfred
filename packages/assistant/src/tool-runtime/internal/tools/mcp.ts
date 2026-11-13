@@ -14,6 +14,7 @@ import {
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import {
   inspectMcpToolLocal,
+  integrationOfMcpConnection,
   McpClientError,
   mcpScopeAdmits,
   mcpServerIdsAdmittedBy,
@@ -111,6 +112,10 @@ export const mcpTools: readonly RegisteredTool[] = [
         remoteName: input.remoteName,
         catalogRevision: input.catalogRevision,
       }),
+    // A built-in follows its provider's rule, so the GitHub Auto/Gated setting governs GitHub reads.
+    // A user-added server has no provider and keeps the `mcp` rule.
+    resolvePolicyIntegration: async (input, ctx) =>
+      (await integrationOfMcpConnection(ctx.userId, input.connectionId)) ?? "mcp",
     // Before the staging row, so a call outside the run's integrations gets no approval card.
     // Only a fresh proposal runs this. The broker checks the connection that runs again.
     refuseProposal: async (input, ctx) => {
