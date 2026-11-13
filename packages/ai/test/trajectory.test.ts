@@ -50,7 +50,7 @@ describe("extractTrajectory", () => {
     const trace: TraceLike = {
       id: "run_1",
       observations: [
-        span("drive.search_files", { query: "SOW" }, "2026-06-26T01:00:02"),
+        span("contacts.search", { query: "SOW" }, "2026-06-26T01:00:02"),
         span("github.search", { q: "is:open" }, "2026-06-26T01:00:03", { error: "[github] 422" }),
         // Out of order in the array; must sort by startTime.
         span("system.read_user_context", { query: "client" }, "2026-06-26T01:00:01"),
@@ -62,7 +62,7 @@ describe("extractTrajectory", () => {
       tj.steps.map((s) => [s.toolName, s.status]),
       [
         ["system.read_user_context", "ok"],
-        ["drive.search_files", "ok"],
+        ["contacts.search", "ok"],
         ["github.search", "error"],
       ],
     );
@@ -79,7 +79,7 @@ describe("extractTrajectory", () => {
           {
             toolCalls: [
               { toolName: "github.search", toolCallId: "c1", input: { q: "is:open" } },
-              { toolName: "calendar.create_event", toolCallId: "c2", input: { title: "Sync" } },
+              { toolName: "sheets.append_values", toolCallId: "c2", input: { title: "Sync" } },
             ],
           },
           "2026-06-26T01:00:01",
@@ -95,7 +95,7 @@ describe("extractTrajectory", () => {
       ["github.search"],
     );
     assert.deepEqual(tj.decidedNotExecuted, [
-      { toolName: "calendar.create_event", input: { title: "Sync" } },
+      { toolName: "sheets.append_values", input: { title: "Sync" } },
     ]);
   });
 
@@ -108,12 +108,12 @@ describe("extractTrajectory", () => {
           {
             toolCalls: [
               {
-                toolName: "calendar.list_events",
+                toolName: "contacts.list",
                 toolCallId: "tc1",
                 input: { timeframe: "today" },
               },
               {
-                toolName: "calendar.list_events",
+                toolName: "contacts.list",
                 toolCallId: "tc2",
                 input: { timeMin: "2026-06-26T00:00:00Z", timeMax: "2026-06-26T23:59:59Z" },
               },
@@ -123,7 +123,7 @@ describe("extractTrajectory", () => {
         ),
         // Args differ from the decision, but the toolCallId matches tc2.
         span(
-          "calendar.list_events",
+          "contacts.list",
           { timeMin: "2026-06-26T00:00:00Z", timeMax: "2026-06-26T23:59:59Z", maxResults: 10 },
           "t2",
           { toolCallId: "tc2" },
@@ -133,7 +133,7 @@ describe("extractTrajectory", () => {
 
     const tj = extractTrajectory(trace);
     assert.deepEqual(tj.decidedNotExecuted, [
-      { toolName: "calendar.list_events", input: { timeframe: "today" } },
+      { toolName: "contacts.list", input: { timeframe: "today" } },
     ]);
   });
 });
@@ -144,7 +144,7 @@ describe("diffTrajectories", () => {
     observations: [
       span("system.read_user_context", { query: "client" }, "t1"),
       span("github.search", { q: "is:open" }, "t2"),
-      span("drive.download_file", { id: "f1" }, "t3"),
+      span("contacts.get", { id: "f1" }, "t3"),
     ],
   });
 
@@ -160,7 +160,7 @@ describe("diffTrajectories", () => {
       observations: [
         span("system.read_user_context", { query: "client" }, "t1"),
         span("github.search", { q: "is:closed" }, "t2"), // arg changed
-        span("drive.download_file", { id: "f1" }, "t3"),
+        span("contacts.get", { id: "f1" }, "t3"),
       ],
     };
 
@@ -180,7 +180,7 @@ describe("diffTrajectories", () => {
         span("system.read_user_context", { query: "client" }, "t1"),
         span("github.search", { q: "is:open" }, "t2"),
         span("web.search", { q: "docs" }, "t2b"), // new step
-        span("drive.download_file", { id: "f1" }, "t3"),
+        span("contacts.get", { id: "f1" }, "t3"),
       ],
     };
 

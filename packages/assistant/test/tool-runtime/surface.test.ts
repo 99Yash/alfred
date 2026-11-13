@@ -42,11 +42,11 @@ function registerSurfaceFixtures(): void {
       execute: async () => ({}),
     }),
     liveTool({
-      integration: "gmail",
+      integration: "contacts",
       action: "search",
       riskTier: "low",
       replay: "safe",
-      description: "Search Gmail.",
+      description: "Search contacts.",
       inputSchema: z.object({ query: z.string() }).strict(),
       execute: async () => ({}),
     }),
@@ -59,10 +59,10 @@ test("restores a legacy surface through the registered tool catalog", () => {
   assert.deepEqual(
     restoreToolSurface({
       kind: "legacy",
-      integrationNames: ["gmail", "system"],
+      integrationNames: ["contacts", "system"],
       pendingNames: ["retired.tool"],
     }),
-    ["gmail.search", "system.read_chat_history", "system.search_tools"],
+    ["contacts.search", "system.read_chat_history", "system.search_tools"],
   );
 });
 
@@ -70,12 +70,12 @@ test("projects the exact caller-visible schemas and matching metrics", () => {
   registerSurfaceFixtures();
 
   const surface = resolveToolSurface({
-    activeNames: ["gmail.search", "system.read_chat_history", "system.search_tools"],
+    activeNames: ["contacts.search", "system.read_chat_history", "system.search_tools"],
     context: { caller: "boss", interaction: "background" },
   });
 
-  assert.deepEqual(surface.surfacedNames, ["gmail.search", "system.search_tools"]);
-  assert.deepEqual(surface.loadedNames, ["gmail.search"]);
+  assert.deepEqual(surface.surfacedNames, ["contacts.search", "system.search_tools"]);
+  assert.deepEqual(surface.loadedNames, ["contacts.search"]);
   assert.deepEqual(Object.keys(surface.tools).toSorted(), surface.surfacedNames);
   assert.equal(surface.kernelCount, 1);
   assert.ok(surface.schemaBytes > 0);
@@ -86,16 +86,16 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
   registerSurfaceFixtures();
 
   const first = resolveToolSurface({
-    activeNames: ["gmail.search"],
+    activeNames: ["contacts.search"],
     context: { caller: "boss", interaction: "live_chat" },
   });
 
-  assert.equal(first.tools["gmail.search"]?.description, "Search Gmail.");
+  assert.equal(first.tools["contacts.search"]?.description, "Search contacts.");
 
   resetToolFixtures();
   registerTools([
     liveTool({
-      integration: "gmail",
+      integration: "contacts",
       action: "search",
       riskTier: "low",
       replay: "safe",
@@ -106,47 +106,47 @@ test("resets cached projections with the shared tool fixture lifecycle", () => {
   ]);
 
   const second = resolveToolSurface({
-    activeNames: ["gmail.search"],
+    activeNames: ["contacts.search"],
     context: { caller: "boss", interaction: "live_chat" },
   });
 
-  assert.equal(second.tools["gmail.search"]?.description, "Search a different fixture.");
+  assert.equal(second.tools["contacts.search"]?.description, "Search a different fixture.");
 });
 
 test("lists integration tools without requiring a kernel", () => {
   registerTools([
     liveTool({
-      integration: "gmail",
+      integration: "contacts",
       action: "search",
       riskTier: "low",
       replay: "safe",
-      description: "Search Gmail.",
+      description: "Search contacts.",
       inputSchema: z.object({ query: z.string() }).strict(),
       execute: async () => ({}),
     }),
   ]);
 
-  assert.deepEqual(toolNamesForIntegrations(["gmail", "system"]), ["gmail.search"]);
+  assert.deepEqual(toolNamesForIntegrations(["contacts", "system"]), ["contacts.search"]);
 });
 
 test("groups available tool names by integration, sorted, honoring the allowlist", () => {
   registerTools([
-    // Register search before read_message so a lost sort reorders the output.
+    // Register search before get so a lost sort reorders the output.
     liveTool({
-      integration: "gmail",
+      integration: "contacts",
       action: "search",
       riskTier: "low",
       replay: "safe",
-      description: "Search Gmail.",
+      description: "Search contacts.",
       inputSchema: z.object({ query: z.string() }).strict(),
       execute: async () => ({}),
     }),
     liveTool({
-      integration: "gmail",
-      action: "read_message",
+      integration: "contacts",
+      action: "get",
       riskTier: "low",
       replay: "safe",
-      description: "Read a Gmail message.",
+      description: "Read a contact.",
       inputSchema: z.object({ id: z.string() }).strict(),
       execute: async () => ({}),
     }),
@@ -163,7 +163,7 @@ test("groups available tool names by integration, sorted, honoring the allowlist
 
   const availability: IntegrationAvailabilitySnapshot = {
     integrations: new Map([
-      ["gmail", { health: "active" as const, accountLabel: null }],
+      ["contacts", { health: "active" as const, accountLabel: null }],
       ["vercel", { health: "active" as const, accountLabel: null }],
       ["calendar", { health: "needs_reauth" as const, accountLabel: null }],
     ]),
@@ -175,46 +175,46 @@ test("groups available tool names by integration, sorted, honoring the allowlist
 
   const grouped = availableToolNamesByIntegration({
     availability,
-    allowedIntegrations: ["gmail", "vercel"],
+    allowedIntegrations: ["contacts", "vercel"],
     context,
   });
 
-  assert.deepEqual(grouped.get("gmail"), ["gmail.read_message", "gmail.search"]);
+  assert.deepEqual(grouped.get("contacts"), ["contacts.get", "contacts.search"]);
   assert.deepEqual(grouped.get("vercel"), ["vercel.list_projects"]);
 
   // The allowlist removes Vercel even though its credentials are healthy.
-  const gmailOnly = availableToolNamesByIntegration({
+  const contactsOnly = availableToolNamesByIntegration({
     availability,
-    allowedIntegrations: ["gmail"],
+    allowedIntegrations: ["contacts"],
     context,
   });
 
-  assert.deepEqual(gmailOnly.get("gmail"), ["gmail.read_message", "gmail.search"]);
-  assert.equal(gmailOnly.has("vercel"), false);
+  assert.deepEqual(contactsOnly.get("contacts"), ["contacts.get", "contacts.search"]);
+  assert.equal(contactsOnly.has("vercel"), false);
 });
 
 test("selects an exact available preload through the workflow allowlist", async () => {
   registerSurfaceFixtures();
 
   const availability: IntegrationAvailabilitySnapshot = {
-    integrations: new Map([["gmail", { health: "active" as const, accountLabel: null }]]),
+    integrations: new Map([["contacts", { health: "active" as const, accountLabel: null }]]),
     providers: new Map(),
     passthroughEnabled: new Map(),
   };
 
-  const transcript: TranscriptMessage[] = [{ role: "user", content: "gmail.search" }];
+  const transcript: TranscriptMessage[] = [{ role: "user", content: "contacts.search" }];
 
   const allowed = await selectToolPreload({
     userId: "user_1",
     transcript,
-    allowedIntegrations: ["gmail"],
+    allowedIntegrations: ["contacts"],
     activeNames: ["system.search_tools"],
     context: { caller: "boss", interaction: "live_chat" },
     availability,
   });
 
   assert.equal(allowed.promptChars, transcript[0]?.content.length);
-  assert.deepEqual(allowed.selectedNames, ["gmail.search"]);
+  assert.deepEqual(allowed.selectedNames, ["contacts.search"]);
 
   const disallowed = await selectToolPreload({
     userId: "user_1",

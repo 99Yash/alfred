@@ -52,9 +52,10 @@ function buildSummary(live: readonly LiveProviderSlug[]): string {
   }
 
   const header =
-    "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
+    "You are connected to these integrations right now — call each as integration.action (for example contacts.search). Treat this list as authoritative: do not offer or attempt an integration that is not on it.";
 
-  // Like the connected summary: a provider with no curated tool (GitHub, ADR-0125) gets no line.
+  // Like the connected summary: a provider with no curated tool gets no line (GitHub, ADR-0125;
+  // Calendar, Drive, Docs, and Slides, ADR-0126).
   const lines = live
     .filter((slug) => INTEGRATION_ACTIONS[slug].length > 0)
     .map((slug) => {
@@ -75,7 +76,6 @@ interface Case {
 
 const CASES: Case[] = [
   // From real chat tasks.
-  { input: "what's on my calendar tomorrow?", expected: "calendar.list_events", home: "calendar" },
   {
     input: "search the web for today's top AI news and give me one headline",
     expected: "system.web_search",
@@ -87,34 +87,7 @@ const CASES: Case[] = [
     home: null,
   },
   // Integrations that are easy to confuse.
-  {
-    input: "what meetings do I have on Friday?",
-    expected: "calendar.list_events",
-    home: "calendar",
-  },
-  { input: "search my email for the invoice from Stripe", expected: "gmail.search", home: "gmail" },
-  {
-    input: "find the Q3 budget spreadsheet in my drive",
-    expected: "drive.search_files",
-    home: "drive",
-  },
   { input: "list my vercel projects", expected: "vercel.list_projects", home: "vercel" },
-  {
-    input: "create a new google spreadsheet to track expenses",
-    expected: "sheets.create_spreadsheet",
-    home: "sheets",
-  },
-  {
-    // A plain read, so the model has no reason to call read_user_context first.
-    input: "get the google slides presentation with id pres_1AbC and summarize it",
-    expected: "slides.get_presentation",
-    home: "slides",
-  },
-  {
-    input: "open the google doc with id 1AbC and give me a summary of it",
-    expected: "docs.get_document",
-    home: "docs",
-  },
 ];
 
 interface TaskOutput {

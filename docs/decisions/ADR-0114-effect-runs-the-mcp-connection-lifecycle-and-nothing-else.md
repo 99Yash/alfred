@@ -71,3 +71,9 @@ The port covers the fibers only. Two kinds of write stay outside it:
 - **`RcMap` for the client cache.** `RcMap.invalidate` does not close an entry that a caller holds, it removes the key at once (so a new start can begin while the old one closes), and it has no place for the close intent and the row write. The manager needs a closing tombstone and an ordered close.
 - **Effect across `@alfred/assistant`.** No other module showed this kind of hand-built lifecycle state, and each new island adds a `Promise` boundary. One file with a lint fence keeps the cost bounded.
 - **Keep `async`/`await` and fix the two bugs.** Each fix is small. But the 26 checks stay, and the next new `await` needs its own check.
+
+## Amendment, 2026-11-13 — a borrowed token ([ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md))
+
+`McpClientAuth` has a fourth mode, `borrowed`. Its session (`McpTokenSession`) has the token half of an OAuth session: `refreshIfNeeded`, `renewRejectedToken`, and `accessToken`. It has no `authorize` and no `finishAuthorization`, because the connection holds no grant. `resolveMcpClientAuth` picks it first, for a built-in whose `auth` is `google_credential`. The session reads the Google credential's token, and the Google credential code refreshes it.
+
+The lifecycle does not change. A start that cannot borrow a token throws `McpGoogleCredentialRequiredError`, a subclass of `McpOAuthAuthorizationRequiredError`, so `needsConsent` writes `auth_required` as before. `needsConsent` also counts a 401 on a borrowed row, which has no `credential_id`. The `lastError` of such a row is "Reconnect Google to continue." The client callbacks of a borrowed row write the same text. They are outside the persistence port, as the OAuth callbacks are (D3, residual risk). `effect` stays in `manager.ts` only: the session and the sync live in other files and use `async`/`await`.

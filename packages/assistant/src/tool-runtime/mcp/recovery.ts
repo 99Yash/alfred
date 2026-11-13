@@ -36,7 +36,7 @@ import { z } from "zod";
 
 import { canonicalArgsHash } from "@alfred/assistant/connections/mcp";
 import { getMcpExecutionBroker } from "./runtime";
-import { resolveMcpToolIdentity } from "./invocations";
+import { mcpToolEffectClass, resolveMcpToolIdentity } from "./invocations";
 import { effectiveMcpRiskTier } from "./risk";
 import type { McpBrokerOutcome } from "./broker";
 
@@ -401,7 +401,7 @@ async function reserveMcpRecoverySuccessor(
       throw Errors.ConflictError("The MCP tool changed; review it before trying again");
     }
 
-    const liveEffectClass = identity.policy?.effectClass ?? "unknown";
+    const liveEffectClass = mcpToolEffectClass(identity);
 
     if (
       identity.connection.currentCatalogRevisionId !== prior.catalogRevisionId ||

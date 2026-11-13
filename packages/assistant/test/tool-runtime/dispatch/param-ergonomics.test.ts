@@ -30,24 +30,23 @@ interface Case {
 const CASES: readonly Case[] = [
   // ── casing family (general normalizer) ──────────────────────────────────
   {
-    name: "gmail.search max_results → maxResults",
-    tool: "gmail.search",
-    input: { q: "from:linkedin.com", max_results: 5 },
-    expect: (d) => assert.equal(d.maxResults, 5),
-  },
-  {
-    name: "calendar.list_events time_min/time_max → timeMin/timeMax",
-    tool: "calendar.list_events",
-    input: { time_min: "2026-07-01T00:00:00Z", time_max: "2026-07-02T00:00:00Z" },
+    name: "sheets.append_values spreadsheet_id/value_input_option → camelCase",
+    tool: "sheets.append_values",
+    input: {
+      spreadsheet_id: "sheet_1",
+      range: "Sheet1!A1",
+      values: [["a"]],
+      value_input_option: "RAW",
+    },
     expect: (d) => {
-      assert.ok(d.timeMin);
-      assert.ok(d.timeMax);
+      assert.equal(d.spreadsheetId, "sheet_1");
+      assert.equal(d.valueInputOption, "RAW");
     },
   },
   {
-    name: "drive.search_files page_token / page_size casing",
-    tool: "drive.search_files",
-    input: { q: "name contains 'x'", page_size: 10, page_token: "tok" },
+    name: "contacts.list page_token / page_size casing",
+    tool: "contacts.list",
+    input: { page_size: 10, page_token: "tok" },
     expect: (d) => {
       assert.equal(d.pageSize, 10);
       assert.equal(d.pageToken, "tok");
@@ -103,32 +102,6 @@ const CASES: readonly Case[] = [
     tool: "gmail.send_draft",
     input: { to: '["a@example.com","b@example.com"]', subject: "Hi", bodyText: "Body." },
     expect: (d) => assert.deepEqual(d.to, ["a@example.com", "b@example.com"]),
-  },
-  // ── real Drive-DSL guard ─────────────────────────────────────────────────
-  {
-    name: "drive.search_files bare term → name/fullText contains",
-    tool: "drive.search_files",
-    input: { q: "resume" },
-    expect: (d) => assert.equal(d.q, "name contains 'resume' or fullText contains 'resume'"),
-  },
-  {
-    name: "drive.search_files q='*' → dropped (list recent)",
-    tool: "drive.search_files",
-    input: { q: "*" },
-    expect: (d) => assert.equal(d.q, undefined),
-  },
-  // ── calendar over-specification (window wins; no bounce) ─────────────────
-  {
-    name: "calendar.list_events kitchen-sink (bounds + window + partOfDay)",
-    tool: "calendar.list_events",
-    input: {
-      timeMin: "2026-07-09T12:00:00+05:30",
-      timeMax: "2026-07-10T12:00:00+05:30",
-      window: "today",
-      partOfDay: "full_day",
-      maxResults: 50,
-    },
-    expect: (d) => assert.equal(d.window, "today"),
   },
 ];
 

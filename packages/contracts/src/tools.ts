@@ -444,167 +444,16 @@ export const TOOL_LABELS = {
     title: "inspect a connected tool",
   },
 
-  "gmail.search": { running: "Searching Gmail", done: "Searched Gmail", title: "search Gmail" },
-  "gmail.read_message": {
-    running: "Reading a Gmail message",
-    done: "Read a Gmail message",
-    title: "read a Gmail message",
-  },
-  "gmail.get_thread": {
-    running: "Reading a Gmail thread",
-    done: "Read a Gmail thread",
-    title: "read a Gmail thread",
-  },
-  "gmail.modify_thread": {
-    running: "Changing Gmail labels",
-    done: "Changed Gmail labels",
-    title: "change the labels of a Gmail thread",
-  },
-  "gmail.modify_message": {
-    running: "Changing Gmail labels",
-    done: "Changed Gmail labels",
-    title: "change the labels of a Gmail message",
-  },
-  "gmail.create_draft": {
-    running: "Saving a Gmail draft",
-    done: "Saved a Gmail draft",
-    title: "save a Gmail draft",
-  },
   "gmail.send_draft": {
     running: "Sending a Gmail draft",
     done: "Sent a Gmail draft",
     title: "send a Gmail draft",
   },
-  "gmail.request": {
-    running: "Querying the Gmail API",
-    done: "Queried the Gmail API",
-    title: "run a read-only Gmail API request",
-  },
 
-  "calendar.list_events": {
-    running: "Checking your calendar",
-    done: "Checked your calendar",
-    title: "list calendar events",
-  },
-  "calendar.create_event": {
-    running: "Creating a calendar event",
-    done: "Created a calendar event",
-    title: "create a calendar event",
-  },
-  "calendar.update_event": {
-    running: "Updating a calendar event",
-    done: "Updated a calendar event",
-    title: "update a calendar event",
-  },
-  "calendar.delete_event": {
-    running: "Deleting a calendar event",
-    done: "Deleted a calendar event",
-    title: "delete a calendar event",
-  },
-  "calendar.respond_to_event": {
-    running: "Answering an invitation",
-    done: "Answered an invitation",
-    title: "answer a calendar invitation",
-  },
-  "calendar.request": {
-    running: "Querying the Calendar API",
-    done: "Queried the Calendar API",
-    title: "run a read-only Calendar API request",
-  },
-
-  "drive.search_files": {
-    running: "Searching Drive",
-    done: "Searched Drive",
-    title: "search Drive",
-  },
-  "drive.get_file": {
-    running: "Opening a Drive file",
-    done: "Opened a Drive file",
-    title: "open a Drive file",
-  },
-  "drive.export_file": {
-    running: "Exporting a Drive file",
-    done: "Exported a Drive file",
-    title: "export a Drive file",
-  },
-  "drive.download_file": {
-    running: "Downloading a Drive file",
-    done: "Downloaded a Drive file",
-    title: "download a Drive file",
-  },
-  "drive.request": {
-    running: "Querying the Drive API",
-    done: "Queried the Drive API",
-    title: "run a read-only Drive API request",
-  },
-
-  "docs.get_document": {
-    running: "Reading a Google Doc",
-    done: "Read a Google Doc",
-    title: "read a Google Doc",
-  },
-  "docs.request": {
-    running: "Querying the Docs API",
-    done: "Queried the Docs API",
-    title: "run a read-only Docs API request",
-  },
-
-  "sheets.create_spreadsheet": {
-    running: "Creating a spreadsheet",
-    done: "Created a spreadsheet",
-    title: "create a spreadsheet",
-  },
-  "sheets.get_values": {
-    running: "Reading spreadsheet values",
-    done: "Read spreadsheet values",
-    title: "read spreadsheet values",
-  },
-  "sheets.update_values": {
-    running: "Updating spreadsheet values",
-    done: "Updated spreadsheet values",
-    title: "update spreadsheet values",
-  },
   "sheets.append_values": {
     running: "Appending spreadsheet rows",
     done: "Appended spreadsheet rows",
     title: "append spreadsheet rows",
-  },
-  "sheets.batch_update": {
-    running: "Updating the spreadsheet",
-    done: "Updated the spreadsheet",
-    title: "update the spreadsheet",
-  },
-  "sheets.add_sheet": { running: "Adding a sheet", done: "Added a sheet", title: "add a sheet" },
-  "sheets.request": {
-    running: "Querying the Sheets API",
-    done: "Queried the Sheets API",
-    title: "run a read-only Sheets API request",
-  },
-
-  "slides.create_presentation": {
-    running: "Creating a presentation",
-    done: "Created a presentation",
-    title: "create a presentation",
-  },
-  "slides.get_presentation": {
-    running: "Reading a presentation",
-    done: "Read a presentation",
-    title: "read a presentation",
-  },
-  "slides.batch_update": {
-    running: "Updating the presentation",
-    done: "Updated the presentation",
-    title: "update the presentation",
-  },
-  "slides.add_slide": {
-    running: "Adding a slide",
-    done: "Added a slide",
-    title: "add a slide",
-  },
-  "slides.request": {
-    running: "Querying the Slides API",
-    done: "Queried the Slides API",
-    title: "run a read-only Slides API request",
   },
 
   "contacts.search": {
@@ -683,44 +532,10 @@ export const TOOL_CATEGORIES = {
   "mcp.list_tools": "system",
   "mcp.inspect_tool": "system",
 
-  "gmail.search": "source",
-  "gmail.read_message": "source",
-  "gmail.get_thread": "source",
-  "gmail.modify_thread": "action",
-  "gmail.modify_message": "action",
-  "gmail.create_draft": "action",
   "gmail.send_draft": "action",
-  "gmail.request": "source",
 
-  "calendar.list_events": "source",
-  "calendar.create_event": "action",
-  "calendar.update_event": "action",
-  "calendar.delete_event": "action",
-  "calendar.respond_to_event": "action",
-  "calendar.request": "source",
-
-  "drive.search_files": "source",
-  "drive.get_file": "source",
-  "drive.export_file": "source",
-  "drive.download_file": "source",
-  "drive.request": "source",
-
-  "docs.get_document": "source",
-  "docs.request": "source",
-
-  "sheets.create_spreadsheet": "action",
-  "sheets.get_values": "source",
-  "sheets.update_values": "action",
   "sheets.append_values": "action",
-  "sheets.batch_update": "action",
-  "sheets.add_sheet": "action",
-  "sheets.request": "source",
 
-  "slides.create_presentation": "action",
-  "slides.get_presentation": "source",
-  "slides.batch_update": "action",
-  "slides.add_slide": "action",
-  "slides.request": "source",
   "contacts.search": "source",
   "contacts.list": "source",
   "contacts.get": "source",

@@ -8,7 +8,7 @@ pnpm --filter @alfred/assistant eval        # run once
 pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-A bare `evalite run` globs **all eight** suites in this directory, `boss-judgment`
+A bare `evalite run` globs **all seven** suites in this directory, `boss-judgment`
 and `triage-classify` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
@@ -21,10 +21,10 @@ Every model call goes through the gateway, so there are no provider keys to set.
   DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
   `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
   cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — six suites GENERATE on that route, because
+- `route("standard")` (`gpt-6-luna`) — five suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
-  `calendar-grounding`, `date-grounding`, `sender-suppression-grounding`,
-  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
+  `date-grounding`, `sender-suppression-grounding`, `tool-selection-bloat` and
+  `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
 
@@ -35,16 +35,14 @@ it.
 ## Files
 
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
-  of bouncing them back (the ADR-0053/0055 regression guard). Deterministic only.
+  of bouncing them back (the ADR-0053/0055 regression guard). It reads the
+  calendar through the Google Calendar MCP server. Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.
-- `calendar-grounding.eval.ts` — chat agent answers relative calendar questions
-  ("today", "this week") through the structured `window` / `partOfDay` fields
-  instead of inventing a param name or hand-computing RFC3339 bounds.
-- `sender-suppression-grounding.eval.ts` — chat agent searches Gmail before
-  sender-suppression writes, and only persists a resolved sender when search
-  hits clearly identify one address.
+- `sender-suppression-grounding.eval.ts` — chat agent searches Gmail through the
+  Gmail MCP server before sender-suppression writes, and only persists a resolved
+  sender when search hits clearly identify one address.
 - `voice-ai-tells.eval.ts` — a small, non-gating nightly sample that checks
   Alfred's default chat voice for high-confidence AI-writing tells and grades
   usefulness with a cheap cross-provider judge.

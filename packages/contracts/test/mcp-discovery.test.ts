@@ -13,7 +13,7 @@ import {
 const ref = {
   kind: "mcp" as const,
   connectionId: "connection-1",
-  remoteName: "calendar.create_event",
+  remoteName: "create_event",
   catalogRevision: "revision-1",
 };
 
@@ -143,7 +143,7 @@ describe("MCP discovery contracts", () => {
         status: "tool",
         ref,
         connection,
-        tool: { name: "calendar.delete_event", inputSchema: { type: "object" } },
+        tool: { name: "delete_event", inputSchema: { type: "object" } },
       }).success,
       false,
     );

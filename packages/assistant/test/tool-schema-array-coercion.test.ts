@@ -20,25 +20,6 @@ interface ArrayCoercionFixture {
 type ToolArrayCoercionFixtures = ArrayCoercionFixture | readonly ArrayCoercionFixture[];
 
 const FIXTURES = {
-  "calendar.create_event": {
-    base: {
-      summary: "Weekly sync",
-      start: "2026-07-01T10:00:00Z",
-      end: "2026-07-01T11:00:00Z",
-      attendees: ["a@example.com", "b@example.com"],
-    },
-    arrayFields: ["attendees"],
-  },
-  "calendar.update_event": {
-    base: {
-      accountId: "account-1",
-      eventId: "event-1",
-      eventTitle: "Weekly sync",
-      addAttendees: ["a@example.com"],
-      removeAttendees: ["b@example.com"],
-    },
-    arrayFields: ["addAttendees", "removeAttendees"],
-  },
   "gmail.send_draft": {
     base: {
       to: ["a@example.com"],
@@ -49,40 +30,6 @@ const FIXTURES = {
     },
     arrayFields: ["to", "cc", "bcc"],
   },
-  "gmail.create_draft": {
-    base: {
-      to: ["a@example.com"],
-      cc: ["c@example.com"],
-      bcc: ["d@example.com"],
-      subject: "Hello",
-      bodyText: "Body text.",
-    },
-    arrayFields: ["to", "cc", "bcc"],
-  },
-  "gmail.modify_thread": {
-    base: {
-      threadId: "thread-1",
-      addLabels: ["Receipts", "STARRED"],
-      removeLabels: ["INBOX"],
-    },
-    arrayFields: ["addLabels", "removeLabels"],
-  },
-  "gmail.modify_message": {
-    base: {
-      messageId: "message-1",
-      addLabels: ["TRASH"],
-      removeLabels: ["INBOX"],
-    },
-    arrayFields: ["addLabels", "removeLabels"],
-  },
-  "sheets.update_values": {
-    base: {
-      spreadsheetId: "sid",
-      range: "Sheet1!A1:B1",
-      values: [["a", "b"]],
-    },
-    arrayFields: ["values"],
-  },
   "sheets.append_values": {
     base: {
       spreadsheetId: "sid",
@@ -90,20 +37,6 @@ const FIXTURES = {
       values: [["a", "b"]],
     },
     arrayFields: ["values"],
-  },
-  "sheets.batch_update": {
-    base: {
-      spreadsheetId: "sid",
-      requests: [{ addSheet: { properties: { title: "Tab" } } }],
-    },
-    arrayFields: ["requests"],
-  },
-  "slides.batch_update": {
-    base: {
-      presentationId: "pid",
-      requests: [{ createSlide: {} }],
-    },
-    arrayFields: ["requests"],
   },
   "system.read_user_context": {
     base: {
@@ -343,7 +276,7 @@ describe("tool-schema array-field coercion (cross-integration)", () => {
 
   // Coercion accepts only a JSON array string, not any string.
   test("a non-array string still fails strict validation", () => {
-    const schema = TOOL_INPUT_SCHEMAS["sheets.update_values"];
+    const schema = TOOL_INPUT_SCHEMAS["sheets.append_values"];
 
     const garbage = schema.safeParse({
       spreadsheetId: "sid",

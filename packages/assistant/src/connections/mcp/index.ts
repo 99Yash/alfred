@@ -47,10 +47,21 @@ export {
 } from "./allowlist";
 
 export {
+  builtInBorrowsGoogleCredential,
   builtInProviderForEndpoint,
   builtInReadOnlyResource,
   type BuiltInProvider,
 } from "./built-ins";
+
+export {
+  builtInReadToolPinsOf,
+  builtInToolPolicy,
+  type BuiltInToolPolicy,
+} from "./built-in-tool-policy";
+
+export { readLiveGoogleWorkspaceCatalogs } from "./built-in-policy-drift";
+
+export { syncGoogleWorkspaceConnections } from "./google-workspace";
 
 export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
 

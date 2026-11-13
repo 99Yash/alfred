@@ -156,17 +156,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
       grants: { modify: [GOOGLE_SCOPE.gmail.modify], send: [GOOGLE_SCOPE.gmail.send] },
     },
-    passthrough: { transport: "rest" },
-    actions: [
-      "search",
-      "read_message",
-      "get_thread",
-      "modify_thread",
-      "modify_message",
-      "create_draft",
-      "send_draft",
-      "request",
-    ],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: ["send_draft"],
     summaryBlurb: "the user's email",
     domain: "mail.google.com",
   },
@@ -183,15 +176,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.calendar.readonly, GOOGLE_SCOPE.calendar.events],
       grants: { write: [GOOGLE_SCOPE.calendar.events] },
     },
-    passthrough: { transport: "rest" },
-    actions: [
-      "list_events",
-      "create_event",
-      "update_event",
-      "delete_event",
-      "respond_to_event",
-      "request",
-    ],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: [],
     summaryBlurb: "the user's calendar",
     domain: "calendar.google.com",
   },
@@ -208,8 +196,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.drive.full],
       grants: {},
     },
-    passthrough: { transport: "rest" },
-    actions: ["search_files", "get_file", "export_file", "download_file", "request"],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: [],
     summaryBlurb: "the user's Drive files",
     domain: "drive.google.com",
   },
@@ -225,8 +215,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.docs.full],
       grants: {},
     },
-    passthrough: { transport: "rest" },
-    actions: ["get_document", "request"],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: [],
     summaryBlurb: "the user's Google Docs",
     domain: "docs.google.com",
   },
@@ -242,16 +234,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.sheets.full],
       grants: {},
     },
-    passthrough: { transport: "rest" },
-    actions: [
-      "create_spreadsheet",
-      "get_values",
-      "update_values",
-      "append_values",
-      "batch_update",
-      "add_sheet",
-      "request",
-    ],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: ["append_values"],
     summaryBlurb: "the user's spreadsheets",
     domain: "sheets.google.com",
   },
@@ -267,8 +253,10 @@ export const INTEGRATIONS = {
       anyOfScopes: [GOOGLE_SCOPE.slides.full],
       grants: {},
     },
-    passthrough: { transport: "rest" },
-    actions: ["create_presentation", "get_presentation", "batch_update", "add_slide", "request"],
+    // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
+    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    passthrough: null,
+    actions: [],
     summaryBlurb: "the user's presentations",
     domain: "slides.google.com",
   },

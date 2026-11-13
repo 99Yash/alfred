@@ -1,13 +1,13 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
 import {
-  gmailSearchInput,
-  gmailSearchResultSchema,
+  getStringPath,
+  mcpCallInput,
+  mcpToolSearchInputSchema,
   parseIanaTimezone,
   rememberInput,
   resolveTodoInput,
   toMessage,
-  type GmailSearchResult,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import { generateText, isStepCount, tool } from "ai";
@@ -19,8 +19,10 @@ import { toolCallArgs, type GroundingTaskOutput } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // #312: when the user describes a sender ("the recruiter") and asks to mute it, the boss must
-// find the address with gmail.search, not ask the user for it. A literal model once asked.
-// The tools have no `execute`, so the run stops at the first call and we check it.
+// find the address with a Gmail search, not ask the user for it. A literal model once asked.
+// Gmail is a Google Workspace MCP built-in (ADR-0126), so the search is an `mcp.call` to the Gmail
+// server's `search_threads`. In the first suite only the catalog lookup answers, so the run stops
+// at the first real call and we check it.
 // Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
@@ -31,15 +33,60 @@ const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 
 const EVAL_TIMEOUT_MS = 60_000;
 
-const SEARCH_TOOL = "gmail.search";
+const MCP_LIST_TOOLS_TOOL = "mcp.list_tools";
+
+const MCP_CALL_TOOL = "mcp.call";
+
+const GMAIL_CONNECTION = { id: "mcp_conn_gmail", instanceKey: "gmail", label: "Gmail" };
+
+const GMAIL_CATALOG_REVISION = "rev_gmail_eval";
+
+const GMAIL_SEARCH_REMOTE = "search_threads";
+
+/** The label a Gmail search call gets in the tool path. */
+const SEARCH_STEP = `${GMAIL_CONNECTION.label}.${GMAIL_SEARCH_REMOTE}`;
+
+const GMAIL_SEARCH_HIT = {
+  ref: {
+    kind: "mcp",
+    connectionId: GMAIL_CONNECTION.id,
+    remoteName: GMAIL_SEARCH_REMOTE,
+    catalogRevision: GMAIL_CATALOG_REVISION,
+  },
+  namespace: GMAIL_CONNECTION.instanceKey,
+  connection: GMAIL_CONNECTION,
+  description:
+    "Search the user's Gmail threads with Gmail search operators. Each hit has the thread id, sender, subject, snippet, and date.",
+};
+
+const MCP_LIST_TOOLS_DESCRIPTION =
+  "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.";
+
+const MCP_CALL_DESCRIPTION =
+  "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
+
+function isGmailSearchCall(toolName: string, input: unknown): boolean {
+  return (
+    toolName === MCP_CALL_TOOL &&
+    getStringPath(input, "connectionId") === GMAIL_CONNECTION.id &&
+    getStringPath(input, "remoteName") === GMAIL_SEARCH_REMOTE
+  );
+}
+
+/** A catalog lookup only finds the search tool, so the tool path leaves it out. */
+function stepName(call: { toolName: string; input: unknown }): string | null {
+  if (call.toolName === MCP_LIST_TOOLS_TOOL) return null;
+
+  return isGmailSearchCall(call.toolName, call.input) ? SEARCH_STEP : call.toolName;
+}
 
 const REMEMBER_TOOL = "system.remember";
 
 const RESOLVE_TODO_TOOL = "system.resolve_todo";
 
 const CONNECTED_SUMMARY = [
-  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail.search, gmail.read_message — the user's email",
+  "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
+  `- ${JSON.stringify(GMAIL_CONNECTION.label)} MCP server (connectionId ${GMAIL_CONNECTION.id}) — 10 tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`,
   "- system.remember — store a standing instruction the user confirms on a card",
   "- system.resolve_todo — dismiss live todos by resolved Gmail sender",
 ].join("\n");
@@ -66,14 +113,19 @@ interface ResolutionTaskOutput {
   text: string;
 }
 
+/** The Gmail MCP search answer the eval returns. Only the sender metadata matters here. */
+interface GmailThreadHits {
+  threads: Array<{ id: string; from: string; subject: string; snippet: string; date: string }>;
+}
+
 interface ResolutionInput {
   prompt: string;
-  searchResult: GmailSearchResult;
+  searchResult: GmailThreadHits;
 }
 
 interface ResolutionCase {
   input: string;
-  searchResult: GmailSearchResult;
+  searchResult: GmailThreadHits;
   expectedRememberEmail: string | null;
 }
 
@@ -92,14 +144,17 @@ function runFirstCall(input: string) {
     instructions: SYSTEM,
     prompt: input,
     timeout: { totalMs: EVAL_TIMEOUT_MS },
+    // The catalog lookup, then the first real call.
+    stopWhen: isStepCount(3),
     tools: {
-      [SEARCH_TOOL]: tool({
-        description:
-          "Search Gmail messages using Gmail query operators. Each hit carries the headers needed to " +
-          "identify it without a follow-up read: `from` (sender), `subject`, `snippet`, `authoredAt`, " +
-          "plus `messageId`/`threadId` and a `documentId` when the message has been ingested. Use " +
-          "`from`/`subject` to pick the right hit — don't infer a sender from the query.",
-        inputSchema: gmailSearchInput,
+      [MCP_LIST_TOOLS_TOOL]: tool({
+        description: MCP_LIST_TOOLS_DESCRIPTION,
+        inputSchema: mcpToolSearchInputSchema,
+        execute: async () => ({ status: "tools", tools: [GMAIL_SEARCH_HIT], nextCursor: null }),
+      }),
+      [MCP_CALL_TOOL]: tool({
+        description: MCP_CALL_DESCRIPTION,
+        inputSchema: mcpCallInput,
       }),
       [REMEMBER_TOOL]: tool({
         description:
@@ -119,66 +174,48 @@ function runFirstCall(input: string) {
   });
 }
 
-const CLEAR_SHAPESHIFTER_HIT = gmailSearchResultSchema.parse({
-  query: "acme onboarding",
-  messages: [
+const CLEAR_SHAPESHIFTER_HIT: GmailThreadHits = {
+  threads: [
     {
-      messageId: "msg_clear_shape",
-      threadId: "thr_clear_shape",
-      documentId: "doc_clear_shape",
+      id: "thr_clear_shape",
       from: "ShapeShifter <no-reply@shapeshifter.so>",
       subject: 'Acme onboarding milestone "Professional Networking" due tomorrow',
       snippet: "Your Acme onboarding milestone is due tomorrow. Complete it in ShapeShifter.",
-      authoredAt: "2026-06-27T03:15:00.000Z",
-      url: "https://mail.google.com/mail/u/0/#all/thr_clear_shape",
+      date: "2026-06-27T03:15:00.000Z",
     },
   ],
-  nextPageToken: null,
-});
+};
 
-const AMBIGUOUS_ONBOARDING_HITS = gmailSearchResultSchema.parse({
-  query: "acme onboarding",
-  messages: [
+const AMBIGUOUS_ONBOARDING_HITS: GmailThreadHits = {
+  threads: [
     {
-      messageId: "msg_resend",
-      threadId: "thr_resend",
-      documentId: "doc_resend",
+      id: "thr_resend",
       from: "Acme <onboarding@resend.dev>",
       subject: "Welcome to Acme onboarding",
       snippet: "Set up your Acme workspace and finish the onboarding checklist.",
-      authoredAt: "2026-06-26T09:00:00.000Z",
-      url: "https://mail.google.com/mail/u/0/#all/thr_resend",
+      date: "2026-06-26T09:00:00.000Z",
     },
     {
-      messageId: "msg_shape",
-      threadId: "thr_shape",
-      documentId: "doc_shape",
+      id: "thr_shape",
       from: "ShapeShifter <no-reply@shapeshifter.so>",
       subject: 'Acme onboarding milestone "Professional Networking" due tomorrow',
       snippet: "Your Acme onboarding milestone is due tomorrow. Complete it in ShapeShifter.",
-      authoredAt: "2026-06-27T03:15:00.000Z",
-      url: "https://mail.google.com/mail/u/0/#all/thr_shape",
+      date: "2026-06-27T03:15:00.000Z",
     },
   ],
-  nextPageToken: null,
-});
+};
 
-const WEAK_ONBOARDING_HIT = gmailSearchResultSchema.parse({
-  query: "acme onboarding",
-  messages: [
+const WEAK_ONBOARDING_HIT: GmailThreadHits = {
+  threads: [
     {
-      messageId: "msg_weak",
-      threadId: "thr_weak",
-      documentId: "doc_weak",
+      id: "thr_weak",
       from: "LinkedIn Job Alerts <jobs-noreply@linkedin.com>",
       subject: "New jobs for product engineers",
       snippet: "Here are jobs matching your profile. Apply before the end of the week.",
-      authoredAt: "2026-06-27T02:00:00.000Z",
-      url: "https://mail.google.com/mail/u/0/#all/thr_weak",
+      date: "2026-06-27T02:00:00.000Z",
     },
   ],
-  nextPageToken: null,
-});
+};
 
 const RESOLUTION_CASES: ResolutionCase[] = [
   {
@@ -200,7 +237,7 @@ const RESOLUTION_CASES: ResolutionCase[] = [
 
 async function runResolutionScenario(
   input: string,
-  searchResult: GmailSearchResult,
+  searchResult: GmailThreadHits,
 ): Promise<ResolutionTaskOutput> {
   const remembered: RememberCall[] = [];
   const resolvedTodos: RememberCall[] = [];
@@ -213,13 +250,18 @@ async function runResolutionScenario(
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     stopWhen: isStepCount(4),
     tools: {
-      [SEARCH_TOOL]: tool({
-        description:
-          "Search Gmail messages using Gmail query operators. Each hit carries `from`, `subject`, " +
-          "`snippet`, `authoredAt`, `messageId`, `threadId`, and `documentId`. Use the hit metadata " +
-          "to determine whether one sender clearly matches the user's description; ask if hits are mixed.",
-        inputSchema: gmailSearchInput,
-        execute: async () => searchResult,
+      [MCP_LIST_TOOLS_TOOL]: tool({
+        description: MCP_LIST_TOOLS_DESCRIPTION,
+        inputSchema: mcpToolSearchInputSchema,
+        execute: async () => ({ status: "tools", tools: [GMAIL_SEARCH_HIT], nextCursor: null }),
+      }),
+      [MCP_CALL_TOOL]: tool({
+        description: MCP_CALL_DESCRIPTION,
+        inputSchema: mcpCallInput,
+        execute: async ({ remoteName }) =>
+          remoteName === GMAIL_SEARCH_REMOTE
+            ? searchResult
+            : { error: `Unknown tool ${remoteName} in catalog ${GMAIL_CATALOG_REVISION}.` },
       }),
       [REMEMBER_TOOL]: tool({
         description:
@@ -266,7 +308,13 @@ async function runResolutionScenario(
   });
 
   return {
-    toolNames: result.steps.flatMap((step) => step.toolCalls.map((call) => call.toolName)),
+    toolNames: result.steps.flatMap((step) =>
+      step.toolCalls.flatMap((call) => {
+        const name = stepName(call);
+
+        return name === null ? [] : [name];
+      }),
+    ),
     remembered,
     resolvedTodos,
     text: result.text,
@@ -283,10 +331,13 @@ evalite<string, GroundingTaskOutput, null>(
       // Never throw: evalite's reporter hangs the job on an error. Score 0 instead.
       try {
         const result = await runFirstCall(input);
-        const call = result.toolCalls[0];
+
+        const call = result.steps
+          .flatMap((step) => step.toolCalls)
+          .find((c) => stepName(c) !== null);
 
         return {
-          toolName: call?.toolName ?? null,
+          toolName: call ? stepName(call) : null,
           args: toolCallArgs(call?.input),
           text: result.text,
         };
@@ -301,11 +352,11 @@ evalite<string, GroundingTaskOutput, null>(
     scorers: [
       {
         // Not a text reply asking for the address, and not a blind system.remember.
-        name: "First move is gmail.search (resolves the sender itself)",
+        name: "First move is a Gmail search (resolves the sender itself)",
         scorer: ({ output }) => ({
-          score: output.toolName === SEARCH_TOOL ? 1 : 0,
+          score: output.toolName === SEARCH_STEP ? 1 : 0,
           metadata:
-            output.toolName === SEARCH_TOOL
+            output.toolName === SEARCH_STEP
               ? `searched: ${JSON.stringify(output.args)}`
               : output.toolName === null
                 ? `NO tool call — asked instead of searching: ${output.text.slice(0, 200)}`
@@ -337,10 +388,9 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
       })),
     task: async (input) => {
       serverEnv();
-      const searchResult = gmailSearchResultSchema.parse(input.searchResult);
 
       try {
-        return await runResolutionScenario(input.prompt, searchResult);
+        return await runResolutionScenario(input.prompt, input.searchResult);
       } catch (err) {
         return {
           toolNames: [],
@@ -354,9 +404,9 @@ evalite<ResolutionInput, ResolutionTaskOutput, string | null>(
       {
         name: "Searches Gmail before deciding",
         scorer: ({ output }) => ({
-          score: output.toolNames[0] === SEARCH_TOOL ? 1 : 0,
+          score: output.toolNames[0] === SEARCH_STEP ? 1 : 0,
           metadata:
-            output.toolNames[0] === SEARCH_TOOL
+            output.toolNames[0] === SEARCH_STEP
               ? `tool path: ${output.toolNames.join(" -> ")}`
               : `did not start with search: ${output.toolNames.join(" -> ")} ${output.text.slice(0, 200)}`,
         }),

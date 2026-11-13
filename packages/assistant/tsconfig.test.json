@@ -52,7 +52,6 @@
     "test/agent/guard-unreported-tool-failures.test.ts",
     "test/agent/synchronous-conversation-compaction.test.ts",
     "test/agent/terminal-agent-run-pairing.test.ts",
-    "test/agent/tool-preload-span.test.ts",
     "test/artifacts/edit-context.test.ts",
     "test/briefing/read-enrichment.test.ts",
     "test/briefing/suppression-gather.test.ts",

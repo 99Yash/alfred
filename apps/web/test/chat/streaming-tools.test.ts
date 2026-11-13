@@ -12,7 +12,7 @@ const baseEvent = {
   threadId: "thread_1",
   messageId: "message_1",
   toolCallId: "tool_1",
-  toolName: "gmail.search",
+  toolName: "contacts.search",
   segmentIndex: 0,
 } as const;
 

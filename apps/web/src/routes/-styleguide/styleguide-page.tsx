@@ -674,7 +674,7 @@ function FrostPanelSection() {
       <Row label="default">
         <FrostPanel className="max-w-md">
           <div className="space-y-2 text-sm text-gray-950">
-            <div className="text-[12.5px] text-gray-800">Tool · gmail.search</div>
+            <div className="text-[12.5px] text-gray-800">Tool · Gmail · search_threads</div>
             <div className="font-mono text-[12.5px] text-gray-1000">
               from:notifications@github.com newer_than:1d
             </div>

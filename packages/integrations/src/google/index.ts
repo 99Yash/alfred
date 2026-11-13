@@ -18,7 +18,7 @@ export {
 
 export type { CredentialRow } from "./credentials";
 
-export { getFreshAccessToken, upsertCredential } from "./credentials";
+export { getFreshAccessToken, getGoogleMcpAccessToken, upsertCredential } from "./credentials";
 
 export type { DocumentHeading, GetDocumentArgs, GetDocumentResult } from "./docs";
 
@@ -50,8 +50,6 @@ export type {
   SentMessage,
   StartWatchResult,
 } from "./gmail";
-
-export type { GoogleService } from "./http";
 
 // The token-taking Gmail calls stay inside this package: reach a mailbox through `gmailMailbox`.
 export {
@@ -110,8 +108,6 @@ export {
   GoogleReauthRequiredError,
   scopesForFeatures,
 } from "./oauth";
-
-export { GOOGLE_PASSTHROUGH_BASE_URLS, googlePassthroughProfile } from "./passthrough";
 
 export { isSelfAuthored, selfSenderEmail } from "./self-mail";
 

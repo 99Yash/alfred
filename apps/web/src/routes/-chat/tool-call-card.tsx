@@ -12,7 +12,6 @@ import {
   presentEvidence,
   searchQueryOf,
   type BrowsingView,
-  type EntityView,
   type EvidenceBadge,
   type FetchUrlView,
   type RecordListView,
@@ -33,7 +32,7 @@ const MAX_STAGGERED_ROWS = 6;
 /** Each call's shape, resolved once and shared by the header and the panel. */
 interface ResolvedCall {
   browsing: BrowsingView | null;
-  evidence: RecordListView | EntityView | null;
+  evidence: RecordListView | null;
 }
 
 /** Records found, including ones pruned from the preview. `undefined` when no call returned a list. */
@@ -319,10 +318,6 @@ export function ToolCallCard({
                   return <EvidenceListDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
                 }
 
-                if (evidence?.kind === "entity") {
-                  return <EntityDetail key={t.toolCallId} view={evidence} spaced={i > 0} />;
-                }
-
                 const raw = t.resultPreview;
 
                 if (!raw) return null;
@@ -502,52 +497,6 @@ function EvidenceListDetail({ view, spaced }: { view: RecordListView; spaced: bo
       {moreLabel ? (
         <p className="border-t border-app-bg-a2 bg-app-bg-a1 px-2.5 py-1.5 text-[11px] text-app-fg-2">
           {moreLabel}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/** Panel for a single object: linked title, state pill, facts, and a body peek. */
-function EntityDetail({ view, spaced }: { view: EntityView; spaced: boolean }) {
-  return (
-    <div className={cn("rounded-control bg-app-bg-a1 p-2.5", spaced && "mt-1.5")}>
-      {view.href ? (
-        <a
-          href={view.href}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="group/link flex items-center gap-2 no-underline"
-        >
-          <Favicon domain={view.faviconDomain} size={16} />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-fg-4 group-hover/link:underline">
-            {view.title}
-          </span>
-          {view.badge ? <BadgePill badge={view.badge} /> : null}
-          <ExternalLink size={12} aria-hidden className="shrink-0 text-app-fg-2" />
-        </a>
-      ) : (
-        <div className="flex items-center gap-2">
-          <Favicon domain={view.faviconDomain} size={16} />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-app-fg-4">
-            {view.title}
-          </span>
-          {view.badge ? <BadgePill badge={view.badge} /> : null}
-        </div>
-      )}
-      {view.facts.length > 0 ? (
-        <dl className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-          {view.facts.map((fact) => (
-            <div key={fact.label} className="flex min-w-0 items-center gap-1">
-              <dt className="shrink-0 text-app-fg-2">{fact.label}</dt>
-              <dd className="min-w-0 truncate text-app-fg-3">{fact.value}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {view.excerpt ? (
-        <p className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed text-app-fg-3">
-          {view.excerpt}
         </p>
       ) : null}
     </div>

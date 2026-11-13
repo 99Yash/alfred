@@ -41,7 +41,7 @@ describe("resolvePolicyMode — the system.* autonomy rule", () => {
     assert.equal(await resolvePolicyMode(USER_ID, "system.activate_workflow"), "autonomy");
 
     // The rule must not swallow non-`system` tools.
-    assert.equal(await resolvePolicyMode(USER_ID, "gmail.search"), "gated");
+    assert.equal(await resolvePolicyMode(USER_ID, "contacts.search"), "gated");
   });
 
   test("answers without reading the policy row — the check precedes the read", async () => {
@@ -51,7 +51,7 @@ describe("resolvePolicyMode — the system.* autonomy rule", () => {
 
     // Negative control: this process really cannot read a policy row.
     await assert.rejects(
-      () => resolvePolicyMode(USER_ID, "gmail.search"),
+      () => resolvePolicyMode(USER_ID, "contacts.search"),
       "a non-system resolution must fail with no DATABASE_URL, or this process is not read-free",
     );
   });

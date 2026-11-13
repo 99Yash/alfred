@@ -1,8 +1,14 @@
 import path from "node:path";
 import { route } from "@alfred/ai";
-import { calendarListEventsInput, parseIanaTimezone } from "@alfred/contracts";
+import {
+  getStringPath,
+  isRecord,
+  mcpCallInput,
+  mcpToolSearchInputSchema,
+  parseIanaTimezone,
+} from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { generateText, tool } from "ai";
+import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
@@ -11,7 +17,8 @@ import { toolCallArgs } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0055: asked about "october 2026", chat once replied "which year?" because it had no "now".
-// The tool has no `execute`, so the run stops at the call and we check its args.
+// The calendar is a Google Workspace MCP built-in (ADR-0126). The catalog lookup answers, and
+// `mcp.call` has no `execute`, so the run stops at the remote call and we check its arguments.
 // Run with apps/server/.env populated: `pnpm --filter @alfred/assistant eval`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
@@ -23,13 +30,37 @@ const TIMEZONE = parseIanaTimezone("Asia/Kolkata");
 
 const EVAL_TIMEOUT_MS = 60_000;
 
-const CALENDAR_TOOL = "calendar.list_events";
+const MCP_LIST_TOOLS_TOOL = "mcp.list_tools";
+
+const MCP_CALL_TOOL = "mcp.call";
+
+const CALENDAR_CONNECTION = {
+  id: "mcp_conn_google_calendar",
+  instanceKey: "calendar",
+  label: "Google Calendar",
+};
+
+const CALENDAR_CATALOG_REVISION = "rev_google_calendar_eval";
+
+const CALENDAR_LIST_REMOTE = "list_events";
+
+const CALENDAR_LIST_HIT = {
+  ref: {
+    kind: "mcp",
+    connectionId: CALENDAR_CONNECTION.id,
+    remoteName: CALENDAR_LIST_REMOTE,
+    catalogRevision: CALENDAR_CATALOG_REVISION,
+  },
+  namespace: CALENDAR_CONNECTION.instanceKey,
+  connection: CALENDAR_CONNECTION,
+  description: "List the events on the user's calendar in a time range.",
+};
 
 // A connected summary for a Google user (ADR-0053). The prompt must embed it.
 const CONNECTED_SUMMARY = [
-  "You are connected to these integrations right now — call each as integration.action (for example calendar.list_events). Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail.search, gmail.read_message, gmail.send_draft — the user's email",
-  "- calendar.list_events, calendar.create_event — the user's calendar",
+  "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
+  "- gmail.send_draft — the user's email",
+  `- ${JSON.stringify(CALENDAR_CONNECTION.label)} MCP server (connectionId ${CALENDAR_CONNECTION.id}) — 9 tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`,
 ].join("\n");
 
 interface TargetWindow {
@@ -81,13 +112,39 @@ function parseDate(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** True when [start, end) overlaps the target window [from, to). */
-function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): boolean {
-  const start = parseDate(args.timeMin);
-  const end = parseDate(args.timeMax);
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
 
-  // No `window` value covers a specific month, so only explicit bounds can be right.
-  if (!start || !end) return false;
+/** The `arguments` of an `mcp.call` to the calendar list tool, else `null`. */
+function calendarListArguments(input: unknown): Record<string, unknown> | null {
+  if (
+    getStringPath(input, "connectionId") !== CALENDAR_CONNECTION.id ||
+    getStringPath(input, "remoteName") !== CALENDAR_LIST_REMOTE
+  ) {
+    return null;
+  }
+
+  const args = isRecord(input) ? input.arguments : undefined;
+
+  return isRecord(args) ? args : null;
+}
+
+/**
+ * True when the call's time range overlaps the target window [from, to). The remote schema
+ * names its bounds, so the range is the earliest and the latest date value in the arguments.
+ */
+function windowOverlaps(args: Record<string, unknown>, target: TargetWindow): boolean {
+  // Only ISO dates count: `new Date("10")` also parses.
+  const dates = Object.values(args)
+    .filter((value) => typeof value === "string" && ISO_DATE_PREFIX.test(value))
+    .map(parseDate)
+    .filter((d): d is Date => d !== null)
+    .toSorted((a, b) => a.getTime() - b.getTime());
+
+  const start = dates[0];
+  const end = dates.at(-1);
+
+  // A specific month needs explicit bounds on both sides.
+  if (dates.length < 2 || !start || !end) return false;
   const from = new Date(`${target.fromISO}T00:00:00Z`);
   const to = new Date(`${target.toISO}T00:00:00Z`);
 
@@ -110,20 +167,29 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       ],
       temperature: 0,
       timeout: { totalMs: EVAL_TIMEOUT_MS },
+      // The catalog lookup, then the remote call.
+      stopWhen: isStepCount(3),
       tools: {
-        [CALENDAR_TOOL]: tool({
+        [MCP_LIST_TOOLS_TOOL]: tool({
           description:
-            "List Google Calendar events. Prefer the relative window fields for today/tomorrow/next-week questions; use explicit RFC3339 bounds only when the user gave exact dates or times.",
-          inputSchema: calendarListEventsInput,
+            "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.",
+          inputSchema: mcpToolSearchInputSchema,
+          execute: async () => ({ status: "tools", tools: [CALENDAR_LIST_HIT], nextCursor: null }),
+        }),
+        [MCP_CALL_TOOL]: tool({
+          description:
+            "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
+          inputSchema: mcpCallInput,
         }),
       },
     });
 
-    const call = result.toolCalls.find((c) => c.toolName === CALENDAR_TOOL) ?? result.toolCalls[0];
+    const calls = result.steps.flatMap((step) => step.toolCalls);
+    const call = calls.find((c) => calendarListArguments(c.input) !== null);
 
     return {
-      toolName: call?.toolName ?? null,
-      args: toolCallArgs(call?.input),
+      toolName: call ? CALENDAR_LIST_REMOTE : (calls.at(-1)?.toolName ?? null),
+      args: call ? calendarListArguments(call.input) : toolCallArgs(calls.at(-1)?.input),
       text: result.text,
       system,
     };
@@ -132,9 +198,9 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
     {
       name: "Calls calendar tool",
       scorer: ({ output }) => ({
-        score: output.toolName === CALENDAR_TOOL ? 1 : 0,
+        score: output.toolName === CALENDAR_LIST_REMOTE ? 1 : 0,
         metadata:
-          output.toolName === CALENDAR_TOOL
+          output.toolName === CALENDAR_LIST_REMOTE
             ? `args=${JSON.stringify(output.args)}`
             : `no calendar call; replied: ${output.text.slice(0, 200)}`,
       }),
@@ -145,7 +211,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       scorer: ({ output, expected }) => {
         if (!expected) return { score: 1, metadata: "n/a (relative window)" };
 
-        if (output.toolName !== CALENDAR_TOOL) {
+        if (output.toolName !== CALENDAR_LIST_REMOTE) {
           return { score: 0, metadata: "no calendar call to evaluate" };
         }
 
@@ -165,7 +231,7 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
       scorer: ({ output }) => {
         const ok =
           output.system.includes("integration.action") &&
-          output.system.includes("calendar.list_events");
+          output.system.includes(CALENDAR_CONNECTION.id);
 
         return {
           score: ok ? 1 : 0,

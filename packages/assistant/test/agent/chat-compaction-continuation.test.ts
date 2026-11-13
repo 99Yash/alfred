@@ -48,7 +48,7 @@ describe("chat compaction continuation", () => {
           {
             type: "tool-result",
             toolCallId: "c1",
-            toolName: "gmail.search",
+            toolName: "contacts.search",
             output: { type: "text", value: "large result" },
           },
         ],

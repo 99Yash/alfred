@@ -7,7 +7,7 @@
  */
 
 import { assertNever } from "@alfred/contracts";
-import type { ExternalToolRef } from "@alfred/contracts";
+import type { ExternalToolRef, McpEffectClass } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
@@ -24,6 +24,8 @@ import {
 } from "@alfred/db/schemas";
 import {
   builtInReadOnlyResource,
+  builtInToolPolicy,
+  type BuiltInToolPolicy,
   type McpConnectionRemovalGate,
 } from "@alfred/assistant/connections/mcp";
 import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
@@ -71,6 +73,11 @@ export type McpToolIdentityResolution =
       policy: McpToolPolicyRow | undefined;
       /** A review exists under any descriptor hash. Drift must re-gate, not fall to the structural downgrade (ADR-0096). */
       reviewed: boolean;
+      /**
+       * The code-owned entry for this exact built-in descriptor (ADR-0096 amendment, 2026-11-13).
+       * Set only when the owner never reviewed the tool, so an owner review always wins.
+       */
+      codePolicy: BuiltInToolPolicy | undefined;
       /** The endpoint is a built-in read-only resource, and this descriptor set `readOnlyHint` (ADR-0096). */
       readOnlyResource: boolean;
       readOnly: boolean;
@@ -105,6 +112,14 @@ function readOnlyHintOf(remoteName: string) {
 /** A published `readOnlyHint`, and no review that classes the tool as anything but a read. */
 function readOnlyClaimHolds(readOnly: boolean, effectClass: string | undefined): boolean {
   return readOnly && (effectClass === undefined || effectClass === "read");
+}
+
+/**
+ * The effect class of a resolved tool: the owner's review, else the code-owned entry, else
+ * `unknown`, which the broker treats as effectful.
+ */
+export function mcpToolEffectClass(identity: ResolvedMcpToolIdentity): McpEffectClass {
+  return identity.policy?.effectClass ?? identity.codePolicy?.effectClass ?? "unknown";
 }
 
 /** The exact descriptor/policy pair that may authorize a fixed read. */
@@ -232,12 +247,17 @@ export async function resolveMcpToolIdentity(
     return { status: "unresolved", reason: "descriptor_missing", connection: row.connection };
   }
 
+  const reviewed = row.reviewed === true;
+
   return {
     status: "resolved",
     connection: row.connection,
     descriptorHash: row.descriptorHash,
     policy: row.policy ?? undefined,
-    reviewed: row.reviewed === true,
+    reviewed,
+    codePolicy: reviewed
+      ? undefined
+      : builtInToolPolicy(row.endpointUrl, input.remoteName, row.descriptorHash),
     // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade (ADR-0094).
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,

@@ -1,10 +1,5 @@
 import {
-  calendarCreateEventInput,
-  calendarDeleteEventInput,
-  calendarRespondToEventInput,
-  calendarUpdateEventInput,
   gmailSendDraftInput,
-  type CalendarResponse,
   humanizeToolName,
   isWriteRiskTier,
   type JsonObject,
@@ -15,12 +10,6 @@ import {
   jsonObjectSchema,
 } from "@alfred/contracts";
 import { capitalize } from "~/lib/strings";
-
-const RESPONSE_VERBS = {
-  accepted: "Accept",
-  declined: "Decline",
-  tentative: "Tentatively accept",
-} satisfies Record<CalendarResponse, string>;
 
 /**
  * Input-aware card titles, e.g. "Email maya@…" instead of "Send draft".
@@ -41,46 +30,6 @@ const TITLE_OVERRIDES = new Map<ToolName, (input: JsonObject) => string>([
       const suffix = rest.length > 0 ? ` +${rest.length}` : "";
 
       return `Email ${first}${suffix}`;
-    },
-  ],
-  [
-    "calendar.create_event",
-    (input) => {
-      const parsed = calendarCreateEventInput.safeParse(input);
-
-      if (!parsed.success) return "Create a calendar event";
-
-      return `Schedule “${parsed.data.summary}”`;
-    },
-  ],
-  [
-    "calendar.update_event",
-    (input) => {
-      const parsed = calendarUpdateEventInput.safeParse(input);
-
-      if (!parsed.success) return "Update a calendar event";
-
-      return `Update “${parsed.data.eventTitle}”`;
-    },
-  ],
-  [
-    "calendar.delete_event",
-    (input) => {
-      const parsed = calendarDeleteEventInput.safeParse(input);
-
-      if (!parsed.success) return "Delete a calendar event";
-
-      return `Delete “${parsed.data.eventTitle}”`;
-    },
-  ],
-  [
-    "calendar.respond_to_event",
-    (input) => {
-      const parsed = calendarRespondToEventInput.safeParse(input);
-
-      if (!parsed.success) return "Answer a calendar invitation";
-
-      return `${RESPONSE_VERBS[parsed.data.response]} “${parsed.data.eventTitle}”`;
     },
   ],
   [
@@ -111,26 +60,12 @@ export function toolChipLabel(toolName: ToolName): string {
 }
 
 /**
- * Short verbs for the approve button, e.g. "Create event". A tool not listed here gets
+ * Short verbs for the approve button, e.g. "Send email". A tool not listed here gets
  * the generic "Approve". Keep each one short enough for a button.
  */
 const APPROVE_VERBS = new Map<ToolName, string>([
   ["gmail.send_draft", "Send email"],
-  ["gmail.create_draft", "Save draft"],
-  ["gmail.modify_thread", "Update labels"],
-  ["gmail.modify_message", "Update labels"],
-  ["calendar.create_event", "Create event"],
-  ["calendar.update_event", "Update event"],
-  ["calendar.delete_event", "Delete event"],
-  ["calendar.respond_to_event", "Send response"],
-  ["sheets.create_spreadsheet", "Create sheet"],
-  ["sheets.update_values", "Update cells"],
   ["sheets.append_values", "Add rows"],
-  ["sheets.batch_update", "Update sheet"],
-  ["sheets.add_sheet", "Add tab"],
-  ["slides.create_presentation", "Create deck"],
-  ["slides.batch_update", "Update deck"],
-  ["slides.add_slide", "Add slide"],
   ["vercel.redeploy", "Redeploy"],
   ["system.activate_workflow", "Activate"],
   // A durable instruction, so "Allow once" would misstate it.

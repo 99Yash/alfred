@@ -46,14 +46,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const GMAIL_PROFILE: RestPassthroughProfile = {
+/** A profile pinned under a path prefix. The capability slug picks only the gate config. */
+const NAMESPACED_PROFILE: RestPassthroughProfile = {
   baseUrl: "https://gmail.googleapis.com/gmail/v1",
   headers: { Authorization: "Bearer gmail-token" },
-};
-
-const CALENDAR_PROFILE: RestPassthroughProfile = {
-  baseUrl: "https://www.googleapis.com/calendar/v3",
-  headers: { Authorization: "Bearer calendar-token" },
 };
 
 const VERCEL_PROFILE: RestPassthroughProfile = {
@@ -86,7 +82,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "DELETE", path: "/users/me/messages/m1" }),
         ),
     );
@@ -97,7 +93,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
     assert.equal(result.reason, "method_not_read");
   });
 
-  test("an unlisted gmail POST is rejected (path_not_allowlisted), no fetch issued", async () => {
+  test("an unlisted POST is rejected (path_not_allowlisted), no fetch issued", async () => {
     let fetched = false;
 
     const result = await withMockedFetch(
@@ -108,7 +104,7 @@ describe("runRestPassthrough — gate denial (never leaves Alfred)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "POST", path: "/users/me/messages/send", body: { raw: "x" } }),
         ),
     );
@@ -134,7 +130,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       },
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({
             method: "GET",
             path: "/users/me/messages",
@@ -184,7 +180,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       () => jsonResponse({ message: "Not Found" }, 404),
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "GET", path: "/users/me/messages/nope" }),
         ),
     );
@@ -196,30 +192,6 @@ describe("runRestPassthrough — HTTP envelope", () => {
     assert.deepEqual(result.body, { message: "Not Found" });
   });
 
-  test("a Calendar read-via-POST (/freeBusy) passes the gate and issues the fetch with the body", async () => {
-    let fetched = false;
-
-    const result = await withMockedFetch(
-      (capture) => {
-        fetched = true;
-        assert.equal(capture.init?.method, "POST");
-        assert.equal(capture.init.body, JSON.stringify({ items: [{ id: "primary" }] }));
-
-        return jsonResponse({ calendars: {} });
-      },
-      () =>
-        runRestPassthrough(
-          capability("calendar", CALENDAR_PROFILE),
-          req({ method: "POST", path: "/freeBusy", body: { items: [{ id: "primary" }] } }),
-        ),
-    );
-
-    assert.equal(fetched, true, "an allowlisted read-via-POST must reach the network");
-    assert.equal(result.outcome, "http");
-
-    assert.equal(result.succeeded, true);
-  });
-
   test("a 3xx is succeeded:false with the Location redacted to origin+path (no query)", async () => {
     const result = await withMockedFetch(
       () =>
@@ -229,7 +201,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
         }),
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "GET", path: "/users/me/messages/m1/attachments/a1" }),
         ),
     );
@@ -252,7 +224,7 @@ describe("runRestPassthrough — HTTP envelope", () => {
       () => new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }),
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "GET", path: "/users/me/messages/m1/attachments/a2" }),
         ),
     );
@@ -279,7 +251,7 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("gmail", GMAIL_PROFILE),
+          capability("vercel", NAMESPACED_PROFILE),
           req({ method: "GET", path: "/users/me/profile" }),
         ),
     );
@@ -292,7 +264,7 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
 
   test("a URL that escapes the pinned namespace is a fail-closed invalid_path rejection", async () => {
     // The gate already blocks `..`, so this forces the transport's own check: `/v4` is outside
-    // Calendar's `/calendar/v3`.
+    // the pinned `/calendar/v3`.
     let fetched = false;
 
     const escaping: RestPassthroughProfile = {
@@ -308,7 +280,7 @@ describe("runRestPassthrough — failure classification (never throws)", () => {
       },
       () =>
         runRestPassthrough(
-          capability("calendar", escaping),
+          capability("vercel", escaping),
           req({ method: "GET", path: "/../v4/calendars" }),
         ),
     );

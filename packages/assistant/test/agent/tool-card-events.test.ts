@@ -254,7 +254,7 @@ describe("provider-supplied identity is clamped, not rejected", () => {
 
 describe("toolEventOutcome", () => {
   test("an executed read succeeds and is never flagged as non-execution", () => {
-    const outcome = toolEventOutcome(completion("gmail.search", { messages: [] }));
+    const outcome = toolEventOutcome(completion("contacts.search", { messages: [] }));
     assert.equal(outcome.status, "succeeded");
     assert.equal(outcome.nonExecution, undefined);
   });
@@ -264,7 +264,7 @@ describe("toolEventOutcome", () => {
     for (const kind of ["invalid_input", "unknown_tool", "inactive_tool", "not_allowed"] as const) {
       const outcome = toolEventOutcome(
         completion(
-          "gmail.search",
+          "contacts.search",
           { reason: kind },
           {
             status: "failed",
@@ -297,9 +297,12 @@ describe("toolEventOutcome", () => {
 
   test("the ADR-0070 sanitizer verdict rides along", () => {
     assert.equal(
-      toolEventOutcome(completion("gmail.search", { ok: true }, { sanitized: true })).sanitized,
+      toolEventOutcome(completion("contacts.search", { ok: true }, { sanitized: true })).sanitized,
       true,
     );
-    assert.equal(toolEventOutcome(completion("gmail.search", { ok: true })).sanitized, undefined);
+    assert.equal(
+      toolEventOutcome(completion("contacts.search", { ok: true })).sanitized,
+      undefined,
+    );
   });
 });

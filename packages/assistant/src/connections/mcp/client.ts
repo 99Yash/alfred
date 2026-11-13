@@ -109,7 +109,19 @@ export interface McpClientLimits {
 export type McpClientAuth =
   | { readonly mode: "none" }
   | { readonly mode: "api_key"; readonly reader: McpApiKeyCredentialReader }
-  | { readonly mode: "oauth"; readonly provider: McpOAuthSessionFactory };
+  | { readonly mode: "oauth"; readonly provider: McpOAuthSessionFactory }
+  | { readonly mode: "borrowed"; readonly session: McpTokenSession };
+
+/**
+ * The token half of a session: what the transport and the 401 path read. An OAuth session is one.
+ * A `borrowed` session reads another credential's token and holds no grant (ADR-0126).
+ * `refreshIfNeeded` runs before each call, so it must throw `McpOAuthAuthorizationRequiredError`
+ * when only the user can repair the credential. The call then never starts.
+ */
+export type McpTokenSession = Pick<
+  McpBoundOAuthSession,
+  "refreshIfNeeded" | "renewRejectedToken" | "accessToken"
+>;
 
 export interface McpRawClientOptions extends McpClientLimits {
   connectionId: string;
@@ -280,7 +292,7 @@ function sendWithToken<T>(request: () => Promise<T>): TokenedRequest<T> {
 interface McpClientGeneration {
   readonly authorization: McpAuthorizedEndpoint;
   readonly protocol: McpProtocolClient;
-  readonly oauth: McpBoundOAuthSession | null;
+  readonly oauth: McpTokenSession | null;
   negotiated: McpNegotiatedServer | null;
   unhealthy: Error | null;
   authorizationBlocked: McpClientError | null;
@@ -353,7 +365,7 @@ export class McpRawClient {
     if (this.#generation) return;
     let authorized: McpAuthorizedEndpoint | null = null;
     let protocol: McpProtocolClient | undefined;
-    let oauth: McpBoundOAuthSession | null = null;
+    let oauth: McpTokenSession | null = null;
 
     try {
       const auth = this.#options.auth;
@@ -371,14 +383,25 @@ export class McpRawClient {
         case "api_key":
           // An API key never contacts an authorization server, so no OAuth session.
           break;
-        case "oauth":
-          oauth = auth.provider(authorized.oauth);
+        case "oauth": {
+          const bound = auth.provider(authorized.oauth);
+
+          oauth = bound;
+
+          await bound.authorize();
+          break;
+        }
+
+        case "borrowed":
+          // No consent here: the owner of the credential asks for it. Fail before the handshake.
+          oauth = auth.session;
+
+          await auth.session.refreshIfNeeded();
           break;
         default:
           assertNever(auth, "MCP auth mode");
       }
 
-      if (oauth) await oauth.authorize();
       const boundOAuth = oauth;
       protocol = this.#options.protocolFactory
         ? this.#options.protocolFactory(authorized.protocol)
@@ -895,7 +918,7 @@ export class McpRawClient {
    * or `null` when only a new consent can help. Neither code claims the call was not delivered.
    */
   async #renewRejectedToken(
-    oauth: McpBoundOAuthSession | null,
+    oauth: McpTokenSession | null,
     rejectedAccessToken: string | undefined,
   ): Promise<McpClientError | null> {
     if (!oauth) return null;

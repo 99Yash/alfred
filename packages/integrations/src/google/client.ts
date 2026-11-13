@@ -1,5 +1,4 @@
 import type { ProviderBindOptions } from "../shared/provider";
-import { restPassthroughCapability } from "../shared/rest-passthrough";
 import type { RetryPolicy } from "../shared/retry";
 import {
   createEvent,
@@ -44,7 +43,6 @@ import type {
   SentMessage,
 } from "./gmail";
 import { gmailMailboxFor } from "./mailbox";
-import { googlePassthroughProfile } from "./passthrough";
 import {
   addSheet,
   appendValues,
@@ -75,7 +73,6 @@ import {
   type ListContactsArgs,
   type SearchContactsArgs,
 } from "./contacts";
-import type { GoogleService } from "./http";
 import { googleAuthorityScopes, holdsAnyScope, type GoogleAuthority } from "@alfred/contracts";
 
 type WithCredentialId<T extends { accessToken: string }> = Omit<T, "accessToken"> & {
@@ -168,15 +165,6 @@ export function createGoogleClient(
     return call({ ...args, accessToken }, retry);
   }
 
-  // A passthrough is a read, and the read authority of a service is its slug.
-  const passthrough = (service: GoogleService, credentialId: string) =>
-    restPassthroughCapability({
-      slug: service,
-      retry,
-      resolveProfile: async () =>
-        googlePassthroughProfile(service, await tokenFor(credentialId, service)),
-    });
-
   // The same mailbox `gmailMailbox` returns, behind this client's owner-checked resolver.
   const mailbox = (credentialId: string, authority: GoogleAuthority) =>
     gmailMailboxFor(() => tokenFor(credentialId, authority), retry);
@@ -228,7 +216,6 @@ export function createGoogleClient(
         mailbox(credentialId, "gmail_modify").sendDraft(args),
       deleteDraft: ({ credentialId, ...args }: WithCredentialId<DraftRefArgs>): Promise<void> =>
         mailbox(credentialId, "gmail_modify").deleteDraft(args),
-      passthrough: (credentialId: string) => passthrough("gmail", credentialId),
     },
     calendar: {
       listEvents: ({ credentialId, ...args }: WithCredentialId<ListEventsArgs>) =>
@@ -243,12 +230,10 @@ export function createGoogleClient(
         withToken("calendar_write", credentialId, args, deleteEvent),
       respondToEvent: ({ credentialId, ...args }: WithCredentialId<RespondToEventArgs>) =>
         withToken("calendar_write", credentialId, args, respondToEvent),
-      passthrough: (credentialId: string) => passthrough("calendar", credentialId),
     },
     docs: {
       getDocument: ({ credentialId, ...args }: WithCredentialId<GetDocumentArgs>) =>
         withToken("docs", credentialId, args, getDocument),
-      passthrough: (credentialId: string) => passthrough("docs", credentialId),
     },
     drive: {
       listFiles: ({ credentialId, ...args }: WithCredentialId<ListFilesArgs>) =>
@@ -259,7 +244,6 @@ export function createGoogleClient(
         withToken("drive", credentialId, args, exportFile),
       downloadFile: ({ credentialId, ...args }: WithCredentialId<DownloadFileArgs>) =>
         withToken("drive", credentialId, args, downloadFile),
-      passthrough: (credentialId: string) => passthrough("drive", credentialId),
     },
     sheets: {
       createSpreadsheet: ({ credentialId, ...args }: WithCredentialId<CreateSpreadsheetArgs>) =>
@@ -282,7 +266,6 @@ export function createGoogleClient(
           addSheet({ accessToken, ...rest }),
         );
       },
-      passthrough: (credentialId: string) => passthrough("sheets", credentialId),
     },
     slides: {
       createPresentation: ({ credentialId, ...args }: WithCredentialId<CreatePresentationArgs>) =>
@@ -305,7 +288,6 @@ export function createGoogleClient(
           addSlide({ accessToken, ...rest }),
         );
       },
-      passthrough: (credentialId: string) => passthrough("slides", credentialId),
     },
     contacts: {
       searchContacts: ({ credentialId, ...args }: WithCredentialId<SearchContactsArgs>) =>

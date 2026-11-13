@@ -11,3 +11,5 @@
 **Cross-ref.** The breadth complement to ADR-0071's curated correctness tier; both share ADR-0071 #6 (result-honesty). Relates to the BYO-MCP direction and the integration model (ADR-0052/0053). Sibling in spirit to ADR-0063 (a framed-deferred front-door). The produce-artifact epic (rendering, not invocation) is ADR-0075.
 
 **Amended 2026-11-12 by [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md).** GitHub leaves the passthrough tier: `github.request` is deleted, and `INTEGRATIONS.github.passthrough` is `null`. The Google and Vercel passthrough tools stay.
+
+**Amended 2026-11-13 by [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md).** Google leaves the passthrough tier: the six Google `*.request` tools are deleted, and each Google entry has `passthrough: null`. Vercel is the only passthrough provider.

@@ -24,21 +24,14 @@ import {
   artifactTextEditSchema,
 } from "./artifacts";
 import { contextSearchRequestSchema } from "./context-search";
-import { enumGuard, isRecord, parseEmailAddress } from "./guards";
+import { isRecord } from "./guards";
 import { LOADABLE_INTEGRATION_SLUGS } from "./integrations/slugs";
 import { safeJsonParse } from "./json";
 import { mcpCallInput, mcpToolInspectInputSchema, mcpToolSearchInputSchema } from "./mcp";
 import { restPassthroughRequestSchema } from "./passthrough";
-import { typedKeys } from "./records";
 import { STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS } from "./standing-instructions";
 import { LIVE_TODO_STATUSES, TODO_STATUSES, todoSourceSchema } from "./todos";
 import { triageCategorySchema } from "./triage";
-import {
-  GMAIL_SEARCH_DEFAULT_RESULTS,
-  GMAIL_SEARCH_MAX_RESULTS,
-  GMAIL_SEARCH_QUERY_MAX_CHARS,
-  GMAIL_SEARCH_SNIPPET_MAX_CHARS,
-} from "./tool-constants";
 import type { ToolName } from "./tools";
 
 /** Zod's email check emits lookahead, which OpenAI rejects in tool parameters. */
@@ -53,7 +46,7 @@ function modelToolEmail() {
  * Input tolerance runs in two layers before strict validation:
  * 1. Dispatch `normalizeToolInputKeys`: lossless case and `_`/`-` key fixes for all tools.
  * 2. The per-tool preprocess wrappers in this file (aliases, blank fields, JSON-string
- *    arrays, scalar recipients, calendar windows and seconds, Drive bare terms, GitHub URLs).
+ *    arrays, scalar recipients).
  * `z.toJSONSchema(schema, { io: "input" })` unwraps them, so the model and the
  * approval view see only the canonical fields.
  */
@@ -169,418 +162,18 @@ export function coerceJsonArrayFields<S extends z.ZodType>(fields: readonly stri
 
 /* ── calendar ─────────────────────────────────────────────────────────── */
 
-const CALENDAR_WINDOW_VALUES = ["today", "tomorrow", "next_7_days"] as const;
-
-const isCalendarWindowValue = enumGuard(CALENDAR_WINDOW_VALUES);
-
-const calendarListEventsObject = z
-  .object({
-    timeMin: z.iso
-      .datetime({ offset: true })
-      .optional()
-      .describe(
-        "Explicit RFC3339 lower bound. Use when the user gave an exact date/time window. A trailing 'Z' or a numeric UTC offset (e.g. +05:30) are both accepted.",
-      ),
-    timeMax: z.iso
-      .datetime({ offset: true })
-      .optional()
-      .describe(
-        "Explicit RFC3339 upper bound. Use with timeMin when the user gave an exact date/time window. A trailing 'Z' or a numeric UTC offset (e.g. +05:30) are both accepted.",
-      ),
-    window: z
-      .enum(CALENDAR_WINDOW_VALUES)
-      .optional()
-      .describe(
-        "Relative window in the user's timezone when explicit bounds are omitted. Omit for the next 7 days. Use 'tomorrow' for requests like 'tomorrow morning'.",
-      ),
-    partOfDay: z
-      .enum(["full_day", "morning", "afternoon", "evening"])
-      .optional()
-      .describe(
-        "Optional narrowing for today/tomorrow. Omit for full day. morning=06:00-12:00, afternoon=12:00-17:00, evening=17:00-22:00.",
-      ),
-    // Cosmetic cap: an out-of-range value falls back to the default.
-    maxResults: z.coerce.number().int().min(1).max(50).default(10).catch(10),
-  })
-  .strict();
-// Bounds and `window` can both be set: models over-specify, and rejecting that
-// cost a turn. `resolveCalendarListWindow` lets `window` win.
-
-// Models send the right window value under the wrong key (`timeframe`, `range`).
-// Rename any key that holds a window value to `window`. Safe, because no other
-// field accepts those values. A non-window value fails strict validation.
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
-function promoteWindowSynonym(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  const obj = Object.assign({}, value);
-
-  if (obj.window !== undefined) return obj;
-
-  for (const [key, val] of Object.entries(obj)) {
-    if (isCalendarWindowValue(val)) {
-      obj.window = val;
-      delete obj[key];
-      break;
-    }
-  }
-
-  return obj;
-}
-
-// `.shape` is not on the wrapper: read it from `calendarListEventsObject`.
-export const calendarListEventsInput = z.preprocess(promoteWindowSynonym, calendarListEventsObject);
-
-/**
- * Pad minute-precision datetimes (`14:00+05:30`) to `:00` seconds. Zod 4.5 made
- * seconds mandatory and models write minutes. The zone is required to match, so
- * this accepts nothing that Zod 4.4 rejected.
- */
-const MINUTE_PRECISION_DATETIME_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/;
-
-function padDatetimeSeconds<S extends z.ZodType>(fields: readonly string[], schema: S) {
-  return z.preprocess((value) => {
-    if (!isRecord(value)) return value;
-    let next = value;
-
-    for (const field of fields) {
-      const raw = next[field];
-
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string field goes to strict validation unchanged.
-      if (typeof raw !== "string") continue;
-      const match = MINUTE_PRECISION_DATETIME_RE.exec(raw);
-
-      if (!match) continue;
-
-      if (next === value) next = { ...value };
-      next[field] = `${match[1]}:00${match[2]}`;
-    }
-
-    return next;
-  }, schema);
-}
-
-const calendarIdInput = z
-  .string()
-  .min(1)
-  .max(200)
-  .default("primary")
-  .describe("Calendar id. Use primary unless the user or the event names another calendar.");
-
-export const calendarCreateEventInput = padDatetimeSeconds(
-  ["start", "end"],
-  coerceJsonArrayFields(
-    ["attendees"],
-    z
-      .object({
-        calendarId: calendarIdInput,
-        summary: z.string().min(1).max(500),
-        description: z.string().max(10_000).optional(),
-        location: z.string().max(1_000).optional(),
-        start: z.iso.datetime({ offset: true }),
-        end: z.iso.datetime({ offset: true }),
-        timeZone: z
-          .string()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("IANA timezone for the event. Omit when start/end include explicit offsets."),
-        attendees: z.array(modelToolEmail()).max(50).optional(),
-      })
-      .strict()
-      .refine((value) => new Date(value.end) > new Date(value.start), {
-        message: "end must be after start",
-        path: ["end"],
-      }),
-  ),
-);
-
-export type CalendarCreateEventInput = z.infer<typeof calendarCreateEventInput>;
-
-/** True when Google Calendar will notify external attendees. */
-export function calendarCreateEventSendsInvitations(
-  input: Pick<CalendarCreateEventInput, "attendees">,
-): boolean {
-  return (input.attendees?.length ?? 0) > 0;
-}
-
 export const CALENDAR_RESPONSES = ["accepted", "declined", "tentative"] as const;
 
 export type CalendarResponse = (typeof CALENDAR_RESPONSES)[number];
 
-/** The reference that calendar.list_events returns. Each write tool takes all of it. */
-const calendarEventRef = {
-  accountId: z
-    .string()
-    .min(1)
-    .max(200)
-    .describe(
-      "Event `accountId` from calendar.list_events. It names the Google account that acts.",
-    ),
-  calendarId: calendarIdInput,
-  eventId: z
-    .string()
-    .min(1)
-    .max(1024)
-    .describe(
-      "Event `id` from calendar.list_events. For a recurring event it names one occurrence. " +
-        "To change the full series, pass the event's `recurringEventId`.",
-    ),
-  eventTitle: z
-    .string()
-    .min(1)
-    .max(500)
-    .describe(
-      "Event `title` from calendar.list_events, exactly as it is. The tool refuses the call " +
-        "when the event has a different title.",
-    ),
-};
-
-/** The fields that update_event changes. At least one is required. */
-const calendarEventChanges = {
-  summary: z.string().min(1).max(500).optional().describe("New title."),
-  description: z.string().max(10_000).optional(),
-  location: z.string().max(1_000).optional(),
-  start: z.iso
-    .datetime({ offset: true })
-    .optional()
-    .describe("New start. Set start and end together."),
-  end: z.iso.datetime({ offset: true }).optional(),
-  addAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
-  removeAttendees: z.array(modelToolEmail()).min(1).max(50).optional(),
-};
-
-const CALENDAR_EVENT_CHANGE_FIELDS = typedKeys(calendarEventChanges);
-
-export const calendarUpdateEventInput = padDatetimeSeconds(
-  ["start", "end"],
-  coerceJsonArrayFields(
-    ["addAttendees", "removeAttendees"],
-    z
-      .object({
-        ...calendarEventRef,
-        ...calendarEventChanges,
-        timeZone: z
-          .string()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("IANA timezone for a new start and end."),
-        notifyGuests: z
-          .boolean()
-          .default(true)
-          .describe(
-            "Email the guests about the change. Set false for a change that the guests do not " +
-              "need to hear about, such as a typo fix.",
-          ),
-      })
-      .strict()
-      .refine((value) => CALENDAR_EVENT_CHANGE_FIELDS.some((field) => value[field] !== undefined), {
-        message: "change at least one field",
-      })
-      .refine((value) => (value.start === undefined) === (value.end === undefined), {
-        message: "set start and end together",
-        path: ["end"],
-      })
-      .refine(
-        (value) =>
-          value.start === undefined ||
-          value.end === undefined ||
-          new Date(value.end) > new Date(value.start),
-        { message: "end must be after start", path: ["end"] },
-      )
-      .refine(
-        (value) => {
-          const removed = new Set((value.removeAttendees ?? []).map(parseEmailAddress));
-
-          return !(value.addAttendees ?? []).some((email) => removed.has(parseEmailAddress(email)));
-        },
-        {
-          message: "an email cannot be in addAttendees and removeAttendees",
-          path: ["removeAttendees"],
-        },
-      ),
-  ),
-);
-
-export const calendarDeleteEventInput = z.object(calendarEventRef).strict();
-
-export const calendarRespondToEventInput = z
-  .object({
-    ...calendarEventRef,
-    response: z.enum(CALENDAR_RESPONSES),
-    comment: z.string().max(1_000).optional().describe("A note to the organizer."),
-  })
-  .strict();
-
-/* ── docs ─────────────────────────────────────────────────────────────── */
-
-export const docsGetDocumentInput = z
-  .object({
-    documentId: z.string().min(1).max(200).describe("The Google Doc's document id."),
-  })
-  .strict();
-
-/* ── drive ────────────────────────────────────────────────────────────── */
-
-const driveFileId = z.string().min(1).max(200).describe("The Drive file id.");
-
-/**
- * A bare term (`q=resume`) or `*` is not Drive query syntax, and Drive returns 400.
- * Rewrite a bare term to a name or fullText `contains` clause, and drop a lone `*`.
- * A real clause always has an operator, so it is never touched.
- */
-const DRIVE_BARE_TERM_RE = /^[\w.-]+$/;
-
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
-function promoteDriveBareQuery(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  const q = value.q;
-
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string `q` goes to strict validation unchanged.
-  if (typeof q !== "string") return value;
-  const trimmed = q.trim();
-
-  if (trimmed === "*") {
-    const next = Object.assign({}, value);
-    delete next.q;
-
-    return next;
-  }
-
-  if (DRIVE_BARE_TERM_RE.test(trimmed)) {
-    // The regex allows no quote or backslash, so interpolation needs no escaping.
-    return Object.assign({}, value, {
-      q: `name contains '${trimmed}' or fullText contains '${trimmed}'`,
-    });
-  }
-
-  return value;
+/** True when Google Calendar will notify external attendees. */
+export function calendarCreateEventSendsInvitations(input: {
+  readonly attendees?: readonly string[] | undefined;
+}): boolean {
+  return (input.attendees?.length ?? 0) > 0;
 }
 
-export const driveSearchInput = withQueryAlias(
-  "q",
-  blankFieldToOmitted(
-    ["q"],
-    z.preprocess(
-      promoteDriveBareQuery,
-      z
-        .object({
-          q: z
-            .string()
-            .min(1)
-            .max(1000)
-            .optional()
-            .describe(
-              "Drive query, e.g. `name contains 'budget'` or `mimeType = 'application/vnd.google-apps.document'`. Omit to list recent files.",
-            ),
-          // Cosmetic cap: fall back to the default.
-          pageSize: z.coerce.number().int().min(1).max(100).default(25).catch(25),
-          pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
-          orderBy: z
-            .string()
-            .max(100)
-            .optional()
-            .describe("Sort order, e.g. `modifiedTime desc` (default), `name`."),
-        })
-        .strict(),
-    ),
-  ),
-);
-
-export const driveGetFileInput = z.object({ fileId: driveFileId }).strict();
-
-/**
- * Text exports only (ADR-0071). A binary export read through `res.text()` carries
- * NUL bytes that poison the stored result (#267).
- */
-export const DRIVE_TEXT_EXPORT_MIME_TYPES: ReadonlySet<string> = new Set([
-  "text/plain",
-  "text/markdown",
-  "text/csv",
-  "text/tab-separated-values",
-  "text/html",
-  "application/rtf",
-  "application/json",
-]);
-
-export const driveExportFileInput = z
-  .object({
-    fileId: driveFileId,
-    mimeType: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      // Normalize here, so the value sent to Drive is the one the refine checked.
-      .transform((m) => (m === undefined ? undefined : m.toLowerCase().trim()))
-      .refine((m) => m === undefined || DRIVE_TEXT_EXPORT_MIME_TYPES.has(m), {
-        message: `mimeType must be a text export type — one of: ${[...DRIVE_TEXT_EXPORT_MIME_TYPES].join(", ")}. This tool reads a Google file's text into context; producing a downloadable PDF/slides/spreadsheet is a separate capability it does not have.`,
-      })
-      .describe(
-        "Export MIME type for a Google-native file. Text only: `text/plain` (default), `text/csv`, `text/markdown`, `text/html`. Binary types (PDF, PPTX, XLSX) are not supported — this reads files in as text, it does not produce downloadable documents.",
-      ),
-  })
-  .strict();
-
-export const driveDownloadFileInput = z.object({ fileId: driveFileId }).strict();
-
 /* ── gmail ────────────────────────────────────────────────────────────── */
-
-export const gmailSearchHitSchema = z
-  .object({
-    messageId: z.string().min(1),
-    threadId: z.string().min(1),
-    documentId: z.string().min(1).nullable(),
-    from: z.string().nullable(),
-    subject: z.string().nullable(),
-    snippet: z.string().max(GMAIL_SEARCH_SNIPPET_MAX_CHARS).nullable(),
-    authoredAt: z.iso.datetime().nullable(),
-    url: z.string().nullable(),
-  })
-  .strict();
-
-export type GmailSearchHit = z.infer<typeof gmailSearchHitSchema>;
-
-export const gmailSearchResultSchema = z
-  .object({
-    /** Echoed back: persisted turns drop `argsPreview`, so a reload needs the query here. */
-    query: z.string(),
-    messages: z.array(gmailSearchHitSchema),
-    nextPageToken: z.string().nullable(),
-  })
-  .strict();
-
-export type GmailSearchResult = z.infer<typeof gmailSearchResultSchema>;
-
-export const gmailSearchInput = withQueryAlias(
-  "q",
-  z
-    .object({
-      q: z
-        .string()
-        .min(1)
-        .max(GMAIL_SEARCH_QUERY_MAX_CHARS)
-        .describe(
-          "Gmail search query. Supports the full Gmail operator set (in:, from:, has:, …). " +
-            "For recency, prefer Gmail's relative operators (newer_than:3d, older_than:1w) — Gmail " +
-            "resolves them server-side, so they're immune to timezone/date-math mistakes. Use absolute " +
-            "after:/before: dates only for a specific range, computed from the grounded date in the system prompt.",
-        ),
-      maxResults: z.coerce
-        .number()
-        .int()
-        .min(1)
-        .max(GMAIL_SEARCH_MAX_RESULTS)
-        .default(GMAIL_SEARCH_DEFAULT_RESULTS)
-        // Cosmetic cap: fall back to the default.
-        .catch(GMAIL_SEARCH_DEFAULT_RESULTS)
-        .describe(
-          `Cap on results returned to the model (Gmail allows up to 500; we cap at ${GMAIL_SEARCH_MAX_RESULTS}).`,
-        ),
-      pageToken: z.string().optional().describe("Cursor from a previous page's nextPageToken."),
-    })
-    .strict(),
-);
 
 /**
  * Wrap a bare recipient string (`to: "a@b.com"`) in an array. Runs after
@@ -638,101 +231,6 @@ export const gmailSendDraftInput = coerceJsonArrayFields(
 
 export type GmailSendDraftInput = z.infer<typeof gmailSendDraftInput>;
 
-export const gmailReadMessageInput = z
-  .object({
-    documentId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Alfred document id for an ingested Gmail message. Prefer this when available."),
-    messageId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "Provider-native Gmail message id — pass the `messageId` returned by gmail.search here. " +
-          "Read fetches it live from Gmail when the message isn't ingested, so this works on fresh " +
-          "search results; prefer documentId only when you already have an Alfred document id.",
-      ),
-    id: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "Deprecated alias for `messageId`, kept so older calls (or replayed transcripts) that pass " +
-          "`id` still resolve. Prefer `messageId`.",
-      ),
-  })
-  .strict()
-  .refine((value) => Boolean(value.documentId || value.messageId || value.id), {
-    message: "documentId or messageId is required",
-  })
-  // Fold legacy `id` into `messageId`. Omit absent keys: an `undefined` value is
-  // not JSON and would throw at the staging boundary.
-  .transform((value) => {
-    const messageId = value.messageId ?? value.id;
-
-    return {
-      ...(value.documentId === undefined ? {} : { documentId: value.documentId }),
-      ...(messageId === undefined ? {} : { messageId }),
-    };
-  });
-
-const gmailThreadId = z
-  .string()
-  .min(1)
-  .describe("Gmail thread id: the `threadId` from gmail.search or gmail.read_message.");
-
-export const gmailGetThreadInput = z
-  .object({
-    threadId: gmailThreadId,
-    format: z
-      .enum(["full", "metadata"])
-      .default("full")
-      .describe("`metadata` omits bodies. Use it first on a long thread."),
-  })
-  .strict();
-
-/** Gmail's per-call cap is 100 labels in each direction. */
-const gmailLabelNames = z.array(z.string().trim().min(1).max(225)).min(1).max(100);
-
-export const gmailModifyThreadInput = coerceJsonArrayFields(
-  ["addLabels", "removeLabels"],
-  z
-    .object({
-      threadId: gmailThreadId,
-      addLabels: gmailLabelNames.optional(),
-      removeLabels: gmailLabelNames.optional(),
-    })
-    .strict()
-    .refine((value) => value.addLabels !== undefined || value.removeLabels !== undefined, {
-      message: "addLabels or removeLabels is required",
-    }),
-);
-
-export type GmailModifyThreadInput = z.infer<typeof gmailModifyThreadInput>;
-
-const gmailMessageId = z
-  .string()
-  .min(1)
-  .describe("Gmail message id: a `messageId` from gmail.search or gmail.get_thread.");
-
-export const gmailModifyMessageInput = coerceJsonArrayFields(
-  ["addLabels", "removeLabels"],
-  z
-    .object({
-      messageId: gmailMessageId,
-      addLabels: gmailLabelNames.optional(),
-      removeLabels: gmailLabelNames.optional(),
-    })
-    .strict()
-    .refine((value) => value.addLabels !== undefined || value.removeLabels !== undefined, {
-      message: "addLabels or removeLabels is required",
-    }),
-);
-
-export type GmailModifyMessageInput = z.infer<typeof gmailModifyMessageInput>;
-
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
 /** `null` is a blank cell. */
@@ -758,31 +256,6 @@ const a1Range = z
 
 const spreadsheetId = z.string().min(1).max(200).describe("The target spreadsheet's id.");
 
-export const sheetsCreateInput = z
-  .object({
-    title: z.string().min(1).max(500).describe("Title for the new spreadsheet."),
-  })
-  .strict();
-
-export const sheetsGetValuesInput = z
-  .object({
-    spreadsheetId,
-    range: a1Range,
-  })
-  .strict();
-
-export const sheetsUpdateValuesInput = coerceJsonArrayFields(
-  ["values"],
-  z
-    .object({
-      spreadsheetId,
-      range: a1Range,
-      values: cellGrid,
-      valueInputOption,
-    })
-    .strict(),
-);
-
 export const sheetsAppendValuesInput = coerceJsonArrayFields(
   ["values"],
   z
@@ -794,71 +267,6 @@ export const sheetsAppendValuesInput = coerceJsonArrayFields(
     })
     .strict(),
 );
-
-export const sheetsBatchUpdateInput = coerceJsonArrayFields(
-  ["requests"],
-  z
-    .object({
-      spreadsheetId,
-      requests: z
-        .array(z.record(z.string(), z.unknown()))
-        .min(1)
-        .describe(
-          "Raw Sheets API `Request` objects (addSheet, repeatCell, mergeCells, …) from https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request.",
-        ),
-    })
-    .strict(),
-);
-
-export const sheetsAddSheetInput = z
-  .object({
-    spreadsheetId,
-    title: z.string().min(1).max(500).describe("Title for the new tab."),
-  })
-  .strict();
-
-/* ── slides ───────────────────────────────────────────────────────────── */
-
-const presentationId = z.string().min(1).max(200).describe("The target presentation's id.");
-
-export const slidesCreateInput = z
-  .object({
-    title: z.string().min(1).max(500).describe("Title for the new presentation."),
-  })
-  .strict();
-
-export const slidesGetInput = z
-  .object({
-    presentationId,
-  })
-  .strict();
-
-export const slidesBatchUpdateInput = coerceJsonArrayFields(
-  ["requests"],
-  z
-    .object({
-      presentationId,
-      requests: z
-        .array(z.record(z.string(), z.unknown()))
-        .min(1)
-        .describe(
-          "Raw Slides API `Request` objects (createSlide, insertText, createShape, …) from https://developers.google.com/slides/api/reference/rest/v1/presentations/request.",
-        ),
-    })
-    .strict(),
-);
-
-export const slidesAddSlideInput = z
-  .object({
-    presentationId,
-    layout: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe("Predefined layout, e.g. `BLANK`, `TITLE_AND_BODY`. Defaults to BLANK."),
-  })
-  .strict();
 
 /* ── contacts ─────────────────────────────────────────────────────────── */
 
@@ -1876,43 +1284,12 @@ export const awaitSubAgentInput = joinToolInput.strict();
 
 /** By `ToolName`, so the web can find a schema without server code. Every name has a row. */
 export const TOOL_INPUT_SCHEMAS = {
-  "calendar.list_events": calendarListEventsInput,
-  "calendar.create_event": calendarCreateEventInput,
-  "calendar.update_event": calendarUpdateEventInput,
-  "calendar.delete_event": calendarDeleteEventInput,
-  "calendar.respond_to_event": calendarRespondToEventInput,
-  "calendar.request": restPassthroughInput,
-  "docs.get_document": docsGetDocumentInput,
-  "docs.request": restPassthroughInput,
-  "drive.search_files": driveSearchInput,
-  "drive.get_file": driveGetFileInput,
-  "drive.export_file": driveExportFileInput,
-  "drive.download_file": driveDownloadFileInput,
-  "drive.request": restPassthroughInput,
   "vercel.list_projects": vercelListProjectsInput,
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,
   "vercel.request": restPassthroughInput,
-  "gmail.search": gmailSearchInput,
   "gmail.send_draft": gmailSendDraftInput,
-  "gmail.read_message": gmailReadMessageInput,
-  "gmail.get_thread": gmailGetThreadInput,
-  "gmail.modify_thread": gmailModifyThreadInput,
-  "gmail.modify_message": gmailModifyMessageInput,
-  "gmail.create_draft": gmailSendDraftInput,
-  "gmail.request": restPassthroughInput,
-  "sheets.create_spreadsheet": sheetsCreateInput,
-  "sheets.get_values": sheetsGetValuesInput,
-  "sheets.update_values": sheetsUpdateValuesInput,
   "sheets.append_values": sheetsAppendValuesInput,
-  "sheets.batch_update": sheetsBatchUpdateInput,
-  "sheets.add_sheet": sheetsAddSheetInput,
-  "sheets.request": restPassthroughInput,
-  "slides.create_presentation": slidesCreateInput,
-  "slides.get_presentation": slidesGetInput,
-  "slides.batch_update": slidesBatchUpdateInput,
-  "slides.add_slide": slidesAddSlideInput,
-  "slides.request": restPassthroughInput,
   "contacts.search": contactsSearchInput,
   "contacts.list": contactsListInput,
   "contacts.get": contactsGetInput,

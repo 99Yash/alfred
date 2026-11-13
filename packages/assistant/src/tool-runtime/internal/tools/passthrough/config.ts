@@ -17,30 +17,4 @@ export const REST_GATE_CONFIG = {
     readViaPostAllowlist: NO_READ_VIA_POST,
     sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
   },
-  gmail: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
-  calendar: {
-    // `/freeBusy` is a POST read.
-    readViaPostAllowlist: [/^\/freeBusy$/],
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
-  drive: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
-  docs: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
-  sheets: {
-    // `values:batchGetByDataFilter` is a POST read, not yet allowed.
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
-  slides: {
-    readViaPostAllowlist: NO_READ_VIA_POST,
-    sideEffectingGetDenylist: NO_SIDE_EFFECTING_GET,
-  },
 } satisfies Record<SupportedRestSlug, RestProviderGateConfig>;

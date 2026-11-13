@@ -16,7 +16,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_a",
-          "toolName": "gmail.search",
+          "toolName": "mcp.call",
           "output": {
             "type": "json",
             "value": {
@@ -67,12 +67,12 @@
         {
           "type": "tool-result",
           "toolCallId": "call_c",
-          "toolName": "calendar.create_event",
+          "toolName": "mcp.call",
           "output": {
             "type": "error-json",
             "value": {
               "status": "failed",
-              "error": "calendar.create_event: 409 Conflict — overlapping event 'Standup' at 10:00"
+              "error": "Google Calendar create_event: 409 Conflict — overlapping event 'Standup' at 10:00"
             }
           }
         }
@@ -86,13 +86,13 @@
   "inFlightTail": [
     {
       "role": "assistant",
-      "content": "Calling calendar.list_events to find free slots Thursday."
+      "content": "Calling the Google Calendar list_events tool through mcp.call to find free slots Thursday."
     }
   ],
   "assertions": [
-    { "section": "actions_completed", "contains": "gmail.search" },
+    { "section": "actions_completed", "contains": "mcp.call" },
     { "section": "actions_rejected", "contains": "gmail.send_draft" },
-    { "section": "actions_failed", "contains": "calendar.create_event" },
+    { "section": "actions_failed", "contains": "mcp.call" },
     { "section": "key_entities", "contains": "thread_carol_vendor" }
   ]
 }

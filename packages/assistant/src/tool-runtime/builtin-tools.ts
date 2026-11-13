@@ -8,16 +8,12 @@ import {
   registerTools,
   type RegisteredTool,
 } from "./internal/registry";
-import { calendarTools } from "./internal/tools/calendar";
 import { contactsTools } from "./internal/tools/contacts";
 import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
-import { docsTools } from "./internal/tools/docs";
-import { driveTools } from "./internal/tools/drive";
 import { gmailTools } from "./internal/tools/gmail";
 import { mcpTools } from "./internal/tools/mcp";
 import { sheetsTools } from "./internal/tools/sheets";
-import { slidesTools } from "./internal/tools/slides";
 import { systemTools } from "./internal/tools/system";
 import { vercelTools } from "./internal/tools/vercel";
 import { registerWorkflowToolCatalog } from "./workflow-tool-catalog-source";
@@ -38,11 +34,7 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(contextSearchTools);
   registerTools(corpusTools);
   registerTools(gmailTools);
-  registerTools(calendarTools);
-  registerTools(driveTools);
-  registerTools(docsTools);
   registerTools(sheetsTools);
-  registerTools(slidesTools);
   registerTools(contactsTools);
   registerTools(vercelTools);
   registerTools(mcpTools);

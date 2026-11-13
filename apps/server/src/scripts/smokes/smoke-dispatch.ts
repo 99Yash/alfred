@@ -1,6 +1,7 @@
 /**
  * Smoke test for the tool dispatcher against real Postgres and Redis. Tools are
- * in-process stubs and `gmail` connection health is stubbed as active, so no OAuth account is needed.
+ * in-process stubs and `gmail` and `contacts` connection health is stubbed as active, so no OAuth
+ * account is needed.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-dispatch.ts
  *
@@ -77,7 +78,7 @@ async function createSmokeRun(userId: string, label: string): Promise<string> {
 
 async function setIntegrationMode(
   userId: string,
-  slug: "gmail",
+  slug: "gmail" | "contacts",
   mode: "autonomy" | "gated",
 ): Promise<void> {
   await db()
@@ -103,10 +104,9 @@ function buildStubs(): Stubs {
     searchExecCount: () => searchExec,
     draftExecCount: () => draftExec,
     registerStubs() {
-      const gmailSearchInput = z
+      const contactsSearchInput = z
         .object({
-          q: z.string().min(1).max(500),
-          maxResults: z.number().int().min(1).max(50).default(10),
+          query: z.string().min(1).max(500),
         })
         .strict();
 
@@ -120,16 +120,16 @@ function buildStubs(): Stubs {
 
       registerTools([
         liveTool({
-          integration: "gmail",
+          integration: "contacts",
           action: "search",
           riskTier: "no_risk",
           replay: "safe",
-          description: "Smoke-test Gmail search tool.",
-          inputSchema: gmailSearchInput,
+          description: "Smoke-test contacts search tool.",
+          inputSchema: contactsSearchInput,
           execute: async (input) => {
             searchExec += 1;
 
-            return { messages: [{ id: "smoke-m1", query: input.q }], nextPageToken: null };
+            return { contacts: [{ resourceName: "people/smoke-c1", query: input.query }] };
           },
         }),
         liveTool({
@@ -161,16 +161,16 @@ async function main(): Promise<void> {
   await ensureDefaultActionPolicyForUser(userId);
 
   // 1. Autonomy path
-  await setIntegrationMode(userId, "gmail", "autonomy");
+  await setIntegrationMode(userId, "contacts", "autonomy");
   const runId1 = await createSmokeRun(userId, "autonomy-turn");
 
   const auto = await dispatchToolCall({
     runId: runId1,
     stepId: "turn-1",
     toolCallId: "tc_search_auto",
-    toolName: "gmail.search",
-    activeTools: ["gmail.search"],
-    input: { q: "in:inbox newer_than:1d" },
+    toolName: "contacts.search",
+    activeTools: ["contacts.search"],
+    input: { query: "maya" },
     userId,
     timezone,
     caller: "boss",
@@ -204,9 +204,9 @@ async function main(): Promise<void> {
     runId: runId1,
     stepId: "turn-1",
     toolCallId: "tc_search_auto",
-    toolName: "gmail.search",
-    activeTools: ["gmail.search"],
-    input: { q: "in:inbox newer_than:1d" },
+    toolName: "contacts.search",
+    activeTools: ["contacts.search"],
+    input: { query: "maya" },
     userId,
     timezone,
     caller: "boss",
@@ -519,7 +519,7 @@ async function main(): Promise<void> {
   console.log("[smoke-dispatch] cleanup ok");
 }
 
-const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail"]);
+const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail", "contacts"]);
 
 try {
   await main();

@@ -5,7 +5,10 @@ import type {
   ReadGateReason,
   RestPassthroughRequest,
 } from "@alfred/contracts";
-import { REST_GATE_CONFIG } from "../../../../src/tool-runtime/internal/tools/passthrough/config";
+import {
+  REST_GATE_CONFIG,
+  type RestProviderGateConfig,
+} from "../../../../src/tool-runtime/internal/tools/passthrough/config";
 import {
   assertReadableGraphqlRequest,
   assertReadableRestRequest,
@@ -21,7 +24,11 @@ function rest(partial: Partial<RestPassthroughRequest> & { path: string }): Rest
 
 const vercel = REST_GATE_CONFIG.vercel;
 
-const calendar = REST_GATE_CONFIG.calendar;
+/** A provider with one read-via-POST endpoint, as Calendar's `/freeBusy` was. */
+const postRead: RestProviderGateConfig = {
+  readViaPostAllowlist: [/^\/freeBusy$/],
+  sideEffectingGetDenylist: [],
+};
 
 describe("assertReadableRestRequest — method gate", () => {
   test("GET and HEAD in the pinned namespace pass without endpoint curation", () => {
@@ -57,18 +64,18 @@ describe("assertReadableRestRequest — read-via-POST allowlist", () => {
     assert.equal(r.reason, "path_not_allowlisted");
   });
 
-  test("Calendar's allowlisted read-via-POST endpoint passes", () => {
-    const r = assertReadableRestRequest(calendar, rest({ method: "POST", path: "/freeBusy" }));
+  test("an allowlisted read-via-POST endpoint passes", () => {
+    const r = assertReadableRestRequest(postRead, rest({ method: "POST", path: "/freeBusy" }));
     assert.equal(r.ok, true);
   });
 
-  test("a Calendar POST outside the allowlist is denied", () => {
+  test("a POST outside the allowlist is denied", () => {
     for (const path of [
       "/calendars/primary/events",
       "/freeBusy/extra",
       "/calendars/primary/events/quickAdd",
     ]) {
-      const r = assertReadableRestRequest(calendar, rest({ method: "POST", path }));
+      const r = assertReadableRestRequest(postRead, rest({ method: "POST", path }));
       assert.equal(r.ok, false, path);
 
       assert.equal(r.reason, "path_not_allowlisted", path);
@@ -113,10 +120,7 @@ describe("assertReadableRestRequest — path hardening", () => {
 
   test("a legitimate deep path with colons (Google-style method suffix) passes", () => {
     // Real paths use colons, such as `documents/{id}:batchGet`.
-    const r = assertReadableRestRequest(
-      REST_GATE_CONFIG.docs,
-      rest({ path: "/v1/documents/abc:get" }),
-    );
+    const r = assertReadableRestRequest(vercel, rest({ path: "/v1/documents/abc:get" }));
 
     assert.equal(r.ok, true);
   });

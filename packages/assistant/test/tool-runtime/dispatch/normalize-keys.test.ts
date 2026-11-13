@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { calendarListEventsInput, gmailSearchInput, isRecord } from "@alfred/contracts";
+import { contactsListInput, isRecord, sheetsAppendValuesInput } from "@alfred/contracts";
 import { z } from "zod";
 import { normalizeToolInputKeys } from "../../../src/tool-runtime/internal/dispatch/normalize-keys";
 
 describe("normalizeToolInputKeys", () => {
   test("renames a snake_case variant to the camelCase schema key", () => {
     const { input, renamed } = normalizeToolInputKeys(
-      { q: "hi", max_results: 5 },
-      gmailSearchInput,
+      { source: "saved", page_size: 5 },
+      contactsListInput,
     );
 
-    assert.deepEqual(input, { q: "hi", maxResults: 5 });
-    assert.deepEqual(renamed, [{ from: "max_results", to: "maxResults" }]);
-    assert.equal(gmailSearchInput.safeParse(input).success, true);
+    assert.deepEqual(input, { source: "saved", pageSize: 5 });
+    assert.deepEqual(renamed, [{ from: "page_size", to: "pageSize" }]);
+    assert.equal(contactsListInput.safeParse(input).success, true);
   });
 
   test("renames camelCase → the snake_case schema key (direction-agnostic)", () => {
@@ -27,49 +27,59 @@ describe("normalizeToolInputKeys", () => {
     assert.deepEqual(input, { owner: "99Yash", repo: "alfred", pull_number: 305 });
   });
 
-  test("normalizes the calendar bounds casing family (time_min/time_max)", () => {
+  test("normalizes a family of snake_case keys in one input", () => {
     const { input } = normalizeToolInputKeys(
-      { time_min: "2026-07-01T00:00:00Z", time_max: "2026-07-02T00:00:00Z" },
-      calendarListEventsInput,
+      { spreadsheet_id: "sheet_1", range: "Sheet1!A1", values: [["a"]], value_input_option: "RAW" },
+      sheetsAppendValuesInput,
     );
 
     assert.deepEqual(input, {
-      timeMin: "2026-07-01T00:00:00Z",
-      timeMax: "2026-07-02T00:00:00Z",
+      spreadsheetId: "sheet_1",
+      range: "Sheet1!A1",
+      values: [["a"]],
+      valueInputOption: "RAW",
     });
   });
 
   test("leaves an already-canonical key untouched (no spurious rename)", () => {
-    const { input, renamed } = normalizeToolInputKeys({ q: "hi", maxResults: 5 }, gmailSearchInput);
-    assert.deepEqual(input, { q: "hi", maxResults: 5 });
+    const { input, renamed } = normalizeToolInputKeys(
+      { source: "saved", pageSize: 5 },
+      contactsListInput,
+    );
+
+    assert.deepEqual(input, { source: "saved", pageSize: 5 });
     assert.deepEqual(renamed, []);
   });
 
   test("does not clobber a canonical key the model already set", () => {
     // Both present is ambiguous, so strict validation decides.
     const { input, renamed } = normalizeToolInputKeys(
-      { q: "hi", maxResults: 5, max_results: 99 },
-      gmailSearchInput,
+      { source: "saved", pageSize: 5, page_size: 99 },
+      contactsListInput,
     );
 
     assert.ok(isRecord(input));
-    assert.equal(input.maxResults, 5);
-    assert.ok("max_results" in input);
+    assert.equal(input.pageSize, 5);
+    assert.ok("page_size" in input);
     assert.deepEqual(renamed, []);
   });
 
   test("leaves a genuine unknown key alone (no canonical match)", () => {
-    const { input, renamed } = normalizeToolInputKeys({ q: "hi", gibberish: 1 }, gmailSearchInput);
-    assert.deepEqual(input, { q: "hi", gibberish: 1 });
+    const { input, renamed } = normalizeToolInputKeys(
+      { source: "saved", gibberish: 1 },
+      contactsListInput,
+    );
+
+    assert.deepEqual(input, { source: "saved", gibberish: 1 });
     assert.deepEqual(renamed, []);
   });
 
   test("returns non-record input unchanged", () => {
-    assert.deepEqual(normalizeToolInputKeys("nope", gmailSearchInput), {
+    assert.deepEqual(normalizeToolInputKeys("nope", contactsListInput), {
       input: "nope",
       renamed: [],
     });
-    assert.deepEqual(normalizeToolInputKeys(null, gmailSearchInput), { input: null, renamed: [] });
+    assert.deepEqual(normalizeToolInputKeys(null, contactsListInput), { input: null, renamed: [] });
   });
 
   test("a schema with no object properties is a no-op", () => {
@@ -79,8 +89,8 @@ describe("normalizeToolInputKeys", () => {
   });
 
   test("does not mutate the caller's input object", () => {
-    const original = { q: "hi", max_results: 5 };
-    normalizeToolInputKeys(original, gmailSearchInput);
-    assert.deepEqual(original, { q: "hi", max_results: 5 });
+    const original = { source: "saved", page_size: 5 };
+    normalizeToolInputKeys(original, contactsListInput);
+    assert.deepEqual(original, { source: "saved", page_size: 5 });
   });
 });

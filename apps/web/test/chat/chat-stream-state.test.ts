@@ -115,7 +115,7 @@ const tool = (
   toolFrame({
     ...(args.turn ?? TURN),
     toolCallId: args.toolCallId ?? "tool_1",
-    toolName: args.toolName ?? "gmail.search",
+    toolName: args.toolName ?? "gmail.send_draft",
     status: args.status ?? "started",
     segmentIndex: args.segmentIndex ?? 0,
     nonExecution: args.nonExecution,
@@ -943,7 +943,7 @@ describe("connection-health nudges (#378 item 3)", () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
     applyChatFrame(cell, tool({ toolCallId: "t1" }), 2_000);
-    applyChatFrame(cell, bounced({ toolCallId: "t1", toolName: "gmail.search" }), 3_000);
+    applyChatFrame(cell, bounced({ toolCallId: "t1", toolName: "gmail.send_draft" }), 3_000);
     const { snapshot } = drain(cell);
     assert.equal(
       snapshot.tools.some((t) => t.toolCallId === "t1"),
@@ -972,7 +972,7 @@ describe("connection-health nudges (#378 item 3)", () => {
   test("repeated bounces for one integration stay a single offer", () => {
     const cell = cellOf();
     applyChatFrame(cell, started(), 1_000);
-    applyChatFrame(cell, bounced({ toolCallId: "t3", toolName: "gmail.search" }), 2_000);
+    applyChatFrame(cell, bounced({ toolCallId: "t3", toolName: "gmail.send_draft" }), 2_000);
     applyChatFrame(
       cell,
       bounced({

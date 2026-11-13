@@ -47,6 +47,7 @@ import {
 import {
   findUnresolvedBarrier,
   isReadOnlyMcpToolIdentity,
+  mcpToolEffectClass,
   readInvocationByStagingId,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
@@ -270,7 +271,7 @@ async function recordCompletedMcpRead(input: {
   remoteName: string;
   catalogRevisionId: string | null;
   descriptorHash: string | undefined;
-  policyRevision: number;
+  policyRevision: number | null;
   arguments: unknown;
   resultProvenance: McpResultProvenance;
 }): Promise<string | null> {
@@ -707,7 +708,7 @@ async function claimReservedMcpSuccessorDelivery(input: {
     );
 
     const liveEffectClass =
-      identity.status === "resolved" ? identity.policy?.effectClass : undefined;
+      identity.status === "resolved" ? mcpToolEffectClass(identity) : undefined;
 
     if (
       identity.status !== "resolved" ||
@@ -1233,7 +1234,7 @@ export class McpExecutionBroker {
     const prepared = await this.#manager.prepareToolCall(call.connectionId);
     const liveTool = prepared.catalog.tools.find((tool) => tool.name === call.remoteName);
     const liveDescriptorHash = liveTool ? descriptorHash(liveTool) : undefined;
-    const liveEffectClass = identity.policy?.effectClass ?? "unknown";
+    const liveEffectClass = mcpToolEffectClass(identity);
 
     if (
       prepared.catalog.revision !== call.catalogRevision ||
@@ -1405,13 +1406,12 @@ export class McpExecutionBroker {
 
     const { identity, connection, prepared, descriptorHash: hash } = preparedCall;
 
-    // Use the policy only if the live descriptor hash matches; otherwise `unknown`.
-    const policy =
-      identity.status === "resolved" && hash === identity.descriptorHash
-        ? identity.policy
-        : undefined;
+    // Use a policy only if the live descriptor hash matches; otherwise `unknown`.
+    const liveIdentity =
+      identity.status === "resolved" && hash === identity.descriptorHash ? identity : undefined;
 
-    const effectClass: McpEffectClass = policy?.effectClass ?? "unknown";
+    const policy = liveIdentity?.policy;
+    const effectClass: McpEffectClass = liveIdentity ? mcpToolEffectClass(liveIdentity) : "unknown";
 
     if (effectClass === "read") {
       // Reads skip the barrier. A completed read gets an audit row for provenance.
@@ -1421,7 +1421,7 @@ export class McpExecutionBroker {
       });
 
       const invocationId =
-        envelope.outcome === "completed" && policy
+        envelope.outcome === "completed"
           ? await recordCompletedMcpRead({
               userId: input.userId,
               stagingId: input.stagingId,
@@ -1429,7 +1429,8 @@ export class McpExecutionBroker {
               remoteName: ref.remoteName,
               catalogRevisionId: connection.currentCatalogRevisionId,
               descriptorHash: hash,
-              policyRevision: policy.policyRevision,
+              // Null for a code-owned entry: it has no review revision.
+              policyRevision: policy?.policyRevision ?? null,
               arguments: input.arguments,
               resultProvenance: envelope.provenance,
             })

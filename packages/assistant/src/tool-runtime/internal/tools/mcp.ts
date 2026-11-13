@@ -12,7 +12,9 @@ import {
   unknownEffectEnvelopeSchema,
 } from "@alfred/contracts";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
+  builtInBorrowsGoogleCredential,
   inspectMcpToolLocal,
   integrationOfMcpConnection,
   McpClientError,
@@ -27,6 +29,7 @@ import {
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
+  isSelectedMcpToolReadOnly,
   resolveMcpCallRiskTier,
   type McpBrokerOutcome,
 } from "@alfred/assistant/tool-runtime/mcp";
@@ -81,6 +84,30 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   }
 }
 
+/**
+ * Local dev shares the real Google account, so a Google Workspace MCP write runs only where
+ * Gmail mailbox writes are on (ADR-0126). A read passes: its selected descriptor asserts
+ * `readOnlyHint` and no review says otherwise.
+ */
+async function refuseGoogleWorkspaceWrite(
+  input: { connectionId: string; remoteName: string; catalogRevision: string },
+  userId: string,
+  endpointUrl: string,
+): Promise<string | null> {
+  if (gmailMailboxWritesEnabled() || !builtInBorrowsGoogleCredential(endpointUrl)) return null;
+
+  const read = await isSelectedMcpToolReadOnly({
+    userId,
+    connectionId: input.connectionId,
+    remoteName: input.remoteName,
+    catalogRevision: input.catalogRevision,
+  });
+
+  return read
+    ? null
+    : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
+}
+
 function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
   return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
 }
@@ -102,8 +129,8 @@ export const mcpTools: readonly RegisteredTool[] = [
       relatedTools: ["mcp.list_tools"],
     },
     inputSchema: mcpCallInput,
-    // Two downgrades: a reviewed policy row on a `readOnlyHint` descriptor (#541),
-    // or a read-only resource plus the tool's own `readOnlyHint` (ADR-0096).
+    // Three downgrades: a reviewed policy row or a code-owned built-in entry on a `readOnlyHint`
+    // descriptor (#541, ADR-0096 amendment), or a read-only resource plus the hint (ADR-0096).
     // Reads the persisted catalog only. Any doubt stays high.
     resolveRiskTier: (input, ctx) =>
       resolveMcpCallRiskTier({
@@ -116,22 +143,24 @@ export const mcpTools: readonly RegisteredTool[] = [
     // A user-added server has no provider and keeps the `mcp` rule.
     resolvePolicyIntegration: async (input, ctx) =>
       (await integrationOfMcpConnection(ctx.userId, input.connectionId)) ?? "mcp",
-    // Before the staging row, so a call outside the run's integrations gets no approval card.
-    // Only a fresh proposal runs this. The broker checks the connection that runs again.
+    // Before the staging row, so a refused call gets no approval card. Only a fresh proposal
+    // runs this. The broker checks the connection that runs again.
     refuseProposal: async (input, ctx) => {
-      const serverIds = await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations);
-
-      if (serverIds === null) return null;
-
       const connection = await readOwnedConnection(input.connectionId, ctx.userId);
 
       // An unknown connection fails in the broker with its own error.
-      if (!connection || mcpScopeAdmits(serverIds, connection.serverId)) return null;
+      if (!connection) return null;
 
-      return publicAppError("mcp_connection_outside_scope").message;
+      const serverIds = await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations);
+
+      if (!mcpScopeAdmits(serverIds, connection.serverId)) {
+        return publicAppError("mcp_connection_outside_scope").message;
+      }
+
+      return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
     },
     riskTierDowngradeReason:
-      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
+      "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); a code-owned built-in entry binds the exact descriptor the same way (ADR-0096 amendment 2026-11-13); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
       if (!ctx.stagingId) {
         // Always staged, so a missing id is a wiring bug.

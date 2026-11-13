@@ -65,7 +65,7 @@ describe("runtime.tool_surface", () => {
         activeCount: 10,
         kernelCount: 8,
         loadedCount: 2,
-        loadedTools: ["calendar.list_events", "calendar.list_events"],
+        loadedTools: ["contacts.list", "contacts.list"],
         schemaBytes: 7878,
         schemaTokens: 1970,
         schemaRebuildMs: 3,
@@ -80,7 +80,7 @@ describe("runtime.tool_surface", () => {
           activeCount: 10,
           kernelCount: 8,
           loadedCount: 2,
-          loadedTools: "calendar.list_events,calendar.list_events",
+          loadedTools: "contacts.list,contacts.list",
           schemaBytes: 7878,
           schemaTokens: 1970,
           schemaRebuildMs: 3,
@@ -113,7 +113,7 @@ describe("runtime.tool_surface", () => {
         activeCount: 40,
         kernelCount: 8,
         loadedCount: 32,
-        loadedTools: ["gmail.search"],
+        loadedTools: ["contacts.search"],
         schemaBytes: 40_000,
         schemaTokens: 10_000,
         schemaRebuildMs: 250,
@@ -142,7 +142,7 @@ describe("runtime.tool_surface", () => {
   });
 
   test("a real turn surface reports the actual projected registry tools", () => {
-    const activeTools = [...systemToolKernel(), "calendar.list_events" as const];
+    const activeTools = [...systemToolKernel(), "contacts.list" as const];
     let returnedToolNames: string[] = [];
 
     const { opened, ended } = capture(() => {
@@ -154,17 +154,17 @@ describe("runtime.tool_surface", () => {
           workflow: "__chat-turn__",
           caller: "boss",
           runContext: { caller: "boss", interaction: "live_chat" },
-          allowedIntegrations: ["calendar"],
+          allowedIntegrations: ["contacts"],
         }).forModel(activeTools),
       ).toSorted();
     });
 
-    assert.ok(returnedToolNames.includes("calendar.list_events"));
+    assert.ok(returnedToolNames.includes("contacts.list"));
     assert.equal(opened[0]?.name, RUNTIME_TOOL_SURFACE);
     assert.equal(ended[0]?.metadata?.activeCount, returnedToolNames.length);
     assert.equal(ended[0].metadata.kernelCount, returnedToolNames.length - 1);
     assert.equal(ended[0].metadata.loadedCount, 1);
-    assert.equal(ended[0].metadata.loadedTools, "calendar.list_events");
+    assert.equal(ended[0].metadata.loadedTools, "contacts.list");
     assert.ok(Number(ended[0].metadata.schemaBytes) > 0);
     assert.ok(Number(ended[0].metadata.schemaTokens) > 0);
   });

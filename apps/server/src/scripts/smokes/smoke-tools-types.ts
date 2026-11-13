@@ -8,7 +8,7 @@ import type { BuiltinToolRegistry } from "@alfred/assistant/tool-runtime/builtin
 
 declare const registry: BuiltinToolRegistry;
 
-const _searchTool: RegisteredTool | undefined = registry.get("gmail.search");
+const _searchTool: RegisteredTool | undefined = registry.get("contacts.search");
 
 void _searchTool;
 
