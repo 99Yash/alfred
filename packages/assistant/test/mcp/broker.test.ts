@@ -735,6 +735,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
     };
     const firstBroker = brokerWith(protocol);
     const stagingId = await seedStaging(userId, exactInput);
+
     const first = await firstBroker.callTool({
       userId,
       stagingId,
@@ -742,6 +743,7 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       serverScope: null,
       arguments: args,
     });
+
     assert.equal(first.status, "ambiguous");
 
     await db()

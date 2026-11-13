@@ -8,6 +8,7 @@ import {
   gmailSearchInput,
   getStringPath,
   isRecord,
+  type JsonValue,
   type McpCallInput,
   mcpCallInput,
   mcpToolInspectInputSchema,
@@ -797,7 +798,7 @@ const GITHUB_MCP_HITS = [GITHUB_SEARCH_REMOTE, GITHUB_READ_PR_REMOTE].map((remot
 }));
 
 /** The production `mcp.call` result of a completed read: the MCP result with one JSON text block. */
-function completedMcpResult(payload: unknown) {
+function completedMcpResult(payload: JsonValue) {
   return {
     status: "completed",
     result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
@@ -824,26 +825,20 @@ const PR_482 = {
 };
 
 /** What GitHub returns for each `pull_request_read` method on the requested pull request. */
-function pullRequestReadPayload(method: unknown): unknown {
-  switch (method) {
-    case "get":
-      return PR_482;
-    case "get_files":
-      return [
-        { filename: "src/auth/middleware.ts", status: "modified", additions: 120, deletions: 160 },
-        { filename: "src/auth/providers/google.ts", status: "added", additions: 60, deletions: 0 },
-      ];
-    case "get_diff":
-      return "diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts\n@@ -1,4 +1,2 @@";
-    case "get_reviews":
-      return [{ user: { login: "omar" }, state: "CHANGES_REQUESTED" }];
-    case "get_status":
-    case "get_check_runs":
-      return { state: "success", total_count: 4 };
-    default:
-      return [];
-  }
-}
+const PULL_REQUEST_READ_PAYLOADS = new Map<string, JsonValue>([
+  ["get", PR_482],
+  [
+    "get_files",
+    [
+      { filename: "src/auth/middleware.ts", status: "modified", additions: 120, deletions: 160 },
+      { filename: "src/auth/providers/google.ts", status: "added", additions: 60, deletions: 0 },
+    ],
+  ],
+  ["get_diff", "diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts\n@@ -1,4 +1,2 @@"],
+  ["get_reviews", [{ user: { login: "omar" }, state: "CHANGES_REQUESTED" }]],
+  ["get_status", { state: "success", total_count: 4 }],
+  ["get_check_runs", { state: "success", total_count: 4 }],
+]);
 
 /**
  * The production path for an `mcp.call` to the GitHub MCP: a refused ref or invalid arguments
@@ -895,7 +890,10 @@ function githubMcpResult(input: McpCallInput) {
     return githubToolError("failed to get pull request: GET 404 Not Found");
   }
 
-  return completedMcpResult(pullRequestReadPayload(args.method));
+  return completedMcpResult(
+    (typeof args.method === "string" ? PULL_REQUEST_READ_PAYLOADS.get(args.method) : undefined) ??
+      [],
+  );
 }
 
 interface SubAgentCase {
