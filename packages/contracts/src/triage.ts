@@ -185,15 +185,6 @@ export const BOT_SLUGS = [
 
 export type BotSlug = (typeof BOT_SLUGS)[number];
 
-/** Bots whose alerts can be same-day urgent, so they get a `deepen` pass. Review bots stay out. */
-export const SEVERITY_SUSPECT_BOTS: ReadonlySet<BotSlug> = new Set<BotSlug>([
-  "sentry",
-  "stripe-billing",
-  "google-security",
-  "vercel",
-  "datadog",
-]);
-
 /** Who the body reads as, when not the envelope sender (a bot that relays a human). */
 export const BODY_ACTOR_KINDS = ["bot", "person", "unknown"] as const;
 

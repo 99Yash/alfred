@@ -30,17 +30,6 @@ export type {
   GatherBriefingWithSuppressionAuditResult,
 } from "./gather";
 
-export { composeBriefing, composeInboxBriefing } from "./compose";
-
-export type { ComposedBriefing, ComposeBriefingArgs, ComposeInboxBriefingArgs } from "./compose";
-
-export {
-  buildBriefingSourcePanels,
-  renderBriefingEmailHtml,
-  type RenderBriefingEmailArgs,
-  type RenderedBriefingEmail,
-} from "./references";
-
 export {
   beginBriefing,
   markBriefingComposed,
@@ -53,16 +42,9 @@ export {
   type BriefingRow,
 } from "./store";
 
-export {
-  LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG,
-  dailyBriefingWorkflowInputSchema,
-  legacyMorningBriefingWorkflowInputSchema,
-} from "./workflow-input";
+export { dailyBriefingWorkflowInputSchema } from "./workflow-input";
 
-export type {
-  DailyBriefingWorkflowInput,
-  LegacyMorningBriefingWorkflowInput,
-} from "./workflow-input";
+export type { DailyBriefingWorkflowInput } from "./workflow-input";
 
 export {
   listEmailsSinceWatermark,
@@ -107,5 +89,3 @@ export {
 
 // Registered with execution by `apps/server/src/builtins/index.ts`.
 export { dailyBriefingWorkflow } from "./daily-briefing";
-
-export { morningBriefingWorkflow } from "./legacy-morning-briefing";

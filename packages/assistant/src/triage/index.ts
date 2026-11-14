@@ -27,7 +27,6 @@ export type {
   TodoSuppressionReason,
   RunPass,
 } from "./classify";
-// `deepen.ts` is dormant (ADR-0051) and not re-exported; only its test imports it.
 
 export {
   getDocumentAuthoredAt,

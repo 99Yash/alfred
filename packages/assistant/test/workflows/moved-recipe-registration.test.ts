@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import type { WorkflowTrigger } from "@alfred/contracts";
 
-import { dailyBriefingWorkflow, morningBriefingWorkflow } from "@alfred/assistant/briefings";
+import { dailyBriefingWorkflow } from "@alfred/assistant/briefings";
 import { chatMemoryCaptureWorkflow } from "@alfred/assistant/chat";
 import {
   buildMemoryExtractionWorkflow,
@@ -55,16 +55,6 @@ describe("moved product recipes keep their identity at their owning module seam"
       slug: "daily-briefing",
       initialStep: "gather",
       steps: ["gather", "compose", "send"],
-      trigger: { kind: "cron", schedule: "0 * * * *" },
-      dedup: null,
-    },
-    {
-      name: "morningBriefingWorkflow (legacy, resume-only)",
-      recipe: morningBriefingWorkflow,
-      slug: "morning-briefing",
-      initialStep: "gather",
-      steps: ["gather", "compose", "send"],
-      resumeOnly: true,
       trigger: { kind: "cron", schedule: "0 * * * *" },
       dedup: null,
     },

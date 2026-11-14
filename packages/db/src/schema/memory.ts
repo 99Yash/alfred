@@ -139,58 +139,6 @@ export const userPreferenceInsertSchema = createInsertSchema(userPreferences, {
 });
 
 // ---------------------------------------------------------------------------
-// style_profiles
-// ---------------------------------------------------------------------------
-
-/**
- * Drafting style per channel, audience bucket, and optional recipient (ADR-0013).
- * Lookup order: recipient, then bucket, then channel.
- */
-export const styleProfiles = pgTable(
-  "style_profiles",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("sty")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    channel: text("channel").notNull(),
-    audienceBucket: text("audience_bucket").notNull(),
-    /** Null for a bucket-level profile. */
-    recipientId: text("recipient_id"),
-    profileDoc: text("profile_doc").notNull(),
-    examples: jsonb("examples")
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    /** Document ids the profile was built from. */
-    sourceMsgIds: jsonb("source_msg_ids")
-      .$type<string[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    generatedAt: timestamp("generated_at", { withTimezone: true }),
-    generatedFromCount: integer("generated_from_count").notNull().default(0),
-    confidence: real("confidence").notNull().default(0),
-    status: text("status").notNull().default("draft"),
-    supersededById: text("superseded_by_id"),
-    rowVersion: integer("row_version").notNull().default(0),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    // NULLs are distinct here on purpose: one bucket row plus many recipient rows.
-    uniqueIndex("style_profiles_unique_idx").on(
-      t.userId,
-      t.channel,
-      t.audienceBucket,
-      t.recipientId,
-    ),
-    index("style_profiles_lookup_idx").on(t.userId, t.channel, t.status),
-  ],
-);
-
-export const styleProfileInsertSchema = createInsertSchema(styleProfiles);
-
-// ---------------------------------------------------------------------------
 // entities + entity_relations
 // ---------------------------------------------------------------------------
 
@@ -368,10 +316,6 @@ export type NewUserFact = typeof userFacts.$inferInsert;
 export type UserPreference = typeof userPreferences.$inferSelect;
 
 export type NewUserPreference = typeof userPreferences.$inferInsert;
-
-export type StyleProfile = typeof styleProfiles.$inferSelect;
-
-export type NewStyleProfile = typeof styleProfiles.$inferInsert;
 
 export type Entity = typeof entities.$inferSelect;
 

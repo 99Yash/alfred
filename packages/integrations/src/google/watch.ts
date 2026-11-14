@@ -94,37 +94,6 @@ export async function installGmailWatch(
   return saved;
 }
 
-/** Stop the channel and drop the watch state. The credential stays. */
-export async function uninstallGmailWatch(
-  credentialId: string,
-  deps: Partial<GmailWatchDeps> = {},
-): Promise<void> {
-  const d = withDefaults(DEFAULT_DEPS, deps);
-
-  // Non-prod must not stop prod's watch (#278), but still clears local state.
-  if (d.mailboxWritesEnabled()) {
-    // Resolved before the best-effort stop: a credential with no usable token fails the uninstall
-    // and keeps the watch state, rather than dropping it as if the channel were stopped.
-    const accessToken = await d.getFreshAccessToken(credentialId);
-    await stopGmailWatchWithAccessToken(
-      { accessToken, credentialId },
-      { mailboxWritesEnabled: d.mailboxWritesEnabled, mailbox: d.mailbox },
-    );
-  } else {
-    logger.warn(
-      `[gmail.watch] remote uninstall skipped for ${credentialId}: mailbox writes disabled (non-prod)`,
-    );
-  }
-
-  await d
-    .db()
-    .update(integrationCredentials)
-    .set({
-      metadata: sql`${integrationCredentials.metadata} - 'watch'`,
-    })
-    .where(eq(integrationCredentials.id, credentialId));
-}
-
 /**
  * For a credential about to be deleted: stops the remote watch, leaves metadata alone. Takes a
  * token, not a credential id, because the caller resolves it before the row is deleted and stops
@@ -153,17 +122,6 @@ export async function stopGmailWatchWithAccessToken(
     const suffix = args.credentialId ? ` for ${args.credentialId}` : "";
     logger.warn({ err }, `[gmail.watch] stopWatch failed${suffix}`);
   }
-}
-
-export async function getGmailWatchState(credentialId: string): Promise<GmailWatchState | null> {
-  const rows = await db()
-    .select({ metadata: integrationCredentials.metadata })
-    .from(integrationCredentials)
-    .where(eq(integrationCredentials.id, credentialId));
-
-  const md = rows[0]?.metadata;
-
-  return readGmailWatchState(md);
 }
 
 /** Map a Pub/Sub `emailAddress` back to a credential. */

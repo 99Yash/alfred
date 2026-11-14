@@ -47,7 +47,7 @@ interface ModelRoute {
 
 /** Product model routes: ordered legs plus the reasoning level every leg gets. */
 const MODEL_ROUTES = {
-  // Background work: briefings, triage deepen, cold start, skill compose.
+  // Background work: briefings, cold start, skill compose.
   boss: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",

@@ -94,16 +94,6 @@ export {
   type MemoryChunkKind,
 } from "./chunks";
 
-// The `./style-profiles` subpath also exports the CRUD.
-export {
-  STYLE_CHANNELS,
-  styleChannelSchema,
-  type StyleChannel,
-  STYLE_AUDIENCE_BUCKETS,
-  styleAudienceBucketSchema,
-  type StyleAudienceBucket,
-} from "./style-profiles";
-
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
 export { readUserContext, type UserContext } from "./user-context";

@@ -6,12 +6,12 @@
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-workflows-tick.ts
  */
 import { dispatchDueCronWorkflows, workflowsWorker } from "@alfred/assistant/automation";
-import { agentQueue } from "@alfred/assistant/execution";
+import { agentQueue, registerRecipe } from "@alfred/assistant/execution";
 import { db, warmPool } from "@alfred/db";
 import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, user as userTable, workflows } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "~/builtins";
+import { echoWithApprovalWorkflow } from "./echo-with-approval";
 import { agentRunTriggerSchema, parseIanaTimezone } from "@alfred/contracts";
 import { closeScriptResources } from "../script-runtime";
 
@@ -52,7 +52,8 @@ async function cleanupPriorTest(userId: string): Promise<void> {
 
 async function main() {
   await warmPool();
-  registerBuiltinWorkflows();
+  // So `requireWorkflow` resolves in this process.
+  registerRecipe(echoWithApprovalWorkflow);
 
   const userId = await findOrCreateSmokeUser();
   console.log(`[smoke-workflows-tick] userId=${userId}`);

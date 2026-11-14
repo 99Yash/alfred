@@ -1,6 +1,6 @@
 # Briefing
 
-> **Status (2026-07-10).** `daily-briefing` is the canonical live workflow for both morning and evening slots. A legacy compatibility adapter can resume nonterminal runs persisted before the cutover, but it cannot start new runs and is not scheduled, catalogued, or seeded. The legacy `briefing_runs` table remains in the schema to avoid a destructive migration, while live writes use the canonical `briefings` entity.
+> **Status (2026-11-14).** `daily-briefing` is the canonical live workflow for both morning and evening slots. The legacy compatibility adapter was deleted (it had only ever resumed nonterminal runs persisted before the cutover, and the seeder had already retired those workflow rows). The empty legacy `briefing_runs` archive table was dropped in migration 0171; live writes use the canonical `briefings` entity.
 
 ## The unit: open loops
 

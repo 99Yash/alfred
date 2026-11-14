@@ -180,11 +180,10 @@ export const replyDraftStandingInstructionSchema = z.discriminatedUnion("state",
 
 export type ReplyDraftStandingInstruction = z.infer<typeof replyDraftStandingInstructionSchema>;
 
-/** Which style profile the draft used, or the honest absence of one. */
-export const replyDraftStyleSelectionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("profile"), styleProfileId: z.string().min(1) }),
-  z.object({ kind: z.literal("style_missing") }),
-]);
+/** Which style the draft used. The profile source is retired; only the honest absence remains. */
+export const replyDraftStyleSelectionSchema = z.object({
+  kind: z.literal("style_missing"),
+});
 
 export type ReplyDraftStyleSelection = z.infer<typeof replyDraftStyleSelectionSchema>;
 

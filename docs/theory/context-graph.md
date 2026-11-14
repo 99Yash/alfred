@@ -22,7 +22,7 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **Loop.** A thing that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A cheap model judges the verdict against the ask, and each closure cites a fact from the source that owns the thing, or the user's own word (ADR-0122 decision 3c, which supersedes the ADR-0120 definition). A matter from chat with no thing is a journal entry, not a loop ([journal.md](./journal.md), ADR-0122 decision 3d).
 
-**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`. ADR-0122 (proposed) puts a link between two `integration_objects` rows in `integration_object_relations`, and a fact writes it.
+**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`. ADR-0122 (proposed) puts a link between two `integration_objects` rows in a `integration_object_relations` table, and a fact writes it. The table is not built today (migration 0171 dropped the empty schema-only stub); the projection work creates it when it lands.
 
 **Work item.** Something that the user must do or wants to watch. It has a status, and it points to the things that it is about. Today the only work item is a todo. Table: `todos`.
 
@@ -78,7 +78,7 @@ A referent never copies an `integration_objects` row. When a provider row exists
 These facts are verified at the commit above.
 
 1. **Three stores hold things.** `entities` (old memory; only `knowledge/user-context.ts` reads it), `entity_nodes` (the user model), and `integration_objects` (the state of PRs, deploys, and tasks). One PR can be a referent in `entity_nodes` and also a row in `integration_objects`, and no link joins the two rows. ADR-0092 does not mention `integration_objects`.
-2. **The one link table from a work object to a thing points at the old store.** `integration_object_relations.entity_id` references `entities`, not `entity_nodes`, and no code writes the table.
+2. **The one link table from a work object to a thing points at the old store.** The schema-only `integration_object_relations` stub referenced `entities`, not `entity_nodes`, and no code wrote it; migration 0171 dropped it. ADR-0122's projection work creates the table with its FK at `integration_objects`.
 3. **No store holds the user's work except `todos`.** A meeting-notes action item, a commitment in chat, and a PR that the user is writing have no shared record.
 4. **The user-model projection is not active in production.** So `entity_nodes` is empty in production, and only triage reads it.
 

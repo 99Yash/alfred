@@ -189,14 +189,6 @@ function activityGaps(provenance: readonly GatherProvenance[]): GatherProvenance
 }
 
 /**
- * The count of activity gaps, also the gaps that are block rows. For a send gate that does not
- * read the connection block (the legacy `decideSend`).
- */
-export function activityGapCount(provenance: readonly GatherProvenance[]): number {
-  return activityGaps(provenance).length;
-}
-
-/**
  * The count of activity gaps that are not block rows: a past gap (`silent`), an incomplete record
  * (`record_incomplete`), and the other gaps with no reconnect. For a send gate that also reads the
  * connection block (`isQuietMorning`). A `not_delivered` gap is a block row, so that gate counts it
