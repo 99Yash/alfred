@@ -69,7 +69,7 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 - Legacy `entities` / `entity_relations` (`db/src/schema/memory.ts:174,201`). Only `knowledge/user-context.ts` reads them.
 - ADR-0067 user model: `observations`, `entity_nodes`, `entity_identities`, `entity_profiles`, `entity_edges` (`db/src/schema/user-model.ts`). Sources: user, chat, Gmail, Google account. The only product reader is triage sender kind (`assistant/src/triage/sender-kind.ts:51`).
 - `integration_objects` (GitHub, Sentry, Vercel, Railway, MCP). Read by briefing gather and context search.
-- `integration_object_relations` (object ↔ entity): schema only (`db/src/schema/integration-objects.ts:97`). No writer and no reader. Verified with `rg` on 2026-10-21.
+- `integration_object_relations` (object ↔ entity): the schema-only stub was dropped in migration 0171 (no writer and no reader, verified with `rg` on 2026-10-21 and again 2026-11-14); ADR-0122's projection work creates it when it lands.
 - ADR-0092 referent identity: built, only tests call it.
 - Todos link to things only through the `sources` jsonb.
 

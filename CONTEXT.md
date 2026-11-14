@@ -190,9 +190,7 @@ _Avoid_: deepen, second pass, escalation call
 
 **Bot allowlist.** Hardcoded const `BOT_SLUGS` in `@alfred/contracts/triage`. Starts at ~10 entries (coderabbit, copilot-review, github-actions, dependabot, renovate, vercel, sentry, stripe-billing, google-security, datadog). Grows from observed log data. DB-backed migration only when the list passes ~20 entries. ADR-0042.
 
-**`SEVERITY_SUSPECT_BOTS`.** Const subset of `BOT_SLUGS` marking bots whose alerts _can_ be genuinely urgent — sentry, stripe-billing, google-security, vercel, datadog. Triage escalation gate fires on this set even when the cheap classifier output `fyi`. CodeRabbit / Copilot / Dependabot / Renovate are deliberately NOT in this set — their messages are advisory in 99% of cases and security-CVE exceptions are caught by classifier rule 9a's text-content escape.
-
-**Deepen step (superseded).** The ADR-0042 boss-agent brief-only run inside the triage workflow, gated by escalation conditions and given a read-only tool surface. **Superseded for triage by ADR-0051** — v3 has no routine boss step; the cheap classifier is made context-rich instead (see _Observation/inconsistency layer_). What survives the supersession: the `dossierRequest` side-effect hook and the `system.read_user_context` surface.
+**Deepen step (superseded).** The ADR-0042 boss-agent brief-only run inside the triage workflow, gated by escalation conditions and given a read-only tool surface. **Superseded for triage by ADR-0051** — v3 has no routine boss step; the cheap classifier is made context-rich instead (see _Observation/inconsistency layer_). Its code was deleted on 2026-11-14; what supersession kept in code is the `system.read_user_context` surface.
 
 **Dossier cache TTL (designed, not built).** Per-`identity_confidence`-tier expiry on the `person_profiles` row (ADR-0031) that backs cached dossiers. ≥0.9 → 90d, 0.7-0.9 → 30d, <0.7 → 7d. Stale-and-important triggers re-research; cache key is the stable sender identifier — `email` for direct senders, `service:handle` for body actors (`github:coderabbitai`). ADR-0031 amendment + ADR-0042.
 

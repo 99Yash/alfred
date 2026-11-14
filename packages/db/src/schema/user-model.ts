@@ -757,44 +757,6 @@ export const activeEntityCoOccurrence = pgView("active_entity_co_occurrence", {
    AND apv.active_run_id = eco.projection_run_id
 `);
 
-/**
- * Replicache sync state per projected row (D17). A content hash drives
- * `row_version`, so an active-version flip sends only the changed keys.
- */
-export const projectionSyncState = pgTable(
-  "projection_sync_state",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("psync")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    syncSlug: text("sync_slug").notNull(),
-    stableKey: text("stable_key").notNull(),
-    contentHash: text("content_hash").notNull(),
-    rowVersion: integer("row_version").notNull().default(0),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("projection_sync_state_unique_idx").on(t.userId, t.syncSlug, t.stableKey),
-    // No (user_id, sync_slug) index: the unique index starts with it.
-    check("projection_sync_state_row_version_nonnegative", sql`${t.rowVersion} >= 0`),
-    check(
-      "projection_sync_state_sync_slug_nonempty",
-      sql`length(${t.syncSlug}) > 0 AND octet_length(${t.syncSlug}) <= 128 AND ${t.syncSlug} !~ '^[[:space:]]|[[:space:]]$'`,
-    ),
-    check(
-      "projection_sync_state_stable_key_nonempty",
-      sql`length(${t.stableKey}) > 0 AND octet_length(${t.stableKey}) <= 1024 AND ${t.stableKey} !~ '^[[:space:]]|[[:space:]]$'`,
-    ),
-    check(
-      "projection_sync_state_content_hash_nonempty",
-      sql`length(${t.contentHash}) > 0 AND octet_length(${t.contentHash}) <= 256 AND ${t.contentHash} !~ '^[[:space:]]|[[:space:]]$'`,
-    ),
-  ],
-);
-
 export type Observation = typeof observations.$inferSelect;
 
 export type ObservationFamilyHead = typeof observationFamilyHeads.$inferSelect;
@@ -822,5 +784,3 @@ export type ProjectionRun = typeof projectionRuns.$inferSelect;
 export type ProjectionCursor = typeof projectionCursors.$inferSelect;
 
 export type ActiveProjectionVersion = typeof activeProjectionVersions.$inferSelect;
-
-export type ProjectionSyncState = typeof projectionSyncState.$inferSelect;

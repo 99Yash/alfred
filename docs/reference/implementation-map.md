@@ -71,7 +71,6 @@ flowchart LR
 | `gmail-reconcile.ts` (347) | The relabel sweep job — converges Gmail when the workflow could not. |
 | `floors/sender-kind.ts` (347) | Group/no-reply demotion with vetoes. |
 | `sender-extraction-event.ts` (228) | Floor audits → flat trace fields (the `triage.classification` decision trace). |
-| `deepen.ts` (199) | **Dead code**, documented as such. Nothing calls it. |
 | `observations.ts` (195) | `assembleObservations` — the deterministic context block the model sees. |
 | `sender-priors.ts` (191) | Add-only sender priors, double-teaching guarded. |
 | `tags.ts` (187) | The one Gmail label writer. One-label-per-thread invariant, 404 repoint, sibling strip. |
@@ -204,10 +203,10 @@ flowchart LR
   ORCH --> G["gather.ts<br/>verifyLoops (knowledge/loops.ts):<br/>store first, live read when ambiguous →<br/>dropClosedLoops (every pointed thing closed)"]
   G --> Q{quiet morning?}
   Q -->|yes| SUP[suppressed — no compose, no model call]
-  Q -->|no| C["compose.ts"]
+  Q -->|no| C["workflow-operations.ts<br/>(runBriefingCompose → agent/agent.ts)"]
   C --> GUARD["open-ask-guard.ts<br/>deterministic, post-compose + at send<br/>(GitHub PR URLs only)"]
   GUARD --> SEND["delivery/notify.ts + resend-client.ts"]
-  SEND --> TBL[("briefings · briefing_runs<br/>email_sends")]
+  SEND --> TBL[("briefings<br/>email_sends")]
 ```
 
 | File | Owns |
@@ -217,11 +216,11 @@ flowchart LR
 | `briefings/run.ts` | `enqueueBriefingRun`: starts a briefing run (not a queue job) |
 | `briefings/daily-briefing.ts` | `gather` → `compose` → `send` orchestration |
 | `briefings/gather.ts` | Source collection; the object-state closure decision before the model runs |
-| `briefings/compose.ts` | Briefing composition |
+| `briefings/workflow-operations.ts` | The step bodies the daily workflow runs: gather, boss-model compose (agent/agent.ts), send |
 | `briefings/open-ask-guard.ts` | Deterministic open-ask guard after compose and again at send |
 | `briefings/store.ts`, `read.ts`, `preferences.ts` | Persist + read + preferences |
 
-Tables: `briefings`, `briefing_runs`, `email_sends`. Surface: `apps/web/src/routes/briefings.$date.tsx` (Replicache).
+Tables: `briefings`, `email_sends`. Surface: `apps/web/src/routes/briefings.$date.tsx` (Replicache).
 
 ---
 
@@ -288,8 +287,8 @@ flowchart LR
 Tables: `observations`, `observation_family_heads`, `entity_nodes` /
 `entity_identities` / `entity_profiles` / `entity_edges` /
 `entity_co_occurrence`, `projection_runs`, `projection_cursors`,
-`projection_sync_state`, `active_projection_versions`; `user_facts`,
-`user_preferences`, `style_profiles`, `memory_chunks`, `rejected_inferences`.
+`active_projection_versions`; `user_facts`,
+`user_preferences`, `memory_chunks`, `rejected_inferences`.
 Queues: `memory-cron`, `chat-memory`. Surface: `apps/web/src/routes/memory.tsx`.
 
 ---
@@ -300,7 +299,7 @@ Queues: `memory-cron`, `chat-memory`. Surface: `apps/web/src/routes/memory.tsx`.
 flowchart LR
   EV["inbound provider event<br/>(GitHub/Vercel push · verified pull)"] --> RC[("event_receipts<br/>dedup + provenance")]
   RC --> RED["per-provider reducer<br/>(object-state/*-reducer.ts)"]
-  RED --> OBJ[("integration_objects<br/>+ keys · relations · pulls")]
+  RED --> OBJ[("integration_objects<br/>+ keys · pulls")]
   OBJ --> CL["briefing gather closure:<br/>closureCandidate → closesOpenAsk<br/>absence never closes"]
   CL --> BR["briefing closed-loop recap<br/>+ todo closure (via #1244 path)"]
 ```
@@ -313,7 +312,6 @@ flowchart LR
 | `contracts/src/integration-objects.ts` | `INTEGRATION_OBJECT_DEFS` registry (browser-safe) |
 
 Tables: `integration_objects`, `integration_object_keys`,
-`integration_object_relations` (FKs the dead `entities` table; nothing writes it),
 `integration_object_pulls`; `event_receipts` in `schema/integrations.ts`.
 
 ---

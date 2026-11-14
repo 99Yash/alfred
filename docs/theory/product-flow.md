@@ -94,7 +94,7 @@ The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This sectio
 **Verified model.** The concept exists as **object-state memory** (ADR-0062, ADR-0103, ADR-0109).
 
 - **State in.** Reducers keep the state current all the time, not only at briefing time. Push: GitHub App webhooks (which also carry Vercel) and Sentry, through `objectStateStore.applyEvent` (`assistant/src/connections/object-state/store.ts:341`). Pull: verified pulls at each briefing gather for Railway and Vercel, plus approved MCP health reads.
-- **Tables.** `integration_objects`, `integration_object_keys`, `integration_object_relations`, `integration_object_pulls`, `event_receipts`.
+- **Tables.** `integration_objects`, `integration_object_keys`, `integration_object_pulls`, `event_receipts`.
 - **Registry.** `INTEGRATION_OBJECT_DEFS` (`contracts/src/integration-objects.ts:334-539`). Each kind declares `closesAskOn`, `closesAskFrom` (`stored_projection` or `live_confirmation`), `absorbing`, and `identity`.
 - **Closure decision.** Code decides during gather, before the model runs: `verifyLoops` (`assistant/src/knowledge/loops.ts`) resolves the stored `email_interpretation` keys, uses the stored state as the verdict, and reads live only when the state is ambiguous (ADR-0120). Then `dropClosedLoops` (`assistant/src/briefings/gather.ts`) drops a mail only when every thing that it points to is `closed`. A Railway target closes only after a live read of this run. A verified-pull fold of this run counts as that read.
 - **Workflow.** `gather` → `compose` → `send` (`briefings/daily-briefing.ts:58-62`). A quiet cron morning is suppressed before compose, with no model call.

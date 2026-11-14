@@ -6,13 +6,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { getStringPath, wakeConditionSchema } from "@alfred/contracts";
-import { startRun, wakeRun, agentQueue } from "@alfred/assistant/execution";
+import { startRun, wakeRun, agentQueue, registerRecipe } from "@alfred/assistant/execution";
 import { warmPool } from "@alfred/db";
 import { db } from "@alfred/db";
 import { requireRow } from "@alfred/db/helpers";
 import { agentRuns, agentSteps, user as userTable } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
-import { registerBuiltinWorkflows } from "~/builtins";
+import { echoWithApprovalWorkflow } from "./echo-with-approval";
 import { closeScriptResources } from "../script-runtime";
 
 const POLL_INTERVAL_MS = 250;
@@ -59,7 +59,7 @@ async function pollUntil(
 async function main() {
   await warmPool();
   // So createRun's requireWorkflow resolves in this process.
-  registerBuiltinWorkflows();
+  registerRecipe(echoWithApprovalWorkflow);
 
   const userId = await findOrCreateSmokeUser();
   console.log(`[smoke] userId=${userId}`);

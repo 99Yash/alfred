@@ -1,37 +1,22 @@
 import { logger } from "@alfred/logging";
 import {
-  ACCOUNT_PERSONAS,
   Errors,
   integrationRoutePrefix,
   isGoogleFeature,
-  toMessage,
   type CredentialProvider,
   type GoogleFeature,
 } from "@alfred/contracts";
-import { db } from "@alfred/db";
-import { integrationCredentials } from "@alfred/db/schemas";
 import { serverEnv } from "@alfred/env/server";
-import {
-  buildAuthorizeUrl,
-  exchangeCode,
-  getGmailWatchState,
-  assertGmailPushOidcConfigured,
-  isGmailPushOidcConfigError,
-  scopesForFeatures,
-  uninstallGmailWatch,
-} from "@alfred/integrations/google";
+import { buildAuthorizeUrl, exchangeCode, scopesForFeatures } from "@alfred/integrations/google";
 import { Elysia, t } from "elysia";
-import { and, eq } from "drizzle-orm";
 import {
   ingestionQueue,
-  installGmailWatchAndSeedCursor,
   resolveWorkflowRecoveryTarget,
 } from "@alfred/assistant/connections/ingestion";
 import {
   disconnectGoogleCredentialConnection,
   GoogleCredentialNotFoundError,
   oauthHandshake,
-  ownsGoogleCredential,
   publishGoogleCallbackCompleted,
   upsertGoogleCredentialConnection,
 } from "@alfred/assistant/connections";
@@ -50,13 +35,6 @@ async function bestEffort(label: string, fn: () => Promise<void>): Promise<void>
     await fn();
   } catch (err) {
     logger.warn({ err }, `[google.callback] ${label}`);
-  }
-}
-
-/** 404, not 403, so the response never confirms another user's id exists. */
-async function assertCredentialOwned(id: string, userId: string): Promise<void> {
-  if (!(await ownsGoogleCredential({ userId, credentialId: id }))) {
-    throw Errors.NotFoundError("Credential not found");
   }
 }
 
@@ -135,140 +113,31 @@ export const googleIntegrationRoutes = new Elysia({
     ),
   )
   .guard({ auth: true, requireOnboarded: true }, (app) =>
-    app
-      .delete(
-        "/:id",
-        async ({ params, user }) => {
-          try {
-            await disconnectGoogleCredentialConnection({
-              userId: user.id,
-              credentialId: params.id,
-            });
-          } catch (error) {
-            if (error instanceof GoogleCredentialNotFoundError) {
-              throw Errors.NotFoundError("Credential not found");
-            }
-
-            throw error;
-          }
-
-          // The Google MCP servers follow the credential that remains, or disconnect (ADR-0126).
-          await bestEffort(`failed to sync the Google MCP servers for ${user.id}`, async () => {
-            await syncGoogleWorkspaceConnections(user.id);
-          });
-
-          return { id: params.id, ok: true };
-        },
-        { params: t.Object({ id: t.String() }) },
-      )
-      .patch(
-        "/:id/persona",
-        async ({ params, body, user }) => {
-          // Persona override (ADR-0051 #3). The `userId` filter is the ownership check.
-          const updated = await db()
-            .update(integrationCredentials)
-            .set({ persona: body.persona })
-            .where(
-              and(
-                eq(integrationCredentials.id, params.id),
-                eq(integrationCredentials.userId, user.id),
-                eq(integrationCredentials.provider, PROVIDER),
-              ),
-            )
-            .returning({ id: integrationCredentials.id, persona: integrationCredentials.persona });
-
-          if (!updated[0]) throw Errors.NotFoundError("Credential not found");
-
-          return { id: updated[0].id, persona: updated[0].persona };
-        },
-        {
-          params: t.Object({ id: t.String() }),
-          body: t.Object({ persona: t.Union(ACCOUNT_PERSONAS.map((p) => t.Literal(p))) }),
-        },
-      )
-      .post(
-        "/:id/watch",
-        async ({ params, user }) => {
-          await assertCredentialOwned(params.id, user.id);
-          const topic = serverEnv().GOOGLE_PUBSUB_TOPIC;
-
-          if (!topic) throw Errors.ServiceUnavailableError("GOOGLE_PUBSUB_TOPIC not configured");
-
-          try {
-            assertGmailPushOidcConfigured();
-          } catch (err) {
-            if (isGmailPushOidcConfigError(err)) {
-              throw Errors.ServiceUnavailableError(toMessage(err));
-            }
-
-            throw err;
-          }
-
-          const state = await installGmailWatchAndSeedCursor({
+    app.delete(
+      "/:id",
+      async ({ params, user }) => {
+        try {
+          await disconnectGoogleCredentialConnection({
+            userId: user.id,
             credentialId: params.id,
-            topicName: topic,
           });
-
-          if (!state) {
-            // A null watch would read as "installed", so fail loudly.
-            throw Errors.ServiceUnavailableError(
-              "Gmail mailbox writes are disabled in this environment (GMAIL_MAILBOX_WRITES_ENABLED)",
-            );
+        } catch (error) {
+          if (error instanceof GoogleCredentialNotFoundError) {
+            throw Errors.NotFoundError("Credential not found");
           }
 
-          return { id: params.id, watch: state };
-        },
-        {
-          params: t.Object({ id: t.String() }),
-        },
-      )
-      .delete(
-        "/:id/watch",
-        async ({ params, user }) => {
-          await assertCredentialOwned(params.id, user.id);
-          await uninstallGmailWatch(params.id);
+          throw error;
+        }
 
-          return { id: params.id, ok: true };
-        },
-        {
-          params: t.Object({ id: t.String() }),
-        },
-      )
-      .get(
-        "/:id/watch",
-        async ({ params, user }) => {
-          await assertCredentialOwned(params.id, user.id);
-          const state = await getGmailWatchState(params.id);
+        // The Google MCP servers follow the credential that remains, or disconnect (ADR-0126).
+        await bestEffort(`failed to sync the Google MCP servers for ${user.id}`, async () => {
+          await syncGoogleWorkspaceConnections(user.id);
+        });
 
-          return { id: params.id, watch: state };
-        },
-        {
-          params: t.Object({ id: t.String() }),
-        },
-      )
-      .post(
-        "/:id/ingest",
-        async ({ params, body, user }) => {
-          await assertCredentialOwned(params.id, user.id);
-
-          const job = await ingestionQueue.add("gmail.ingest_recent", {
-            credentialId: params.id,
-            query: body?.query,
-            maxMessages: body?.maxMessages,
-          });
-
-          return { id: params.id, jobId: job.id };
-        },
-        {
-          params: t.Object({ id: t.String() }),
-          body: t.Optional(
-            t.Object({
-              query: t.Optional(t.String({ maxLength: 500 })),
-              maxMessages: t.Optional(t.Integer({ minimum: 1, maximum: 5000 })),
-            }),
-          ),
-        },
-      ),
+        return { id: params.id, ok: true };
+      },
+      { params: t.Object({ id: t.String() }) },
+    ),
   )
   // No session here; the signed `state` proves who started the flow.
   .get(

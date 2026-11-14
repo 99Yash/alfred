@@ -151,10 +151,8 @@ export type { ContactSummary } from "./contacts";
 export {
   findCredentialByEmail,
   findGmailAccountsNeedingWatch,
-  getGmailWatchState,
   readGmailWatchState,
   stopGmailWatchWithAccessToken,
-  uninstallGmailWatch,
   type GmailWatchCandidate,
 } from "./watch";
 

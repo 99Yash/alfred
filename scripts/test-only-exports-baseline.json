@@ -173,7 +173,6 @@
   ],
   "packages/assistant/src/knowledge/index.ts": ["SaveStandingInstructionResult"],
   "packages/assistant/src/knowledge/standing-instructions.ts": ["STANDING_INSTRUCTION_LIST_LIMIT"],
-  "packages/assistant/src/knowledge/style-profiles.ts": ["upsertStyleProfileArgsSchema"],
   "packages/assistant/src/tasks/resolve.ts": ["gmailThreadIdsFromTodoSources"],
   "packages/assistant/src/tasks/suggest.ts": ["todoSourcesOverlap"],
   "packages/assistant/src/tool-runtime/discovery.ts": [
@@ -269,7 +268,6 @@
     "sanitizeAssist",
     "sanitizeTodoName"
   ],
-  "packages/assistant/src/triage/deepen.ts": ["DeepenDecision", "shouldDeepen"],
   "packages/assistant/src/triage/email-html.ts": ["EMAIL_CSP_META"],
   "packages/assistant/src/triage/hedge.ts": ["HedgeAttempt"],
   "packages/assistant/src/triage/observations.ts": [

@@ -15,7 +15,6 @@ import {
   observations,
   projectionCursors,
   projectionRuns,
-  projectionSyncState,
   user,
 } from "@alfred/db/schemas";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -905,8 +904,8 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
     );
   });
 
-  test("rail 14: projection identity-key CHECKs reject empty / padded / oversized keys", async () => {
-    // These keys feed unique indexes; an empty or padded one collapses unrelated rows into one slot.
+  test("rail 14: projection_runs name CHECKs reject empty / padded names", async () => {
+    // This name feeds the identity key; an empty or padded one collapses unrelated runs into one slot.
     const userId = await seedUser();
 
     await rejectsConstraint(
@@ -936,84 +935,8 @@ describe("user-model integrity rails (DB-backed)", { skip: SKIP }, () => {
       { code: "23514", constraint: "projection_runs_name_nonempty" },
     );
 
-    for (const bad of [
-      {
-        syncSlug: "",
-        stableKey: "k",
-        contentHash: "h",
-        constraint: "projection_sync_state_sync_slug_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "",
-        contentHash: "h",
-        constraint: "projection_sync_state_stable_key_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "k",
-        contentHash: "",
-        constraint: "projection_sync_state_content_hash_nonempty",
-      },
-      {
-        syncSlug: "slug\n",
-        stableKey: "k",
-        contentHash: "h",
-        constraint: "projection_sync_state_sync_slug_nonempty",
-      },
-      {
-        syncSlug: "s".repeat(129),
-        stableKey: "k",
-        contentHash: "h",
-        constraint: "projection_sync_state_sync_slug_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "\tk",
-        contentHash: "h",
-        constraint: "projection_sync_state_stable_key_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "k".repeat(1025),
-        contentHash: "h",
-        constraint: "projection_sync_state_stable_key_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "k",
-        contentHash: "h\n",
-        constraint: "projection_sync_state_content_hash_nonempty",
-      },
-      {
-        syncSlug: "s",
-        stableKey: "k",
-        contentHash: "h".repeat(257),
-        constraint: "projection_sync_state_content_hash_nonempty",
-      },
-    ]) {
-      await rejectsConstraint(
-        () =>
-          db().insert(projectionSyncState).values({
-            userId,
-            syncSlug: bad.syncSlug,
-            stableKey: bad.stableKey,
-            contentHash: bad.contentHash,
-          }),
-        { code: "23514", constraint: bad.constraint },
-      );
-    }
-
     // Positive controls.
     await assert.doesNotReject(() => seedRun(userId, { name: "user-model", version: 1 }));
-    await assert.doesNotReject(() =>
-      db().insert(projectionSyncState).values({
-        userId,
-        syncSlug: "active_user_facts",
-        stableKey: "fact:tz",
-        contentHash: "abc123",
-      }),
-    );
   });
 
   test("rail 15: projection_runs lifecycle CHECKs reject illegal terminal states", async () => {

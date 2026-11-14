@@ -1198,6 +1198,13 @@
       "when": 1794546358888,
       "tag": "0170_disconnect_keeps_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1794672319058,
+      "tag": "0171_wise_forge",
+      "breakpoints": true
     }
   ]
 }

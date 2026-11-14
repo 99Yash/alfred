@@ -51,7 +51,6 @@ A DB CHECK on a status column enforces membership only. No CHECK in this repo en
 | `event_receipts.processing_status`           | explicit | `packages/assistant/src/connections/ingestion/inbound-deliver.ts`      | unique delivery id; no CHECK                                                                 |
 | Gmail history cursor                         | implicit | `packages/assistant/src/connections/ingestion/gmail-ingest.ts`         | unique (credential, stream); monotonic SQL upsert                                            |
 | `user_facts.status`                          | explicit | `packages/assistant/src/knowledge/facts.ts`                            | none                                                                                         |
-| `style_profiles.status`                      | explicit | `packages/assistant/src/knowledge/style-profiles.ts`                   | none                                                                                         |
 | `projection_runs.status`                     | explicit | `packages/assistant/src/knowledge/projection.ts`                       | CHECK (status, completed pairs); unique (user, name, version)                                |
 | Memory extraction stamp                      | implicit | `packages/assistant/src/knowledge/workflow-operations.ts`              | none                                                                                         |
 | Chat stream cell                             | client   | `apps/web/src/lib/chat/chat-stream-state.ts`                           | n/a                                                                                          |
@@ -488,8 +487,6 @@ Invariants: DB-enforced: one row per (credential, stream). Code-enforced: the cu
 | any                            | edited (new confirmed) | `editFact`                          | key lock; the old row is updated by id with no status guard       | `packages/assistant/src/knowledge/facts.ts`                 |
 | any                            | superseded             | `supersedeFact` (smoke script only) | none                                                              | `packages/assistant/src/knowledge/facts.ts`                 |
 | confirmed standing instruction | rejected, edited       | `forgetStandingInstruction`, edit   | capture lock, per-fact lock, CAS on confirmed, observation append | `packages/assistant/src/knowledge/standing-instructions.ts` |
-
-`style_profiles.status` (draft, active) has one writer, `upsertStyleProfile`, which selects then inserts or updates in a transaction. A bucket-level row has a null recipient and no unique protection (SM-41).
 
 `projection_runs.status` (running, completed, failed) is well guarded. DB CHECKs pair status with the completion time and checksum, and (user, name, version) is unique. `startProjectionRun` reuses a running or failed run and refuses a completed one. The only production caller runs start, fold, and complete in one transaction, so a crash cannot leave a run stuck running.
 
@@ -1038,16 +1035,6 @@ Status: open (not yet verified independently)
 - Machine: memory extraction stamp
 - Interleaving: the run reads the captured set at start. The stamp update has no "not yet captured" guard. Two overlapping automatic runs for one user both fold the same documents.
 - Impact: correspondence weights are counted twice.
-
-Status: open (not yet verified independently)
-
-### SM-41 Two concurrent style profile upserts can insert two bucket rows
-
-- Severity: low
-- Confidence: speculative
-- Machine: `style_profiles.status`
-- Interleaving: `upsertStyleProfile` selects, then inserts. A bucket-level row has a null recipient, and nulls are distinct in the unique index, so two concurrent upserts can both insert. The code comment acknowledges this. There is one caller path.
-- Impact: duplicate profile rows for one bucket.
 
 Status: open (not yet verified independently)
 

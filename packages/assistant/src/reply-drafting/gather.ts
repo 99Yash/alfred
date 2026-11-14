@@ -10,7 +10,6 @@ import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { readUserContext } from "@alfred/assistant/knowledge";
-import { getStyleProfile } from "@alfred/assistant/knowledge/style-profiles";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { getThreadState } from "@alfred/assistant/triage";
@@ -67,14 +66,12 @@ export async function gatherReplyContext(args: {
   // One bind, so the user-context preferences and the zone share one SELECT.
   const userSettings = settings({ userId: args.userId });
 
-  const [userContext, profile, timezone, thread] = await Promise.all([
+  const [userContext, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
       include: ["profile", "facts", "preferences", "entities", "relationships"],
       settings: userSettings,
     }),
-    // Audience inference belongs to #238; read the generic profile only.
-    getStyleProfile(args.userId, "gmail", "generic"),
     userSettings.timezone(),
     getThreadState({
       userId: args.userId,
@@ -111,8 +108,8 @@ export async function gatherReplyContext(args: {
 
   return replyGatherSchema.parse({
     ...context,
-    style: profile ? { kind: "profile", styleProfileId: profile.id } : { kind: "style_missing" },
-    styleInstructions: profile?.profileDoc ?? null,
+    style: { kind: "style_missing" },
+    styleInstructions: null,
     sources: [
       {
         kind: "reply_context",

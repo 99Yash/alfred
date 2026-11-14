@@ -305,10 +305,6 @@ export type BriefingGather = z.infer<typeof briefingGatherSchema>;
 
 export type FullBriefingSection = z.infer<typeof fullBriefingSectionSchema>;
 
-export type BriefingSourcePanelItem = z.infer<typeof briefingSourcePanelItemSchema>;
-
-export type BriefingSourcePanel = z.infer<typeof briefingSourcePanelSchema>;
-
 export type ComposerFullBriefing = BriefingComposerOutput["fullBriefing"];
 
 export type FullBriefing = z.infer<typeof fullBriefingSchema>;
@@ -607,6 +603,10 @@ export const briefingComposerSchema = z.object({
 
 export type BriefingComposerOutput = z.infer<typeof briefingComposerSchema>;
 
+/**
+ * One rendered source panel. Only the legacy morning composer built these, but briefings
+ * persisted before the daily cutover still hold them, so the schema stays for those rows.
+ */
 export const briefingSourcePanelItemSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1).max(200),
@@ -640,7 +640,7 @@ export const briefingConnectionNoticeSchema = z.object({
 export type BriefingConnectionNotice = z.infer<typeof briefingConnectionNoticeSchema>;
 
 export const fullBriefingSchema = briefingComposerSchema.shape.fullBriefing.extend({
-  /** Built after compose, never by the model. */
+  /** Built by the legacy composer; briefings persisted before the daily cutover still hold them. */
   sourcePanels: z.array(briefingSourcePanelSchema).max(8).optional(),
   /** Emails the prose actually cited. The next briefing reads this, not the whole gather. */
   surfacedDocumentIds: z.array(z.string().min(1)).max(100).optional(),

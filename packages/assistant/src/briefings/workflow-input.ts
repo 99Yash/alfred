@@ -28,12 +28,3 @@ export const dailyBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema.
 });
 
 export type DailyBriefingWorkflowInput = z.infer<typeof dailyBriefingWorkflowInputSchema>;
-
-/** Only for old in-flight runs from before the daily-briefing cutover. Do not enqueue. */
-export const LEGACY_MORNING_BRIEFING_WORKFLOW_SLUG = "morning-briefing";
-
-export const legacyMorningBriefingWorkflowInputSchema = briefingWorkflowInputBaseSchema;
-
-export type LegacyMorningBriefingWorkflowInput = z.infer<
-  typeof legacyMorningBriefingWorkflowInputSchema
->;

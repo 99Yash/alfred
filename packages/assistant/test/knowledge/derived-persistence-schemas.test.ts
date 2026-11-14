@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-// Internal schema, not in the `knowledge` barrel.
-import { upsertStyleProfileArgsSchema } from "@alfred/assistant/knowledge/style-profiles";
 import { proposeFactArgsSchema } from "../../src/knowledge/facts";
 
 describe("derived memory persistence schemas", () => {
@@ -24,33 +22,6 @@ describe("derived memory persistence schemas", () => {
         value: "Acme",
         confidence: 0.8,
         source: { kind: "invented" },
-      }).success,
-      false,
-    );
-  });
-
-  test("style-profile upsert derives nullable/defaulted insert fields", () => {
-    const parsed = upsertStyleProfileArgsSchema.parse({
-      userId: "usr_1",
-      channel: "gmail",
-      audienceBucket: "peer",
-      recipientId: null,
-      profileDoc: "Write directly.",
-    });
-
-    assert.equal(parsed.recipientId, null);
-    assert.equal("status" in parsed, false);
-    assert.equal("generatedFromCount" in parsed, false);
-  });
-
-  test("style-profile JSON arrays reject values Postgres jsonb cannot store", () => {
-    assert.equal(
-      upsertStyleProfileArgsSchema.safeParse({
-        userId: "usr_1",
-        channel: "gmail",
-        audienceBucket: "peer",
-        profileDoc: "Write directly.",
-        examples: [() => "not JSON"],
       }).success,
       false,
     );

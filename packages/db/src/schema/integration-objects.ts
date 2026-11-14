@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createId, lifecycle_dates } from "../helpers";
 import { user } from "./auth";
-import { entities } from "./memory";
 
 /**
  * State of external work objects, such as GitHub PRs and deploys (ADR-0062).
@@ -91,43 +90,6 @@ export const integrationObjectKeys = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// integration_object_relations
-// ---------------------------------------------------------------------------
-
-/** Object to entity edges. Objects change often, so they do not become `entities` rows. */
-export const integrationObjectRelations = pgTable(
-  "integration_object_relations",
-  {
-    id: text("id")
-      .primaryKey()
-      .$defaultFn(() => createId("iobjr")),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    objectId: text("object_id")
-      .notNull()
-      .references(() => integrationObjects.id, { onDelete: "cascade" }),
-    entityId: text("entity_id")
-      .notNull()
-      .references(() => entities.id, { onDelete: "cascade" }),
-    relation: text("relation").notNull(),
-    metadata: jsonb("metadata")
-      .notNull()
-      .default(sql`'{}'::jsonb`),
-    ...lifecycle_dates,
-  },
-  (t) => [
-    uniqueIndex("integration_object_relations_unique_idx").on(
-      t.userId,
-      t.objectId,
-      t.entityId,
-      t.relation,
-    ),
-    index("integration_object_relations_entity_idx").on(t.userId, t.entityId),
-  ],
-);
-
-// ---------------------------------------------------------------------------
 // integration_object_pulls
 // ---------------------------------------------------------------------------
 
@@ -204,7 +166,5 @@ export type IntegrationObject = typeof integrationObjects.$inferSelect;
 export type NewIntegrationObject = typeof integrationObjects.$inferInsert;
 
 export type IntegrationObjectKey = typeof integrationObjectKeys.$inferSelect;
-
-export type IntegrationObjectRelation = typeof integrationObjectRelations.$inferSelect;
 
 export type IntegrationObjectPull = typeof integrationObjectPulls.$inferSelect;
