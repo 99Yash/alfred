@@ -1,6 +1,6 @@
 # ADR-0121 — Triage labels what it costs to ignore a thread; the model weighs evidence, and code decides only three things
 
-**Status.** Proposed; not built. The design comes from a grilling session with the owner on 2026-11-06. The settled model is [`docs/theory/triage.md`](../theory/triage.md); this ADR records the decision and what it replaces. The build plan is [`docs/plans/triage-theory-v1.md`](../plans/triage-theory-v1.md).
+**Status.** Proposed; not built. The design comes from a grilling session with the owner on 2026-11-06. The settled model is [`docs/theory/triage.md`](../theory/triage.md); this ADR records the decision and what it replaces. The build plan is [`docs/plans/triage-theory-v1.md`](../plans/triage-theory-v1.md). **Amended 2026-11-14 (owner decision):** decision 10 becomes a gather (judge → gather → judge) from three code triggers, not a stronger second call. The gather may search, so it supersedes the "no search for each mail" rule of decision 6 and the "no activity search and no embeddings" item of the preserved behavior for the gather only. The first call still searches nothing. Decision 6 gives the profile two bounded parts. The theory page states the echo rule and the mail-fact set.
 
 Amends ADR-0051 (a stronger second decision is allowed, and the floor set shrinks), ADR-0066 (the significance-weighted category is kept, with a new label set and a new order of authority), ADR-0113 and ADR-0106 (an instruction in words is evidence for the model, not a typed effect that code applies), ADR-0050 (todos leave the triage step), and ADR-0025 (the label names). Keeps ADR-0048 (one label for each thread).
 
@@ -44,6 +44,8 @@ The model weighs the instructions, the corrections, the triage profile, sender f
 
 A short text about who the user is, who matters, what matters, and what is noise. The memory system writes it from chats, long-term memory, and cold-start research. Triage reads it on each call. The user can see and edit it. No search for each mail (ADR-0113 rule kept); a search is added only when an eval shows that the profile is not sufficient.
 
+> Amended 2026-11-14. The profile has two bounded parts: a durable part, and a now section of at most 10 one-line matters with decay dates, which memory refreshes from the journal. The "no search" rule holds for the first call only. The gather of decision 10 may search. See [`triage.md` § The profile](../theory/triage.md#the-profile).
+
 ### 7. Instructions are the user's words
 
 An instruction is stored in the words that the user said, clear or vague. The model applies a description of a kind of mail to any sender, including a new one. Alfred never converts a description into a list of senders. An instruction that names one person is resolved to an address once, at save time, and the user confirms it; code then applies it. A new instruction can apply to the last 30 days; from chat, Alfred shows a dry run first.
@@ -60,6 +62,8 @@ A label change in the Gmail UI is a correction. It stays on that thread and is e
 
 The cheap model makes the first decision on each mail. A stronger model makes a second decision only when (a) the first is loud and the sender is a bot or bulk sender, or (b) the first is quiet and the mail has a money, access, or deadline signal. The cheap model's confidence never starts it. `deepen.ts` becomes this step or is deleted.
 
+> Amended 2026-11-14. The second decision is a gather, not one bigger call. A read-only Code Mode program reads the activity record of every integration near the arrival time, the thread and the user's words in it, the sender facts, and the built stores of chats, claims, and journal notes. Then the model decides again. A third trigger is added: a keyed fact contradicts the first decision, for example the activity record shows that the user already acted on the same thread or thing. Alfred's own past labels are never part of that comparison. On a day over budget, the first decision stands. See [`triage.md` § Cost](../theory/triage.md#cost).
+
 ### 11. The prompt is the theory
 
 The prompt is rewritten from the theory page. A past error becomes an eval case with its expected label, not a prompt rule.
@@ -74,14 +78,14 @@ Todos (loud labels only, own prompt, behind the settings flag), memory write-bac
 - A user override is never overwritten by the model.
 - The security check stays absolute.
 - The cheap model makes the first decision on each mail.
-- The triage path reads no activity search and no embeddings (ADR-0113).
+- The first decision reads no activity search and no embeddings (ADR-0113). *Amended 2026-11-14: the gather of decision 10 may read both.*
 - Old threads are not triaged again when the labels change.
 
 ## Residual risk
 
 - **The model can ignore a vague instruction.** Code no longer enforces its effect. The guards are the reason that names the instruction, the eval cases for each instruction, and the 30-day dry run.
 - **The profile can go stale.** A wrong profile moves many labels at once. The user can see and edit it.
-- **The second decision costs money.** The two triggers and the daily budget bound it. A day over budget falls back to the first decision.
+- **The gather costs money.** The three triggers and the daily budget bound it. A day over budget falls back to the first decision.
 - **Gmail cannot merge labels.** `awaiting_reply`'s label becomes `Reply`. The old `follow up` label stays on old threads and is not written again.
 
 ## Rejected alternatives
