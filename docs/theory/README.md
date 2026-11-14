@@ -11,6 +11,8 @@ Read this page before you design a change, add a prompt rule, a floor, a table, 
 | [context-graph.md](./context-graph.md)       | The settled model of things, links, and state.                               |
 | [memory.md](./memory.md)                     | The settled theory of memory: claims, name links, and the check job (ADR-0123). |
 | [journal.md](./journal.md)                   | The theory of the journal: recall a past talk, and connect it to what happens later. |
+| [core-agent.md](./core-agent.md)             | Draft, awaiting owner review: one runner, its destination, the push, and the voice. |
+| [evidence-map.md](./evidence-map.md)         | Draft, awaiting owner review: which stores exist, how far back each reaches, what each answers. |
 | [product-direction.md](./product-direction.md) | The owner's plan compared with Dimension and with the built code.          |
 | [state-machines.md](../reference/state-machines.md) | Each status machine, its transitions, and its invariants.              |
 
@@ -118,7 +120,7 @@ A stage can be Settled and Not built, or Open and Built. Both are valid states. 
 | Chat                   | Partly                                                                 | Built                                    | [product-flow §5](./product-flow.md#5-chat-the-boss-agent)                                                | 1, 4, 7    | Chat cannot see briefings or triage labels. Alfred cannot send a message outside a turn.                                                        |
 | Memory over time       | Settled (ADR-0123, [memory.md](./memory.md)), except the claims-review UI | Not built (old direct writes)            | [memory.md §8](./memory.md#8-theory-state-and-code-state)                                                 | 1, 4, 5    | No name lookup, no evidence on claims, no check job (needs Code Mode, #535). Open: the claims-review UI. |
 | Journal and recall     | Settled ([journal.md](./journal.md)), except section 9                 | Not built                                | [journal.md §10](./journal.md#10-theory-state-and-code-state)                                             | 4, 5, 7    | Past chats are not searchable. The pre-briefing pass needs Code Mode. Open: a remark outside a turn, and the note count that the back-test sets.               |
-| Loop closing and asks  | Partly (ADR-0122 decision 3c: the user's word closes; the journal asks) | Not built                                | none yet                                                                                                  | 2, 4, 6    | Asks ride the briefing and the next chat, at most 5 each day (ADR-0121), until a push surface exists. Open: the push surface.                   |
+| Loop closing and asks  | Partly (ADR-0122 decision 3c: the user's word closes; the journal asks) | Not built                                | none yet                                                                                                  | 2, 4, 6    | Asks ride the briefing and the next chat, at most 5 each day (ADR-0121). The push is the existing mail function with new kinds ([core-agent.md](./core-agent.md)). Open: the push kinds.                   |
 
 ---
 
