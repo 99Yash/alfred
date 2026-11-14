@@ -157,7 +157,7 @@ Prod on 2026-11-11: `user_facts` has 50 rows. Of the 33 confirmed rows, 21 are s
 
 ## 9. Not settled
 
-- **Q6: may a reader use an unconfirmed claim, and the UI to confirm claims.** The owner's direction is a section that shows claims with their evidence links. Some claims expire and need no confirmation. The UI comes later.
+- **Q6 is settled on the use rule (owner decision, 2026-11-14): an unconfirmed claim is usable as weak evidence, with its author label visible ("agent-concluded, not confirmed by you").** Weak evidence never closes a loop (ADR-0109) and never lowers a security label. Confirmation happens in chat — the user's answer to a remark, or any statement that confirms the claim — and in the review section when it exists. Some claims expire and need no confirmation. Still open: the review section's UI.
 - **Parked: self-awareness.** Alfred knows its own code, its changes, and the direction of its improvement. The ADRs and the git history are precise sources, but they are too large to load as text. The rows in section 7 are part of the data for it. It extends `docs/plans/runtime-capability-awareness-decision-map.md`, which says that runtime code inspection must not be the default answer path. Settle that tension first.
 - **Moved: chat that knows the open matters of the user's life**, such as decisions and conflicts. This is the journal ([journal.md](./journal.md)), not claim memory. Chat capture writes claims, name links, and journal entries in one pass.
 - **Parked: trace storage for all agent runs in prod.** The check job needs none, because of its run record.

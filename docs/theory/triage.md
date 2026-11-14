@@ -4,7 +4,7 @@ This page states what email triage is for and the rules that follow from that. I
 
 Each triage ADR, plan, and prompt change must agree with this page. If a change does not agree, update this page first, or do not make the change.
 
-Last verified: 2026-11-06 at `7c62f224a`.
+Last verified: 2026-11-14 (owner decisions on echoes, the profile, the mail facts, and the gather; previous: 2026-11-06 at `7c62f224a`).
 
 ---
 
@@ -37,6 +37,26 @@ Yash reads the labels in the inbox list. He does not filter by them. Thus a loud
 
 Names are short words. No number prefix.
 
+## Echoes of the user's own actions
+
+A sign-in confirmation, a new-device notice, an OTP mail, and a backup-code mail are usually records of an act that Yash did himself. Such a mail is an **echo** while the facts fit that act. (Owner decisions, 2026-11-13 and 2026-11-14, from the nine-mail sign-in and OTP cluster of 2026-11-12 and 11-13.)
+
+- **An echo is FYI.** It is never Urgent and never Action. This is the not-sure rule: triage usually cannot see whether Yash did the act.
+- **A mail is an echo only while the facts fit Yash's own act.** The model weighs these facts together:
+  - the service, and the device, place, and app that the mail names;
+  - the account that got the mail: a work account or a personal account;
+  - the arrival time in Yash's zone, against his usual hours from the profile. Workdays and weekends can differ;
+  - Yash's own acts near that time, from every integration. The gather reads them ([Cost](#cost)).
+- **When the facts point to another person, the mail is a security notice, not an echo.** The loud question then applies, as for any other mail.
+- No rule turns one fact into a label. An odd hour alone does not make a mail loud. The reason names the facts that decided it.
+- An OTP in the inbox is **not** the exposed-secret case of "what code decides". The model weighs an OTP mail like the other echoes.
+- Every echo starts the gather, because it is quiet and carries an access signal ([Cost](#cost)). Echoes are few each day, so this cost is small.
+- What is live in Yash's life now reaches the first call through the profile's now section. An example: he bought a phone, and he signs in on new devices. The first call searches nothing.
+- At briefing time the journal owns the confirm. A remark on a security notice asks "was that you?", and it never makes the notice look safe ([journal.md §6](./journal.md#6-speak-and-what-happens-after)). Neither answer changes the label. A "no" is an alarm in the same chat turn.
+- The strongest evidence that an echo is routine is often in the same mailbox: the order confirmation for the device, the booking, or the receipt of the act behind it. The pre-briefing pass joins that receipt to the echo ([journal.md §5](./journal.md#5-read-two-nets-that-catch-a-link)). The order confirmation can open the matter, and the echoes join it ([journal.md §4](./journal.md#4-write-who-writes-an-entry)). When no reference point exists, for example when someone else ordered the device for Yash, the not-sure rule applies. The model never assumes.
+
+**Eval cases.** The nine echoes of 2026-11-12 and 11-13 have the label FYI. The trail around them is the eval case for the **join**: the Flipkart order of the Galaxy A56 (11-08), the setup prompt, the Wallet registration, and the delivery notice (11-13). All four sat under quiet labels while five echoes went Urgent. The deck also needs a sign-in by another person, with a loud label, so that it guards the worst error too.
+
 ## What counts as an error
 
 - A real matter under a quiet label is the worst error.
@@ -49,7 +69,7 @@ The model weighs these:
 
 - Yash's standing instructions.
 - Yash's corrections.
-- The **triage profile**: a short text about who Yash is, who is important to him, what he cares about, and what is noise to him. The memory system keeps it current from chats, long-term memory, and cold-start research. Triage only reads it. Yash can see and edit it.
+- The **triage profile** (see [The profile](#the-profile)): who Yash is, who matters to him, what is noise to him, and what is live in his life right now. Triage only reads it.
 - Facts about the sender, when Alfred has them.
 - What Yash did, for example a reply to this sender.
 - The mail itself.
@@ -62,6 +82,32 @@ The evidence has no fixed rank. The model uses these principles:
 - **Alfred's own past labels are never evidence.** A system that learns from its own guesses repeats its errors.
 
 The reason on each label names the evidence that decided it.
+
+## The profile
+
+Two bounded parts (owner decision, 2026-11-14):
+
+- **Durable.** Who Yash is, who matters to him, what is noise to him, his accounts (work and personal), and his standing patterns. A pattern is, for example, his usual active hours on workdays and at weekends. Only Yash's own acts are evidence for a pattern (principle 5). This part changes slowly.
+- **Now.** The matters that are live in his life now. Each is one line with a decay date. The memory system refreshes this part from the journal's matters. A new mention renews the date, and an ended matter leaves the list. The list holds at most 10 lines. When it is full, the stalest line falls off.
+
+The cap and the decay dates make bloat impossible, not only unlikely, so the profile stays a short text. The profile is what the cheap first call knows. A search at label time is the job of the gather ([Cost](#cost)). If an eval shows that the profile is not sufficient for the first call, the escape hatch of ADR-0121 decision 6 applies. Yash sees and edits both parts.
+
+## The mail facts
+
+One reader of the stored mail builds the facts that the model reads, and triage, the loop joins, the briefing, and the user model all read from it ([foundations](./README.md#4-what-to-work-on-next-foundations-first)). The required set (owner decision, 2026-11-14):
+
+- The message and thread identity, and the arrival time in Yash's zone.
+- The sender: the address, the display name, and the effective author that the sender context gives.
+- The recipients, which of Yash's accounts got the mail, and whether each recipient is a known contact.
+- The subject, and the plain body text.
+- Yash's own words in the thread: his replies.
+- The device, place, and app names that the mail states.
+- The Gmail-native signals: the labels and the spam state.
+- Whether attachments are present.
+
+The build plan owns the exact wire shape and the trimming (principle 7). No fact is a verdict: each fact is a source's words, and the model judges them.
+
+The mail facts hold only what the mail says. Triage is not limited to mail: Yash's acts in every other integration reach the model through the gather ([Cost](#cost)).
 
 ## Standing instructions
 
@@ -76,7 +122,7 @@ Code overrules the model in three cases only:
 
 1. Yash's correction on that thread.
 2. An instruction that names one person.
-3. The security check (for example, an exposed secret).
+3. The security check (for example, an exposed secret). An OTP in the inbox is not this case (owner decision, 2026-11-13).
 
 All other deterministic facts are evidence for the model. If any step changes a label after the model, the trace records what changed it and why. A change with no recorded reason is a defect.
 
@@ -86,12 +132,20 @@ A label that Yash changes in Gmail is a correction. The correction stays on that
 
 ## Cost
 
-The limit is a daily amount of money, not a model tier.
+The limit is a daily amount of money, not a model tier. A decision has the shape **judge → gather → judge**. It is never one stateless call (owner decision, 2026-11-14). Cost buys depth, not shape.
 
-- The cheap model makes the first decision on each mail.
-- A stronger model makes a second decision in two cases only. Code starts it, because the cheap model's confidence does not measure anything:
+- The cheap model makes the first decision on each mail. It reads the profile and the facts in hand. It searches nothing.
+- When the first decision hits a trigger, code starts the **gather**. The gather is a read-only Code Mode program (ADR-0124). It reads the stores below, and then the model decides again. The sources:
+  - Yash's own acts near the arrival time, from every integration, in time order (the activity record, ADR-0118). This gives the chronology at almost no cost.
+  - The thread, and Yash's own words in it.
+  - The sender facts.
+  - The searchable chats, the claims, and the journal notes with their sources.
+- The gather reads only the stores that are built. Each store joins the gather when it is built. Thus the gather does not wait for the journal or for memory.
+- The triggers. Code starts the gather. The cheap model's confidence never starts it.
   - The first decision is loud, and the sender is a bot or a bulk sender. False alarms come from here.
   - The first decision is quiet, and the mail has a signal of money, access, or a deadline. Buried matters come from here.
+  - A keyed fact contradicts the first decision. Example: the activity record shows that Yash already acted on the same thread or thing (a key join, ADR-0122). Code compares keys only, and Alfred's own past labels are never part of the comparison (principle 5).
+- The gather replaces the "stronger second decision" of ADR-0121 decision 10. For the gather only, it supersedes the "no search for each mail" rule of decision 6. The first call still searches nothing. The daily budget prices the gather. On a day over budget, the first decision stands.
 
 ## The prompt
 

@@ -24,7 +24,18 @@ The deck runs at $0 on the existing eval runner. Each later slice runs it before
 
 Built: `packages/assistant/evals/triage-deck.eval.ts`, with the cases in `evals/triage-deck/cases.ts` and the 21 prod instruction rows in `evals/triage-deck/instructions.ts`. The repo is public, so each body is a short excerpt with personal identifiers removed. Each case also records the label that prod gave it.
 
+To add (2026-11-14, from [the echo section](../theory/triage.md#echoes-of-the-users-own-actions)): the nine sign-in and OTP echoes of 2026-11-12 and 11-13 → `fyi`, and one sign-in by another person → loud, so that the deck guards both errors. The A56 join trail is a journal case, not a deck case.
+
 Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 mails). Each run makes real model calls, so a case near a label boundary can change from run to run. Run the deck two times before and after a slice, and read the label of each mail, not only the total. The misses are the faults above: every payment failure gets `payment`, the webinars get `action_needed` or `meeting`, the own CI failures get `action_needed`, and the streak mails get three labels.
+
+## Slice 0b — The mail-facts reader (foundation)
+
+- One reader of `documents.raw` builds the mail facts that [the theory page](../theory/triage.md#the-mail-facts) requires. Triage, the loop joins, the briefing, and the user model read from it.
+- It reuses the parsing that exists. `reduceGmailDocument` in `packages/assistant/src/knowledge/gmail-reducer.ts` already parses the recipients (principle 3).
+- This slice decides the wire shape and the trimming (principle 7).
+
+**Removes:** the recipient and header parsing that triage does again by itself.
+*Gate:* the eval deck holds, and each deck mail gets its facts from this reader only.
 
 ## Slice 1 — Stop the self-learning
 
@@ -61,7 +72,7 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 
 ## Slice 4 — The triage profile and instructions in words
 
-- The memory system writes one triage profile from chats, long-term memory, and cold-start research. Yash can see and edit it. `classify` reads it on each call.
+- The memory system writes one triage profile from chats, long-term memory, and cold-start research. It has two parts ([the profile](../theory/triage.md#the-profile)): a durable part, and a now section of at most 10 lines with decay dates. The now section stays empty until the journal exists. Yash can see and edit it. `classify` reads it on each call.
 - Each active instruction goes to the model in Yash's words, with its date, oldest to newest.
 - An instruction that names one person is resolved to an address at save time, Yash confirms it, and code applies it.
 - `rematch` becomes "triage the last 30 days again". From chat it shows a dry run first.
@@ -77,13 +88,14 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 
 *Gate:* a relabel in Gmail is seen, stays on the thread, and appears as evidence on the next mail from that sender.
 
-## Slice 6 — The second decision
+## Slice 6 — The gather
 
-- `deepen.ts` becomes the second decision, with the two triggers from the theory page and a daily budget in settings. Low confidence is not a trigger.
+- `deepen.ts` becomes the gather ([Cost](../theory/triage.md#cost)): a read-only Code Mode program, then the model decides again. It has the three triggers from the theory page and a daily budget in settings. Low confidence is not a trigger.
+- The gather reads only the stores that are built: first the activity record, the thread, and the sender facts. Chats, claims, and journal notes join it when they are built.
 - On a day over budget, the first decision stands.
 
 **Removes:** `shouldDeepen`, and the dormant `dossierRequest` path if no other reader needs it.
-*Gate:* the trigger rate and the cost per day are in the trace. The payment-failure cases are caught when the first decision misses them.
+*Gate:* the trigger rate and the cost per day are in the trace. The payment-failure cases are caught when the first decision misses them. The echo cases keep `fyi`, and the sign-in by another person is loud.
 
 ## Slice 7 — Follow-up workflows
 
