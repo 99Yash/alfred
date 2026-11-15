@@ -512,7 +512,10 @@ export function triageEmailHeaderLines(facts: MailFacts): string[] {
     ...recipientLine("To", facts.to),
     ...recipientLine("Cc", facts.cc),
     ...(facts.receivedBy ? [`Received by: your account ${facts.receivedBy}`] : []),
-    ...(facts.arrivedAt ? [`Arrived: ${facts.arrivedAt.local} (${facts.arrivedAt.timezone})`] : []),
+    // `Date`, because the prompt rules name "the email's Date". It carries the year.
+    ...(facts.arrivedAt
+      ? [`Date: ${facts.arrivedAt.local} (${facts.arrivedAt.weekday}, ${facts.arrivedAt.timezone})`]
+      : []),
     ...(stated.devices.length ? [`Device named in the mail: ${stated.devices.join("; ")}`] : []),
     ...(stated.places.length ? [`Place named in the mail: ${stated.places.join("; ")}`] : []),
     ...(stated.apps.length ? [`App named in the mail: ${stated.apps.join("; ")}`] : []),

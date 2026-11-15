@@ -67,10 +67,14 @@ export interface MailFacts {
   readonly messageId: string;
   /** `documents.source_thread_id`. */
   readonly threadId: string | null;
-  /** Arrival time as a wall-clock string in the user's zone, e.g. "Sun, Nov 15, 9:59 AM", plus the zone name. */
+  /**
+   * Arrival time in the user's zone: the wall clock with its year (`2026-10-19 13:30`), the
+   * short weekday (`Mon`), and the zone name. A deadline in the mail resolves against the year.
+   */
   readonly arrivedAt: {
     readonly at: Date;
     readonly local: string;
+    readonly weekday: string;
     readonly timezone: string;
   } | null;
   readonly sender: {
@@ -161,7 +165,14 @@ export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFac
         subject: row.title,
       });
 
-  const senderParse = extractSenderContext({ fromHeader: fromRaw, subject, body: fullBody });
+  // The same inputs the live classify step gave the parse before this reader: the stored
+  // `metadata.from`, the title, and the stored content with its envelope lines. A body parser
+  // can read an envelope line (a Linear subject), so the sender parse does not change here.
+  const senderParse = extractSenderContext({
+    fromHeader: metadata.from ?? null,
+    subject: row.title,
+    body: row.content,
+  });
 
   const at = row.authoredAt ?? internalDateFromMessage(message);
   const labelIds = metadata.labelIds ?? message?.labelIds ?? [];
@@ -173,7 +184,7 @@ export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFac
     documentId: row.id,
     messageId: row.sourceId,
     threadId: row.sourceThreadId,
-    arrivedAt: at ? { at, local: inZone(ctx.timezone).format(at), timezone: ctx.timezone } : null,
+    arrivedAt: at ? arrivalOf(at, ctx.timezone) : null,
     sender: {
       address: sender?.identity.value ?? null,
       displayName: sender?.displayName ?? null,
@@ -193,6 +204,18 @@ export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFac
     spam: labelIds.includes("SPAM"),
     hasAttachments: message ? extractAttachments(message).length > 0 : false,
     authenticationResults: headers.get("authentication-results"),
+  };
+}
+
+/** The arrival with its year: `2026-10-19 13:30`, `Mon`, and the zone. */
+function arrivalOf(at: Date, timezone: IanaTimezone): NonNullable<MailFacts["arrivedAt"]> {
+  const clock = inZone(timezone).clock(at);
+
+  return {
+    at,
+    local: `${clock.localDate} ${clock.localTime.slice(0, 5)}`,
+    weekday: clock.weekday.slice(0, 3),
+    timezone,
   };
 }
 

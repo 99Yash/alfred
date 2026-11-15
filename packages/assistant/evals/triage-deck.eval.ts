@@ -50,6 +50,23 @@ const INSTRUCTIONS = standingInstructionsOf(
   }),
 );
 
+/**
+ * `DECK_CASES=label1,label2` runs only those cases, to test a change narrowly. Unset runs the
+ * whole deck; a label that matches no case throws, so a typo cannot pass as a clean run.
+ */
+const DECK_RUN = deckRun(process.env["DECK_CASES"]); // drift-ok: an operator filter for a local eval run, not app config
+
+function deckRun(filter: string | undefined): readonly DeckCase[] {
+  if (!filter) return DECK;
+
+  const labels = new Set(filter.split(",").map((label) => label.trim()));
+  const unknown = [...labels].filter((label) => !DECK.some((c) => c.label === label));
+
+  if (unknown.length > 0) throw new Error(`[triage-deck] no case: ${unknown.join(", ")}`);
+
+  return DECK.filter((c) => labels.has(c.label));
+}
+
 function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs {
   const id = `deck_${c.label}_${index}`;
 
@@ -130,7 +147,7 @@ interface TaskOutput {
 }
 
 evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
-  data: () => DECK.map((c) => ({ input: c, expected: c })),
+  data: () => DECK_RUN.map((c) => ({ input: c, expected: c })),
   task: async (input) => {
     serverEnv();
     const mails: MailResult[] = [];

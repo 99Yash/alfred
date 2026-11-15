@@ -44,8 +44,8 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 | Field | Value |
 | --- | --- |
 | `documentId`, `messageId`, `threadId` | `documents.id`, `source_id`, `source_thread_id` |
-| `arrivedAt` | `authoredAt`, else Gmail's `internalDate`; the wall-clock text in the user's zone and the zone name |
-| `sender` | address, display name, the sender context (`extractSenderContext`, with the effective author), and the parser that named a body actor |
+| `arrivedAt` | `authoredAt`, else Gmail's `internalDate`; the wall clock in the user's zone with its year (`2026-10-19 13:30`), the short weekday, and the zone name |
+| `sender` | address, display name, the sender context (`extractSenderContext`, with the effective author), and the parser that named a body actor. The parse reads the stored `metadata.from`, the title, and the stored content with its envelope lines, as the classify step did before the reader, so this slice does not change it |
 | `replyTo` | the `Reply-To` header, trimmed |
 | `to`, `cc`, `bcc` | one entry per parsed address, each with `knownContact`. `null` when the header is absent; `[]` when it is present and empty |
 | `receivedBy` | the user's mailbox address for the row's account |
@@ -62,7 +62,7 @@ Rules:
 - **Trim.** The body stops at 6000 characters and ends in `[…truncated]`. At most 3 own replies, each cut to 500 characters, with quoted lines and the quoted history (from an `On … wrote:` line) removed. At most 5 values for each `stated` field.
 - **Stated names.** Only a line of the shape `Label: value` in the first 200 body lines counts, with a value of 1 to 120 characters, copied as written. The labels (case-insensitive): devices `Device`, `Device name`, `Browser`, `Operating system`, `OS`, `Platform`; places `Location`, `Approximate location`, `Country`, `Country/region`, `Region`, `City`; apps `App`, `Application`, `Client`. A name stated only in a sentence stays in the body. This is a parser of the mail's words, not a verdict and not a sender list.
 - **Known contact.** One batch read of the `person` aliases (`knownContactAddresses`) for the sender and every recipient. A failed read gives no known contacts and a warning.
-- **What the triage prompt shows.** From, Reply-To, To, Cc (each address marked when it is a known contact, `(empty)` for an empty header), the receiving account, the arrival time with its zone, the stated device, place, and app names, whether attachments are present, the subject, and the body. It does not show the authentication results or the own replies yet: slice 3 rewrites the prompt and decides them. The thread block stays as it is.
+- **What the triage prompt shows.** From, Reply-To, To, Cc (each address marked when it is a known contact, `(empty)` for an empty header), the receiving account, the arrival as `Date: 2026-10-19 13:30 (Mon, Asia/Kolkata)` (the label stays `Date`, because the prompt rules name "the email's Date", and the year resolves a deadline), the stated device, place, and app names, whether attachments are present, the subject, and the body. It does not show the authentication results or the own replies yet: slice 3 rewrites the prompt and decides them. The thread block stays as it is.
 
 ## Slice 1 — Stop the self-learning
 
