@@ -62,7 +62,7 @@ Each row in the received and derived layers carries two times. Each time has one
 - **The model always gets the time now and the user's zone.** Each time that a reader gives the model is in the user's zone, with the weekday. The model works out what came before what.
 - **The model knows that it can read these times.** Each store's entry on the [evidence map](./evidence-map.md) names its two times and what they mean (owner direction, 2026-11-15). The briefing is the main reader: mail times and the times of key activities give the chronology that makes the context. Triage can use them, but its cheap first call is not expected to depend on them.
 - **A row that has no source clock says so.** The reader shows the received time and marks it as such. It never shows the received time as the happened time.
-- **A time in the future is a fact in the source's words.** An expiry, a renewal, or a due date stays in the text of the item, and the model reads it (principle 4). Code does not parse it into a column. When Alfred plans a push or a reminder from it, the push carries its own due time, as an output of Alfred ([core-agent.md](./core-agent.md)). Whether the push comes before or after that time is what makes it useful (owner direction, 2026-11-15).
+- **A time in the future is a fact in the source's words.** An expiry, a renewal, or a due date stays in the text of the item, and the model reads it (principle 4). Code does not parse it into a column. Reminders and the push from such a time are on hold (owner, 2026-11-15). When they return, a reminder checks at fire time that it still applies, as meeting prep reads the calendar when it runs ([core-agent.md](./core-agent.md)).
 
 The columns today, and where they break this rule:
 
