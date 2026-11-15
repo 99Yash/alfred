@@ -56,7 +56,6 @@ async function withExecutingRound<T>(dispatched: string[], fn: () => Promise<T>)
     readFullAutonomy: () => Promise.resolve(false),
     executionLane: () => null,
     artifactStreamMode: () => null,
-    readApprovalStatus: () => Promise.resolve(null),
   };
 
   const surface: ToolRuntimeAdapter = {

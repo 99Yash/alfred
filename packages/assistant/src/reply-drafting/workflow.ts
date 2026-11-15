@@ -16,10 +16,7 @@ import {
 import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import { standingInstructions } from "@alfred/assistant/knowledge";
-import {
-  readToolCallApprovalStatus,
-  withdrawToolCallApproval,
-} from "@alfred/assistant/tool-runtime";
+import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { integrations } from "@alfred/integrations";
@@ -365,24 +362,11 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
 }
 
 async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
-  // A legacy run parked on a send approval: its approval row names the deleted send tool.
   const recorded = ctx.state.result;
-  const legacyStagingId = recorded?.outcome === "staged" ? recorded.stagingId : undefined;
-
-  if (recorded && legacyStagingId !== undefined) {
-    const decision = await readToolCallApprovalStatus({
-      runId: ctx.runId,
-      toolCallId: REPLY_TOOL_CALL_ID,
-      stagingId: legacyStagingId,
-    });
-
-    // The user refused the send, so Alfred writes no draft for it.
-    if (decision === "rejected") return finish(ctx, ctx.state, recorded);
-  }
-
   const result = await draftReply(ctx);
 
-  if (legacyStagingId !== undefined) {
+  // A legacy run parked on a send approval: its approval row names the deleted send tool.
+  if (recorded?.outcome === "staged" && recorded.stagingId != null) {
     await withdrawToolCallApproval({
       userId: ctx.userId,
       runId: ctx.runId,
