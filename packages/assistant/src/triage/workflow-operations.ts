@@ -33,12 +33,6 @@ import { extractSenderContext } from "./sender-context";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
 import { resolveSenderRelationship } from "./sender-relationship";
-import {
-  getSenderPrior,
-  incrementSenderPrior,
-  senderKeyFor,
-  senderPriorWriteKeyFor,
-} from "./sender-priors";
 import { mayBeUnflaggedSentMail } from "./sent-mail";
 import {
   getDocumentAuthoredAt,
@@ -343,7 +337,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       instructionEvaluation = result.instructionEvaluation;
     } catch (err) {
       // A low-confidence label beats none. The error goes in `rationale` so the row
-      // says why. `senderPriorWriteKeyFor` never learns from `model="fallback"`.
+      // says why. The row never teaches a prior: triage does not learn from its own
+      // labels (theory principle 5).
       const errMsg = toMessage(err);
       await ctx.log(`classify failed; falling through to default: ${errMsg}`);
       classification = {
@@ -530,51 +525,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     await ctx.log(
       `close-loop-todos: thread closure read failed for ${sourceThreadId} (treating as not-replied)`,
     );
-  }
-
-  // Sender-prior bump (ADR-0051 #2). It only adds, so each document teaches once:
-  // not on reuse, not on a reply re-eval, and not on a `force` re-run of a document
-  // an earlier run already stored. A missed vote is cheap; a duplicate is permanent.
-  const documentAlreadyTaughtPrior = Boolean(
-    existing && existing.runId !== ctx.runId && existing.documentId === ctx.state.documentId,
-  );
-
-  if (
-    !reusedExistingRow &&
-    written &&
-    ctx.state.reason !== "reply" &&
-    !documentAlreadyTaughtPrior
-  ) {
-    const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
-
-    const baseSenderKey = senderPriorWriteKeyFor({
-      senderContext,
-      senderAddress: senderContextResult.senderAddress,
-      isSent: docIsSent,
-      model,
-    });
-
-    const senderKey =
-      baseSenderKey ??
-      (!docIsSent &&
-      model !== "fallback" &&
-      observations?.senderKind &&
-      senderContextResult.senderAddress
-        ? senderContextResult.senderAddress.toLowerCase()
-        : null);
-
-    if (senderKey) {
-      try {
-        await incrementSenderPrior({
-          userId: ctx.userId,
-          senderKey,
-          category: classification.category,
-          displayName: ctxData.document.metadata.from ?? null,
-        });
-      } catch (err) {
-        await ctx.log(`sender_prior write failed (non-fatal): ${toMessage(err)}`);
-      }
-    }
   }
 
   // Rail todo (ADR-0050). `suggest_todo` merges on source overlap, so a re-run
@@ -1188,19 +1138,6 @@ export async function gatherObservations(args: {
       ? await resolveSenderKind(args.userId, args.senderAddress)
       : null;
 
-  const baseSenderKey = senderKeyFor(args.senderContext, args.senderAddress);
-
-  const senderKey =
-    baseSenderKey ?? (senderKind && args.senderAddress ? args.senderAddress.toLowerCase() : null);
-
-  const senderPrior = senderKey
-    ? await getSenderPrior(args.userId, senderKey).catch((err: unknown) => {
-        logger.warn({ err, userId: args.userId }, "[triage] sender prior read failed");
-
-        return null;
-      })
-    : null;
-
   const usePersonTreatment = isHumanSender && senderKind == null;
 
   // Best-effort hint: a failed read is not a known contact.
@@ -1225,8 +1162,6 @@ export async function gatherObservations(args: {
     .join("\n");
 
   const observations = assembleObservations({
-    senderKey,
-    senderPrior,
     persona: args.persona,
     thread,
     knownContact,

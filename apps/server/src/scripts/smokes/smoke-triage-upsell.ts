@@ -10,7 +10,6 @@ import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "service:github.com", categoryCounts: {}, lastCategory: null },
   persona: "personal",
   thread: {
     lastUserReplyAt: null,
@@ -54,8 +53,6 @@ interface Case {
   labelIds: string[];
   expectCategory: string[];
   expectTodo: boolean;
-  priorKey: string;
-  prior?: Record<string, number>;
   hasCurrencyAmount?: boolean;
 }
 
@@ -70,9 +67,6 @@ const CASES: Case[] = [
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
     expectCategory: ["marketing", "fyi"],
     expectTodo: false,
-    priorKey: "service:github.com",
-    // The self-reinforcing prior from earlier PR comments.
-    prior: { action_needed: 4, fyi: 2 },
   },
   {
     name: "COUNTER — real failed payment on a paid plan (must stay payment)",
@@ -84,7 +78,6 @@ const CASES: Case[] = [
     labelIds: ["UNREAD", "INBOX"],
     expectCategory: ["payment", "urgent", "action_needed"],
     expectTodo: true,
-    priorKey: "service:stripe.com",
     hasCurrencyAmount: true,
   },
   {
@@ -97,7 +90,6 @@ const CASES: Case[] = [
     labelIds: ["UNREAD", "INBOX"],
     expectCategory: ["payment", "action_needed"],
     expectTodo: true,
-    priorKey: "service:linear.app",
     hasCurrencyAmount: true,
   },
   {
@@ -110,9 +102,6 @@ const CASES: Case[] = [
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
     expectCategory: ["marketing", "fyi"],
     expectTodo: false,
-    priorKey: "service:greptile.com",
-    // The prod prior that pushed it to urgent.
-    prior: { action_needed: 3, urgent: 1, fyi: 1 },
   },
   {
     name: "COUNTER — vendor upgrade pitch direct from vendor (must be marketing/fyi)",
@@ -124,7 +113,6 @@ const CASES: Case[] = [
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
     expectCategory: ["marketing", "fyi"],
     expectTodo: false,
-    priorKey: "service:vercel.com",
   },
 ];
 
@@ -152,7 +140,6 @@ async function main() {
       senderContext,
       observations: baseObs({
         persona: c.persona,
-        senderPrior: { key: c.priorKey, categoryCounts: c.prior ?? {}, lastCategory: null },
         content: {
           hasUnsubscribe: false,
           hasCurrencyAmount: c.hasCurrencyAmount ?? false,

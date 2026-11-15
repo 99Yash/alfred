@@ -47,8 +47,8 @@ flowchart LR
     S3 --> S4["4 · close-loop-todos"]
   end
 
-  S1 --> OBS["determinism spend:<br/>sender-context · observations · thread-state<br/>sender-priors · sender-relationship · sent-mail<br/>knowledge/standing-instructions"]
-  OBS --> LLM["classify.ts<br/>cheap model · hedge.ts · detectConflict"]
+  S1 --> OBS["determinism spend:<br/>sender-context · observations · thread-state<br/>sender-relationship · sent-mail<br/>knowledge/standing-instructions"]
+  OBS --> LLM["classify.ts<br/>cheap model · hedge.ts"]
   LLM --> FLR["floors/: override → senderKind<br/>→ spam → standing → meeting"]
   FLR --> ST["store.ts · upsertTriage<br/>thread lock · same-tx trace"]
   ST --> ROW[("email_triage<br/>one row per thread")]
@@ -65,14 +65,13 @@ flowchart LR
 | File (lines) | Owns |
 | --- | --- |
 | `workflow-operations.ts` (1127) | The four step bodies, the edge table, skip paths, trace plumbing. **God-file.** |
-| `classify.ts` (1077) | The rubric (`SYSTEM_PROMPT` — the only live source of category rules), the cheap-model call, `detectConflict`, the second pass, floor application. **God-file.** |
+| `classify.ts` (1067) | The rubric (`SYSTEM_PROMPT` — the only live source of category rules), the cheap-model call, floor application. **God-file.** |
 | `store.ts` (482) | The one classifier writer of `email_triage`. User-pinned no-op, recency guard, same-transaction decision trace. |
 | `sender-context.ts` (400) | Deterministic From-envelope parsing (the fix for the original misclassification source). |
 | `gmail-reconcile.ts` (347) | The relabel sweep job — converges Gmail when the workflow could not. |
 | `floors/sender-kind.ts` (347) | Group/no-reply demotion with vetoes. |
 | `sender-extraction-event.ts` (228) | Floor audits → flat trace fields (the `triage.classification` decision trace). |
 | `observations.ts` (195) | `assembleObservations` — the deterministic context block the model sees. |
-| `sender-priors.ts` (191) | Add-only sender priors, double-teaching guarded. |
 | `tags.ts` (187) | The one Gmail label writer. One-label-per-thread invariant, 404 repoint, sibling strip. |
 | `thread-state.ts` (186) | Thread snippets the classifier re-reads per message (≤6 × 220 chars). |
 | `floors/index.ts` (183) | `FLOOR_SEQUENCE` + positional driver — order is compiler-checked. |

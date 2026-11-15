@@ -21,17 +21,6 @@ export const TRIAGE_REQUEST_TIMEOUT_MS = 30_000;
 /** Maximum length of the optional hard-fact fragment on a suggested todo. */
 export const TRIAGE_TODO_ASSIST_MAX_CHARS = 40;
 
-/** Minimum sender history needed before the bulk-prior recheck can fire. */
-export const TRIAGE_STRONG_BULK_MIN_TOTAL = 5;
-
-/** Minimum bulk-category share needed before the bulk-prior recheck can fire. */
-export const TRIAGE_STRONG_BULK_MIN_SHARE = 0.8;
-
-/** Service-prior `action_needed` recheck (#351): needs an established, skewed prior. */
-export const TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL = 8;
-
-export const TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE = 0.5;
-
 /**
  * The instruction allowance (ADR-0113): characters of scoped standing instructions in one
  * classifier prompt, with {@link TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES} as the count limit.

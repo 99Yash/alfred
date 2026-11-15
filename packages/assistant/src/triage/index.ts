@@ -2,7 +2,6 @@
 
 export {
   classifyEmail,
-  detectConflict,
   resolveTodoSuggestion,
   todoSuppressionReason,
   triageClassificationSchema,
@@ -85,19 +84,6 @@ export {
 } from "./sender-kind";
 
 export type { TriageSenderKindSignal } from "./sender-kind";
-
-export {
-  getSenderPrior,
-  incrementSenderPrior,
-  senderPriorWriteKeyFor,
-  senderKeyFor,
-} from "./sender-priors";
-
-export type {
-  SenderPrior,
-  IncrementSenderPriorArgs,
-  SenderPriorWriteKeyArgs,
-} from "./sender-priors";
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 

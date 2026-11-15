@@ -42,6 +42,8 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 - `classify` stops writing `incrementSenderPrior` with its own category (`workflow-operations.ts:568`) and stops reading the prior.
 - `detectConflict` and the second cheap pass go, because they depend on the prior.
 
+Built: https://github.com/99Yash/alfred/pull/1758.
+
 **Removes:** the prior write and read, `priorBulkProfile`, `priorActionShare`, `detectConflict` (`classify.ts:575-730`).
 *Gate:* the eval deck holds. The chess.com cases keep one label.
 

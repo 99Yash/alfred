@@ -23,8 +23,6 @@ export interface DeckMail {
   labelIds: readonly string[];
   /** The label that prod gave this mail. For the reader only; no scorer reads it. */
   prodCategory: TriageCategory;
-  /** Alfred's own past labels for the sender. Slice 1 deletes this input. */
-  senderPrior?: { key: string; counts: Partial<Record<TriageCategory, number>> };
   senderKind?: Pick<TriageSenderKindSignal, "kind" | "confidence" | "evidenceCodes">;
   knownContact?: boolean;
   senderRelationship?: string;
@@ -75,7 +73,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "streaks@chess.com", counts: { newsletter: 1, action_needed: 1 } },
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -85,7 +82,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-04T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "streaks@chess.com", counts: { newsletter: 1 } },
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -95,7 +91,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "newsletter",
-        senderPrior: { key: "streaks@chess.com", counts: {} },
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -128,7 +123,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: PROMOTIONS,
         prodCategory: "newsletter",
-        senderPrior: { key: "hello@chess.com", counts: { marketing: 2 } },
         senderKind: CHESS_STREAK_KIND,
       },
     ],
@@ -147,7 +141,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-06T09:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "payment",
-        senderPrior: { key: "noreply@github.com", counts: { fyi: 14, action_needed: 16 } },
         senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
       },
     ],
@@ -179,7 +172,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-31T06:00:00Z",
         labelIds: UPDATES,
         prodCategory: "payment",
-        senderPrior: { key: "hello@greptile.com", counts: {} },
         senderKind: {
           kind: "group",
           confidence: 0.99,
@@ -200,7 +192,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-23T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "payment",
-        senderPrior: { key: "service:stripe-billing", counts: { payment: 3 } },
       },
     ],
   },
@@ -233,7 +224,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-24T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "payment",
-        senderPrior: { key: "service:stripe-billing", counts: { payment: 4 } },
       },
       {
         from: "Voyage AI <invoice+statements+acct_1O4eAaJ1Erqf01gG@stripe.com>",
@@ -242,7 +232,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: ["CATEGORY_UPDATES", "INBOX"],
         prodCategory: "payment",
-        senderPrior: { key: "service:stripe-billing", counts: { payment: 5 } },
       },
       {
         from: "Cloudflare <noreply@notify.cloudflare.com>",
@@ -251,7 +240,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-01T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "payment",
-        senderPrior: { key: "noreply@notify.cloudflare.com", counts: { fyi: 1, payment: 5 } },
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -272,7 +260,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-29T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "payment",
-        senderPrior: { key: "noreply@notify.cloudflare.com", counts: { fyi: 1, payment: 4 } },
       },
     ],
   },
@@ -372,7 +359,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-22T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "donotreply.evoting@cdslindia.co.in", counts: { action_needed: 3 } },
       },
       {
         from: "evoting@nsdl.com",
@@ -467,7 +453,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-19T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "nse_alerts@nse.co.in", counts: {} },
       },
       {
         from: "nse_alerts <nse_alerts@nse.co.in>",
@@ -476,7 +461,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-30T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "fyi",
-        senderPrior: { key: "nse_alerts@nse.co.in", counts: { fyi: 2, action_needed: 1 } },
       },
     ],
   },
@@ -492,10 +476,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "payment",
-        senderPrior: {
-          key: "notifications@smallcase.com",
-          counts: { fyi: 4, done: 2, action_needed: 5 },
-        },
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -509,7 +489,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-15T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "notifications@smallcase.com", counts: {} },
       },
     ],
   },
@@ -527,7 +506,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "urgent",
-        senderPrior: { key: "hello@notify.railway.app", counts: { urgent: 3 } },
         senderKind: { kind: "service", confidence: 0.92, evidenceCodes: ["email:local:service"] },
       },
       {
@@ -537,7 +515,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-06T10:05:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "service:vercel", counts: { marketing: 1, action_needed: 10 } },
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -551,7 +528,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "notifications@linear.app", counts: { fyi: 2, action_needed: 5 } },
         senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
       },
       {
@@ -561,7 +537,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-06T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: { key: "notifications@github.com", counts: { action_needed: 7 } },
       },
       {
         from: "Yash Gourav Kar <notifications@github.com>",
@@ -571,10 +546,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-22T07:25:01Z",
         labelIds: UPDATES,
         prodCategory: "action_needed",
-        senderPrior: {
-          key: "notifications@github.com",
-          counts: { fyi: 26, urgent: 1, action_needed: 26 },
-        },
       },
     ],
   },

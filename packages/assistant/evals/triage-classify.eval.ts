@@ -72,10 +72,6 @@ interface Case {
   senderRelationship?: string | null;
   /** Rule-16b cold-contact flag, as `resolveSenderRelationship` derives it in prod. */
   isColdContact?: boolean;
-  /** Prior-key + histogram for senders that should carry a prior (services/bulk). */
-  senderKey?: string | null;
-  senderPrior?: Record<string, number>;
-  lastCategory?: TriageCategory;
   /** Newest first. */
   recentMessages?: ThreadMessageContext[];
   messageCount?: number;
@@ -111,7 +107,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "[acme/api] Redis URI exposed on GitHub",
     body: "A secret (Redis connection URI) was found exposed in a commit to acme/api. Rotate the credential immediately and remove it from history.",
-    senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["urgent"],
@@ -124,7 +119,6 @@ const CASES: Case[] = [
     from: "Anthropic <noreply@anthropic.com>",
     subject: "Your login code is 123456",
     body: "Enter this one-time code to finish signing in. It expires in 10 minutes. If you didn't request this, ignore the email.",
-    senderKey: "noreply@anthropic.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -152,9 +146,6 @@ const CASES: Case[] = [
     subject: "Fix imports not triggering deal driver messages",
     body: "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list.",
     snippet: "Brain: Done. Created the task in the backlog.",
-    senderKey: "notifications@clickup.com",
-    senderPrior: { fyi: 6, done: 2 },
-    lastCategory: "fyi",
     messageCount: 2,
     newestDirection: "received",
     recentMessages: [
@@ -181,9 +172,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Backlog",
     body: "Brain: Done. Created [Investigate slow dashboard load] in the 26.3 Backlog list.\nView comment or reply to add a comment",
-    senderKey: "notifications@tasks.clickup.com",
-    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
-    lastCategory: "action_needed",
     senderKind: {
       kind: "service",
       confidence: 0.92,
@@ -208,9 +196,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix deal driver messages after imports",
     body: "dvd set the status to 10 web\nView task or reply to add a comment",
-    senderKey: "notifications@tasks.clickup.com",
-    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
-    lastCategory: "action_needed",
     senderKind: {
       kind: "service",
       confidence: 0.92,
@@ -231,9 +216,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Conservice: Show all CRM fields as options",
     body: "Akash Ojha commented\nyes good catch\nView comment or reply to add a comment",
-    senderKey: "notifications@tasks.clickup.com",
-    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
-    lastCategory: "action_needed",
     senderKind: {
       kind: "service",
       confidence: 0.92,
@@ -254,9 +236,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix login redirect loop on SSO",
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
-    senderKey: "notifications@tasks.clickup.com",
-    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
-    lastCategory: "action_needed",
     senderKind: {
       kind: "service",
       confidence: 0.92,
@@ -277,9 +256,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Deal Merge Flow",
     body: "Sanyam mentioned you in a comment\n@yash.k pls merge this PR before the release branch is cut: https://github.com/OlivAIRepo/autosched-mirror/pull/654",
-    senderKey: "notifications@tasks.clickup.com",
-    senderPrior: { action_needed: 20, done: 6, fyi: 2 },
-    lastCategory: "action_needed",
     senderKind: {
       kind: "service",
       confidence: 0.92,
@@ -300,7 +276,6 @@ const CASES: Case[] = [
     from: "GitHub <notifications@github.com>",
     subject: "coderabbitai commented on pull request #42",
     body: "Review comment on /pull/42: consider adding an index on user_id to speed up this query. Nit: rename `foo` to `bar` for clarity. Overall looks good.",
-    senderKey: "notifications@github.com",
     sender: {
       fromKind: "service",
       effectiveAuthor: "bot",
@@ -318,7 +293,6 @@ const CASES: Case[] = [
     from: "Greptile <noreply@greptile.com>",
     subject: "You've reached your 50-review trial limit",
     body: "99Yash has reached the 50-review trial limit. Upgrade your plan to continue getting automated reviews from Greptile.",
-    senderKey: "noreply@greptile.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["marketing"],
@@ -333,7 +307,6 @@ const CASES: Case[] = [
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Ankur Singh wants to connect",
     body: "Ankur Singh, Senior Software Developer at Sosuv, would like to connect with you on LinkedIn. Accept or ignore.",
-    senderKey: "invitations@linkedin.com",
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -345,7 +318,6 @@ const CASES: Case[] = [
     from: "LinkedIn <notifications@linkedin.com>",
     subject: "People you may know at Acme",
     body: "Grow your network: add Priya, Karan, and Maya to your LinkedIn network. View profiles or connect now.",
-    senderKey: "notifications@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -358,7 +330,6 @@ const CASES: Case[] = [
     from: "LinkedIn <notifications@linkedin.com>",
     subject: "You appeared in 13 searches this week",
     body: "Your profile appeared in 13 searches this week. See who's searching for you and update your profile to get more views.",
-    senderKey: "notifications@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -390,7 +361,6 @@ const CASES: Case[] = [
     from: "Stripe <billing@stripe.com>",
     subject: "Your payment failed — update your card",
     body: "We couldn't charge your card for the $49.00 monthly invoice. Update your payment method by Jun 15 to avoid losing access to your account.",
-    senderKey: "billing@stripe.com",
     sender: { fromKind: "service", effectiveAuthor: "service", botSlug: "stripe-billing" },
     expected: {
       category: ["payment"],
@@ -452,9 +422,6 @@ const CASES: Case[] = [
     from: "Substack Digest <digest@substack.com>",
     subject: "Your weekly digest: 5 stories you might like",
     body: "Here are this week's top stories from the writers you follow. Read on the web or in the app. Unsubscribe anytime from your settings.",
-    senderKey: "digest@substack.com",
-    senderPrior: { newsletter: 12 },
-    lastCategory: "newsletter",
     labelIds: ["INBOX", "CATEGORY_UPDATES"],
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
@@ -533,7 +500,6 @@ const CASES: Case[] = [
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Arjun Rao wants to connect",
     body: "Arjun Rao, Founder & CEO at NimbusAI, would like to connect with you on LinkedIn. Accept or ignore.",
-    senderKey: "invitations@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -580,9 +546,6 @@ const CASES: Case[] = [
     subject: "Claude Incident — elevated error rate on Opus 4.8",
     body: "We are investigating elevated error rates affecting the Claude API and Console. Some requests may fail or be delayed. We will post updates here as we have them.",
     persona: "work",
-    senderKey: "no-reply@status.anthropic.com",
-    senderPrior: { fyi: 2, done: 1 },
-    lastCategory: "fyi",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -596,7 +559,6 @@ const CASES: Case[] = [
     subject: "[acme-api] Error rate spiking in production",
     body: "Your project acme-api is throwing 500s in production. Error rate is 40% over the last 10 minutes and climbing. Issue: TypeError in checkout handler, first seen 12 minutes ago.",
     persona: "work",
-    senderKey: "service:sentry",
     sender: {
       fromKind: "service",
       effectiveAuthor: "bot",
@@ -615,7 +577,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "[GitHub] Sudo email verification code",
     body: "Here is your sudo verification code: 284613. Enter it to confirm your identity and continue. This code expires in 15 minutes. If you did not request it, you can ignore this email.",
-    senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -628,7 +589,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "Passkey created",
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
-    senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -641,7 +601,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "Two-factor authentication enabled",
     body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
-    senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -667,7 +626,6 @@ const CASES: Case[] = [
     from: "Wellfound <team@wellfound.com>",
     subject: "Your Wellfound password was changed",
     body: "Your Wellfound password was changed. If you did not make this change, your account may be compromised — contact support immediately.",
-    senderKey: "team@wellfound.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -682,7 +640,6 @@ const CASES: Case[] = [
     from: "LinkedIn <security-noreply@linkedin.com>",
     subject: "Your verification code is 419283",
     body: "Your one-time token is 419283. This token expires in 10 minutes. Never share this token with anyone. If you did not request it, your account may be compromised.",
-    senderKey: "security-noreply@linkedin.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -696,7 +653,6 @@ const CASES: Case[] = [
     from: "Supabase <noreply@mail.app.supabase.io>",
     subject: "Reset your password",
     body: "Follow this link to reset your password: https://app.example.com/auth/v1/verify?token=pkce_9f1c4&type=recovery. If you did not request a password reset, your account may be compromised.",
-    senderKey: "noreply@mail.app.supabase.io",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -709,7 +665,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "A third-party OAuth application was added to your account",
     body: "The OAuth application 'DeployBot' was authorized to access your account with repo and read:org scopes. If you did not authorize this, revoke its access.",
-    senderKey: "noreply@github.com",
     sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
@@ -825,43 +780,6 @@ const CASES: Case[] = [
       note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
     },
   },
-  {
-    // Pins conflict net C alone. Other relay rows reach `fyi` on the first pass, so they stay green without it.
-    // A canned `awaiting_reply` first pass meets every net-C gate; delete the net and the category and
-    // `+2pass` both go red. Circle, not LinkedIn, because a prompt exemplar names the LinkedIn reminder.
-    label: "circle-relay-net-c-reask",
-    from: "Rhea Kapoor (via Circle) <community-noreply@circle-community-mail.com>",
-    subject: "Rhea Kapoor is still waiting for your reply in Build Club",
-    body: "Rhea Kapoor: I'm still waiting for your response. Reply in the community to continue the thread.",
-    runPass: ({ pass }) =>
-      Promise.resolve(
-        pass === "first"
-          ? {
-              category: "awaiting_reply",
-              confidence: 0.8,
-              rationale:
-                "The sender says they are still waiting for a response, so a reply is owed.",
-              todoSuggestion: null,
-              todoDecision: { outcome: "no_obligation", note: "No concrete deliverable." },
-              collabActivity: null,
-            }
-          : {
-              category: "fyi",
-              confidence: 0.9,
-              rationale:
-                "The envelope belongs to the platform, so rule 8a governs: relayed community activity is passive, and the waiting phrase is engagement boilerplate.",
-              todoSuggestion: null,
-              todoDecision: { outcome: "no_obligation", note: "No user-owned obligation." },
-              collabActivity: null,
-            },
-      ),
-    expected: {
-      category: ["fyi"],
-      guards: ["+2pass"],
-      todo: "suppress",
-      note: "A deterministic service envelope cannot owe a reply, so net C re-asks once and the second pass returns the passive answer rule 8a requires. The `+2pass` tag proves the re-ask ran rather than threw.",
-    },
-  },
 ];
 
 interface TaskOutput {
@@ -892,10 +810,6 @@ function buildArgs(c: Case): ClassifyEmailArgs {
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
 
   const observations = assembleObservations({
-    senderKey: c.senderKey ?? null,
-    senderPrior: c.senderPrior
-      ? { categoryCounts: c.senderPrior, lastCategory: c.lastCategory ?? null }
-      : null,
     persona: c.persona ?? "work",
     thread: {
       lastUserReplyAt: c.lastUserReplyAt ?? null,
@@ -950,16 +864,6 @@ function renderJudgeContext(c: Case, sender: SenderContext): string {
 
   if (c.senderRelationship) {
     lines.push(`Sender relationship: ${c.senderRelationship}`);
-  }
-
-  if (c.senderKey) {
-    const prior = c.senderPrior
-      ? Object.entries(c.senderPrior)
-          .map(([category, count]) => `${category}:${count}`)
-          .join(", ")
-      : "no history";
-
-    lines.push(`Sender prior [${c.senderKey}]: ${prior}`);
   }
 
   if (c.messageCount || c.recentMessages?.length) {

@@ -147,8 +147,6 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   senderAddress: SenderContextResult["senderAddress"];
   senderDomain: SenderContextResult["senderDomain"];
   persona: AccountPersona | null;
-  senderPriorKey: string | null;
-  senderPriorCounts: Record<string, number>;
   knownContact: boolean;
   senderRelationship: string | null;
   senderKind: TriageSenderKindSignal["kind"] | null;
@@ -164,6 +162,7 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   firstPassCategory: TriageCategory | null;
   firstPassConfidence: number | null;
   firstPassCollabActivity: CollabActivityKind | null;
+  /** Always null: the conflict re-ask is removed (slice 1). Keys stay for old rows. */
   conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
   secondPassCategory: TriageCategory | null;
   secondPassCollabActivity: CollabActivityKind | null;
@@ -230,8 +229,6 @@ export function senderExtractionEvent(args: {
     senderDomain: args.senderContextResult.senderDomain,
     // observations
     persona: obs.persona,
-    senderPriorKey: obs.senderPrior.key,
-    senderPriorCounts: obs.senderPrior.categoryCounts,
     knownContact: obs.knownContact,
     senderRelationship: obs.senderRelationship,
     senderKind: obs.senderKind?.kind ?? null,

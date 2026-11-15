@@ -64,8 +64,6 @@ async function main() {
     });
 
     const observations = assembleObservations({
-      senderKey: null,
-      senderPrior: null,
       persona: "work",
       thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
       knownContact: false,

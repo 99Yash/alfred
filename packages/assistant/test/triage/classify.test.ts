@@ -6,7 +6,6 @@ import { parseIanaTimezone } from "@alfred/contracts";
 import {
   classifyCallOptions,
   classifyEmail,
-  detectConflict,
   noteMarksFailingOutcome,
   normalizeClassifierOutput,
   resolveTodoSuggestion,
@@ -66,7 +65,6 @@ function applyMeetingDemotionFloor(...args: Parameters<typeof meetingFloorVerdic
 
 function observations(overrides: Partial<Observations> = {}): Observations {
   return {
-    senderPrior: { key: null, categoryCounts: {}, lastCategory: null },
     persona: null,
     thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
     knownContact: false,
@@ -108,13 +106,13 @@ function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {
 }
 
 /** A canned model: one fixed output per pass, and a call count. */
-function scriptedModel(first: TriageClassification, second?: TriageClassification) {
+function scriptedModel(first: TriageClassification) {
   let calls = 0;
 
-  const runPass: RunPass = async ({ pass }) => {
+  const runPass: RunPass = async () => {
     calls++;
 
-    return pass === "second" && second ? second : first;
+    return first;
   };
 
   return { runPass, calls: () => calls };
@@ -985,279 +983,6 @@ describe("applyMeetingDemotionFloor", () => {
 });
 
 // ---------------------------------------------------------------------------
-// detectConflict
-// ---------------------------------------------------------------------------
-
-describe("detectConflict", () => {
-  test("under-classification: security flag + passive category, floor not firing", () => {
-    const conflict = detectConflict(
-      classification({ category: "fyi" }),
-      observations({ content: { ...observations().content, hasSecurityKeyword: true } }),
-      false,
-    );
-
-    assert.equal(conflict?.kind, "under_classification");
-  });
-
-  test("no under-classification when the floor will already force urgent", () => {
-    const conflict = detectConflict(
-      classification({ category: "fyi" }),
-      observations({ content: { ...observations().content, hasSecurityKeyword: true } }),
-      true,
-    );
-
-    assert.equal(conflict, null);
-  });
-
-  test("over-classification: important category from a strong-bulk sender, no support", () => {
-    const conflict = detectConflict(
-      classification({ category: "urgent" }),
-      observations({
-        senderPrior: {
-          key: "news@x.com",
-          categoryCounts: { newsletter: 9, marketing: 1 },
-          lastCategory: "newsletter",
-        },
-      }),
-      false,
-    );
-
-    assert.equal(conflict?.kind, "over_classification");
-  });
-
-  test("no over-classification when Gmail marked the message IMPORTANT", () => {
-    const conflict = detectConflict(
-      classification({ category: "urgent" }),
-      observations({
-        senderPrior: {
-          key: "news@x.com",
-          categoryCounts: { newsletter: 9, marketing: 1 },
-          lastCategory: "newsletter",
-        },
-        gmail: {
-          categories: [],
-          important: true,
-          starred: false,
-          inInbox: true,
-          spam: false,
-          trash: false,
-        },
-      }),
-      false,
-    );
-
-    assert.equal(conflict, null);
-  });
-
-  test("no over-classification when the bulk share or volume is too low", () => {
-    // share 0.6 < 0.8
-    assert.equal(
-      detectConflict(
-        classification({ category: "urgent" }),
-        observations({
-          senderPrior: {
-            key: "x",
-            categoryCounts: { newsletter: 3, payment: 2 },
-            lastCategory: "newsletter",
-          },
-        }),
-        false,
-      ),
-      null,
-    );
-    // total 4 < 5
-    assert.equal(
-      detectConflict(
-        classification({ category: "urgent" }),
-        observations({
-          senderPrior: { key: "x", categoryCounts: { newsletter: 4 }, lastCategory: "newsletter" },
-        }),
-        false,
-      ),
-      null,
-    );
-  });
-
-  test("no conflict for an ordinary passive classification with no signals", () => {
-    assert.equal(detectConflict(classification({ category: "fyi" }), observations(), false), null);
-  });
-
-  test("loop-state conflict rechecks passive collaboration activity over an unanswered received message", () => {
-    const conflict = detectConflict(
-      classification({ category: "fyi", collabActivity: "other_activity" }),
-      observations({
-        thread: {
-          lastUserReplyAt: null,
-          newestDirection: "received",
-          messageCount: 1,
-          recentMessages: [
-            {
-              direction: "received",
-              authoredAt: new Date("2026-06-10T10:00:00Z"),
-              snippet: "Please fix the import issue.",
-            },
-          ],
-        },
-      }),
-      false,
-    );
-
-    assert.equal(conflict?.kind, "loop_state");
-  });
-
-  test("loop-state conflict stays silent when the user replied after the prior activity", () => {
-    assert.equal(
-      detectConflict(
-        classification({ category: "fyi", collabActivity: "other_activity" }),
-        observations({
-          thread: {
-            lastUserReplyAt: new Date("2026-06-10T11:00:00Z"),
-            newestDirection: "sent",
-            messageCount: 2,
-            recentMessages: [
-              {
-                direction: "received",
-                authoredAt: new Date("2026-06-10T10:00:00Z"),
-                snippet: "Please fix the import issue.",
-              },
-            ],
-          },
-        }),
-        false,
-      ),
-      null,
-    );
-  });
-
-  test("over-classification A: a bulk sender's security-topic MENTION is still challenged when the floor is silent (the 'stop storing your api keys' newsletter miss)", () => {
-    const conflict = detectConflict(
-      classification({ category: "urgent" }),
-      observations({
-        senderPrior: {
-          key: "newsletter@devdigest.io",
-          categoryCounts: { newsletter: 8, marketing: 2 },
-          lastCategory: "newsletter",
-        },
-        // The net is gated on the floor, not the keyword, so an educational mention is re-asked.
-        content: { ...observations().content, hasSecurityKeyword: true },
-      }),
-      false, // floor did not match: no exposure verb
-    );
-
-    assert.equal(conflict?.kind, "over_classification");
-  });
-
-  test("no over-classification A when the floor WILL force urgent (a real exposed secret from a bulk sender)", () => {
-    const conflict = detectConflict(
-      classification({ category: "urgent" }),
-      observations({
-        senderPrior: {
-          key: "newsletter@devdigest.io",
-          categoryCounts: { newsletter: 9, marketing: 1 },
-          lastCategory: "newsletter",
-        },
-        content: { ...observations().content, hasSecurityKeyword: true },
-      }),
-      true, // floor matched, so do not challenge; it forces urgent anyway
-    );
-
-    assert.equal(conflict, null);
-  });
-
-  test("over-classification B: a service sender's action_needed spike is challenged against a self-reinforcing prior (#351)", () => {
-    const conflict = detectConflict(
-      classification({ category: "action_needed" }),
-      observations({
-        senderPrior: {
-          key: "service:tasks.clickup.com",
-          categoryCounts: { action_needed: 8, fyi: 3, done: 1 },
-          lastCategory: "action_needed",
-        },
-      }),
-      false,
-    );
-
-    assert.equal(conflict?.kind, "over_classification");
-  });
-
-  test("over-classification B also fires via senderKind=service (an unrecognized service address)", () => {
-    const conflict = detectConflict(
-      classification({ category: "action_needed" }),
-      observations({
-        senderPrior: {
-          key: "notifications@sometracker.com",
-          categoryCounts: { action_needed: 10, fyi: 2 },
-          lastCategory: "action_needed",
-        },
-        senderKind: {
-          kind: "service",
-          confidence: 0.9,
-          evidenceCodes: [],
-          entityId: "ent_tracker",
-          displayName: "SomeTracker",
-        },
-      }),
-      false,
-    );
-
-    assert.equal(conflict?.kind, "over_classification");
-  });
-
-  test("over-classification B fires for a production-shaped service sender key via SenderContext", () => {
-    const conflict = detectConflict(
-      classification({ category: "action_needed" }),
-      observations({
-        senderPrior: {
-          key: "notifications@tasks.clickup.com",
-          categoryCounts: { action_needed: 10, fyi: 2 },
-          lastCategory: "action_needed",
-        },
-      }),
-      false,
-      { effectiveAuthor: "service" },
-    );
-
-    assert.equal(conflict?.kind, "over_classification");
-  });
-
-  test("no over-classification B for a low-volume service prior (the loop is not yet established)", () => {
-    assert.equal(
-      detectConflict(
-        classification({ category: "action_needed" }),
-        observations({
-          senderPrior: {
-            key: "service:tasks.clickup.com",
-            categoryCounts: { action_needed: 3, fyi: 1 },
-            lastCategory: "action_needed",
-          },
-        }),
-        false,
-      ),
-      null,
-    );
-  });
-
-  test("no over-classification B for a non-service (person) sender, even with an action_needed-heavy prior", () => {
-    // The service net must not challenge a real person's direct ask.
-    assert.equal(
-      detectConflict(
-        classification({ category: "action_needed" }),
-        observations({
-          senderPrior: {
-            key: "colleague@work.com",
-            categoryCounts: { action_needed: 9, fyi: 1 },
-            lastCategory: "action_needed",
-          },
-        }),
-        false,
-        { effectiveAuthor: "person" },
-      ),
-      null,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
 // classifyEmail orchestration (injected model, no live LLM)
 // ---------------------------------------------------------------------------
 
@@ -1404,37 +1129,6 @@ describe("classifyEmail", () => {
     assert.match(prompt, /=== Body ===\nDate: September 1\nTime: 10:00\nLocation: Room 4/);
   });
 
-  test("rechecks a passive collaboration event when an earlier received ask may remain open", async () => {
-    const model = scriptedModel(
-      classification({ category: "fyi", collabActivity: "other_activity" }),
-      classification({ category: "action_needed", collabActivity: "other_activity" }),
-    );
-
-    const result = await classifyEmail(
-      args({
-        observations: observations({
-          thread: {
-            lastUserReplyAt: null,
-            newestDirection: "received",
-            messageCount: 1,
-            recentMessages: [
-              {
-                direction: "received",
-                authoredAt: null,
-                snippet: "Priya assigned this task to you and asked you to fix it.",
-              },
-            ],
-          },
-        }),
-        runPass: model.runPass,
-      }),
-    );
-
-    assert.equal(model.calls(), 2);
-    assert.equal(result.audit.conflict?.kind, "loop_state");
-    assert.equal(result.classification.category, "action_needed");
-  });
-
   test("acceptance: prior-heavy newsletter sender + credential-exposure body still lands urgent", async () => {
     // The model says newsletter, but the body exposes a secret.
     const model = scriptedModel(classification({ category: "newsletter", confidence: 0.95 }));
@@ -1448,13 +1142,7 @@ describe("classifyEmail", () => {
           authoredAt: null,
           metadata: {},
         },
-        observations: observations({
-          senderPrior: {
-            key: "news@x.com",
-            categoryCounts: { newsletter: 40 },
-            lastCategory: "newsletter",
-          },
-        }),
+        observations: observations(),
         runPass: model.runPass,
       }),
     );
@@ -1485,30 +1173,6 @@ describe("classifyEmail", () => {
     assert.equal(result.audit.floors.override.verdict.kind, "keep");
     assert.equal(result.audit.conflict, null);
     assert.equal(model.calls(), 1); // no second pass
-  });
-
-  test("acceptance: a hard conflict triggers at most one second pass", async () => {
-    // First pass says fyi on a security body; the second pass corrects it and is final.
-    const model = scriptedModel(
-      classification({ category: "fyi" }),
-      classification({ category: "action_needed", confidence: 0.7 }),
-    );
-
-    const result = await classifyEmail(
-      args({
-        observations: observations({
-          content: { ...observations().content, hasSecurityKeyword: true },
-        }),
-        runPass: model.runPass,
-      }),
-    );
-
-    assert.equal(model.calls(), 2);
-    assert.equal(result.audit.conflict?.kind, "under_classification");
-    assert.equal(result.audit.secondPass?.category, "action_needed");
-    assert.equal(result.audit.secondPassFailure, null);
-    assert.equal(result.classification.category, "action_needed");
-    assert.match(result.model, /\+2pass$/);
   });
 
   test("no conflict → single pass, audit reflects no second pass or floor", async () => {
@@ -1980,96 +1644,6 @@ describe("classifyEmail", () => {
     assert.deepEqual(resolveTodoSuggestion(result.classification, null), {
       name: "Rotate the leaked Redis key",
     });
-  });
-
-  test("over-classification drives exactly one second pass through classifyEmail and tags +2pass", async () => {
-    // A bulk sender spikes to urgent with no support; one second pass corrects it.
-    const model = scriptedModel(
-      classification({ category: "urgent", confidence: 0.8 }),
-      classification({ category: "newsletter", confidence: 0.9 }),
-    );
-
-    const result = await classifyEmail(
-      args({
-        observations: observations({
-          senderPrior: {
-            key: "news@x.com",
-            categoryCounts: { newsletter: 40 },
-            lastCategory: "newsletter",
-          },
-        }),
-        runPass: model.runPass,
-      }),
-    );
-
-    assert.equal(model.calls(), 2);
-    assert.equal(result.audit.conflict?.kind, "over_classification");
-    assert.equal(result.audit.secondPass?.category, "newsletter");
-    assert.equal(result.classification.category, "newsletter");
-    assert.match(result.model, /\+2pass$/);
-  });
-
-  test("a failing under-classification second pass records the failure and keeps the first pass", async () => {
-    // A failed second pass must not throw (the message would fall to `fyi`) or escalate.
-    // Every vendor auth echo sets `hasSecurityKeyword`, so escalating on an outage misfiles them.
-    let calls = 0;
-
-    const runPass: RunPass = async ({ pass }) => {
-      calls++;
-
-      if (pass === "second") throw new Error("transient second-pass failure");
-
-      return classification({ category: "newsletter", confidence: 0.7 });
-    };
-
-    const result = await classifyEmail(
-      args({
-        observations: observations({
-          content: { ...observations().content, hasSecurityKeyword: true },
-        }),
-        runPass,
-      }),
-    );
-
-    assert.equal(calls, 2); // conflict fired, second pass attempted
-    assert.equal(result.audit.conflict?.kind, "under_classification");
-    assert.equal(result.audit.secondPass, null);
-    assert.match(result.audit.secondPassFailure?.message ?? "", /transient second-pass failure/);
-    assert.equal(result.classification.category, "newsletter");
-    assert.equal(result.classification.confidence, 0.7);
-    assert.equal(result.model, "injected+2pass_failed");
-  });
-
-  test("a failing over-classification second pass keeps the first pass but records the failure", async () => {
-    let calls = 0;
-
-    const runPass: RunPass = async ({ pass }) => {
-      calls++;
-
-      if (pass === "second") throw new Error("temporary outage");
-
-      return classification({ category: "urgent", confidence: 0.7 });
-    };
-
-    const result = await classifyEmail(
-      args({
-        observations: observations({
-          senderPrior: {
-            key: "news@x.com",
-            categoryCounts: { newsletter: 40 },
-            lastCategory: "newsletter",
-          },
-        }),
-        runPass,
-      }),
-    );
-
-    assert.equal(calls, 2);
-    assert.equal(result.audit.conflict?.kind, "over_classification");
-    assert.equal(result.audit.secondPass, null);
-    assert.match(result.audit.secondPassFailure?.message ?? "", /temporary outage/);
-    assert.equal(result.classification.category, "urgent");
-    assert.equal(result.model, "injected+2pass_failed");
   });
 });
 

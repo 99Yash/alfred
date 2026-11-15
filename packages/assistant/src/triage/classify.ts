@@ -12,8 +12,6 @@ import {
   confidenceSchema,
   documentAskProposalSchema,
   extractGmailDocumentBody,
-  isOwnershipCollabActivity,
-  isPassiveCollabActivity,
   sanitizeErrorMessage,
   sanitizeToolResult,
   triageTodoDecisionSchema,
@@ -38,10 +36,6 @@ import {
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_MAX_OUTPUT_TOKENS,
   TRIAGE_REQUEST_TIMEOUT_MS,
-  TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE,
-  TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL,
-  TRIAGE_STRONG_BULK_MIN_SHARE,
-  TRIAGE_STRONG_BULK_MIN_TOTAL,
   TRIAGE_TODO_ASSIST_MAX_CHARS,
 } from "./constants";
 import {
@@ -70,8 +64,9 @@ import {
 export { MAX_RATIONALE_LEN, truncateRationale };
 
 /**
- * Email triage, cheap model always (ADR-0051): one cheap pass, an optional
- * second pass, then the deterministic floors.
+ * Email triage, cheap model always (ADR-0051): one cheap pass, then the
+ * deterministic floors. The conflict re-ask (ADR-0051 §4b) is removed: its nets
+ * fed the model's own labels back as evidence (theory principle 5).
  */
 
 /** Which rubric test (rule 16) decided the todo call. In contracts so the row can store it. */
@@ -130,7 +125,6 @@ export type TriageClassifierOutput = z.infer<typeof triageClassificationWithMatc
 export type RunPass = (input: {
   system: string;
   prompt: string;
-  pass: "first" | "second";
   /** The prompt carries scoped instructions, so the pass asks for `instructionMatches`. */
   withInstructionMatches: boolean;
   /** The prompt carries the todo rubric (rule 16), so the pass asks for the todo fields. */
@@ -182,7 +176,7 @@ export interface ClassifyEmailArgs {
   runPass?: RunPass;
 }
 
-/** Why the second cheap pass fired (ADR-0051 §4b). */
+/** Why a second cheap pass would have fired (ADR-0051 §4b). The pass is removed. */
 export interface TriageConflict {
   kind: "under_classification" | "over_classification" | "loop_state";
   /** Goes into the second-pass prompt and the audit. */
@@ -192,6 +186,10 @@ export interface TriageConflict {
 /** Stored in the `triage.classification` trace. */
 export interface ClassifyAudit {
   firstPass: TriageClassification;
+  /**
+   * Null always: the conflict re-ask is removed (slice 1). The fields stay so the
+   * `triage.classification` trace shape is stable for the stored rows before it.
+   */
   conflict: TriageConflict | null;
   secondPass: TriageClassification | null;
   secondPassFailure: { message: string } | null;
@@ -216,18 +214,11 @@ export interface StandingClassifyAudit {
   undecided: number;
 }
 
-const PASSIVE_CATEGORIES = new Set<TriageCategory>(["fyi", "done", "newsletter", "marketing"]);
-
-const IMPORTANT_CATEGORIES = new Set<TriageCategory>(["urgent", "action_needed"]);
-
 /**
  * Never carry a rail todo. A real obligation here means the category is wrong.
  * `fyi` and `done` stay out: "auto-renews unless you cancel" is a real todo.
  */
 const TODO_INELIGIBLE_CATEGORIES = new Set<TriageCategory>(["marketing", "newsletter"]);
-
-/** Count toward a sender's "bulk" share for the over-classification net. */
-const BULK_PRIOR_CATEGORIES = new Set<string>(["newsletter", "marketing", "fyi", "done"]);
 
 /** Rules 1 to 15: the category rules. Both prompt variants open with them. */
 const PROMPT_BEFORE_TODO_RULE = `You triage emails for a personal assistant. Classify each email into EXACTLY ONE category:
@@ -434,20 +425,6 @@ function renderObservations(obs: Observations): string {
 
   lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
 
-  const counts = obs.senderPrior.categoryCounts;
-  const keys = Object.keys(counts);
-
-  if (obs.senderPrior.key && keys.length) {
-    const hist = keys.map((k) => `${k}:${counts[k]}`).join(", ");
-    lines.push(
-      `Sender prior [${obs.senderPrior.key}]: { ${hist} } (last: ${obs.senderPrior.lastCategory ?? "n/a"})`,
-    );
-  } else if (obs.senderPrior.key) {
-    lines.push(`Sender prior [${obs.senderPrior.key}]: no history yet`);
-  } else {
-    lines.push(`Sender prior: n/a (human sender — judge per message)`);
-  }
-
   lines.push(`Known contact: ${obs.knownContact ? "yes" : "no"}`);
 
   if (obs.senderRelationship) {
@@ -509,11 +486,7 @@ export function triageEmailBody(document: TriageEmailDocument): string {
     : body;
 }
 
-function userPrompt(
-  args: ClassifyEmailArgs,
-  conflict: TriageConflict | null,
-  instructionSection: string | null,
-): string {
+function userPrompt(args: ClassifyEmailArgs, instructionSection: string | null): string {
   const lines: string[] = [];
 
   lines.push("=== SenderContext ===");
@@ -555,175 +528,7 @@ function userPrompt(
     "Final loop-state check: if the earlier context shows an unanswered user-owned assignment or ask, you MUST keep action_needed/awaiting_reply. A passive current message cannot demote that open loop.",
   );
 
-  if (conflict) {
-    lines.push("");
-    lines.push("=== INCONSISTENCY DETECTED (reconsider) ===");
-    lines.push(conflict.message);
-    lines.push(
-      "A deterministic check flags your first answer as a likely error. Re-read the email and the observations: if your first classification was right, keep it and say why; otherwise correct it.",
-    );
-  }
-
   return lines.join("\n");
-}
-
-interface BulkProfile {
-  total: number;
-  bulkShare: number;
-}
-
-function priorBulkProfile(categoryCounts: Record<string, number>): BulkProfile {
-  let total = 0;
-  let bulk = 0;
-
-  for (const [cat, n] of Object.entries(categoryCounts)) {
-    total += n;
-
-    if (BULK_PRIOR_CATEGORIES.has(cat)) bulk += n;
-  }
-
-  return { total, bulkShare: total > 0 ? bulk / total : 0 };
-}
-
-interface ActionShare {
-  total: number;
-  actionShare: number;
-}
-
-function priorActionShare(categoryCounts: Record<string, number>): ActionShare {
-  let total = 0;
-  let action = 0;
-
-  for (const [cat, n] of Object.entries(categoryCounts)) {
-    total += n;
-
-    if (cat === "action_needed") action += n;
-  }
-
-  return { total, actionShare: total > 0 ? action / total : 0 };
-}
-
-/** A received message may be newer than the user's last reply. Not proof of an ask. */
-function hasPossiblyUnansweredReceivedContext(observations: Observations): boolean {
-  const lastReply = observations.thread.lastUserReplyAt;
-
-  return observations.thread.recentMessages.some(
-    (message) =>
-      message.direction === "received" &&
-      (lastReply == null || message.authoredAt == null || message.authoredAt > lastReply),
-  );
-}
-
-/**
- * Find a conflict between the first answer and typed evidence that earns one
- * second pass (ADR-0051 §4b). `floorMatches` skips a re-ask the override floor makes moot.
- */
-export function detectConflict(
-  classification: TriageClassification,
-  observations: Observations,
-  floorMatches: boolean,
-  senderContext?: Pick<SenderContext, "effectiveAuthor">,
-): TriageConflict | null {
-  // Security vocabulary but a passive category, and the floor will not fix it.
-  if (
-    observations.content.hasSecurityKeyword &&
-    PASSIVE_CATEGORIES.has(classification.category) &&
-    !floorMatches
-  ) {
-    return {
-      kind: "under_classification",
-      message: `Security or authentication vocabulary was detected in the body, but you classified this as "${classification.category}" (a passive category). Re-check WHO asserts that something went wrong (rule 15). If the only asserter is the account's own vendor reporting an event on that account — including any "if you didn't do this" boilerplate, however alarming — the passive category is CORRECT and you should keep it. Escalate only when a party reports a risk they claim to have OBSERVED (an unrecognized device or location, a scanner naming a committed key, a breach naming the user's credential) or when the body carries a concrete non-auth obligation you overlooked.`,
-    };
-  }
-
-  // A passive collab event, but an earlier received message may hold an open ask.
-  // The second pass may keep the passive answer.
-  const collabActivity = classification.collabActivity ?? null;
-
-  if (
-    PASSIVE_CATEGORIES.has(classification.category) &&
-    collabActivity != null &&
-    isPassiveCollabActivity(collabActivity) &&
-    hasPossiblyUnansweredReceivedContext(observations)
-  ) {
-    return {
-      kind: "loop_state",
-      message:
-        `You classified the current collaboration event as passive ${classification.category}/${collabActivity}, ` +
-        "but an earlier received thread message may be newer than the user's last reply. Re-read the earlier message for an assignment or direct ask owned by the user. Keep the passive category only when that context contains no unanswered user-owned work; otherwise keep the open loop action_needed/awaiting_reply.",
-    };
-  }
-
-  // Net A: an important category from a mostly-bulk sender.
-  // Gate on `!floorMatches`, not `!hasSecurityKeyword`: a bulk mail that only
-  // mentions security is the false urgent this net must re-ask.
-  if (
-    IMPORTANT_CATEGORIES.has(classification.category) &&
-    !floorMatches &&
-    !observations.gmail.important
-  ) {
-    const { total, bulkShare } = priorBulkProfile(observations.senderPrior.categoryCounts);
-
-    if (total >= TRIAGE_STRONG_BULK_MIN_TOTAL && bulkShare >= TRIAGE_STRONG_BULK_MIN_SHARE) {
-      return {
-        kind: "over_classification",
-        message: `You classified this as "${classification.category}", but this sender is historically bulk mail (${Math.round(bulkShare * 100)}% of ${total} prior messages were newsletter/marketing/fyi/done), Gmail did not mark it IMPORTANT, and no exposed-secret signal fired. Promotional-urgency language ("act now", "last chance"), an educational or security-topic MENTION, or a third-party vendor's own status/incident post is not a real deadline or YOUR incident — confirm this is genuinely actionable BY the user (rules 12f, 16b).`,
-      };
-    }
-  }
-
-  // Net B (#351): a service sender whose prior is mostly `action_needed` feeds
-  // its own history back as proof. Re-ask once; a real assignment keeps it.
-  // Net A misses this because that prior is not "bulk".
-  if (
-    classification.category === "action_needed" &&
-    !floorMatches &&
-    !observations.gmail.important
-  ) {
-    const priorKey = observations.senderPrior.key;
-
-    const isService =
-      senderContext?.effectiveAuthor === "service" ||
-      observations.senderKind?.kind === "service" ||
-      (priorKey?.startsWith("service:") ?? false);
-
-    const { total, actionShare } = priorActionShare(observations.senderPrior.categoryCounts);
-
-    if (
-      isService &&
-      total >= TRIAGE_SERVICE_ACTION_LOOP_MIN_TOTAL &&
-      actionShare >= TRIAGE_SERVICE_ACTION_LOOP_MIN_SHARE
-    ) {
-      return {
-        kind: "over_classification",
-        message: `You classified this as "action_needed", but this is an automated collaboration/task-tracker service and its prior is ${Math.round(actionShare * 100)}% action_needed across ${total} messages — a self-reinforcing histogram, not evidence. Re-read the BODY per rule 12e: action_needed requires the item to be ASSIGNED to the user, the user @-mentioned with a concrete ask, or a reply owed BY the user. A third-party comment, a status change ("set status to X", "moved to Done", "re-opened QA"), or activity on an item the user merely watches is 'fyi'. If the body genuinely assigns it to the user, KEEP action_needed and name the line that shows it.`,
-      };
-    }
-  }
-
-  // Net C: `awaiting_reply` on a service envelope, usually reply-worded platform
-  // copy ("still waiting for your response"). Only for senders the projection
-  // never scored; the sender-kind floor covers the rest. An ownership
-  // `collabActivity` vetoes the re-ask, as it does on that floor.
-  if (
-    classification.category === "awaiting_reply" &&
-    !floorMatches &&
-    !observations.gmail.important &&
-    observations.senderKind == null
-  ) {
-    const isServiceEnvelope = senderContext?.effectiveAuthor === "service";
-    const collab = classification.collabActivity ?? null;
-    const ownershipVeto = collab != null && isOwnershipCollabActivity(collab);
-
-    if (isServiceEnvelope && !ownershipVeto) {
-      return {
-        kind: "over_classification",
-        message: `You classified this as "awaiting_reply", but the sender is a deterministic SERVICE envelope (SenderContext.effectiveAuthor='service') — a platform relay, notification address, or automated sender, not a person waiting on the user. Reply-shaped platform copy ("still waiting for your response", "we'd love your thoughts", "action required") is engagement boilerplate, not a direct question owed a reply. Re-read per rules 8a/12: a social-network invitation/reminder relayed by the platform is 'fyi' even when it says someone is "waiting"; automated/service mail is judged from body content alone. KEEP awaiting_reply ONLY when the body carries a genuine personal ask from a real correspondent (the rule-8a exception) — and name the line that shows it.`,
-      };
-    }
-  }
-
-  return null;
 }
 
 /** The cheap model's todo proposal after the gate. */
@@ -995,7 +800,7 @@ export interface ClassifyEmailResult {
   instructionEvaluation: TriageInstructionEvaluation | null;
 }
 
-/** First pass, a second pass on conflict, the floors, then the instruction floor. */
+/** One cheap pass, then the floors and the instruction floor. */
 export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEmailResult> {
   const injected = args.runPass;
 
@@ -1016,15 +821,11 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
    * each sent instruction stays `unknown`: ADR-0113 reads a match that fails or exceeds its
    * bound as `unknown`, and it never discards the verdict for it.
    */
-  const runClassifyPass = async (
-    pass: "first" | "second",
-    conflict: TriageConflict | null,
-  ): Promise<ClassifyPassResult> => {
+  const runClassifyPass = async (): Promise<ClassifyPassResult> => {
     const run = (section: string | null) =>
       runPass({
         system: classifySystemPrompt(args.proposeTodo),
-        prompt: userPrompt(args, conflict, section),
-        pass,
+        prompt: userPrompt(args, section),
         withInstructionMatches: section !== null,
         proposeTodo: args.proposeTodo,
       });
@@ -1040,34 +841,15 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     }
   };
 
-  const first = await runClassifyPass("first", null);
+  const first = await runClassifyPass();
   const firstPass = first.served.classification;
-
-  const conflict = detectConflict(firstPass, args.observations, floorMatches, args.senderContext);
-  let working = first;
-  let secondPass: TriageClassification | null = null;
-  let secondPassFailure: { message: string } | null = null;
-
-  if (conflict) {
-    // A failed second pass keeps the first pass. Rethrowing would fall back to
-    // `fyi` and bury a real urgent; escalating would flag every vendor auth echo.
-    try {
-      const second = await runClassifyPass("second", conflict);
-
-      secondPass = second.served.classification;
-      working = second;
-    } catch (err) {
-      secondPassFailure = { message: errorMessage(err) };
-      secondPass = null;
-    }
-  }
 
   const meta = args.document.metadata;
   const { from, to, cc } = meta;
 
   // `instructionMatches` is not a classification field, so it leaves before the floors.
   const { instructionMatches: workingMatches, ...workingClassification } =
-    working.served.classification;
+    first.served.classification;
 
   const floors = applyFloors(workingClassification, {
     signalText,
@@ -1125,11 +907,9 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
   // Pass tags, then floor tags in sequence order. Query with `LIKE '%+kindfloor%'`, never equality.
   // The base names the leg whose classification the row stores.
   const model_id = [
-    working.served.modelId,
-    ...(secondPass ? ["+2pass"] : []),
-    ...(secondPassFailure ? ["+2pass_failed"] : []),
+    first.served.modelId,
     ...floors.modelIdTags,
-    ...(working.matchFailure ? ["+match_failed"] : []),
+    ...(first.matchFailure ? ["+match_failed"] : []),
     ...(standingApplied ? ["+standingfloor"] : []),
   ].join("");
 
@@ -1138,14 +918,14 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     model: model_id,
     audit: {
       firstPass,
-      conflict,
-      secondPass,
-      secondPassFailure,
+      conflict: null,
+      secondPass: null,
+      secondPassFailure: null,
       floors: floors.audits,
       standing: {
         floor: standingFloor.audit,
         counter: scopeBlock.counter,
-        matchFailure: working.matchFailure,
+        matchFailure: first.matchFailure,
         undecided: scopeBlock.sent.length - scopeRead.scopes.length,
       },
     },
@@ -1215,14 +995,10 @@ export function classifyCallOptions(input: {
 
 /**
  * The production pass runner, hedged (#436): a slow answer gets a twin call and
- * the first wins. The hedge fires per pass, so a conflict can draw four times;
- * {@link hedgeCeilingFor} caps it.
+ * the first wins. {@link hedgeCeilingFor} caps it.
  */
 function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPass {
-  const name = (pass: "first" | "second") =>
-    pass === "second" ? "triage.classify.second_pass" : "triage.classify";
-
-  return async ({ system, prompt, pass, withInstructionMatches, proposeTodo }) => {
+  return async ({ system, prompt, withInstructionMatches, proposeTodo }) => {
     const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
 
     const result = await runHedged({
@@ -1248,15 +1024,15 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
             stepId: args.stepId,
             // One key per pass and per hedge draw: both draws are billed.
             idempotencyKey: args.idempotencyKey
-              ? `${args.idempotencyKey}:${pass}${attempt === 1 ? ":hedge" : ""}`
+              ? `${args.idempotencyKey}${attempt === 1 ? ":hedge" : ""}`
               : undefined,
             requestMeta: {
-              purpose: name(pass),
+              purpose: "triage.classify",
               documentId: args.document.id,
               // Hedge cost = count of calls with `hedge: true`.
               hedge: attempt === 1,
             },
-            name: name(pass),
+            name: "triage.classify",
           },
         ),
     });

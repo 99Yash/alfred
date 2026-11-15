@@ -50,8 +50,6 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderAddress: null,
     senderDomain: null,
     persona: null,
-    senderPriorKey: null,
-    senderPriorCounts: {},
     knownContact: false,
     senderRelationship,
     senderKind: null,

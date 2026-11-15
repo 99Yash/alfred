@@ -260,9 +260,7 @@
   "packages/assistant/src/triage/classify.ts": [
     "SYSTEM_PROMPT",
     "TriageClassifierOutput",
-    "TriageConflict",
     "classifyCallOptions",
-    "detectConflict",
     "normalizeClassifierOutput",
     "noteMarksFailingOutcome",
     "sanitizeAssist",

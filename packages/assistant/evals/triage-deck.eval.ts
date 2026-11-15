@@ -58,10 +58,6 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
   }).context;
 
   const observations = assembleObservations({
-    senderKey: mail.senderPrior?.key ?? null,
-    senderPrior: mail.senderPrior
-      ? { categoryCounts: mail.senderPrior.counts, lastCategory: null }
-      : null,
     persona: "personal",
     thread: {
       lastUserReplyAt: null,
