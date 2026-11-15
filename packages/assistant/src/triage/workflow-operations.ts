@@ -41,6 +41,7 @@ import {
   senderPriorWriteKeyFor,
 } from "./sender-priors";
 import { mayBeUnflaggedSentMail } from "./sent-mail";
+import { triageOutOfScope, type TriageOutOfScope } from "./scope";
 import {
   getDocumentAuthoredAt,
   getTriage,
@@ -125,6 +126,8 @@ const CLASSIFY_SKIP_SUMMARIES = {
   "missing-thread-id": "Skipped: the document carries no Gmail thread id",
   "source-message-not-found": "Skipped: the Gmail message no longer exists",
   "sent-document": "Skipped: the message is the user's own sent mail",
+  "out-of-scope":
+    "Skipped: triage does not label this mail (spam, outside the inbox, the Social, Promotions, or Forums tab, or mail to yourself)",
   "thread-already-tagged": "Skipped: the thread is tagged and this message is not newer",
 } as const;
 
@@ -135,7 +138,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 ): Promise<StepResult<State, EmailTriageStepName>> {
   const skip = (
     reason: ClassifySkipReason,
-    extra?: { category: TriageCategory },
+    extra?: { category: TriageCategory } | { where: TriageOutOfScope },
   ): StepResult<State, EmailTriageStepName> => ({
     kind: "done",
     state: ctx.state,
@@ -208,6 +211,16 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     await ctx.log(`mail facts gone: ${ctx.state.documentId}`);
 
     return skip("document-not-found");
+  }
+
+  // Before any model call: the Gmail labels decide the scope (docs/theory/triage.md § What triage
+  // tags). The briefing reads this mail and says where it is.
+  const outOfScope = triageOutOfScope(mailFacts);
+
+  if (outOfScope) {
+    await ctx.log(`classify: doc=${ctx.state.documentId} out of scope (${outOfScope}) — skipping`);
+
+    return skip("out-of-scope", { where: outOfScope });
   }
 
   const senderContextResult = mailFacts.sender.parse;

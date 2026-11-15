@@ -1,9 +1,8 @@
 /**
  * Read-only watch over `triage.classification` decision traces (#1099). Reports:
- *   1. how often the spam floor demotes a reply lane or holds a demand lane;
- *   2. how often an over-classification conflict on a non-person author gets a
+ *   1. how often an over-classification conflict on a non-person author gets a
  *      second pass, and how often that pass throws;
- *   3. which senders land in `awaiting_reply`.
+ *   2. which senders land in `awaiting_reply`.
  *
  * Why TypeScript, not SQL: `->>` on a missing JSON key returns NULL, so a renamed
  * key makes raw SQL report zero forever. Every key here goes through
@@ -45,18 +44,6 @@ const traceKey = (key: keyof TraceRecord): string => key;
 
 /** `trace ->> '<key>'`. The `::text` cast is optional; it names `jsonb ->> text`, not `->> int`. */
 const traceText = (key: keyof TraceRecord): SQL => sql`(t.trace ->> ${traceKey(key)}::text)`;
-
-/** Exhaustive over `spamFloorOutcome`, so a new member is a compile error, not a missing bucket. */
-const SPAM_FLOOR_OUTCOMES = {
-  demoted_reply_lane: "the floor pulled a reply lane down to fyi",
-  held_demand_lane: "the floor let a demand lane stand (the softened path)",
-} satisfies Record<NonNullable<TraceRecord["spamFloorOutcome"]>, string>;
-
-/**
- * Spam rows with no `spamFloorOutcome`. Three causes: an inert floor, a row older
- * than the key, or a classify that threw (the trace still has `gmailSpam: true`).
- */
-const SPAM_FLOOR_INERT = "(null)";
 
 // Annotated, so a renamed member is a compile error.
 const OVER_CLASSIFICATION: NonNullable<TraceRecord["conflict"]> = "over_classification";
@@ -106,67 +93,14 @@ async function totalClassifications(): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Watch 1: spam floor outcomes. The denominator is Gmail-filed spam, the only mail the floor sees. */
-async function watchSpamFloor(total: number): Promise<void> {
-  console.log(`\n## 1. Spam floor — outcomes over Gmail-filed spam`);
-
-  // GROUP BY, so a value outside SPAM_FLOOR_OUTCOMES prints as UNKNOWN instead of vanishing.
-  const rows = await query(
-    withLatest(sql`
-      SELECT
-        coalesce(${traceText("spamFloorOutcome")}, ${SPAM_FLOOR_INERT}) AS outcome,
-        count(*)::int AS n,
-        count(*) FILTER (WHERE t.trace ? ${traceKey("spamFloorOutcome")})::int AS outcome_present
-      FROM t
-      WHERE ${traceText("gmailSpam")} = 'true'
-      GROUP BY 1
-    `),
-    z.object({ outcome: z.string(), n: z.number(), outcome_present: z.number() }),
-  );
-
-  const counts = new Map(rows.map((row) => [row.outcome, row.n]));
-  const spamTotal = rows.reduce((sum, row) => sum + row.n, 0);
-  const outcomePresent = rows.reduce((sum, row) => sum + row.outcome_present, 0);
-
-  // If the window predates the key, both this and `spamTotal` are 0.
-  const [spamKey] = await query(
-    withLatest(
-      sql`SELECT count(*) FILTER (WHERE t.trace ? ${traceKey("gmailSpam")})::int AS n FROM t`,
-    ),
-    countRow,
-  );
-
-  console.log(`   spam-filed mail in window: ${share(spamTotal, total)} of all classifications`);
-  console.log(`   …gmailSpam key present (window): ${share(spamKey?.n ?? 0, total)}`);
-  console.log(`   …spamFloorOutcome key present: ${share(outcomePresent, spamTotal)}`);
-
-  for (const [outcome, label] of Object.entries(SPAM_FLOOR_OUTCOMES)) {
-    console.log(`   ${outcome} — ${label}: ${share(counts.get(outcome) ?? 0, spamTotal)}`);
-  }
-
-  console.log(
-    `   ${SPAM_FLOOR_INERT} — floor inert, or the key predates the row, or classify threw: ` +
-      `${share(counts.get(SPAM_FLOOR_INERT) ?? 0, spamTotal)}`,
-  );
-
-  for (const row of rows) {
-    if (row.outcome === SPAM_FLOOR_INERT || row.outcome in SPAM_FLOOR_OUTCOMES) continue;
-
-    console.log(
-      `   ! UNKNOWN spamFloorOutcome '${row.outcome}': ${share(row.n, spamTotal)} — the floor ` +
-        `writes a member SPAM_FLOOR_OUTCOMES does not list; add it there.`,
-    );
-  }
-}
-
 /**
- * Watch 2: over-classification second passes where `effectiveAuthor <> 'person'`
+ * Watch 1: over-classification second passes where `effectiveAuthor <> 'person'`
  * (bot, service, and unknown). Reads `conflict`, not the model tag: `LIKE '%+2pass%'`
  * also matches `+2pass_failed`. `secondPassFailure` is set on any second-pass throw,
  * so count it only under the conflict filter.
  */
 async function watchOverClassification(total: number): Promise<void> {
-  console.log(`\n## 2. Over-classification second passes on non-person authors`);
+  console.log(`\n## 1. Over-classification second passes on non-person authors`);
 
   const rows = await query(
     withLatest(sql`
@@ -227,9 +161,9 @@ async function watchOverClassification(total: number): Promise<void> {
   );
 }
 
-/** Watch 3: senders in `awaiting_reply`. A relay or service sender there is a miss. */
+/** Watch 2: senders in `awaiting_reply`. A relay or service sender there is a miss. */
 async function watchAwaitingReplySenders(total: number): Promise<void> {
-  console.log(`\n## 3. Fresh '${AWAITING_REPLY}' rows, by sender`);
+  console.log(`\n## 2. Fresh '${AWAITING_REPLY}' rows, by sender`);
 
   const rows = await query(
     withLatest(sql`
@@ -334,7 +268,6 @@ async function main() {
     );
   }
 
-  await watchSpamFloor(total);
   await watchOverClassification(total);
   await watchAwaitingReplySenders(total);
 

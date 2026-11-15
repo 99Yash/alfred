@@ -10,7 +10,7 @@ Read first: [README principles](./README.md#2-the-principles), [context-graph.md
 
 **Alfred keeps one copy of each thing that came in, from every integration. All other data is rebuilt from that copy, or is a conclusion that cites it.** A reader finds each kind of data in one place, with one meaning for each time.
 
-**The fault that started this theory.** One GitHub delivery is stored two times: in `event_receipts.payload` and in `documents.raw`. Code parses it three times, and two consumers read different copies. One Gmail message has three header parsers, a copy of its headers in `observations`, and its triage label in two tables. People live in two graphs. A briefing query selects mail by arrival time and sorts it by sent time (`briefings/gather.ts:310`, `:314`). The owner named this the messiest part of the code (2026-11-15).
+**The fault that started this theory.** One GitHub delivery is stored two times: in `event_receipts.payload` and in `documents.raw`. Code parses it three times, and two consumers read different copies. One Gmail message has three header parsers, a copy of its headers in `observations`, and its triage label in two tables. People live in two graphs. The owner named this the messiest part of the code (2026-11-15).
 
 **The worst errors**, in order:
 
@@ -58,7 +58,8 @@ Each row in the received and derived layers carries two times. Each time has one
 | **Happened** | When it happened, by the source's clock | The mail's sent time, `pull_request.merged_at` |
 | **Received** | When Alfred got it | The ingest time of the mail or the delivery |
 
-- **A window and an order use the happened time.** The received time answers only one question: what is new since the last pass.
+- **An order uses the happened time.** The received time answers one question: what is new since the last pass.
+- **A briefing is a pass (owner, 2026-11-15).** It picks the mail that Alfred received since the last briefing, and orders it by the sent time. A window on the sent time would lose a mail that arrives late (a backfilled thread, a slow delivery) and could show one mail in two briefings. This is the same rule as the GitHub arrival time below.
 - **The model always gets the time now and the user's zone.** Each time that a reader gives the model is in the user's zone, with the weekday. The model works out what came before what.
 - **The model knows that it can read these times.** Each store's entry on the [evidence map](./evidence-map.md) names its two times and what they mean (owner direction, 2026-11-15). The briefing is the main reader: mail times and the times of key activities give the chronology that makes the context. Triage can use them, but its cheap first call is not expected to depend on them.
 - **A row that has no source clock says so.** The reader shows the received time and marks it as such. It never shows the received time as the happened time.
@@ -69,7 +70,7 @@ The columns today, and where they break this rule:
 
 | Table | Happened | Received | Fault |
 | --- | --- | --- | --- |
-| `documents` | `authored_at` | `ingested_at` | For GitHub, `authored_at` is the arrival time, by decision (see above). The briefing windows mail on `ingested_at`. |
+| `documents` | `authored_at` | `ingested_at` | For GitHub, `authored_at` is the arrival time, by decision (see above). The briefing picks mail by `ingested_at` and orders it by `authored_at`, by decision (see above). |
 | `observations` | `occurred_at` | from the item that the row points to | — |
 | `integration_objects` | `provider_event_at` | `state_delivered_at` | — |
 | `event_receipts` | — | `delivered_at` | It holds deliveries, so it has no happened time. Correct. |
@@ -121,7 +122,7 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 | Three layers, every source | Settled (owner, 2026-11-15) | Partly | Only GitHub has an activity fold. |
 | One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Built | — (webhooks: #1763 and migration 0172) |
 | One reader for each source | Settled for mail (slice 0b) | Not built | Three header parsers for mail; three GitHub parses |
-| Two times with one meaning each | Proposed; GitHub arrival time settled (owner, 2026-11-15) | Partly | The mail briefing window |
+| Two times with one meaning each | Proposed; GitHub arrival time and the briefing pass settled (owner, 2026-11-15) | Partly | The evidence map does not name the two times of each store yet (step 6) |
 | The new people graph only | Settled (owner, 2026-11-15) | Not built | The projection is not active; four old-graph readers |
 | Outputs are never evidence | Settled (principle 5) | Partly | `sender_priors` (slice 1); the category copy in `observations` |
 
@@ -132,7 +133,7 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 1. **This page, and the ADR-0038 amendment.**
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
 3. **One GitHub body.** Done (2026-11-15). The object-state fold reads `documents.raw`, and `event_receipts` stores no body (#1763). The production report showed no old body without a document, so migration 0172 dropped `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner).
-4. **The briefing windows on the happened time.** This goes with triage slice 2a, which already changes what the briefing reads.
+4. **The briefing times.** Settled with triage slice 2a: the briefing picks mail by the received time and orders it by the sent time (section 3). Slice 2a changed only the order of the composer's mail list (`list_emails_since`), which was by the received time.
 5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
 7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.
@@ -140,5 +141,5 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 ## 9. Not settled
 
 - **A live read that Alfred keeps.** A verified pull or a loop read gives a fact with no received item. Is its result a received item in `documents`?
-- **Body retention.** How long `documents.raw` keeps a body. Held with the security work.
+- **Body retention.** How long `documents.raw` keeps a body. Held with the security work. Since webhook bodies moved to `documents.raw` (#1763), nothing expires them; the old 90-day job cleared only `event_receipts.payload`. A production read of 2026-11-15: the database is 1.2 GB; `chunks` is 551 MB and `documents` is 394 MB; bodies grow about 2 MB a day. The owner decided to add no expiry for now, and no second store such as R2. Open questions from the read: should GitHub events be in the search index (`chunks`), and why GitHub `content` is about as large as `raw`.
 - **`memory_chunks`.** One row in production. [memory.md](./memory.md) decides its future.

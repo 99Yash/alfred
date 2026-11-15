@@ -44,8 +44,8 @@ export const emailTriageWorkflow: Workflow<
 /**
  * The latest triage verdict of each message, from the run history. A run stores `category` in its
  * state only when `classify` reaches a verdict, and that step writes the object link of the message
- * first. A skipped run (triage off, sent mail, no thread id, a missing source message, or an older
- * message in a tagged thread) stores none. Thus a message with an entry here is a message that
+ * first. A skipped run (triage off, sent mail, mail outside the triage scope, no thread id, a
+ * missing source message, or an older message in a tagged thread) stores none. Thus a message with an entry here is a message that
  * triage linked. One query for the batch.
  */
 export async function readTriageVerdicts(args: {

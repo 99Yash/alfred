@@ -66,7 +66,7 @@ The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This sectio
 
 1. Gmail push or poll → `persistMessage` (`connections/ingestion/gmail-ingest.ts:266`) → `documents` row → `gmail.documents_ingested`.
 2. One `gmail.message_received` event for each inbound document. A user reply emits the event again on the newest inbound message, with `force` (`runtime/adapters/gmail-ingested-consumers.ts:299`).
-3. Classify (`triage/workflow-operations.ts:107`): gather observations (`:892`) → model pass on `route("cheap")` (`classifyEmail`, `triage/classify.ts:889`) → optional second pass on a conflict → 5 deterministic floors (`triage/floors/index.ts:160`: override → sender kind → spam → standing → meeting).
+3. Classify (`triage/workflow-operations.ts:107`): gather observations (`:892`) → model pass on `route("cheap")` (`classifyEmail`, `triage/classify.ts:889`) → optional second pass on a conflict → deterministic floors (`triage/floors/index.ts`: override → sender kind → meeting, then standing). Before the model, the step skips mail outside the triage scope (`triage/scope.ts`: spam, no `INBOX`, the Social, Promotions, or Forums tab, mail to yourself).
 4. `upsertTriage` (`triage/store.ts:123`) writes one `email_triage` row for each thread, under a thread lock. A user override (`source='user'`) is never overwritten.
 5. Todo decision → Gmail label (`triage/tags.ts:74`) → document ask → close-loop todos.
 

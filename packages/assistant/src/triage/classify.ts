@@ -1101,7 +1101,6 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     cc: cc ?? null,
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
-    isSpam: args.observations.gmail.spam,
   });
 
   // The stored model verdict: the system floors' output, before any instruction effect.

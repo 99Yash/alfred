@@ -2,6 +2,7 @@ import { gatherCalendarContribution, gatherDayShape } from "../gather";
 import {
   listEmailsSinceWatermark,
   listPriorBriefings,
+  OUTSIDE_TRIAGE_VALUES,
   readEmailDocument,
   type EmailListItem,
   type EmailReadResult,
@@ -325,7 +326,9 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
   const tools = {
     list_emails_since: tool({
       description:
-        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this item's loop — the thread OR the underlying task/PR it re-notifies about — already went out in a recent briefing; treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. Each item also carries receivedAtLocal (the receipt time as wall-clock in the user's timezone, e.g. 'Fri, Jun 26, 3:10 AM' — phrase overnight items by this, not as if they just arrived; null = no timestamp, don't assert a time) and unread (true = still unread, false = the user already opened it, null = unknown — never assume unseen; soften an already-read item away from a fresh 'you need to do X'). attentionBand is a precomputed demand ranking: a 'muted' item is recurring machine noise or low-signal that should NOT be surfaced as demanding (e.g. the same alarm fired ten times). Trust it instead of re-judging urgency yourself. Call read_email if you need the body for a specific message.",
+        "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this item's loop — the thread OR the underlying task/PR it re-notifies about — already went out in a recent briefing; treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. Each item also carries receivedAtLocal (the receipt time as wall-clock in the user's timezone, e.g. 'Fri, Jun 26, 3:10 AM' — phrase overnight items by this, not as if they just arrived; null = no timestamp, don't assert a time) and unread (true = still unread, false = the user already opened it, null = unknown — never assume unseen; soften an already-read item away from a fresh 'you need to do X'). attentionBand is a precomputed demand ranking: a 'muted' item is recurring machine noise or low-signal that should NOT be surfaced as demanding (e.g. the same alarm fired ten times). Trust it instead of re-judging urgency yourself. " +
+        `Each item also carries outsideTriage: null for inbox mail in the Primary and Updates tabs, which triage labels; else where a mail that triage did not judge sits: ${OUTSIDE_TRIAGE_VALUES}. ` +
+        "Call read_email if you need the body for a specific message.",
       inputSchema: z.object({
         limit: z
           .number()

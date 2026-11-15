@@ -48,7 +48,6 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
-    isSpam: false,
     ...over,
   } satisfies FloorContext;
 }
@@ -88,10 +87,10 @@ function verdictOf(c: TriageClassification) {
 // ---------------------------------------------------------------------------
 
 describe("applyFloors — sequence order", () => {
-  test("audits arrive in sequence order: override → senderKind → spam → meeting", () => {
+  test("audits arrive in sequence order: override → senderKind → meeting", () => {
     // One audit key per `FLOOR_SEQUENCE` entry, in fold order.
     const { audits } = applyFloors(classification(), context());
-    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "spam", "meeting"]);
+    assert.deepEqual(Object.keys(audits), ["override", "senderKind", "meeting"]);
   });
 
   test("every floor reports an audit even when none of them fire", () => {
@@ -99,7 +98,6 @@ describe("applyFloors — sequence order", () => {
     assert.equal(outcome.classification.category, "fyi");
     assert.deepEqual(outcome.audits.override, { verdict: { kind: "keep" }, matched: false });
     assert.deepEqual(outcome.audits.senderKind, { verdict: { kind: "keep" }, reason: null });
-    assert.deepEqual(outcome.audits.spam, { verdict: { kind: "keep" }, outcome: null });
     assert.deepEqual(outcome.audits.meeting, { verdict: { kind: "keep" }, reason: null });
   });
 

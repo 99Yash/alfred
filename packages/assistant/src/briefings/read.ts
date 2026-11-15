@@ -1,5 +1,6 @@
 import {
   deriveLoopKey,
+  isSentGmailMetadata,
   isTriageCategory,
   parseEmailAddress,
   parseGmailDocumentMetadata,
@@ -10,6 +11,7 @@ import type {
   BriefingGather,
   BriefingSlot,
   FullBriefing,
+  GmailDocumentMetadata,
   IanaTimezone,
   SignificanceBand,
   TriageCategory,
@@ -19,12 +21,16 @@ import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/sch
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   getSenderSignificanceBatch,
+  loadMailFacts,
   standingInstructions,
+  type MailFacts,
   type MailStandingInstructions,
 } from "../knowledge";
 import {
   deriveEffectiveTriage,
   parseTriageEvaluationColumns,
+  TRIAGE_OUT_OF_SCOPE_MEANING,
+  triageOutOfScope,
   type EffectiveTriageRow,
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
@@ -52,6 +58,17 @@ const SURFACED_LOOKBACK_MS = 16 * 60 * 60 * 1000;
 
 const SURFACED_LOOKBACK_LIMIT = 4;
 
+/** Each `outsideTriage` value and what it means. The composer prompt and tool read this table. */
+const OUTSIDE_TRIAGE_MEANING = {
+  ...TRIAGE_OUT_OF_SCOPE_MEANING,
+  sent_by_you: "it is the user's own sent mail",
+} as const;
+
+/** The `outsideTriage` values with their meanings, as one line for the composer. */
+export const OUTSIDE_TRIAGE_VALUES = Object.entries(OUTSIDE_TRIAGE_MEANING)
+  .map(([value, meaning]) => `\`${value}\` (${meaning})`)
+  .join(", ");
+
 export interface EmailListItem {
   documentId: string;
   subject: string | null;
@@ -78,6 +95,11 @@ export interface EmailListItem {
   attentionBand: AttentionBand;
   /** Lets the agent decide if a `read_email` call is worth it. */
   contentLength: number;
+  /**
+   * Where the mail sits when triage does not label it (`triageOutOfScope`), or `sent_by_you` for
+   * the user's own sent mail. Null: the mail is in the inbox scope that triage labels.
+   */
+  outsideTriage: keyof typeof OUTSIDE_TRIAGE_MEANING | null;
 }
 
 export interface EmailReadResult {
@@ -263,6 +285,12 @@ export async function listEmailsSinceWatermark(
   const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
   const senders = metas.map((meta) => meta.from ?? null);
 
+  // The scope reads the mail facts, as the classify step does, so both agree on each mail.
+  const mailFacts = await loadMailFacts(
+    args.userId,
+    rows.map((r) => r.documentId),
+  );
+
   // Significance demotes cold senders inside their category (ADR-0064).
   // An unscored sender is neutral.
   const significanceByAddress = await loadSignificanceBands(args.userId, senders);
@@ -285,7 +313,7 @@ export async function listEmailsSinceWatermark(
     })),
   );
 
-  return rows.map((r, i) => {
+  const items = rows.map((r, i) => {
     const meta = metas[i];
     // Match on thread id or loop key: a tool can re-notify on a new thread.
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
@@ -311,8 +339,24 @@ export async function listEmailsSinceWatermark(
         ? (attention[i]?.band ?? "normal")
         : "normal",
       contentLength: Number(r.contentLength),
+      outsideTriage: outsideTriageOf(meta, mailFacts.get(r.documentId)),
     } satisfies EmailListItem;
   });
+
+  // The window picks by the received time; the list reads in sent order, newest first
+  // (stores.md § Time). A row with no sent time sorts by its received time.
+  return items.toSorted(
+    (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
+  );
+}
+
+function outsideTriageOf(
+  meta: GmailDocumentMetadata | undefined,
+  facts: MailFacts | undefined,
+): EmailListItem["outsideTriage"] {
+  if (meta && isSentGmailMetadata(meta)) return "sent_by_you";
+
+  return facts ? triageOutOfScope(facts) : null;
 }
 
 function toTriageCategory(category: string | null): TriageCategory | null {

@@ -139,7 +139,6 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
           reason: "collab_passive_activity",
         },
         meeting: { verdict: { kind: "keep" }, reason: null },
-        spam: { verdict: { kind: "keep" }, outcome: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -232,7 +231,6 @@ function floorContext(): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
-    isSpam: false,
   };
 }
 
