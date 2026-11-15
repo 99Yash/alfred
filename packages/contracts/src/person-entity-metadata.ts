@@ -1,7 +1,7 @@
 /**
  * Typed views over the `entities.metadata` jsonb bag written by team-graph
  * capture (ADR-0059 P4a). No job title: mail headers do not carry one.
- * Here, not in `knowledge`, because the `gmail.send_draft` recipient policy reads it too.
+ * Here, not in `knowledge`, because triage's significance pass reads it too.
  */
 import { z } from "zod";
 

@@ -248,7 +248,7 @@ function titleCaseSlug(value: string): string {
 }
 
 /**
- * `send_draft` to `Send Draft`, for a member of a closed literal union (a `z.enum`, a `const`
+ * `append_values` to `Append Values`, for a member of a closed literal union (a `z.enum`, a `const`
  * tuple element, a `.$type<>()` column). Two argument types fail to compile:
  *
  * - A type that is or includes an `IntegrationSlug`. Use `INTEGRATION_DISPLAY_NAMES[slug]`.
@@ -444,12 +444,6 @@ export const TOOL_LABELS = {
     title: "inspect a connected tool",
   },
 
-  "gmail.send_draft": {
-    running: "Sending a Gmail draft",
-    done: "Sent a Gmail draft",
-    title: "send a Gmail draft",
-  },
-
   "sheets.append_values": {
     running: "Appending spreadsheet rows",
     done: "Appended spreadsheet rows",
@@ -531,8 +525,6 @@ export const TOOL_CATEGORIES = {
   "mcp.call": "action",
   "mcp.list_tools": "system",
   "mcp.inspect_tool": "system",
-
-  "gmail.send_draft": "action",
 
   "sheets.append_values": "action",
 

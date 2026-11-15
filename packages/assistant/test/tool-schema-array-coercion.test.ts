@@ -20,16 +20,6 @@ interface ArrayCoercionFixture {
 type ToolArrayCoercionFixtures = ArrayCoercionFixture | readonly ArrayCoercionFixture[];
 
 const FIXTURES = {
-  "gmail.send_draft": {
-    base: {
-      to: ["a@example.com"],
-      cc: ["c@example.com"],
-      bcc: ["d@example.com"],
-      subject: "Hello",
-      bodyText: "Body text.",
-    },
-    arrayFields: ["to", "cc", "bcc"],
-  },
   "sheets.append_values": {
     base: {
       spreadsheetId: "sid",

@@ -318,10 +318,11 @@ export interface ClassifyContactKindInput {
 
 /**
  * True when a non-person answer is strong enough to take `person` away.
- * Here `kind = 'person'` is a capability: `gmail-recipient-policy` sends only to
- * person rows. A wrong demotion blocks a real send, so only hard claims demote:
- * a strong service local, a strong service domain label, or stored list
- * evidence the user has not written past. Soft `unknown` or `service` answers do not.
+ * Here `kind = 'person'` is a capability: the reply-drafting verifier and triage's
+ * significance pass treat person rows differently. A wrong demotion blocks a real
+ * reply draft, so only hard claims demote: a strong service local, a strong service
+ * domain label, or stored list evidence the user has not written past. Soft
+ * `unknown` or `service` answers do not.
  */
 function isHardNonPersonClaim(classified: EntityKindClassification): boolean {
   if (classified.kind === "person") return false;

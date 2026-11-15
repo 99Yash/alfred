@@ -1,8 +1,8 @@
 import {
-  gmailSendDraftInput,
   parseEmailAddress,
-  type GmailSendDraftInput,
+  replyDraftMessageSchema,
   type ReplyDraftGatheredObject,
+  type ReplyDraftMessage,
   type ReplyDraftStyleSelection,
   type ReplyDraftVerifierBinding,
   type ReplyDraftVerifierDecision,
@@ -14,7 +14,7 @@ import {
  * Checks structure, not prose: the reply targets the inbound thread, recipients are on it
  * and are not the user, and each claim rests on a gathered object. The first failure names
  * the `withheld` reason. A pass is bound to the exact facts it judged.
- * {@link prepareReplyStaging} is the only way to get a `GmailSendDraftInput` here.
+ * {@link prepareReplyStaging} is the only way to get a {@link ReplyDraftMessage} here.
  */
 
 export interface ReplyDraftClaim {
@@ -42,7 +42,7 @@ export interface ReplyVerifierContext {
 }
 
 export type ReplyStagingPlan =
-  | { kind: "stage"; input: GmailSendDraftInput; verifier: ReplyDraftVerifierDecision }
+  | { kind: "stage"; input: ReplyDraftMessage; verifier: ReplyDraftVerifierDecision }
   | {
       kind: "withheld";
       reason: ReplyWithheldReason;
@@ -126,7 +126,7 @@ export function verifyReplyCandidate(
   return { decision: "pass", boundTo };
 }
 
-/** On a pass, build the `gmail.send_draft` input with the tool's own schema, so a bad one fails here. */
+/** On a pass, build the draft write with the message schema, so a bad one fails here. */
 export function prepareReplyStaging(
   candidate: ReplyDraftCandidate,
   ctx: ReplyVerifierContext,
@@ -137,12 +137,12 @@ export function prepareReplyStaging(
     return { kind: "withheld", reason: verifier.reason, detail: verifier.detail ?? null, verifier };
   }
 
-  const parsed = gmailSendDraftInput.safeParse({
+  const parsed = replyDraftMessageSchema.safeParse({
     to: candidate.recipients.to,
     ...(candidate.recipients.cc.length > 0 ? { cc: candidate.recipients.cc } : {}),
     subject: candidate.subject,
     bodyText: candidate.bodyText,
-    // Checked above; keeps the thread on the approval card.
+    // Checked above; keeps the draft on the source thread.
     threadId: candidate.sourceThreadId ?? undefined,
   });
 

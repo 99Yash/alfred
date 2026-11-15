@@ -1,5 +1,12 @@
 # ADR-0098 — Reply drafting is a gate-first module behind a default-OFF flag, fed by a triage event it never imports
 
+> **Amended 2026-11-15 (owner): Alfred makes Gmail drafts only and never sends mail.
+> `gmail.send_draft` and its recipient check are deleted. Reply drafting creates a Gmail
+> draft with no approval card: on a verifier pass the workflow calls the integration
+> client's `createDraft` on the source thread and finishes.** The decision text below is
+> unchanged; it is the record of the gate-first foundation and the staged-send design it
+> replaced.
+
 **Decision.** Alfred drafts a reply only after a pure worthiness gate says the message deserves one, and every run ends in ONE of five typed outcomes (`staged`, `no_draft`, `clarification`, `no_access`, `withheld`). The feature ships as a new `@alfred/assistant` module, `reply-drafting`, that depends on `triage` and that `triage` never imports. The seam between them is a domain event: the triage `classify` step publishes `email-triage.classified` for every thread whose canonical row it owns, and a `best-effort` trigger consumer owned by `reply-drafting` decides from that fact. The proactive path is bound by `feature.reply_drafting`, the first flag whose UNSET value is OFF.
 
 Sub-decisions:

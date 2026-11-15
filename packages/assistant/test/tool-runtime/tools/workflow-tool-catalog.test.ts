@@ -35,7 +35,6 @@ describe("workflow tool catalog", () => {
       assert.ok(facts, `missing catalog entry for ${tool.name}`);
       assert.equal(facts.name, tool.name);
       assert.equal(facts.integration, tool.integration);
-      assert.deepEqual(facts.availability?.credential, tool.availability?.credential);
     }
   });
 
@@ -43,12 +42,12 @@ describe("workflow tool catalog", () => {
     const registered = listRegisteredTools();
     const catalog = workflowToolCatalog();
     const local = registered.find((tool) => tool.integration === "system");
-    const connected = registered.find((tool) => tool.availability?.credential !== undefined);
+    const gated = registered.find((tool) => tool.availability?.passthrough === true);
     assert.ok(local, "expected at least one system tool");
-    assert.ok(connected, "expected at least one credential-gated tool");
+    assert.ok(gated, "expected at least one availability-gated tool");
     const allowed = new Set<IntegrationSlug>();
 
-    for (const tool of [local, connected]) {
+    for (const tool of [local, gated]) {
       const facts = catalog.get(tool.name);
       assert.ok(facts);
       assert.deepEqual(

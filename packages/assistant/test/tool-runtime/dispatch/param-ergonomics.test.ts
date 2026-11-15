@@ -52,57 +52,6 @@ const CASES: readonly Case[] = [
       assert.equal(d.pageToken, "tok");
     },
   },
-  // ── synonyms (withKeyAliases) ────────────────────────────────────────────
-  {
-    name: "gmail.send_draft body → bodyText",
-    tool: "gmail.send_draft",
-    input: { to: ["a@example.com"], subject: "Hi", body: "The message body." },
-    expect: (d) => assert.equal(d.bodyText, "The message body."),
-  },
-  {
-    name: "gmail.send_draft Body (cased alias) → bodyText",
-    tool: "gmail.send_draft",
-    input: { to: ["a@example.com"], subject: "Hi", Body: "The message body." },
-    expect: (d) => assert.equal(d.bodyText, "The message body."),
-  },
-  // ── scalar → array (wrapScalarRecipients, #363) ──────────────────────────
-  {
-    name: "gmail.send_draft bare-string to → [to]",
-    tool: "gmail.send_draft",
-    input: { to: "a@example.com", subject: "Hi", bodyText: "Body." },
-    expect: (d) => assert.deepEqual(d.to, ["a@example.com"]),
-  },
-  {
-    name: "gmail.send_draft bare-string cc/bcc → arrays",
-    tool: "gmail.send_draft",
-    input: {
-      to: ["a@example.com"],
-      cc: "c@example.com",
-      bcc: "d@example.com",
-      subject: "Hi",
-      bodyText: "Body.",
-    },
-    expect: (d) => {
-      assert.deepEqual(d.cc, ["c@example.com"]);
-      assert.deepEqual(d.bcc, ["d@example.com"]);
-    },
-  },
-  {
-    name: "gmail.send_draft bare-string to + body synonym (compound #363)",
-    tool: "gmail.send_draft",
-    input: { to: "a@example.com", subject: "Hi", body: "Body." },
-    expect: (d) => {
-      assert.deepEqual(d.to, ["a@example.com"]);
-      assert.equal(d.bodyText, "Body.");
-    },
-  },
-  {
-    // coerceJsonArrayFields handles it, not the scalar wrap, so nothing double-wraps.
-    name: "gmail.send_draft JSON-array-string to → array (coerceJsonArrayFields)",
-    tool: "gmail.send_draft",
-    input: { to: '["a@example.com","b@example.com"]', subject: "Hi", bodyText: "Body." },
-    expect: (d) => assert.deepEqual(d.to, ["a@example.com", "b@example.com"]),
-  },
 ];
 
 describe("param-ergonomics: measured fumbles validate first-try through dispatch", () => {
@@ -118,28 +67,4 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
       if (c.expect) c.expect(parsed.data);
     });
   }
-});
-
-describe("param-ergonomics: the send_draft scalar recipient wrap is not a blanket accept-anything", () => {
-  // The wrap fixes shape, not content. An invalid address must still fail.
-  test("gmail.send_draft bare-string non-email to still bounces", () => {
-    const parsed = dispatchParse("gmail.send_draft", {
-      to: "not-an-email",
-      subject: "Hi",
-      bodyText: "Body.",
-    });
-
-    assert.equal(parsed.success, false);
-  });
-
-  // A malformed JSON array is not a recipient. Neither layer may wrap it.
-  test("gmail.send_draft malformed JSON-array to still bounces", () => {
-    const parsed = dispatchParse("gmail.send_draft", {
-      to: '["a@example.com"',
-      subject: "Hi",
-      bodyText: "Body.",
-    });
-
-    assert.equal(parsed.success, false);
-  });
 });

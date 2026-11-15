@@ -24,7 +24,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_send_1",
-          "toolName": "gmail.send_draft",
+          "toolName": "vercel.redeploy",
           "output": {
             "type": "json",
             "value": {
@@ -64,7 +64,7 @@
       "section": "user_directives",
       "absent": "superseded=\"true\">Actually revoke that — stage every gmail send from now on"
     },
-    { "section": "actions_completed", "contains": "gmail.send_draft" },
+    { "section": "actions_completed", "contains": "vercel.redeploy" },
     { "section": "key_entities", "contains": "msg_sent_obvious_1" }
   ]
 }

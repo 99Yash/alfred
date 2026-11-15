@@ -23,7 +23,7 @@ const EVAL_TIMEOUT_MS = 60_000;
 
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail.send_draft — the user's email",
+  "- sheets.append_values — the user's spreadsheets",
   '- "Gmail" MCP server (connectionId mcp_conn_gmail) — 10 tools; find one with system.search_tools or mcp.list_tools scoped to this connectionId, then call it through mcp.call',
   '- "Google Calendar" MCP server (connectionId mcp_conn_google_calendar) — 9 tools; find one with system.search_tools or mcp.list_tools scoped to this connectionId, then call it through mcp.call',
 ].join("\n");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { describe, test } from "node:test";
 
-const TOOL_MODULES = ["gmail", "sheets", "contacts"] as const;
+const TOOL_MODULES = ["sheets", "contacts"] as const;
 
 const OLD_CREDENTIAL_DOOR =
   /\b(?:getFreshAccessToken|getActiveBearerCredential|listActiveBearerCredentials|resolveGoogleAccessToken)\b|\.accessToken\b/;

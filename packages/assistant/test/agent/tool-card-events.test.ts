@@ -282,7 +282,7 @@ describe("toolEventOutcome", () => {
   test("a real execution fault is a visible failure, not a bounce", () => {
     const outcome = toolEventOutcome(
       completion(
-        "gmail.send_draft",
+        "vercel.redeploy",
         { message: "upstream 500" },
         {
           status: "failed",

@@ -15,14 +15,12 @@ import type {
   ToolName,
   ToolRunContext,
   ToolAvailabilityResult,
-  ToolCredentialRequirement,
   ToolRiskTier,
 } from "@alfred/contracts";
 import {
   ASK_USER_TOOL,
   buildToolName,
   builtInMCPProvidersAdmittedBy,
-  missingRequiredScopes,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
@@ -61,8 +59,6 @@ export interface ToolDiscoveryMetadata {
 interface ToolAvailabilityMetadata {
   /** Always in the bootstrap surface. Omit for lazy-loaded tools. */
   surface?: "kernel";
-  /** Set when the tool needs a narrower credential than its integration. */
-  credential?: ToolCredentialRequirement;
   callers?: readonly ("boss" | "sub_agent")[];
   requiresLiveChat?: boolean;
   /**
@@ -441,11 +437,7 @@ export function evaluateToolRunContext(
 
 /** Whether connection state can change this tool's availability result. */
 export function readsAvailabilitySnapshot(tool: RegisteredTool): boolean {
-  return (
-    tool.availability?.passthrough === true ||
-    tool.availability?.credential !== undefined ||
-    isLoadableIntegrationSlug(tool.integration)
-  );
+  return tool.availability?.passthrough === true || isLoadableIntegrationSlug(tool.integration);
 }
 
 function evaluateSnapshotGates(
@@ -466,36 +458,6 @@ function evaluateSnapshotGates(
         reason: `${name} raw API access is turned off. Enable it under Settings → Features to use this tool.`,
       };
     }
-  }
-
-  const credential = tool.availability?.credential;
-
-  if (credential) {
-    const providerRows = snapshot.providers.get(credential.provider) ?? [];
-
-    if (providerRows.length === 0) {
-      return { available: false, code: "not_connected", reason: `${name} is not connected.` };
-    }
-
-    const activeRows = providerRows.filter((row) => row.status === "active");
-
-    if (activeRows.length === 0) {
-      return { available: false, code: "needs_reauth", reason: `${name} needs to be reconnected.` };
-    }
-
-    const scopeMatches = activeRows.some(
-      (row) => missingRequiredScopes(row.scopes, credential) === null,
-    );
-
-    if (!scopeMatches) {
-      return {
-        available: false,
-        code: "missing_scope",
-        reason: `${name} is connected but missing a required permission; reconnect to grant it.`,
-      };
-    }
-
-    return { available: true };
   }
 
   if (isLoadableIntegrationSlug(tool.integration)) {

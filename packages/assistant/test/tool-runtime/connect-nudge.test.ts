@@ -9,17 +9,17 @@ import {
 
 /** Only a connection-health refusal becomes a connect nudge, never a policy refusal. */
 
-const GMAIL_SEND: ToolName = "gmail.send_draft";
+const SHEETS_APPEND: ToolName = "sheets.append_values";
 
-const call = { toolCallId: "call_1", toolName: GMAIL_SEND, input: {} };
+const call = { toolCallId: "call_1", toolName: SHEETS_APPEND, input: {} };
 
 const floorRefusal = (code: ToolUnavailabilityCode): TerminalToolCallDispatchResult => ({
   kind: "not_allowed",
   result: {
     status: "not_allowed",
-    toolName: GMAIL_SEND,
-    integration: "gmail",
-    message: `${code}: Gmail is not usable right now.`,
+    toolName: SHEETS_APPEND,
+    integration: "sheets",
+    message: `${code}: Sheets is not usable right now.`,
   },
   unavailability: code,
 });
@@ -29,7 +29,7 @@ const completedOf = (result: TerminalToolCallDispatchResult) => completedToolCal
 describe("completedToolCall → connectNudge", () => {
   test("a not_connected refusal offers Connect", () => {
     assert.deepEqual(completedOf(floorRefusal("not_connected")).connectNudge, {
-      integration: "gmail",
+      integration: "sheets",
       action: "connect",
     });
   });
@@ -37,7 +37,7 @@ describe("completedToolCall → connectNudge", () => {
   test("needs_reauth and missing_scope offer Reconnect", () => {
     for (const code of ["needs_reauth", "missing_scope"] as const) {
       assert.deepEqual(completedOf(floorRefusal(code)).connectNudge, {
-        integration: "gmail",
+        integration: "sheets",
         action: "reconnect",
       });
     }
@@ -56,8 +56,8 @@ describe("completedToolCall → connectNudge", () => {
       kind: "not_allowed",
       result: {
         status: "capability_mismatch",
-        toolName: GMAIL_SEND,
-        integration: "gmail",
+        toolName: SHEETS_APPEND,
+        integration: "sheets",
         message: "Outside the approved capability envelope.",
       },
     };
@@ -72,8 +72,8 @@ describe("completedToolCall → connectNudge", () => {
       kind: "feature_disabled",
       result: {
         status: "feature_disabled",
-        toolName: GMAIL_SEND,
-        integration: "gmail",
+        toolName: SHEETS_APPEND,
+        integration: "sheets",
         message: "Tier disabled.",
       },
     };
@@ -86,7 +86,7 @@ describe("toolEventOutcome → chat.tool payload fact", () => {
   test("the nudge rides the outcome beside nonExecution", () => {
     const outcome = toolEventOutcome(completedOf(floorRefusal("not_connected")));
     assert.equal(outcome.nonExecution, true);
-    assert.deepEqual(outcome.connectNudge, { integration: "gmail", action: "connect" });
+    assert.deepEqual(outcome.connectNudge, { integration: "sheets", action: "connect" });
   });
 
   test("an executed call never carries one", () => {

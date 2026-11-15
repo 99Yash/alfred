@@ -63,10 +63,12 @@ describe("skipping the credential read is a promise phase 2 keeps", () => {
     assert.deepEqual([...excusedIntegrations].toSorted(), ["mcp", "system"]);
   });
 
-  test("a credential-bearing tool is NOT excused — it must pay the read", () => {
-    const gmail = listRegisteredTools().filter((tool) => tool.integration === "gmail");
-    assert.ok(gmail.length > 0);
+  test("an integration tool is NOT excused — it must pay the read", () => {
+    // No registered tool names a credential since `gmail.send_draft` went (drafts only,
+    // owner 2026-11-15). A loadable integration still pays the read.
+    const sheets = listRegisteredTools().filter((tool) => tool.integration === "sheets");
+    assert.ok(sheets.length > 0);
 
-    for (const tool of gmail) assert.equal(readsAvailabilitySnapshot(tool), true);
+    for (const tool of sheets) assert.equal(readsAvailabilitySnapshot(tool), true);
   });
 });

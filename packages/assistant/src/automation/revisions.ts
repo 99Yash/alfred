@@ -34,7 +34,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { canonicalWorkflowDefinition, workflowRevisionContentHash } from "./content-hash";
 import { readFreshIntegrationAvailability, seenRawKinds } from "@alfred/assistant/connections";
-import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
+import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import {
   canonicalizeWorkflowAccounts,
   resolveWorkflowApprovalDisplay,
@@ -686,7 +686,6 @@ export async function refreshWorkflowActivationProposal(args: {
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: requested.definition,
     availability,
-    toolCatalog,
   });
 
   const timezone = await resolveWorkflowTimezone(args.userId, canonicalDefinition.trigger);
@@ -728,7 +727,6 @@ export async function refreshWorkflowActivationProposal(args: {
       definition,
       authoringProposal: baseProposal,
       availability,
-      toolCatalog,
       timezone,
     }),
   };
@@ -797,7 +795,6 @@ export async function recoverWorkflowDraft(args: {
   const canonicalDefinition = canonicalizeWorkflowAccounts({
     definition: stored.value,
     availability,
-    toolCatalog,
   });
 
   const timezone = await resolveWorkflowTimezone(args.userId, canonicalDefinition.trigger);
@@ -872,7 +869,6 @@ export async function recoverWorkflowDraft(args: {
               definition,
               authoringProposal: baseProposal,
               availability,
-              toolCatalog,
               timezone,
             }),
           }
@@ -915,7 +911,6 @@ export function buildWorkflowActivationProposal(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
-  toolCatalog: WorkflowToolCatalog;
   timezone: IanaTimezone;
   previewedAt?: Date | undefined;
 }): ActivateWorkflowInput {
@@ -938,7 +933,7 @@ export function buildWorkflowActivationProposal(args: {
       previewedAt: previewedAt.toISOString(),
       ...(nextRunAt ? { nextRunAt: nextRunAt.toISOString() } : {}),
     },
-    ...resolveWorkflowApprovalDisplay(args.definition, args.availability, args.toolCatalog),
+    ...resolveWorkflowApprovalDisplay(args.definition, args.availability),
     authoringProposal: approvalProposalForDefinition(args.authoringProposal, args.definition),
   };
 }
@@ -1009,12 +1004,10 @@ export async function activateWorkflowDefinition(
   }
 
   const availability = await readFreshIntegrationAvailability(args.userId);
-  const toolCatalog = workflowToolCatalog();
 
   const canonicalInputDefinition = canonicalizeWorkflowAccounts({
     definition: input.definition,
     availability,
-    toolCatalog,
   });
 
   const timezone = await resolveWorkflowTimezone(args.userId, canonicalInputDefinition.trigger);
@@ -1030,7 +1023,7 @@ export async function activateWorkflowDefinition(
 
   const definition = validated.definition;
   const approvedHash = workflowRevisionContentHash(definition);
-  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability, toolCatalog);
+  const expectedDisplay = resolveWorkflowApprovalDisplay(definition, availability);
 
   if (
     canonicalJson(input.resolvedAccounts) !== canonicalJson(expectedDisplay.resolvedAccounts) ||

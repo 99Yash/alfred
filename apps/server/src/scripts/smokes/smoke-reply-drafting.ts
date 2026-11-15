@@ -1,12 +1,13 @@
 /**
- * Reply drafting tracer (#237, ADR-0098).
+ * Reply drafting tracer (#237, ADR-0098, amended 2026-11-15).
  *
  * pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-reply-drafting.ts
  * Optional: --document <id> --invocation post_triage --expect staged
  *
  * Requires a worker running this checkout. Defaults to a manual run on the
- * newest reply-expected triage row. It can create a pending approval but never
- * approves it. For a cold fixture use --invocation post_triage --expect no_draft;
+ * newest reply-expected triage row. On a verifier pass the run CREATES A GMAIL
+ * DRAFT on the source thread; no approval is staged and nothing is sent.
+ * For a cold fixture use --invocation post_triage --expect no_draft;
  * for a disabled flag use the same invocation and inspect feature_disabled.
  */
 import { randomUUID } from "node:crypto";
@@ -16,7 +17,6 @@ import { agentQueue, startRun } from "@alfred/assistant/execution";
 import type { ReplyDraftingWorkflowInput } from "@alfred/assistant/reply-drafting";
 import {
   REPLY_EXPECTED_TRIAGE_CATEGORIES,
-  gmailSendDraftInput,
   replyDraftInvocationSchema,
   replyDraftOutcomeSchema,
   replyDraftResultSchema,
@@ -166,38 +166,34 @@ async function main() {
   const staged = await db().select().from(actionStagings).where(eq(actionStagings.runId, runId));
 
   if (result.outcome === "staged") {
-    assert(run.status === "waiting", "staged run must wait for approval");
-    assert(staged.length === 1, "exactly one approval row must exist");
-    const action = staged[0];
-    assert(action && action.id === result.stagingId, "result must identify its approval row");
+    assert(run.status === "completed", "a drafted run completes; nothing waits for approval");
     assert(
-      action.status === "pending" && action.requiresApproval,
-      "action must require approval and remain pending",
+      staged.every((action) => action.status === "rejected" && action.outcome === "refused"),
+      "a drafted run must leave no live approval; recovered rows must be withdrawn",
     );
-    assert(action.toolName === "gmail.send_draft", "approval must be for the Gmail send tool");
-    const input = gmailSendDraftInput.parse(action.proposedInput);
-    assert(input.threadId === row.sourceThreadId, "approval must target the source thread");
-    assert(
-      input.to.length === 1 && input.to[0] === result.provenance.sender,
-      "recipient must be the inbound sender",
-    );
-    assert(
-      input.bodyText.trim().length > 0 && input.subject.length > 0,
-      "approval must carry a body and subject",
-    );
+
+    assert(result.draftId !== undefined, "the result names the created draft");
+
+    const provenance = z.object({ verifier: z.unknown() }).parse(result.provenance);
     assert(
       result.provenance.inbound.documentId === row.documentId,
       "source document must be preserved",
     );
-    assert(result.provenance.verifier?.decision === "pass", "staging requires a verifier pass");
+    assert(
+      provenance.verifier !== null &&
+        typeof provenance.verifier === "object" &&
+        (provenance.verifier as { decision?: string }).decision === "pass",
+      "a draft requires a verifier pass",
+    );
     assert(result.provenance.style !== null, "style selection or style_missing must be recorded");
+    assert(result.provenance.recipients.to.length > 0, "a draft names its recipients");
     console.log(
-      `[smoke-reply-drafting] pending approval=${action.id}; review or reject it in Alfred`,
+      `[smoke-reply-drafting] created Gmail draft ${result.draftId}; review and send it in Gmail`,
     );
   } else {
     assert(
       staged.every((action) => action.status === "rejected" && action.outcome === "refused"),
-      "a non-staged decision must leave no approval or send; recovered rows must be withdrawn",
+      "a non-drafted decision must leave no approval or send; recovered rows must be withdrawn",
     );
   }
 

@@ -473,11 +473,6 @@ export interface DraftMessageArgs {
   threadId?: string | undefined;
 }
 
-export interface SentMessage {
-  id: string;
-  threadId: string;
-}
-
 /** RFC 2047-encode non-ASCII values so accents and emoji do not corrupt the MIME. */
 function encodeHeaderValue(value: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ASCII range test
@@ -547,36 +542,6 @@ export async function createDraft(args: DraftMessageArgs): Promise<CreateDraftRe
   });
 
   return { draftId: parsed.id, messageId: parsed.message.id, threadId: parsed.message.threadId };
-}
-
-export interface DraftRefArgs {
-  accessToken: string;
-  draftId: string;
-}
-
-/**
- * Sends a saved draft. Needs `gmail.modify` or `gmail.compose`; `gmail.send` is not enough. A draft
- * sends once: Gmail deletes it on send, so a second call with the same id gets 404 and sends
- * nothing. The sent message has a new id, in the draft's thread.
- */
-export async function sendDraft(args: DraftRefArgs): Promise<SentMessage> {
-  const parsed = await googleJson("gmail", messageSchema, {
-    method: "POST",
-    url: `${API_BASE}/drafts/send`,
-    accessToken: args.accessToken,
-    payload: { id: args.draftId },
-  });
-
-  return { id: parsed.id, threadId: parsed.threadId };
-}
-
-/** Deletes a draft for good, not to the trash. Needs `gmail.modify` or `gmail.compose`. */
-export async function deleteDraft(args: DraftRefArgs): Promise<void> {
-  await googleJson("gmail", uncheckedResponse, {
-    method: "DELETE",
-    url: `${API_BASE}/drafts/${encodeURIComponent(args.draftId)}`,
-    accessToken: args.accessToken,
-  });
 }
 
 // MIME helpers

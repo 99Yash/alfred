@@ -158,14 +158,14 @@ describe("guardUnreportedToolFailures", () => {
       toolCallsLog: [
         {
           toolCallId: "tc_1",
-          toolName: "gmail.send_draft",
+          toolName: "vercel.redeploy",
           status: "failed",
           nonExecution: true,
           segmentIndex: 0,
         },
         {
           toolCallId: "tc_2",
-          toolName: "gmail.send_draft",
+          toolName: "vercel.redeploy",
           status: "succeeded",
           segmentIndex: 1,
         },
@@ -183,7 +183,7 @@ describe("guardUnreportedToolFailures", () => {
       toolCallsLog: [
         {
           toolCallId: "tc_1",
-          toolName: "gmail.send_draft",
+          toolName: "vercel.redeploy",
           status: "failed",
           nonExecution: true,
           segmentIndex: 0,
@@ -204,7 +204,7 @@ describe("guardUnreportedToolFailures", () => {
   test("still fires for a real execution failure (no nonExecution flag)", async () => {
     const state = baseState({
       toolCallsLog: [
-        { toolCallId: "tc_1", toolName: "gmail.send_draft", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_1", toolName: "vercel.redeploy", status: "failed", segmentIndex: 0 },
       ],
     });
 
@@ -333,7 +333,7 @@ describe("guardUnreportedToolFailures", () => {
           status: "succeeded",
           segmentIndex: 0,
         },
-        { toolCallId: "tc_2", toolName: "gmail.send_draft", status: "failed", segmentIndex: 0 },
+        { toolCallId: "tc_2", toolName: "vercel.redeploy", status: "failed", segmentIndex: 0 },
       ],
     });
 
@@ -346,7 +346,7 @@ describe("guardUnreportedToolFailures", () => {
     const last = transcript.at(-1);
     assert.ok(last);
     const note = toDisplayText(last.content);
-    assert.match(note, /gmail\.send_draft/);
+    assert.match(note, /vercel\.redeploy/);
     assert.ok(!note.includes("append_values"));
     assert.deepEqual(state.notedFailureToolCallIds, ["tc_2"]);
   });
@@ -401,7 +401,7 @@ describe("guardUnreportedToolFailures", () => {
         toolCallsLog: [
           {
             toolCallId: "tc_connect",
-            toolName: "gmail.send_draft",
+            toolName: "vercel.redeploy",
             status: "failed",
             nonExecution: true,
             connectNudge: { integration: "gmail", action: "connect" },
@@ -414,7 +414,7 @@ describe("guardUnreportedToolFailures", () => {
     assert.deepEqual(fields.toolCalls, [
       {
         toolCallId: "tc_connect",
-        toolName: "gmail.send_draft",
+        toolName: "vercel.redeploy",
         status: "failed",
         nonExecution: true,
         connectNudge: { integration: "gmail", action: "connect" },

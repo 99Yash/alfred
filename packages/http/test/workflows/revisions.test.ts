@@ -479,7 +479,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountId: accountRef,
         accountLabel: "test@example.test",
         accessToken: UNSEALED_TEST_TOKEN,
-        scopes: [GOOGLE_SCOPE.gmail.modify, GOOGLE_SCOPE.gmail.send],
+        scopes: [GOOGLE_SCOPE.sheets.full],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });
@@ -494,11 +494,11 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       definition: {
         name: "Credential loss",
         description: null,
-        brief: "Send the weekly note.",
+        brief: "Append the weekly rows.",
         trigger: { kind: "manual" },
-        allowedIntegrations: ["gmail"],
-        allowedTools: ["gmail.send_draft"],
-        requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
+        allowedIntegrations: ["sheets"],
+        allowedTools: ["sheets.append_values"],
+        requiredCapabilities: [{ tool: "sheets.append_values", accountRef }],
       },
       tx: "own",
     });
@@ -560,7 +560,7 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
         accountId: accountRef,
         accountLabel: "stale@example.test",
         accessToken: UNSEALED_TEST_TOKEN,
-        scopes: [GOOGLE_SCOPE.gmail.modify, GOOGLE_SCOPE.gmail.send],
+        scopes: [GOOGLE_SCOPE.sheets.full],
         status: "active",
       })
       .returning({ id: integrationCredentials.id });
@@ -573,13 +573,13 @@ describe("workflow revision invariants (#555)", { skip: SKIP }, () => {
       userId,
       slug,
       definition: {
-        name: "Old Gmail revision",
+        name: "Old Sheets revision",
         description: null,
-        brief: "Send the weekly note.",
+        brief: "Append the weekly rows.",
         trigger: { kind: "manual" },
-        allowedIntegrations: ["gmail"],
-        allowedTools: ["gmail.send_draft"],
-        requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
+        allowedIntegrations: ["sheets"],
+        allowedTools: ["sheets.append_values"],
+        requiredCapabilities: [{ tool: "sheets.append_values", accountRef }],
       },
       tx: "own",
     });
