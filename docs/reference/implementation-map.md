@@ -49,7 +49,7 @@ flowchart LR
 
   S1 --> OBS["determinism spend:<br/>sender-context · observations · thread-state<br/>sender-priors · sender-relationship · sent-mail<br/>knowledge/standing-instructions"]
   OBS --> LLM["classify.ts<br/>cheap model · hedge.ts · detectConflict"]
-  LLM --> FLR["floors/: override → senderKind<br/>→ spam → standing → meeting"]
+  LLM --> FLR["floors/: override → senderKind<br/>→ meeting → standing"]
   FLR --> ST["store.ts · upsertTriage<br/>thread lock · same-tx trace"]
   ST --> ROW[("email_triage<br/>one row per thread")]
   S2 --> TAGS["tags.ts · reconcileThreadLabel<br/>the one Gmail label writer"]
@@ -88,7 +88,7 @@ flowchart LR
 | `floors/meeting.ts` (82) | False-`meeting` demotion. |
 | `gmail-sender-adapter.ts` (80) | Boot-port adapter (import-cycle break between ingestion and triage). |
 | `email-html.ts` (75) | DOMPurify sanitization for the rail's sandboxed iframe. |
-| `floors/spam.ts` (64) | Gmail-SPAM demotion of reply lanes; holds demand lanes. |
+| `scope.ts` | `triageOutOfScope`: the Gmail labels decide what triage skips (spam, no `INBOX`, Social/Promotions/Forums, mail to yourself). The briefing reads the same value. |
 | `floors/floor.ts` (60) | The only writer of demotion rules — audit cannot disagree with verdict. |
 | `sent-mail.ts` (44) | "Did the user send this?" in JS and SQL forms. |
 | `email-triage.ts` (36) | The workflow registry object (slug, trigger, schemas). |

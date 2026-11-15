@@ -103,17 +103,27 @@ The line tests showed that one changed fact line moves mails near a category bou
 - In the same PR, the briefing reads the mail that triage did not label, from `documents`. Today the briefing reads only `email_triage` rows (`briefings/gather.ts`). Without this change, the briefing loses that mail.
 - The briefing says when a mail that it reports is in spam.
 
-**Removes:** the triage calls on mail outside the scope, and the spam floor (`triage/floors/spam.ts`).
+**Removes:** the triage calls on mail outside the scope, and the spam floor.
 *Gate:* the eval deck holds. Each deck case outside the scope expects no label. The two spam-filed deck cases (`spam-filed-sign-this-invite-sent-bcc-style`, `spam-filed-recruiter-ask-on-the-users-own-application`) change to a skip check, and to a check that the briefing says the mail is in spam.
+
+### Built (2026-11-15)
+
+- `triageOutOfScope` (`packages/assistant/src/triage/scope.ts`) reads the mail facts and gives where the mail sits: `spam`, `not_in_inbox`, `social`, `promotions`, `forums`, or `to_yourself`. The classify step calls it after the sent-mail check and before any model call. To find "to yourself", the reader now marks the sender with `isUser`, as it marks each recipient.
+- The briefing did not lose this mail. The composer's `list_emails_since` already listed every Gmail mail of the window, with or without a label. The gap was that it could not see where a mail sits. Each item now carries `outsideTriage`, from the same function (or `sent_by_you` for the user's own sent mail). The composer prompt says how to judge such mail and to say "spam" for a mail in spam.
+- The window (owner, 2026-11-15): the briefing picks mail by `ingested_at` since the last briefing, and orders it by `authored_at`. It is not moved to the sent time. See [stores.md](../theory/stores.md#3-time).
+- The deck: each out-of-scope mail names its expected scope (`outOfScope`). The deck checks the skip and makes no model call for it. Out of scope: `chess-promo-mail`, `vendor-webinars`, two of three `broadcast-event-invites`, one `cold-and-automated-outreach` mail, `newsletter-about-a-hack-is-not-a-security-alert`, and the two spam-filed cases.
+- The briefing check: `apps/server/evals/briefing-out-of-scope-mail.eval.ts` runs the composer on the two spam-filed mails. The recruiter ask must appear and say spam. The sign-this invite must be dropped, or appear with spam. It shares the composer harness (`apps/server/evals/lib/briefing-scenario.ts`) with the notification-reminder eval.
+- Left for slice 3: prompt rule 20 and the other spam lines in `classify.ts`. No spam mail reaches the model now, so they have no effect.
+- Not covered: Gmail can set the tab labels when the user has turned the inbox tabs off. Then this rule still skips Promotions mail, against the theory line "when the inbox has no category tabs, all inbox mail is in scope". Alfred reads no setting that says whether the tabs are on, so this rule cannot tell.
 
 ## Slice 3 — The prompt is the theory
 
 - The system prompt is rewritten from the theory page. It holds the job, the labels, precedence, the evidence principles, the profile slot, and the instructions slot.
 - The 38 numbered rules and the todo rubric go.
-- The sender-kind, meeting, and spam floors become evidence lines for the model.
+- The sender-kind and meeting floors become evidence lines for the model.
 - `applyFloors` keeps only the security floor (`floors/override.ts`) and the named-person instruction rule. Any step after the model that changes the label writes its cause to the trace.
 
-**Removes:** `floors/sender-kind.ts`, `floors/meeting.ts`, `floors/spam.ts`, the rule text and `TODO_RULE`/`TODO_EXEMPLARS` in `classify.ts`, and the todo suppression code in `classify.ts` (`todoSuppressionReason`, `resolveTodoSuggestion`).
+**Removes:** `floors/sender-kind.ts`, `floors/meeting.ts`, the rule text and `TODO_RULE`/`TODO_EXEMPLARS` in `classify.ts`, and the todo suppression code in `classify.ts` (`todoSuppressionReason`, `resolveTodoSuggestion`).
 *Gate:* the eval deck is better on the payment, webinar, and investor cases, and no case is worse. Todos stay off until slice 7.
 
 ## Slice 4 — The triage profile and instructions in words
