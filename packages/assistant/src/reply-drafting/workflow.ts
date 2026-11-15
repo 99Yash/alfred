@@ -16,7 +16,6 @@ import {
 import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import { standingInstructions } from "@alfred/assistant/knowledge";
-import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { integrations } from "@alfred/integrations";
@@ -63,13 +62,11 @@ const stateSchema = z.object({
   prepared: z
     .object({ input: replyDraftMessageSchema, provenance: replyDraftProvenanceSchema })
     .optional(),
-  /** Only a legacy run parked on a send approval carries this. */
+  /** Only a run from before 2026-11-15 carries this; `stage` finishes with it. */
   result: replyDraftResultSchema.optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
-
-const REPLY_TOOL_CALL_ID = "reply-draft";
 
 /** `email_triage.document_id` can outlive its document, so null falls back to the run's document. */
 function snapshotFromRow(row: TriageRow, fallbackDocumentId: string): ReplyDraftTriageSnapshot {
@@ -361,25 +358,6 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
   };
 }
 
-async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
-  const recorded = ctx.state.result;
-  const result = await draftReply(ctx);
-
-  // A legacy run parked on a send approval: its approval row names the deleted send tool.
-  if (recorded?.outcome === "staged" && recorded.stagingId != null) {
-    await withdrawToolCallApproval({
-      userId: ctx.userId,
-      runId: ctx.runId,
-      stepId: "stage",
-      attempt: ctx.attempt,
-      toolCallId: REPLY_TOOL_CALL_ID,
-      reason: "Reply drafting no longer stages an approval.",
-    });
-  }
-
-  return result;
-}
-
 /** Save one plain-text Gmail draft on the source thread. Returns the Gmail draft id. */
 async function createReplyDraft(args: {
   userId: string;
@@ -409,11 +387,13 @@ async function createReplyDraft(args: {
  * drafts only and never sends mail). On a verifier pass it writes the draft on the source
  * thread and finishes with the `staged` outcome; no approval card, no staging row.
  */
-async function draftReply(ctx: StepContext<State>): Promise<StepResult<State>> {
+async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { prepared, mailbox } = ctx.state;
 
   if (!prepared || !mailbox)
     throw new Error("[reply-drafting] stage entered without verified input");
+
+  if (ctx.state.result) return finish(ctx, ctx.state, ctx.state.result);
 
   // Compose can be slow: recheck gate and access before the write.
   const gate = await runGate(ctx);
