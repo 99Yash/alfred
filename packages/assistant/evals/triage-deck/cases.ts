@@ -1,4 +1,5 @@
 import type { TriageCategory } from "@alfred/contracts";
+import type { TriageOutOfScope } from "@alfred/assistant/triage/scope";
 import type { TriageSenderKindSignal } from "@alfred/assistant/triage/sender-kind";
 
 /**
@@ -22,6 +23,11 @@ export interface DeckMail {
   authoredAt: string;
   labelIds: readonly string[];
   /**
+   * Where the mail sits when triage does not label it (slice 2a). Set: the deck checks that triage
+   * skips the mail, and makes no model call. Unset: the mail is in scope, and `accept` applies.
+   */
+  outOfScope?: TriageOutOfScope;
+  /**
    * Stored headers beyond From, Subject, and Date (for example `To`, `Reply-To`,
    * `Authentication-Results`), as Gmail recorded them. With no `To` here, the mail has no To header.
    */
@@ -39,7 +45,8 @@ export interface DeckMail {
 export interface DeckCase {
   label: string;
   /**
-   * The labels that score 1, from `docs/theory/triage.md`. The owner checks each one.
+   * The labels that score 1, from `docs/theory/triage.md`. The owner checks each one. A mail with
+   * `outOfScope` gets no label, so this applies only to the mails in scope.
    */
   accept: readonly [TriageCategory, ...TriageCategory[]];
   /**
@@ -124,6 +131,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Use your free Daily Game Review for your game against an opponent! What a Game! See the highlights of your game with your daily Game Review!",
         authoredAt: "2026-10-26T12:05:01Z",
         labelIds: PROMOTIONS,
+        outOfScope: "promotions",
         prodCategory: "marketing",
       },
       {
@@ -132,6 +140,7 @@ export const DECK: readonly DeckCase[] = [
         body: "See your games, wins, puzzles and more from last month. Your October in Chess: 22 Games Played, 10 Wins, 0 Rated Puzzles Solved. Play Now.",
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: PROMOTIONS,
+        outOfScope: "promotions",
         prodCategory: "newsletter",
         senderPrior: { key: "hello@chess.com", counts: { marketing: 2 } },
         senderKind: CHESS_STREAK_KIND,
@@ -294,6 +303,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Run realistic cases through the deployed agent and compare the results. Prove it end-to-end: experiment on the full agent before you ship a change.",
         authoredAt: "2026-09-08T16:00:00Z",
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "SPAM"],
+        outOfScope: "spam",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -303,6 +313,7 @@ export const DECK: readonly DeckCase[] = [
         body: "What traces and evals can prove, and what they cannot. Traces and evals as EU AI Act evidence.",
         authoredAt: "2026-10-06T16:00:00Z",
         labelIds: PROMOTIONS,
+        outOfScope: "promotions",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -312,6 +323,7 @@ export const DECK: readonly DeckCase[] = [
         body: "The database returns the aggregate. Save your spot. Query Phoenix traces with SQL.",
         authoredAt: "2026-10-20T16:00:00Z",
         labelIds: PROMOTIONS,
+        outOfScope: "promotions",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -321,6 +333,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hey Yash, On Friday I'm interviewing Lauren Tan (poteto) live on YouTube. Lauren created pstack and ships thousands of PRs a month. We'll talk about skills, high-velocity software factories, and current techniques for shipping with agents.",
         authoredAt: "2026-09-30T16:00:00Z",
         labelIds: PROMOTIONS,
+        outOfScope: "promotions",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -339,6 +352,7 @@ export const DECK: readonly DeckCase[] = [
         body: "See how to give every agent its own short-lived identity. Hi Yash, Once an agent can reach your APIs and MCP servers, you also need to know who it's acting as, and be able to prove that after the fact. On November 18 at 1 PM ET, Jake Hulberg (Infisical's dev rel) will show how agent identities relate to the machine identities you already manage, then walk through a pattern where an orchestrator assumes a machine identity and mints a short-lived session token for each agent it starts. You'll also see the telemetry side: which orchestrator started which agent, on whose behalf, and every HTTP request and MCP tool call that agent made. → Save your seat. Unsubscribe. Manage preferences.",
         authoredAt: "2026-11-13T13:58:54Z",
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
+        outOfScope: "promotions",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -357,6 +371,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Plus a live Agent Vault demo on Wednesday, Nov 18. Hi Yash, AI agents that automate work or power features need real access to APIs, databases, and MCP servers. Handing them long-lived credentials rarely survives a security review. On Wednesday, November 18 at 1 PM ET, Jake Hulberg from Infisical's developer relations team walks through a practical architecture for securing agents in systems you build and run yourself. The session covers: why agents shouldn't hold secrets at all, and how credential brokering through a proxy lets them call services without ever seeing a key; scoping access by intent, down to specific endpoints and MCP tools, with the agent acting on behalf of the person who invoked it. It closes with a live demo using Infisical's Agent Vault. → Save your seat. Unsubscribe. Manage preferences.",
         authoredAt: "2026-11-09T11:07:26Z",
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
+        outOfScope: "promotions",
         prodCategory: "meeting",
         senderRelationship: "no prior contact on record",
       },
@@ -605,6 +620,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hi Yash, Thank you for everything you've shared in open source. You came up on a list of developers whose public work a lot of people rely on, and I wanted to say thanks. We're a small, early-stage team. We built AgentCall, a skill that lets agents like Claude Code or Codex join a Google Meet, Zoom or Teams call.",
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "SPAM"],
+        outOfScope: "spam",
         prodCategory: "marketing",
         senderRelationship: "no prior contact on record",
       },
@@ -640,6 +656,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Think twice before you npm install a take-home. Plus 5 remote JS roles with salary and location. JS Pulse #9 from jsgurujobs.com. The Binance Hack Started on One Laptop. Binance links the breach to a compromised DevOps engineer's laptop that gave the attacker a path to a service container and the ability to submit unauthorized withdrawals. No private key leaked. This issue's sponsor slot is open.",
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "SPAM"],
+        outOfScope: "spam",
         prodCategory: "urgent",
         senderRelationship: "no prior contact on record",
       },
@@ -692,6 +709,7 @@ export const DECK: readonly DeckCase[] = [
         body: "H. Blake from Studio sent you an invitation, please review and sign. Review Document <https://app.powerbi.com/view?r=REDACTED> ________________________________ From: Erin C. <erin@studio-example.com> Sent: Thursday, August 3, 2023 18:57 To: Victoria B. <victoria@studio-example.com>",
         authoredAt: "2026-11-09T22:16:13Z",
         labelIds: ["UNREAD", "CATEGORY_PERSONAL", "SPAM"],
+        outOfScope: "spam",
         headers: {
           To: "",
           "Authentication-Results":
@@ -713,6 +731,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hi Yash, thanks for applying to the Backend Engineer role. The team liked your profile. The next step is a short take-home task; please send it back by Friday 6 pm IST, or tell me if you need more time. Best, Priya",
         authoredAt: "2026-11-06T09:30:00Z",
         labelIds: ["UNREAD", "CATEGORY_PERSONAL", "SPAM"],
+        outOfScope: "spam",
         headers: {
           "Authentication-Results":
             "mx.google.com; dkim=pass header.i=@talent.acme-example.com; spf=pass (google.com: domain of priya@talent.acme-example.com designates 198.51.100.7 as permitted sender) smtp.mailfrom=priya@talent.acme-example.com; dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=acme-example.com",

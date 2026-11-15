@@ -52,8 +52,6 @@ function describeMechanism(model: string, audit: ClassifyAudit): string {
 
   if (audit.secondPassFailure) parts.push("2pass=threw");
 
-  if (audit.floors.spam.outcome) parts.push(`spam=${audit.floors.spam.outcome}`);
-
   return parts.length > 0 ? parts.join(" ") : "model";
 }
 

@@ -93,6 +93,8 @@ export interface MailFacts {
     /** The parse's own address (`metadata.from`), else the raw `From` header's. */
     readonly address: string | null;
     readonly displayName: string | null;
+    /** The address is one of the user's own addresses. */
+    readonly isUser: boolean;
     /** `extractSenderContext` as the classify step ran it: the context, the parser, the address. */
     readonly parse: SenderContextResult;
   };
@@ -156,7 +158,7 @@ const STATED_LINE_RE = /^\s*([A-Za-z][A-Za-z /]*?)\s*:\s*(.*?)\s*$/;
 interface ParsedMail {
   readonly row: MailFactsRow;
   readonly headers: GmailHeaderLookup;
-  readonly sender: MailFacts["sender"];
+  readonly sender: Omit<MailFacts["sender"], "isUser">;
   readonly recipients: Readonly<Record<RecipientRole, readonly ParsedAddress[] | null>>;
   readonly subject: string | null;
   readonly fullBody: string;
@@ -245,7 +247,10 @@ function finishMailFacts(parsed: ParsedMail, ctx: MailFactsContext): MailFacts {
     messageId: row.sourceId,
     threadId: row.sourceThreadId,
     arrivedAt: parsed.at ? arrivalOf(parsed.at, ctx.timezone) : null,
-    sender: parsed.sender,
+    sender: {
+      ...parsed.sender,
+      isUser: parsed.sender.address !== null && ctx.userAddresses.has(parsed.sender.address),
+    },
     replyTo: headers.get("reply-to"),
     to: recipients("to"),
     cc: recipients("cc"),

@@ -101,6 +101,8 @@ export type {
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 
+export { triageOutOfScope, type TriageOutOfScope } from "./scope";
+
 // The parser port knowledge depends on (ADR-0089).
 export { gmailSenderAdapter } from "./gmail-sender-adapter";
 

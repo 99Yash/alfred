@@ -1,5 +1,6 @@
 import {
   deriveLoopKey,
+  isSentGmailMetadata,
   isTriageCategory,
   parseEmailAddress,
   parseGmailDocumentMetadata,
@@ -10,6 +11,7 @@ import type {
   BriefingGather,
   BriefingSlot,
   FullBriefing,
+  GmailDocumentMetadata,
   IanaTimezone,
   SignificanceBand,
   TriageCategory,
@@ -19,13 +21,17 @@ import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/sch
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   getSenderSignificanceBatch,
+  loadMailFacts,
   standingInstructions,
+  type MailFacts,
   type MailStandingInstructions,
 } from "../knowledge";
 import {
   deriveEffectiveTriage,
   parseTriageEvaluationColumns,
+  triageOutOfScope,
   type EffectiveTriageRow,
+  type TriageOutOfScope,
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
@@ -78,6 +84,11 @@ export interface EmailListItem {
   attentionBand: AttentionBand;
   /** Lets the agent decide if a `read_email` call is worth it. */
   contentLength: number;
+  /**
+   * Where the mail sits when triage does not label it (`triageOutOfScope`), or `sent_by_you` for
+   * the user's own sent mail. Null: the mail is in the inbox scope that triage labels.
+   */
+  outsideTriage: TriageOutOfScope | "sent_by_you" | null;
 }
 
 export interface EmailReadResult {
@@ -263,6 +274,12 @@ export async function listEmailsSinceWatermark(
   const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
   const senders = metas.map((meta) => meta.from ?? null);
 
+  // The scope reads the mail facts, as the classify step does, so both agree on each mail.
+  const mailFacts = await loadMailFacts(
+    args.userId,
+    rows.map((r) => r.documentId),
+  );
+
   // Significance demotes cold senders inside their category (ADR-0064).
   // An unscored sender is neutral.
   const significanceByAddress = await loadSignificanceBands(args.userId, senders);
@@ -311,8 +328,18 @@ export async function listEmailsSinceWatermark(
         ? (attention[i]?.band ?? "normal")
         : "normal",
       contentLength: Number(r.contentLength),
+      outsideTriage: outsideTriageOf(meta, mailFacts.get(r.documentId)),
     } satisfies EmailListItem;
   });
+}
+
+function outsideTriageOf(
+  meta: GmailDocumentMetadata | undefined,
+  facts: MailFacts | undefined,
+): EmailListItem["outsideTriage"] {
+  if (meta && isSentGmailMetadata(meta)) return "sent_by_you";
+
+  return facts ? triageOutOfScope(facts) : null;
 }
 
 function toTriageCategory(category: string | null): TriageCategory | null {

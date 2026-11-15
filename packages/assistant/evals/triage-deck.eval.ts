@@ -13,8 +13,10 @@ import {
   type ActiveStandingInstruction,
 } from "@alfred/assistant/knowledge/standing-instructions";
 import { assembleObservations } from "@alfred/assistant/triage/observations";
+import { triageOutOfScope, type TriageOutOfScope } from "@alfred/assistant/triage/scope";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
 import { PROD_INSTRUCTION_ROWS } from "./triage-deck/instructions";
+import type { MailFacts } from "@alfred/assistant/knowledge/mail-facts";
 import { evalMailFacts } from "./lib/stored-mail";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
 
@@ -67,12 +69,14 @@ function deckRun(filter: string | undefined): readonly DeckCase[] {
   return DECK.filter((c) => labels.has(c.label));
 }
 
-function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs {
-  const id = `deck_${c.label}_${index}`;
+function deckMailId(c: DeckCase, index: number): string {
+  return `deck_${c.label}_${index}`;
+}
 
-  // Every mail fact comes from the prod reader over a stored Gmail message.
-  const mailFacts = evalMailFacts({
-    id,
+/** Every mail fact comes from the prod reader over a stored Gmail message. */
+function deckMailFacts(c: DeckCase, mail: DeckMail, index: number): MailFacts {
+  return evalMailFacts({
+    id: deckMailId(c, index),
     from: mail.from,
     subject: mail.subject,
     body: mail.body,
@@ -81,6 +85,15 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
     headers: mail.headers,
     knownContact: mail.knownContact,
   });
+}
+
+function argsFor(
+  c: DeckCase,
+  mail: DeckMail,
+  index: number,
+  mailFacts: MailFacts,
+): ClassifyEmailArgs {
+  const id = deckMailId(c, index);
 
   const observations = assembleObservations({
     senderKey: mail.senderPrior?.key ?? null,
@@ -136,8 +149,10 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
 interface MailResult {
   subject: string;
   prodCategory: TriageCategory;
-  /** Null when the provider failed every attempt. */
+  /** Null when the provider failed every attempt, or when triage skipped the mail. */
   category: TriageCategory | null;
+  /** The case's scope for the mail and the scope that `triageOutOfScope` gave. */
+  scope: { expected: TriageOutOfScope | null; actual: TriageOutOfScope | null };
   model: string;
   rationale: string;
 }
@@ -153,13 +168,32 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
     const mails: MailResult[] = [];
 
     for (const [index, mail] of input.mails.entries()) {
+      const mailFacts = deckMailFacts(input, mail, index);
+      const scope = { expected: mail.outOfScope ?? null, actual: triageOutOfScope(mailFacts) };
+
+      // Slice 2a: triage skips the mail before any model call, as the classify step does.
+      if (scope.actual !== null) {
+        mails.push({
+          subject: mail.subject,
+          prodCategory: mail.prodCategory,
+          category: null,
+          scope,
+          model: "(skipped: out of scope)",
+          rationale: "",
+        });
+        continue;
+      }
+
       try {
-        const { classification, model } = await classifyWithRetry(argsFor(input, mail, index));
+        const { classification, model } = await classifyWithRetry(
+          argsFor(input, mail, index, mailFacts),
+        );
 
         mails.push({
           subject: mail.subject,
           prodCategory: mail.prodCategory,
           category: classification.category,
+          scope,
           model,
           rationale: classification.rationale,
         });
@@ -176,6 +210,7 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
           subject: mail.subject,
           prodCategory: mail.prodCategory,
           category: null,
+          scope,
           model: "(not classified)",
           rationale: `[skipped: ${kind}]`,
         });
@@ -186,15 +221,25 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
   },
   scorers: [
     {
-      // The share of mails whose label is in the accept set. A skip counts as a miss.
+      // The share of mails with the right result: a skip where the case expects one (slice 2a),
+      // else a label in the accept set. A provider failure counts as a miss.
       name: "Label",
       scorer: ({ output, expected }) => {
         const lines = output.mails.map((m) => {
-          const ok = m.category !== null && expected.accept.includes(m.category);
+          const ok =
+            m.scope.expected !== null
+              ? m.scope.actual === m.scope.expected
+              : m.scope.actual === null &&
+                m.category !== null &&
+                expected.accept.includes(m.category);
+
+          const result = m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed");
+
+          const want = m.scope.expected ? ` want skip (${m.scope.expected})` : "";
 
           return {
             ok,
-            line: `${ok ? "ok  " : "MISS"} ${m.category ?? "skipped"} (prod ${m.prodCategory}) via ${m.model}: ${m.subject}`,
+            line: `${ok ? "ok  " : "MISS"} ${result}${want} (prod ${m.prodCategory}) via ${m.model}: ${m.subject}`,
           };
         });
 
@@ -216,7 +261,11 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
       scorer: ({ output, expected }) => {
         if (!expected.oneKind) return { score: 1, metadata: "not one kind from one sender" };
 
-        const labels = new Set(output.mails.map((m) => m.category ?? "skipped"));
+        const labels = new Set(
+          output.mails.map((m) =>
+            m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed"),
+          ),
+        );
 
         return {
           score: labels.size === 1 ? 1 : 0,

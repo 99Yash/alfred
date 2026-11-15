@@ -5,14 +5,12 @@ import { applyFloorVerdict, type FloorResult } from "./floor";
 import { applyMeetingDemotionFloor } from "./meeting";
 import { applyOverrideFloor } from "./override";
 import { applySenderKindDemotionFloor } from "./sender-kind";
-import { applySpamDemotionFloor } from "./spam";
 
 /**
  * Deterministic floors after the model (ADR-0051 §5). The prompt owns judgment;
  * each floor guarantees one prompt rule:
  *   - override    ↔ none (exposed secret → urgent)
  *   - sender-kind ↔ rules 8a/12e/12f
- *   - spam        ↔ rule 20
  *   - meeting     ↔ rules 7/8/9
  * The user's standing instructions are not a floor here. `applyStandingInstructionEffects`
  * runs after this sequence, on its output (ADR-0113).
@@ -24,8 +22,6 @@ export {
   matchesCollabIntrinsicStake,
   matchesPrThread,
 } from "./sender-kind";
-
-export { applySpamDemotionFloor } from "./spam";
 
 export {
   applyStandingConsumerEffects,
@@ -49,7 +45,6 @@ export interface FloorContext {
   signalText: string;
   /** No subject: a task title's imperative is not a stake. */
   collabVetoText: string;
-  isSpam: boolean;
   senderKind: Observations["senderKind"];
   effectiveAuthor: SenderContext["effectiveAuthor"] | null;
   sender: string | null;
@@ -92,9 +87,7 @@ function floor<N extends string, R extends FloorResult>(
  * Order is the policy. Each floor sees the previous floor's output.
  *  1. `override` first, so a leaked secret escapes the sender-kind demotion.
  *  2. `senderKind` demotes passive group/no-reply mail.
- *  3. `spam` demotes reply lanes only. After `senderKind` so the audit names the
- *     sender reason when both match; the category is the same.
- *  4. `meeting` last: it only fires on a surviving `meeting` tag.
+ *  3. `meeting` last: it only fires on a surviving `meeting` tag.
  * The output is the stored model verdict. The instruction floor applies the user's
  * effects to it after this sequence, so a consumer can derive the same result later.
  * A new floor also needs an entry in `FLOOR_TRACE_PROJECTIONS` and a step in
@@ -120,11 +113,6 @@ const FLOOR_SEQUENCE = [
         collabActivity: classification.collabActivity ?? null,
       }),
     (audit) => (audit.verdict.kind === "demote" ? "+kindfloor" : ""),
-  ),
-  floor(
-    "spam",
-    (classification, ctx) => applySpamDemotionFloor(classification, ctx.isSpam),
-    (audit) => (audit.verdict.kind === "demote" ? "+spamfloor" : ""),
   ),
   floor(
     "meeting",
@@ -155,21 +143,19 @@ export interface FloorOutcome {
 export function applyFloors(classification: TriageClassification, ctx: FloorContext): FloorOutcome {
   // Positional, so FLOOR_SEQUENCE alone sets the order. A new floor leaves `audits`
   // without its FloorAudits key, so the compiler asks for its step here.
-  const [first, second, third, fourth] = FLOOR_SEQUENCE;
+  const [first, second, third] = FLOOR_SEQUENCE;
   const firstStep = first.run(classification, ctx);
   const secondStep = second.run(firstStep.classification, ctx);
   const thirdStep = third.run(secondStep.classification, ctx);
-  const fourthStep = fourth.run(thirdStep.classification, ctx);
 
   return {
-    classification: fourthStep.classification,
+    classification: thirdStep.classification,
     audits: {
       [first.name]: firstStep.audit,
       [second.name]: secondStep.audit,
       [third.name]: thirdStep.audit,
-      [fourth.name]: fourthStep.audit,
     },
-    modelIdTags: [firstStep, secondStep, thirdStep, fourthStep].flatMap((step) =>
+    modelIdTags: [firstStep, secondStep, thirdStep].flatMap((step) =>
       step.modelIdTag ? [step.modelIdTag] : [],
     ),
   };
