@@ -64,6 +64,15 @@ Rules:
 - **Known contact.** One batch read of the `person` aliases (`knownContactAddresses`) for the sender and every recipient. A failed read gives no known contacts and a warning.
 - **What the triage prompt shows.** From, Reply-To, To, Cc (each address marked when it is a known contact, `(empty)` for an empty header), the receiving account, the arrival as `Date: 2026-10-19 13:30 (Mon, Asia/Kolkata)` (the label stays `Date`, because the prompt rules name "the email's Date", and the year resolves a deadline), the stated device, place, and app names, whether attachments are present, the subject, and the body. It does not show the authentication results or the own replies yet: slice 3 rewrites the prompt and decides them. The thread block stays as it is.
 
+### Deck result (owner decision, 2026-11-15)
+
+The owner kept the new fact lines as they are. The owner waived the deck rule ("lands only when no case gets worse") for this slice. Slice 3 takes these known misses:
+
+- `vendor-webinars` mail 1: `fyi` before, `action_needed` now. The `Received by` line moves it.
+- The new `spam-filed-sign-this-invite-sent-bcc-style` case: `action_needed` after the `Date` line got its year.
+
+The line tests showed that one changed fact line moves mails near a category boundary in the current prompt. This is evidence for the slice 3 rewrite.
+
 ## Slice 1 — Stop the self-learning
 
 - `classify` stops writing `incrementSenderPrior` with its own category (`workflow-operations.ts:568`) and stops reading the prior.
