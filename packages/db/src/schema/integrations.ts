@@ -123,8 +123,8 @@ export const ingestionState = pgTable(
  */
 // Append-only: a trigger rejects a direct DELETE (migration 0134).
 // Only the user cascade deletes rows. A credential delete (Disconnect) keeps them (migration 0170).
-// Retention sets only `payload` to NULL. The dedup key, `history_id`, and `delivered_at` stay.
-// New receipts store no body: it is in the receipt's document (`documents.raw`, stores.md).
+// No body: a webhook body is stored one time, in the receipt's document (`documents.raw`,
+// stores.md). Gmail receipts never had one.
 export const eventReceipts = pgTable(
   "event_receipts",
   {
@@ -159,12 +159,6 @@ export const eventReceipts = pgTable(
     verificationResult: text("verification_result").notNull().default("oidc_valid"),
     /** SHA-256 hex of the raw body. */
     payloadHash: text("payload_hash"),
-    /**
-     * Legacy copy of the verified webhook body. The receive path no longer writes it: the body is in
-     * the receipt's document (`documents.raw`). Old rows keep it until the column is dropped. NULL
-     * for Gmail, for new rows, and after retention.
-     */
-    payload: jsonb("payload"),
     processingStatus: text("processing_status")
       .$type<"pending" | "completed" | "failed">()
       .notNull()
@@ -180,15 +174,11 @@ export const eventReceipts = pgTable(
       sql`(${t.rawKind} IS NULL) = (${t.eventType} NOT LIKE '%.raw')`,
     ),
     uniqueIndex("event_receipts_dedup_idx").on(t.provider, t.providerDeliveryId),
-    // `backfillReceiptDocuments` filters `provider` alone and orders by
-    // `delivered_at ASC` every sweep; without this index the planner seq-scans.
+    // Added for the deleted corpus backfill (`provider` alone, `delivered_at ASC`). No reader is
+    // known to need it now; drop it only after a plan check on production.
     index("event_receipts_provider_delivered_idx").on(t.provider, t.deliveredAt),
     index("event_receipts_credential_idx").on(t.credentialId, t.deliveredAt),
     index("event_receipts_user_idx").on(t.userId, t.provider, t.deliveredAt),
-    // Partial, so the retention reaper scans only live bodies, not the whole table.
-    index("event_receipts_payload_live_idx")
-      .on(t.deliveredAt)
-      .where(sql`${t.payload} IS NOT NULL`),
   ],
 );
 

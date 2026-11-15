@@ -40,23 +40,31 @@ function objectStateFoldConsumer<S extends InboundEventSource>(source: S): Trigg
       if (!isEventTypeForSource(source, event.type)) return;
       const { receiptId } = event.payload;
 
-      // The body is in the receipt's document (stores.md). The receive path writes the document in
-      // the receipt's transaction. Only an old receipt can have no document. The live fold then
-      // skips it, and the object-state backfill folds it after the corpus backfill writes it.
+      // The body is in the receipt's document, the one stored copy (stores.md). The receive path
+      // writes the document in the receipt's transaction, so a receipt with no document breaks
+      // that rule. Left join, so that case is told apart from a receipt that is gone.
       const [receipt] = await db()
         .select({
+          documentId: documents.id,
           body: documents.raw,
           // Not the raw column: a JS `Date` drops the microseconds the store orders on (#1200).
           deliveredAt: receiptDeliveryInstant(),
         })
         .from(typedEventReceipts)
-        .innerJoin(documents, receiptDocumentJoin(typedEventReceipts))
+        .leftJoin(documents, receiptDocumentJoin(typedEventReceipts))
         .where(
           and(eq(typedEventReceipts.id, receiptId), eq(typedEventReceipts.userId, event.userId)),
         )
         .limit(1);
 
+      // A user wipe deleted it. Nothing to fold.
       if (!receipt) return;
+
+      // Throw, so the job fails and the receipt reads `failed`: a body was not stored.
+      if (receipt.documentId === null) {
+        throw new Error(`receipt ${receiptId} has no document, so its body is missing`);
+      }
+
       // A type that folds nothing, or a body that is not an object. A retry would not change it.
       const parsed = parseReceiptEvent(source, event.type, receipt.body);
 

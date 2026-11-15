@@ -156,9 +156,9 @@ body into facts. For mail, that reader is the mail-facts reader of
 - Readers need the full message. ADR-0118 (the activity record), ADR-0122
   (the DMARC check reads `Authentication-Results`), and the mail-facts reader
   read `documents.raw`.
-- One copy is fewer moving parts than a copy for each consumer. Today one
-  GitHub delivery is stored two times (`event_receipts.payload` and
-  `documents.raw`). The stores theory removes the second copy.
+- One copy is fewer moving parts than a copy for each consumer. One GitHub
+  delivery was stored two times (`event_receipts.payload` and
+  `documents.raw`). Migration 0172 removed the second copy (2026-11-15).
 
 **What did not change.** Content stays under the posture above: vendor
 at-rest crypto, no app-layer encryption. The OAuth credential carve-out of

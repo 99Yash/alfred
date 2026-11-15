@@ -94,10 +94,8 @@ export const RULES = [
       "packages/assistant/src/connections/ingestion/inbound-receive.ts",
       "packages/assistant/src/connections/ingestion/inbound-deliver.ts",
       "packages/assistant/src/connections/raw-receipt-inventory.ts",
-      "packages/assistant/src/connections/ingestion/receipt-corpus-backfill.ts",
-      "packages/assistant/src/connections/ingestion/receipt-payload-reaper.ts",
     ],
-    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, the deliver job (publishes both tiers), raw inventory, corpus backfill, and payload retention may read both tiers of eventReceipts.",
+    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, the deliver job (publishes both tiers), and raw inventory may read both tiers of eventReceipts.",
   },
   {
     id: "humanize-integration-slug",

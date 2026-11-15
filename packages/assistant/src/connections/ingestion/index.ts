@@ -22,8 +22,6 @@ export {
   type ReceiveInboundDeliveryArgs,
 } from "./inbound-receive";
 
-export { startReceiptPayloadReaper, stopReceiptPayloadReaper } from "./receipt-payload-reaper";
-
 export { installGmailWatchAndSeedCursor } from "./gmail-ingest";
 
 export {
