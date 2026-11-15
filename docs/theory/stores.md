@@ -79,7 +79,7 @@ The columns today, and where they break this rule:
 | Table | Layer | Becomes | Removes |
 | --- | --- | --- | --- |
 | `documents` | Received + index | The one copy of each body (`raw`), its text (`content`), and both times | The second GitHub body |
-| `event_receipts` | Received | The delivery record, with no body | `payload` after the folds read `documents.raw`; the 90-day payload reaper |
+| `event_receipts` | Received | The delivery record, with no body | `payload` and the 90-day payload reaper (done, migration 0172) |
 | `chunks` | Derived | The search index | — |
 | `observations` | Derived | The activity record of every source, rows that point and never copy | The `email_message` header copy (it becomes a slim activity row); `email_interpretation` (triage slice 7) |
 | `integration_objects` (+ `_keys`) | Derived | The state of things, rebuilt from received items by the owning source's fold | Writes that a rebuild cannot repeat |
@@ -118,8 +118,8 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
-| Three layers, every source | Settled (owner, 2026-11-15) | Partly | Only GitHub has an activity fold. Two GitHub bodies. |
-| One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Partly | Gmail: yes. Webhooks: new receipts store no body, and the fold reads `documents.raw`. Old receipts keep `payload` until the backfill reports 0 and the column is dropped. |
+| Three layers, every source | Settled (owner, 2026-11-15) | Partly | Only GitHub has an activity fold. |
+| One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Built | — (webhooks: #1763 and migration 0172) |
 | One reader for each source | Settled for mail (slice 0b) | Not built | Three header parsers for mail; three GitHub parses |
 | Two times with one meaning each | Proposed; GitHub arrival time settled (owner, 2026-11-15) | Partly | The mail briefing window |
 | The new people graph only | Settled (owner, 2026-11-15) | Not built | The projection is not active; four old-graph readers |
@@ -131,7 +131,7 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 
 1. **This page, and the ADR-0038 amendment.**
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
-3. **One GitHub body.** The object-state fold reads `documents.raw`, and `event_receipts` stops storing the payload. A committed backfill moves each old receipt body that has no document into one. When it reports 0, a second change drops `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner, 2026-11-15).
+3. **One GitHub body.** Done (2026-11-15). The object-state fold reads `documents.raw`, and `event_receipts` stores no body (#1763). The production report showed no old body without a document, so migration 0172 dropped `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner).
 4. **The briefing windows on the happened time.** This goes with triage slice 2a, which already changes what the briefing reads.
 5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).

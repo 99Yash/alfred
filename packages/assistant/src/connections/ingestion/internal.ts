@@ -5,8 +5,3 @@
  * `packages/assistant/test/gmail-ingest.test.ts`.
  */
 export { findCredentialsNeedingPoll, ingestRecentGmail, pollGmailHistory } from "./gmail-ingest";
-
-export {
-  backfillReceiptDocuments,
-  countReceiptBodiesWithoutDocument,
-} from "./receipt-corpus-backfill";

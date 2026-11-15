@@ -1,8 +1,8 @@
 /**
  * Replay stored GitHub deliveries through the GitHub reducer, so `integration_objects` includes
- * history from before the live fold (#212, ADR-0062). The body comes from `documents.raw`. Run
- * `backfill-receipt-documents-committed.ts` first: this script skips a receipt with no document.
- * Without it, old merges never close their briefing loops.
+ * history from before the live fold (#212, ADR-0062). Without this replay, old merges never close
+ * their briefing loops. The body comes from `documents.raw`, the one stored copy. The replay skips
+ * a receipt with no document.
  *
  * Replays in `delivered_at` order for the reducer's monotonic guard. The reducer is
  * idempotent. Bundled for prod. Dry by default; `--commit` writes (additive only).

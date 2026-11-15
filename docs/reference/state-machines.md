@@ -456,7 +456,6 @@ States: pending, completed, failed (TypeScript type only).
 | none            | pending         | webhook receive               | dedup unique on (provider, delivery id)         | `packages/assistant/src/connections/ingestion/inbound-receive.ts`        |
 | pending, failed | completed       | `deliverInboundReceipt`       | BullMQ job id per receipt; completed is a no-op | `packages/assistant/src/connections/ingestion/inbound-deliver.ts`        |
 | pending         | failed          | unknown type or publish error | none                                            | `packages/assistant/src/connections/ingestion/inbound-deliver.ts`        |
-| completed       | payload cleared | payload reaper                | row lock and status re-check                    | `packages/assistant/src/connections/ingestion/receipt-payload-reaper.ts` |
 
 Gmail receipts never leave pending; for Gmail the column has no meaning. A webhook receipt whose enqueue failed stays pending with no sweeper. Activity coverage detects the missing act and replays it, by design.
 

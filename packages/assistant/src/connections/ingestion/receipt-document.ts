@@ -30,7 +30,7 @@ import {
  * Corpus document key for one receipt: `(userId, source, sourceId = receipt id)`. The only place it
  * is spelled.
  */
-export function receiptDocumentKey(receipt: {
+function receiptDocumentKey(receipt: {
   id: string;
   userId: string;
   provider: InboundEventSource;
@@ -131,11 +131,11 @@ export async function prepareReceiptProjection(
 
 /**
  * The receipt and the body that came with it. `body` goes to `documents.raw`, the one stored copy
- * (stores.md). `accountId` is `null` for a receipt whose credential was deleted.
+ * (stores.md). Only the receive path writes one, so the credential and its account exist.
  */
 export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "deliveredAt"> & {
   readonly body: Document["raw"];
-  readonly accountId: Document["accountId"];
+  readonly accountId: NonNullable<Document["accountId"]>;
 };
 
 /**
