@@ -147,7 +147,7 @@ evalite<ScenarioRun, ComposeOutput, null>(
         name: "Dropped, or named with spam",
         scorer: ({ output, input }) => {
           if (!output.ok) return failed(output, input);
-          const named = /blake|studio|sign/i.test(output.combined);
+          const named = /\b(?:blake|studio)\b/i.test(output.combined);
           const ok = !named || SAYS_SPAM.test(output.combined);
 
           return {

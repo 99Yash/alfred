@@ -133,7 +133,7 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 1. **This page, and the ADR-0038 amendment.**
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
 3. **One GitHub body.** Done (2026-11-15). The object-state fold reads `documents.raw`, and `event_receipts` stores no body (#1763). The production report showed no old body without a document, so migration 0172 dropped `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner).
-4. **The briefing times.** Settled with triage slice 2a: the briefing picks mail by the received time and orders it by the sent time (section 3). No code change was needed.
+4. **The briefing times.** Settled with triage slice 2a: the briefing picks mail by the received time and orders it by the sent time (section 3). Slice 2a changed only the order of the composer's mail list (`list_emails_since`), which was by the received time.
 5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
 7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.

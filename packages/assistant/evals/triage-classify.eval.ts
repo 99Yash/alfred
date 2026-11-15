@@ -45,7 +45,7 @@ interface Expected {
    */
   category: readonly [TriageCategory, ...TriageCategory[]];
   /**
-   * Whole tags from `classifyEmail`'s `model` string that must be present, like `+2pass` or `+spamfloor`.
+   * Whole tags from `classifyEmail`'s `model` string that must be present, like `+2pass`.
    * Matched as whole tags: `+2pass` does not match `+2pass_failed`.
    * Name the tag when a deterministic guard must decide the case. The accept set alone
    * often holds both answers, so it still scores 1 when the guard is deleted.
@@ -676,84 +676,6 @@ const CASES: Case[] = [
     },
   },
   {
-    // Prod miss #1097. Person-shaped on purpose, so only the Gmail SPAM label decides.
-    label: "spam-filed-cold-promo",
-    from: "Arjun Mehta <arjun@growthloop-outreach.com>",
-    subject: "A quick idea for your onboarding funnel",
-    body: "Hi Yash — I put together a short teardown of your onboarding funnel and found three drop-off points you could close in a week. Would love your thoughts!",
-    labelIds: ["SPAM"],
-    expected: {
-      category: ["marketing", "fyi", "newsletter"],
-      todo: "suppress",
-      note: "Gmail filed this as spam — a third party's verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong in a reply lane, which the spam floor demotes to fyi if the model emits one.",
-    },
-  },
-  {
-    // Pins the spam floor's demote branch. `spam-filed-cold-promo` scores 1 with or without the floor,
-    // so this case cans both passes into `awaiting_reply` and asserts `+spamfloor`.
-    label: "spam-filed-reply-lane-demotes",
-    from: "Mira Sethi <mira@agentbuild-summit.com>",
-    subject: "Re: AgentBuild Summit <> Yash!",
-    body: "Hey Yash — following up on the summit. Would love your thoughts on the blog post we published last week. Registration closes soon, grab a spot here.",
-    labelIds: ["SPAM"],
-    runPass: () =>
-      Promise.resolve({
-        category: "awaiting_reply",
-        confidence: 0.8,
-        rationale: "The sender asks for the user's thoughts on a post and is waiting on a reply.",
-        todoSuggestion: { name: "Reply with thoughts on the blog post", assist: null },
-        todoDecision: { outcome: "proposed", note: "The sender is waiting on a response." },
-        collabActivity: null,
-      }),
-    expected: {
-      category: ["fyi"],
-      guards: ["+spamfloor"],
-      todo: "suppress",
-      note: 'Gmail filed this as spam, so "would love your thoughts" is engagement copy, not an owed reply (rule 20). A reply lane claims the SENDER is owed something, which is exactly what the spam verdict denies, so the floor demotes it to fyi and clears the proposed todo — demote, never bury.',
-    },
-  },
-  {
-    // The other half of #1098: a spam-filed demand lane keeps the model's answer.
-    // A fired floor lands on `fyi`, which is outside this accept set, so no negative guard is needed.
-    // The phish body is deliberate: #1098 accepted a dismissible false `urgent` over a buried real ask.
-    label: "spam-filed-phish-keeps-model-answer",
-    from: "Billing Support <secure-billing@acme-invoices-verify.com>",
-    subject: "URGENT: your account will be suspended in 24 hours",
-    body: "We could not process your last payment. Verify your billing details within 24 hours or your account and all data will be permanently suspended.",
-    labelIds: ["SPAM"],
-    runPass: () =>
-      Promise.resolve({
-        category: "urgent",
-        confidence: 0.9,
-        rationale:
-          "The body threatens permanent account suspension within 24 hours unless billing details are verified now.",
-        todoSuggestion: { name: "Verify billing details", assist: null },
-        todoDecision: { outcome: "proposed", note: "Stated 24-hour deadline on account access." },
-        collabActivity: null,
-      }),
-    expected: {
-      category: ["urgent"],
-      todo: "mint",
-      note: "The spam floor no longer gates `urgent`/`action_needed` (#1098): Gmail's spam verdict is a fallible third party's, so on the demand lanes it is a prompt-side prior and the model owns the call. This row cans the model away, so it pins the floor's silence alone — and the surviving todo is the accepted cost, since the floor no longer clears one here.",
-    },
-  },
-  {
-    // Pins rule 20's exception: a spam-filed mail with an obligation the user already owns keeps its
-    // demand lane. No `runPass` and no hand-set `sender`, so the real classifier answers.
-    // A prompt exemplar names "a ticket the user opened", so this proves compliance, not generalization.
-    // See .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
-    label: "spam-filed-owned-ticket-keeps-demand-lane",
-    from: "Deepa Raman <deepa.raman@northbeam-support.com>",
-    subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
-    body: "Hi Yash — your ticket HD-4471 is open with our engineering team. They cannot reproduce the fault until you upload the diagnostics bundle to the support portal and set the firmware version on the ticket. The ticket auto-closes on Friday if the upload is still missing.",
-    labelIds: ["SPAM"],
-    expected: {
-      category: ["action_needed", "urgent"],
-      todo: "mint",
-      note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
-    },
-  },
-  {
     // Pins conflict net C alone. Other relay rows reach `fyi` on the first pass, so they stay green without it.
     // A canned `awaiting_reply` first pass meets every net-C gate; delete the net and the category and
     // `+2pass` both go red. Circle, not LinkedIn, because a prompt exemplar names the LinkedIn reminder.
@@ -1000,7 +922,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
   },
   scorers: [
     {
-      // When the case names a guard, it must have run. Without that check the spam floor had no test.
+      // When the case names a guard, it must have run. Without that check a guard can go untested.
       name: "Category match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };

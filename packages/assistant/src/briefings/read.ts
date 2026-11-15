@@ -29,9 +29,9 @@ import {
 import {
   deriveEffectiveTriage,
   parseTriageEvaluationColumns,
+  TRIAGE_OUT_OF_SCOPE_MEANING,
   triageOutOfScope,
   type EffectiveTriageRow,
-  type TriageOutOfScope,
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
@@ -57,6 +57,17 @@ const READ_EMAIL_BODY_CHAR_CAP = 8_000;
 const SURFACED_LOOKBACK_MS = 16 * 60 * 60 * 1000;
 
 const SURFACED_LOOKBACK_LIMIT = 4;
+
+/** Each `outsideTriage` value and what it means. The composer prompt and tool read this table. */
+const OUTSIDE_TRIAGE_MEANING = {
+  ...TRIAGE_OUT_OF_SCOPE_MEANING,
+  sent_by_you: "it is the user's own sent mail",
+} as const;
+
+/** The `outsideTriage` values with their meanings, as one line for the composer. */
+export const OUTSIDE_TRIAGE_VALUES = Object.entries(OUTSIDE_TRIAGE_MEANING)
+  .map(([value, meaning]) => `\`${value}\` (${meaning})`)
+  .join(", ");
 
 export interface EmailListItem {
   documentId: string;
@@ -88,7 +99,7 @@ export interface EmailListItem {
    * Where the mail sits when triage does not label it (`triageOutOfScope`), or `sent_by_you` for
    * the user's own sent mail. Null: the mail is in the inbox scope that triage labels.
    */
-  outsideTriage: TriageOutOfScope | "sent_by_you" | null;
+  outsideTriage: keyof typeof OUTSIDE_TRIAGE_MEANING | null;
 }
 
 export interface EmailReadResult {
@@ -302,7 +313,7 @@ export async function listEmailsSinceWatermark(
     })),
   );
 
-  return rows.map((r, i) => {
+  const items = rows.map((r, i) => {
     const meta = metas[i];
     // Match on thread id or loop key: a tool can re-notify on a new thread.
     const loopKey = deriveLoopKey(r.subject, { sender: senders[i] ?? null });
@@ -331,6 +342,12 @@ export async function listEmailsSinceWatermark(
       outsideTriage: outsideTriageOf(meta, mailFacts.get(r.documentId)),
     } satisfies EmailListItem;
   });
+
+  // The window picks by the received time; the list reads in sent order, newest first
+  // (stores.md § Time). A row with no sent time sorts by its received time.
+  return items.toSorted(
+    (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
+  );
 }
 
 function outsideTriageOf(

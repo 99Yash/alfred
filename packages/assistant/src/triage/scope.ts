@@ -1,29 +1,29 @@
 import type { MailFacts } from "../knowledge";
+import { extractGmailSignals } from "./observations";
 
 /**
- * Where a mail sits when triage does not label it (`docs/theory/triage.md` § What triage tags).
- * Triage labels inbox mail in the Primary and Updates tabs only. The briefing reads every mail,
- * and it gets this value so that it can say where a mail is (a real matter in spam).
- *
- * - `spam`: Gmail filed the mail as spam.
- * - `not_in_inbox`: the mail has no `INBOX` label, for example because a Gmail filter skipped it.
- * - `social`, `promotions`, `forums`: the Gmail tab of the mail.
- * - `to_yourself`: the user sent it from one of their addresses to their addresses only.
+ * Where a mail sits when triage does not label it (`docs/theory/triage.md` § What triage tags),
+ * with what each value means in the words that the briefing composer reads. Triage labels inbox
+ * mail in the Primary and Updates tabs only. The briefing reads every mail, and it gets this value
+ * so that it can say where a mail is (a real matter in spam).
  */
-export type TriageOutOfScope =
-  | "spam"
-  | "not_in_inbox"
-  | "social"
-  | "promotions"
-  | "forums"
-  | "to_yourself";
+export const TRIAGE_OUT_OF_SCOPE_MEANING = {
+  spam: "Gmail filed it as spam",
+  not_in_inbox: "it is not in the inbox, for example because a Gmail filter skipped the inbox",
+  social: "it is in the Social tab",
+  promotions: "it is in the Promotions tab",
+  forums: "it is in the Forums tab",
+  to_yourself: "the user sent it from their own address to their own addresses only",
+} as const;
 
-/** The Gmail tabs that triage does not label, by their label id. */
-const SKIPPED_TABS: ReadonlyMap<string, TriageOutOfScope> = new Map([
-  ["CATEGORY_SOCIAL", "social"],
-  ["CATEGORY_PROMOTIONS", "promotions"],
-  ["CATEGORY_FORUMS", "forums"],
-]);
+export type TriageOutOfScope = keyof typeof TRIAGE_OUT_OF_SCOPE_MEANING;
+
+/** The Gmail tabs that triage does not label, as `extractGmailSignals` names them. */
+const SKIPPED_TABS = [
+  "social",
+  "promotions",
+  "forums",
+] as const satisfies readonly TriageOutOfScope[];
 
 type ScopeFacts = Pick<MailFacts, "labelIds" | "sender" | "to" | "cc" | "bcc">;
 
@@ -32,13 +32,13 @@ type ScopeFacts = Pick<MailFacts, "labelIds" | "sender" | "to" | "cc" | "bcc">;
  * moves into Primary later is in scope only when Alfred sees the change (triage plan, slice 5).
  */
 export function triageOutOfScope(facts: ScopeFacts): TriageOutOfScope | null {
-  const labels = new Set(facts.labelIds);
+  const gmail = extractGmailSignals(facts.labelIds);
 
-  if (labels.has("SPAM")) return "spam";
+  if (gmail.spam) return "spam";
 
-  if (!labels.has("INBOX")) return "not_in_inbox";
+  if (!gmail.inInbox) return "not_in_inbox";
 
-  const tab = facts.labelIds.flatMap((id) => SKIPPED_TABS.get(id) ?? [])[0];
+  const tab = SKIPPED_TABS.find((name) => gmail.categories.includes(name));
 
   if (tab) return tab;
 

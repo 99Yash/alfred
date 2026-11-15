@@ -157,6 +157,11 @@ interface MailResult {
   rationale: string;
 }
 
+/** The mail's result as the scorers print it: the skip, the label, or a provider failure. */
+function resultOf(m: MailResult): string {
+  return m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed");
+}
+
 interface TaskOutput {
   mails: MailResult[];
 }
@@ -233,7 +238,7 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
                 m.category !== null &&
                 expected.accept.includes(m.category);
 
-          const result = m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed");
+          const result = resultOf(m);
 
           const want = m.scope.expected ? ` want skip (${m.scope.expected})` : "";
 
@@ -261,11 +266,7 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
       scorer: ({ output, expected }) => {
         if (!expected.oneKind) return { score: 1, metadata: "not one kind from one sender" };
 
-        const labels = new Set(
-          output.mails.map((m) =>
-            m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed"),
-          ),
-        );
+        const labels = new Set(output.mails.map(resultOf));
 
         return {
           score: labels.size === 1 ? 1 : 0,

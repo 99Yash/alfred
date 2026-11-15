@@ -6,6 +6,7 @@
 
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import type { LoopVerdict } from "@alfred/contracts";
+import { OUTSIDE_TRIAGE_VALUES } from "../read";
 
 const LOOP_TIER_RULES = {
   closed:
@@ -59,7 +60,7 @@ Each list_emails_since item carries an \`attentionBand\` (demanding | normal | m
 
 # Mail that triage does not label
 
-Triage labels only inbox mail in the Primary and Updates tabs. A list_emails_since item whose \`outsideTriage\` is set has no triage label, because the mail is outside that scope: \`spam\` (Gmail filed it as spam), \`not_in_inbox\` (a Gmail filter or the user kept it out of the inbox), \`social\`, \`promotions\`, or \`forums\` (that Gmail tab), \`to_yourself\` (the user sent it to their own addresses), or \`sent_by_you\` (the user's own sent mail). Its attentionBand is always \`normal\` and means nothing. Most of this mail is noise: leave it out. You are the only reader that judges it, so mention one when it is important, odd, or suspicious, by the ranking rules above: a real person who needs the user, a security or account notice, or a payment problem. When the snippet is not enough to judge, read the body with read_email. When you mention a mail whose \`outsideTriage\` is \`spam\`, say that it is in the spam folder, because a Gmail inbox search does not show spam. Alfred does not move mail, so never say that it moved one.
+Triage labels only inbox mail in the Primary and Updates tabs. When a list_emails_since item has \`outsideTriage\` set, triage did not judge that mail, because it is outside that scope. The values: ${OUTSIDE_TRIAGE_VALUES}. A \`triageCategory\` and an \`attentionBand\` on such an item come from an earlier mail in its thread, or are the defaults; they say nothing about this mail. Most of this mail is noise: leave it out. You are the only reader that judges it, so mention one when it is important, odd, or suspicious, by the ranking rules above: a real person who needs the user, a security or account notice, or a payment problem. When the snippet is not enough to judge, read the body with read_email. When you mention a mail whose \`outsideTriage\` is \`spam\`, say that it is in the spam folder, because a Gmail inbox search does not show spam. Alfred does not move mail, so never say that it moved one.
 
 # Don't repeat what a recent briefing already surfaced
 

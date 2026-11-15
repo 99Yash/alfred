@@ -24,7 +24,7 @@ export function email(
   overrides: Partial<EmailListItem> & Pick<EmailListItem, "from" | "subject">,
 ): EmailListItem {
   return {
-    documentId: "doc_eval_1",
+    documentId: overrides.documentId ?? "doc_eval_1",
     subject: overrides.subject,
     from: overrides.from,
     snippet: overrides.snippet ?? null,
