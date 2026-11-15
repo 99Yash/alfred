@@ -120,7 +120,7 @@ These three bias every subsystem below. Read them first.
 
 **Run-start job.** The tick and a sub-agent spawn add the first step of a run as the `agent-runs` `start` kind, whose job id is `run-start.<runId>`. A retried producer adds nothing while that job is kept. One scheduled instant creates one run, because the claim UPDATE and the occurrence claim are unique. ADR-0027, ADR-0119.
 
-**Per-turn LLM driver.** `AlfredAgent` (ADR-0026, `packages/ai/src/agent.ts`). One `turn()` call = one LLM round-trip = one `api_call_log` row. Composes with the durable runtime; not yet wired into any agent_run.
+**Per-turn LLM driver.** `AlfredAgent` (ADR-0026, `packages/ai/src/agent.ts`). One `turn()` call = one LLM round-trip = one `api_call_log` row. Composes with the durable runtime; the chat turn drives it (`AlfredAgent.streamTurn` in `packages/assistant/src/chat/chat-turn.ts`).
 
 **Call role.** `CallRole` union (`packages/ai/src/metering/metered.ts`): `'compactor' | 'boss' | 'sub_agent' | 'triage' | 'briefing' | 'cold_start' | 'memory_extraction'`. Set on `attribution.role` when calling `meteredGenerateText` / `meteredGenerateObject`; surfaces on `api_call_log.request_meta.role` so a single run's spend can be split between agent surfaces (boss vs sub-agent vs compactor) without adding a column. Phase 7 wires all three boss-workflow roles end-to-end: `'boss'` and `'sub_agent'` on `AlfredAgent.turn()` inside `userAuthoredBriefWorkflow`, `'compactor'` on `compactTranscript`. The remaining roles (`'triage'`, `'briefing'`, `'cold_start'`, `'memory_extraction'`) are typed but not yet wired at their call sites — that's a separate small PR. Query with `request_meta->>'role'` in cost rollups.
 
@@ -146,7 +146,7 @@ These three bias every subsystem below. Read them first.
 
 ## Privacy posture
 
-**Content-at-rest posture.** No app-layer encryption on user content. The layers that stand in: vendor at-rest crypto on Railway managed Postgres/Redis/object storage, and the fact that `documents.raw` is **not persisted** — re-extraction means re-fetching from the provider. Revisit when a real second-hand party touches the data: a contractor, an analytics pipeline, a backup-export workflow, a compliance regime. ADR-0038.
+**Content-at-rest posture.** No app-layer encryption on user content. The layers that stand in: vendor at-rest crypto on Railway managed Postgres/Redis/object storage, and the fact that Gmail ingest persists the full message to `documents.raw` (`persistMessage` in `packages/assistant/src/connections/ingestion/gmail-ingest.ts`; re-extraction means re-reading the stored raw). This contradicts ADR-0038 item 3. ADR-0118, ADR-0122 (the DMARC check), and triage slice 0b rely on the stored raw message. The owner has not yet decided the posture. Revisit when a real second-hand party touches the data: a contractor, an analytics pipeline, a backup-export workflow, a compliance regime. ADR-0038.
 
 **Embedding-inversion gap.** `chunks.embedding` is plaintext by design — encrypting it kills pgvector indexing. Published inversion attacks can reconstruct text from vectors plus the embedding model alone. Documented and accepted; the only defense is "trust your embedding provider," which is contractual. ADR-0038.
 
@@ -172,7 +172,7 @@ These three bias every subsystem below. Read them first.
 
 **Attachment cost gates.** Four gates bound extraction spend: (1) MIME allowlist at enqueue (`pdf|png|jpeg|heic|webp`), (2) 20MB size cap at enqueue, (3) 50-page truncation at extraction time (`truncated_at_page` flagged), (4) $5/day per-user soft cap via env `ALFRED_DOC_EXTRACTION_DAILY_BUDGET_USD` — over-budget jobs `moveToDelayed(nextMidnight())`, not lost. Skipped attachments create a row with `extraction_status='skipped'` + `skipped_reason` so the UI can show them honestly. ADR-0039.
 
-**Attachment binary lifecycle.** Binaries land in the Railway bucket on ingest and stay forever — independent of Gmail message retention. Gmail deletion does not cascade to the bucket or the chunks. A future explicit "forget this" UI handles real deletion intent. Inverse of ADR-0038's `documents.raw` posture: there Gmail is the durable copy; here the bucket is, because Gmail attachment availability is bounded by message lifetime. ADR-0039.
+**Attachment binary lifecycle.** Binaries land in the Railway bucket on ingest and stay forever — independent of Gmail message retention. Gmail deletion does not cascade to the bucket or the chunks. A future explicit "forget this" UI handles real deletion intent. Unlike the attachments, `documents.raw` is itself the durable copy in Postgres (see the content-at-rest posture above); the ADR-0038 posture that Gmail holds the raw is not in force. The bucket stays the attachment copy, because Gmail attachment availability is bounded by message lifetime. ADR-0039.
 
 ## Triage
 

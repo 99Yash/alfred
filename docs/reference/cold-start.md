@@ -2,7 +2,7 @@
 
 Per ADR-0011 + ADR-0022 (v2 amendment) alfred runs one lifetime-once self-research pass per user at signup, extracts structured `user_facts` proposals from it, and stores the synthesized research as a `memory_chunks` row for later semantic recall.
 
-**v2 replaces the stranded single Perplexity Sonar Deep Research call with the agent harness**, run bounded inside the deterministic onboarding workflow: a boss identity-resolution seed → bounded parallel aspect sub-agents over `system.web_search` (grounded Gemini 2.5 Flash) → boss synthesis → the unchanged extract → persist tail. The Sonar account lost billing; the agent path rides the Google key we already hold.
+**v2 replaces the stranded single Perplexity Sonar Deep Research call with the agent harness**, run bounded inside the deterministic onboarding workflow: a boss identity-resolution seed → bounded parallel aspect sub-agents over `system.web_search` (grounded Gemini 3.8 Flash) → boss synthesis → the unchanged extract → persist tail. The Sonar account lost billing; the agent path rides the Google key we already hold.
 
 **Scope is the account holder only.** Company, role, team, and publicly attested relationship/family facts may land as `user_facts`/`memory_chunks` _about the user_; third parties get at most a one-line relation mention, never recursive research or their own rows.
 

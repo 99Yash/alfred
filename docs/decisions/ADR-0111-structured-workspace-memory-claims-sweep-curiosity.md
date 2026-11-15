@@ -1,5 +1,7 @@
 # ADR-0111 — Structured workspace memory: claims project from the observation log, a reconciliation sweep writes them, and a curiosity step reinforces them (PROPOSED — grilled 2026-10-21)
 
+**Status.** Superseded in part by ADR-0123 (2026-11-11). A claim is a row with evidence, not a projection of the observation log. The reconciliation sweep is one capture path. ADR-0123 and docs/theory/memory.md do not carry forward the curiosity step or its budget. [decisions.md](../../decisions.md) records this amendment.
+
 **Problem.** Alfred sorts messages, but it does not understand the user's work. Triage puts a category on each thread. The briefing shows open loops. But no record says "Acme uses Vanta for compliance", "the Q4 launch depends on the billing migration", or "this notetaker mail is the summary of Tuesday's sync". Each pipeline reads the mail again and forgets it again. The current writers cannot fill the gap:
 
 - `memory-extraction` keeps only facts _about the user_. Its prompt drops all third-party facts (`knowledge/extraction.ts:45-58`). That rule is correct, because it stopped the "Weekday" employer bug (ADR-0080).

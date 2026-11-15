@@ -1,6 +1,6 @@
 # The evidence map: the model knows what it can find out
 
-Status: draft for owner review, 2026-11-14. The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. Nothing is merged yet.
+Status: draft for owner review, 2026-11-14. The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. The page is on main (#1754) and awaits owner review.
 
 Read first: [README principles](./README.md#2-the-principles), [memory.md §2](./memory.md#2-the-frame) (the frame), [ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md) (Code Mode as the read path), and the [probe table §6](../research/user-questions-probe-table-2026-11-14.md) (the source of this theory).
 
@@ -56,7 +56,7 @@ Verified against the code on 2026-11-14. This table is the seed of the map; the 
 | Page snapshots | From cold start | Stored per run, not per claim | Q-B, Q-D |
 | Alfred's own stores: ADRs, `decisions.md`, git history, run records | The life of the repository | Too large to load as text — read through the map, not dumped | Self-awareness |
 | Canonical external sources (provider status pages, public registries) | Live, fetched on demand | Not Alfred's own data; a fetch can fail, and the map must say which source answers which provider | Confirming a claim from the outside (Q-A) |
-| GitHub and Google reads | MCP only (ADR-0125, ADR-0126) | The allowlist gate refuses `mcp` (`packages/assistant/src/tool-runtime/internal/registry.ts:390`) — a store on the map but closed to Code Mode until the gate changes | Q-A, Q-D |
+| GitHub and Google reads | MCP only (ADR-0125, ADR-0126) | The allowlist check is `allowlistAdmits` (`packages/assistant/src/tool-runtime/internal/registry.ts:396`). `mcp.*` tools pass when a listed integration has a built-in MCP server. A workflow that lists `mcp` itself still fails activation (ADR-0125 item 6) | Q-A, Q-D |
 
 The GitHub-and-Google row is the honest edge case the map must carry: a store can be known and still unreachable. The map says so, so the gather does not waste a step, and the workflow rewrite can close the gap knowingly.
 

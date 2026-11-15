@@ -50,7 +50,7 @@ Last verified: 2026-10-20 at `fd13e6427`. A section or a part that names a diffe
 **Gaps.**
 
 - Object state does not touch todos. A merged PR does not close its todo.
-- The ADR-0092 referent identity (`knowledge/referent-identity.ts:96`) is built but has no production caller.
+- The ADR-0092 referent identity (`knowledge/referent-identity.ts`) was deleted (2026-11-15, ADR-0122 decision 3c); it had no production caller.
 - `todos` has no unique index.
 - A second producer from a non-Gmail source needs the same source-ref scheme, or duplicates will occur.
 
