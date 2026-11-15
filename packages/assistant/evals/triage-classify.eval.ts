@@ -17,7 +17,7 @@ import {
   type RunPass,
   type TodoDecisionOutcome,
 } from "@alfred/assistant/triage/classify";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";

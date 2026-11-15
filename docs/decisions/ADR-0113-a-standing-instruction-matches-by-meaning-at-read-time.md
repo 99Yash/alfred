@@ -194,7 +194,7 @@ A new example shows the limits of a scope that only the model can match. The own
 - The `List-ID` of a single advisory names the advisory (`99Yash/GHSA-…`), not the repo. The digest has no `List-ID`. The repo is only in the body URLs.
 - A plain `github.com/<a>/<b>` read of the 7 digest bodies returns `99Yash/turbo-insta`, and also `settings/emails`, `settings/notifications`, and `email/unsubscribe`. A repo cue needs a reviewed URL template.
 - On the AI gateway, the cheap triage model has a floor of about 1.6 s, also under 1k input tokens. 10k more input tokens add about 0.7 s. Thus a larger instruction block costs little. A decision that code makes costs no model call.
-- Triage reads no sender authentication result (DKIM, SPF, or ARC). The GitHub bot handle comes from the body text (`triage/sender-context.ts:321`). Any mail can claim to be Dependabot.
+- Triage reads no sender authentication result (DKIM, SPF, or ARC). The GitHub bot handle comes from the body text (`knowledge/sender-context.ts:321`). Any mail can claim to be Dependabot.
 - The GitHub produce and close of ADR-0052 for `security_alert` is designed but not built. Production has 2 Dependabot todos that an agent created. Both are dismissed.
 
 ### D1 — New combinations of fixed parts, not new parts

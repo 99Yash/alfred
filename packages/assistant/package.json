@@ -41,6 +41,7 @@
     "./knowledge/fact-policy": "./src/knowledge/fact-policy.ts",
     "./knowledge/gmail-reducer": "./src/knowledge/gmail-reducer.ts",
     "./knowledge/run": "./src/knowledge/run.ts",
+    "./knowledge/sender-context": "./src/knowledge/sender-context.ts",
     "./knowledge/significance": "./src/knowledge/significance.ts",
     "./knowledge/standing-instructions": "./src/knowledge/standing-instructions.ts",
     "./knowledge/team-graph": "./src/knowledge/team-graph.ts",

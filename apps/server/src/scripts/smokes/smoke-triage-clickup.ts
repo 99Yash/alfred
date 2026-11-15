@@ -11,7 +11,7 @@ import {
   triageClassificationSchema,
   type RunPass,
 } from "@alfred/assistant/triage/classify";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import {
   clamp01,
   collabActivityPartition,

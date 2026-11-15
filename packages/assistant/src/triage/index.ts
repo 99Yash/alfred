@@ -68,9 +68,9 @@ export { triageWorkflowInputSchema } from "./workflow-input";
 
 export type { TriageWorkflowInput } from "./workflow-input";
 
-export { extractSenderContext, recipientAddresses } from "./sender-context";
+export { extractSenderContext, recipientAddresses } from "../knowledge";
 
-export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
+export type { ExtractSenderContextArgs, SenderContextResult } from "../knowledge";
 
 export { getThreadState, readGmailThreadClosure } from "./thread-state";
 

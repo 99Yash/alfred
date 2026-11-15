@@ -710,7 +710,7 @@ export const RULES = [
     id: "hand-rolled-domain-literal-match",
     // The same idiom with the base written out: `domain === "sentry.io" ||
     // domain.endsWith(".sentry.io")`. `hint`, because such sites predate
-    // the helper: three in `triage/sender-context.ts`, and one each in
+    // the helper: three in `knowledge/sender-context.ts`, and one each in
     // `hosted-endpoint.ts` and the web `briefing-link.tsx`. The backreference pins both
     // halves to one value and one host, so a different host on either side does
     // not match.

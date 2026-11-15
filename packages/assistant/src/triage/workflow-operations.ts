@@ -29,7 +29,7 @@ import {
   type ClassifyEmailArgs,
   type TriageClassification,
 } from "./classify";
-import { extractSenderContext } from "./sender-context";
+import { extractSenderContext } from "../knowledge";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
 import { resolveSenderRelationship } from "./sender-relationship";

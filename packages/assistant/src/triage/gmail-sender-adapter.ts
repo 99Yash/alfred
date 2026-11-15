@@ -18,7 +18,7 @@ import {
   type GmailSenderParser,
   type PersonToken,
 } from "@alfred/contracts";
-import { extractSenderContext, isHumanLikeSender } from "./sender-context";
+import { extractSenderContext, isHumanLikeSender } from "../knowledge";
 
 // ---------------------------------------------------------------------------
 // person parsing

@@ -13,7 +13,7 @@ import {
   type ActiveStandingInstruction,
 } from "@alfred/assistant/knowledge/standing-instructions";
 import { assembleObservations } from "@alfred/assistant/triage/observations";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
 import { PROD_INSTRUCTION_ROWS } from "./triage-deck/instructions";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";

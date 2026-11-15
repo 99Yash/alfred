@@ -128,6 +128,16 @@ export {
 
 export { type Significance } from "@alfred/contracts";
 
+// The deterministic sender parse (ADR-0042). Triage and the mail-facts reader share it.
+export {
+  canonicalizeEmailForMatch,
+  extractSenderContext,
+  isHumanLikeSender,
+  recipientAddresses,
+  type ExtractSenderContextArgs,
+  type SenderContextResult,
+} from "./sender-context";
+
 export {
   editStandingInstruction,
   forgetStandingInstruction,

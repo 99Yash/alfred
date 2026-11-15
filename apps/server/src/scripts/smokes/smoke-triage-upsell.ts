@@ -6,7 +6,7 @@
  */
 import { classifyEmail } from "@alfred/assistant/triage/classify";
 import { parseGmailDocumentMetadata } from "@alfred/contracts";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
