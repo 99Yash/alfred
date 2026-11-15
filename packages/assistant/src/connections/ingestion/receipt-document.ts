@@ -8,7 +8,13 @@ import {
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { sha256Hex } from "@alfred/db/hash";
-import { documents, eventReceipts, type Document, type EventReceipt } from "@alfred/db/schemas";
+import {
+  documents,
+  eventReceipts,
+  type typedEventReceipts,
+  type Document,
+  type EventReceipt,
+} from "@alfred/db/schemas";
 import { and, count, eq, gte, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
@@ -32,12 +38,17 @@ export function receiptDocumentKey(receipt: {
   return { userId: receipt.userId, source: receipt.provider, sourceId: receipt.id };
 }
 
-/** {@link receiptDocumentKey} as a join from `eventReceipts` to `documents`. */
-export function receiptDocumentJoin(): SQL | undefined {
+/**
+ * {@link receiptDocumentKey} as a join from the receipts to `documents`. Pass `typedEventReceipts`
+ * when the query reads the view.
+ */
+export function receiptDocumentJoin(
+  receipts: typeof eventReceipts | typeof typedEventReceipts = eventReceipts,
+): SQL | undefined {
   return and(
-    eq(documents.userId, eventReceipts.userId),
-    eq(documents.source, eventReceipts.provider),
-    eq(documents.sourceId, eventReceipts.id),
+    eq(documents.userId, receipts.userId),
+    eq(documents.source, receipts.provider),
+    eq(documents.sourceId, receipts.id),
   );
 }
 
@@ -118,8 +129,13 @@ export async function prepareReceiptProjection(
   } as ReceiptProjection;
 }
 
-export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "payload" | "deliveredAt"> & {
-  readonly accountId: string;
+/**
+ * The receipt and the body that came with it. `body` goes to `documents.raw`, the one stored copy
+ * (stores.md). `accountId` is `null` for a receipt whose credential was deleted.
+ */
+export type ReceiptDocumentIdentity = Pick<EventReceipt, "id" | "deliveredAt"> & {
+  readonly body: Document["raw"];
+  readonly accountId: Document["accountId"];
 };
 
 /**
@@ -134,7 +150,7 @@ export async function writeReceiptDocument(
   identity: ReceiptDocumentIdentity,
 ): Promise<void> {
   const { provider, userId, kind } = projection;
-  const description = INBOUND_SOURCES[provider].describe(kind, identity.payload);
+  const description = INBOUND_SOURCES[provider].describe(kind, identity.body);
   const admittedAt = new Date();
 
   const skipReason = receiptKindEmbeds(provider, kind)
@@ -149,7 +165,7 @@ export async function writeReceiptDocument(
       title: description.title,
       content: description.body,
       contentHash: sha256Hex(description.body),
-      raw: identity.payload,
+      raw: identity.body,
       url: description.url,
       authoredAt: identity.deliveredAt,
       ingestedAt: admittedAt,

@@ -17,6 +17,7 @@ export default defineConfig({
     "./src/scripts/backfills/backfill-gmail-observations-committed.ts",
     "./src/scripts/backfills/project-user-model-gmail-shadow-committed.ts",
     "./src/scripts/backfills/backfill-object-state-github-committed.ts",
+    "./src/scripts/backfills/backfill-receipt-documents-committed.ts",
     "./src/scripts/backfills/backfill-triage-committed.ts",
     "./src/scripts/dry-runs/dry-run-triage-recategorize-committed.ts",
     "./src/scripts/dry-runs/dry-run-reply-reeval-reconcile.ts",

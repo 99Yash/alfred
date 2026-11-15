@@ -7,10 +7,9 @@ import { loadCredentialRowsByProvider } from "../availability";
 import type { GithubActivityDocument, GithubSelf } from "./github-activity";
 
 /**
- * Reads for the GitHub activity reducer. The body comes from `documents.raw`, not
- * `event_receipts.payload`: the payload reaper releases a receipt body only when its document
- * keeps it, and receipts from before migration 0170 were deleted by a credential cascade, but
- * their documents stayed (ADR-0118 residual risk).
+ * Reads for the GitHub activity reducer. The body comes from `documents.raw`, the one stored copy
+ * (stores.md). New receipts store no body, and receipts from before migration 0170 were deleted by
+ * a credential cascade, but their documents stayed (ADR-0118 residual risk).
  */
 
 const GITHUB_DOCUMENT_COLUMNS = {

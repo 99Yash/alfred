@@ -124,6 +124,7 @@ export const ingestionState = pgTable(
 // Append-only: a trigger rejects a direct DELETE (migration 0134).
 // Only the user cascade deletes rows. A credential delete (Disconnect) keeps them (migration 0170).
 // Retention sets only `payload` to NULL. The dedup key, `history_id`, and `delivered_at` stay.
+// New receipts store no body: it is in the receipt's document (`documents.raw`, stores.md).
 export const eventReceipts = pgTable(
   "event_receipts",
   {
@@ -158,7 +159,11 @@ export const eventReceipts = pgTable(
     verificationResult: text("verification_result").notNull().default("oidc_valid"),
     /** SHA-256 hex of the raw body. */
     payloadHash: text("payload_hash"),
-    /** Verified webhook body. NULL for Gmail and after retention, so NULL does not mean Gmail. */
+    /**
+     * Legacy copy of the verified webhook body. The receive path no longer writes it: the body is in
+     * the receipt's document (`documents.raw`). Old rows keep it until the column is dropped. NULL
+     * for Gmail, for new rows, and after retention.
+     */
     payload: jsonb("payload"),
     processingStatus: text("processing_status")
       .$type<"pending" | "completed" | "failed">()

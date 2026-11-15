@@ -3,10 +3,13 @@
  * keeps the `(provider, provider_delivery_id)` dedup key, so an old redelivery stays a no-op, and
  * `history_id` for Gmail gap detection. The append-only trigger allows this one change (migration
  * 0139). TOAST chunks become reusable after autovacuum, so the table stops growing but does not
- * shrink. A released body reads as absent. `describeGithubReceipt` then shows a merged PR as
- * `PR #? updated`, and the github object-state backfill skips it. The full reader list is in the
- * 0139 migration header. Reads `eventReceipts`, not `typedEventReceipts`, so raw receipts expire
- * too.
+ * shrink. Reads `eventReceipts`, not `typedEventReceipts`, so raw receipts expire too.
+ *
+ * Only old rows hold a body: the receive path writes the body to the receipt's document
+ * (`documents.raw`, the one copy, stores.md), and the fold and the object-state backfill read it
+ * there. The only reader of `payload` left is the corpus backfill, which moves an old body into its
+ * missing document. This reaper, its index, the column, and the 0139 trigger clause go when
+ * `backfill-receipt-documents-committed.ts` reports no body without a document.
  */
 import { db } from "@alfred/db";
 import { documents, eventReceipts } from "@alfred/db/schemas";
@@ -51,8 +54,8 @@ const RELEASE_INTERVAL_MS = 60 * 60 * 1000;
  * Release one bounded page of expired bodies. Each clause has a reason:
  * - `payload IS NOT NULL`: matches the partial index `event_receipts_payload_live_idx`.
  * - `delivered_at < cutoff`: the expiry.
- * - `processing_status = 'completed'`, not `<> 'failed'`: a `pending` or `failed` receipt can still
- *   be retried, and the object-state fold reads `payload` later.
+ * - `processing_status = 'completed'`, not `<> 'failed'`: no reader needs it now, because the fold
+ *   reads `documents.raw`. It only makes the reaper release less. It goes with the reaper.
  * - `EXISTS` corpus document: `receipt-corpus-backfill.ts` projects from the body. A released
  *   receipt gives a hollow document that the backfill then never fixes. `= any(array(...))`, not
  *   `in (...)`: `in` plans a full-table Hash Semi Join; `array()` gives a primary-key `Index Cond`
