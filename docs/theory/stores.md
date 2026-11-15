@@ -98,13 +98,14 @@ The new graph is empty in production today, because its projection is not active
 | --- | --- |
 | `knowledge/user-context.ts` (`system.read_user_context`, reply drafting, the triage user line) | The new graph's reader (`knowledge/reader.ts`) |
 | `knowledge/significance.ts` (the triage sender line) | Claims about the sender, when triage slice 3 rewrites the prompt |
-| `tool-runtime/internal/tools/gmail-recipient-policy.ts` (the send check) | Open ([section 8](#8-not-settled)) |
+| `tool-runtime/internal/tools/gmail-recipient-policy.ts` (the send check) | Deleted with `gmail.send_draft`: Alfred makes drafts only (owner, 2026-11-15) |
 
 The graph folds from mail through the mail-facts reader, not from a header copy in `observations`.
 
 ## 6. What this page changes in other pages
 
 - **ADR-0038.** Its item 3 ("do not persist raw payloads") is reversed: `documents.raw` is kept as the one copy for every source. The retention of bodies is a security question, held with the other security work.
+- **ADR-0126.** It keeps `gmail.send_draft`, because no Google MCP server sends mail. The owner reversed this on 2026-11-15: Alfred makes drafts only.
 - **ADR-0122.** It puts three new kinds on `observations`: facts, pointers, and loop checks. This page proposes another placement, for the loops session to decide:
   - A fact is a received item, and `integration_objects` is its projection. This keeps ADR-0122's rejection (d): one record of a state, not two.
   - A pointer ("this evidence touches the user") is Alfred's judgment, so it is an output, not an activity row.
@@ -131,15 +132,12 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
 3. **One GitHub body.** The object-state fold reads `documents.raw`, and `event_receipts` stops storing the payload. GitHub `authored_at` takes the time from the payload.
 4. **The briefing windows on the happened time.** This goes with triage slice 2a, which already changes what the briefing reads.
-5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. Then drop `entities`, `entity_relations`, and their writers, when the send check is decided.
+5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. Delete `gmail.send_draft` and its send check: Alfred makes drafts only, and the user sends from Gmail (owner, 2026-11-15). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
 7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.
 
 ## 9. Not settled
 
-- **The send check.** `gmail.send_draft` sends live mail, so a recipient must be the user or a person whom the user has written to before. The check reads the old `entities` table. ADR-0126 keeps `gmail.send_draft`, because no Google MCP server sends mail. Two ways:
-  - Alfred only makes drafts, and the user sends from Gmail. The send tool and the check go.
-  - The send stays, and the check reads the user's sent mail in `documents`, with no graph.
 - **A live read that Alfred keeps.** A verified pull or a loop read gives a fact with no received item. Is its result a received item in `documents`?
 - **Body retention.** How long `documents.raw` keeps a body. Held with the security work.
 - **`memory_chunks`.** One row in production. [memory.md](./memory.md) decides its future.
