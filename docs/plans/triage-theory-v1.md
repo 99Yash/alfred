@@ -37,6 +37,33 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 **Removes:** the recipient and header parsing that triage does again by itself.
 *Gate:* the eval deck holds, and each deck mail gets its facts from this reader only.
 
+### Wire shape
+
+`MailFacts` in `packages/assistant/src/knowledge/mail-facts.ts`. `readMailFacts(row, ctx)` is pure; `loadMailFacts(userId, documentIds)` reads the rows, the user's zone, the mailboxes, the known contacts, and the user's own replies.
+
+| Field | Value |
+| --- | --- |
+| `documentId`, `messageId`, `threadId` | `documents.id`, `source_id`, `source_thread_id` |
+| `arrivedAt` | `authoredAt`, else Gmail's `internalDate`; the wall-clock text in the user's zone and the zone name |
+| `sender` | address, display name, the sender context (`extractSenderContext`, with the effective author), and the parser that named a body actor |
+| `replyTo` | the `Reply-To` header, trimmed |
+| `to`, `cc`, `bcc` | one entry per parsed address, each with `knownContact`. `null` when the header is absent; `[]` when it is present and empty |
+| `receivedBy` | the user's mailbox address for the row's account |
+| `subject`, `body` | the subject header; the plain body |
+| `ownReplies` | the user's sent messages in the thread, newest first |
+| `stated` | `devices`, `places`, `apps`: copied from labelled body lines |
+| `labelIds`, `spam` | `metadata.labelIds` first (a later write can change it), else the raw labels; `spam` is the `SPAM` label |
+| `hasAttachments` | a part with a filename and an attachment id |
+| `authenticationResults` | the header, kept for the DMARC check of ADR-0122 decision 1a |
+
+Rules:
+
+- **Headers.** One rule: the first occurrence of a name wins. Gmail puts the newest hop first, so `Authentication-Results` is Gmail's own. `gmailHeaderLookup` in the reducer is the one header walk, and the reducer and the reader share its address parsers. A row with no stored message falls back to `metadata.from`, `to`, and `cc`.
+- **Trim.** The body stops at 6000 characters and ends in `[…truncated]`. At most 3 own replies, each cut to 500 characters, with quoted lines and the quoted history (from an `On … wrote:` line) removed. At most 5 values for each `stated` field.
+- **Stated names.** Only a line of the shape `Label: value` in the first 200 body lines counts, with a value of 1 to 120 characters, copied as written. The labels (case-insensitive): devices `Device`, `Device name`, `Browser`, `Operating system`, `OS`, `Platform`; places `Location`, `Approximate location`, `Country`, `Country/region`, `Region`, `City`; apps `App`, `Application`, `Client`. A name stated only in a sentence stays in the body. This is a parser of the mail's words, not a verdict and not a sender list.
+- **Known contact.** One batch read of the `person` aliases (`knownContactAddresses`) for the sender and every recipient. A failed read gives no known contacts and a warning.
+- **What the triage prompt shows.** From, Reply-To, To, Cc (each address marked when it is a known contact, `(empty)` for an empty header), the receiving account, the arrival time with its zone, the stated device, place, and app names, whether attachments are present, the subject, and the body. It does not show the authentication results or the own replies yet: slice 3 rewrites the prompt and decides them. The thread block stays as it is.
+
 ## Slice 1 — Stop the self-learning
 
 - `classify` stops writing `incrementSenderPrior` with its own category (`workflow-operations.ts:568`) and stops reading the prior.
@@ -67,7 +94,7 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 - The briefing says when a mail that it reports is in spam.
 
 **Removes:** the triage calls on mail outside the scope, and the spam floor (`triage/floors/spam.ts`).
-*Gate:* the eval deck holds. Each deck case outside the scope expects no label.
+*Gate:* the eval deck holds. Each deck case outside the scope expects no label. The two spam-filed deck cases (`spam-filed-sign-this-invite-sent-bcc-style`, `spam-filed-recruiter-ask-on-the-users-own-application`) change to a skip check, and to a check that the briefing says the mail is in spam.
 
 ## Slice 3 — The prompt is the theory
 

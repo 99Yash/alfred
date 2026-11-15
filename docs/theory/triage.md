@@ -115,13 +115,15 @@ The cap and the decay dates make bloat impossible, not only unlikely, so the pro
 One reader of the stored mail builds the facts that the model reads, and triage, the loop joins, the briefing, and the user model all read from it ([foundations](./README.md#4-what-to-work-on-next-foundations-first)). The required set (owner decision, 2026-11-14):
 
 - The message and thread identity, and the arrival time in Yash's zone.
-- The sender: the address, the display name, and the effective author that the sender context gives.
+- The sender: the address, the display name, the effective author that the sender context gives, and the sender's `Reply-To`.
 - The recipients, which of Yash's accounts got the mail, and whether each recipient is a known contact.
 - The subject, and the plain body text.
 - Yash's own words in the thread: his replies.
-- The device, place, and app names that the mail states.
+- The device, place, and app names that the mail states. Code copies them only from labelled lines (`Device: …`, `Location: …`, `App: …`), in the mail's own words. A name stated only in a sentence stays in the body (owner decision, 2026-11-15).
 - The Gmail-native signals: the labels and the spam state.
 - Whether attachments are present.
+
+The reader also keeps the `Authentication-Results` header, because ADR-0122 decision 1a needs the DMARC result. The triage prompt does not show it until an eval case shows a spoofed mail in scope with a wrong label (owner decision, 2026-11-15).
 
 The build plan owns the exact wire shape and the trimming (principle 7). No fact is a verdict: each fact is a source's words, and the model judges them.
 

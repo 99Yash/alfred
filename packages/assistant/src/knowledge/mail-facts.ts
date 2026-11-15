@@ -130,18 +130,14 @@ export interface MailFactsContext {
 }
 
 /** The labelled-line vocabulary of `stated`. Lowercase; matched case-insensitively. */
-const STATED_LABELS = {
-  devices: ["device", "device name", "browser", "operating system", "os", "platform"],
-  places: ["location", "approximate location", "country", "country/region", "region", "city"],
-  apps: ["app", "application", "client"],
-} as const satisfies Record<keyof MailFacts["stated"], readonly string[]>;
+const STATED_LABELS = [
+  ["devices", ["device", "device name", "browser", "operating system", "os", "platform"]],
+  ["places", ["location", "approximate location", "country", "country/region", "region", "city"]],
+  ["apps", ["app", "application", "client"]],
+] as const satisfies readonly (readonly [keyof MailFacts["stated"], readonly string[]])[];
 
-type StatedField = keyof typeof STATED_LABELS;
-
-const STATED_FIELD_BY_LABEL: ReadonlyMap<string, StatedField> = new Map(
-  (Object.keys(STATED_LABELS) as StatedField[]).flatMap((field) =>
-    STATED_LABELS[field].map((label) => [label, field] as const),
-  ),
+const STATED_FIELD_BY_LABEL: ReadonlyMap<string, keyof MailFacts["stated"]> = new Map(
+  STATED_LABELS.flatMap(([field, labels]) => labels.map((label) => [label, field] as const)),
 );
 
 const STATED_LINE_RE = /^\s*([A-Za-z][A-Za-z /]*?)\s*:\s*(.*?)\s*$/;
@@ -244,7 +240,11 @@ function capBody(body: string): string {
 
 /** Labelled `Label: value` lines, copied verbatim. A name said only in a sentence stays in the body. */
 function readStated(body: string): MailFacts["stated"] {
-  const stated: Record<StatedField, string[]> = { devices: [], places: [], apps: [] };
+  const stated = {
+    devices: new Array<string>(),
+    places: new Array<string>(),
+    apps: new Array<string>(),
+  };
 
   for (const line of body.split(/\r?\n/, STATED_SCAN_LINES)) {
     const match = STATED_LINE_RE.exec(line);
