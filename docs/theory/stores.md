@@ -104,7 +104,7 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 
 ## 6. What this page changes in other pages
 
-- **ADR-0038.** Its item 3 ("do not persist raw payloads") is reversed: `documents.raw` is kept as the one copy for every source. The retention of bodies is a security question, held with the other security work.
+- **ADR-0038.** Its item 3 ("do not persist raw payloads") is reversed: `documents.raw` is kept as the one copy for every source (amendment of 2026-11-15). The retention of bodies is a security question, held with the other security work.
 - **ADR-0126.** It keeps `gmail.send_draft`, because no Google MCP server sends mail. The owner reversed this on 2026-11-15: Alfred makes drafts only.
 - **ADR-0122.** It puts three new kinds on `observations`: facts, pointers, and loop checks. This page proposes another placement, for the loops session to decide:
   - A fact is a received item, and `integration_objects` is its projection. This keeps ADR-0122's rejection (d): one record of a state, not two.

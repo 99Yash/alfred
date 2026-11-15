@@ -10,7 +10,10 @@
 > supersedes the design). They now name the chat attachment column that
 > actually exists: `chat_attachments.degraded_text`.
 
-**Code drift (2026-11-15).** Item 3 below no longer holds: Gmail ingest persists the full message to `documents.raw` (`persistMessage` in `packages/assistant/src/connections/ingestion/gmail-ingest.ts`). ADR-0118, ADR-0122 (the DMARC check), and triage slice 0b rely on the stored raw message. The decision text below is unchanged; the owner has not yet decided the posture.
+> **Amended 2026-11-15 — `documents.raw` is kept (owner decision).** Item 3
+> below ("don't persist raw payloads") is reversed. `documents.raw` is the one
+> copy of each body that came in, for every source. See "Amendment, 2026-11-15"
+> at the end of this file.
 
 **Decision.** No app-layer encryption on user content (`documents.content`, `chunks.content`, `chat_attachments.degraded_text`, `memory_facts.value`, briefing bodies, `email_sends.body`). Three concrete layers stand in:
 
@@ -133,3 +136,44 @@ traffic. Procedure and rotation:
 
 **Still deferred for content.** Path (b) — a key outside Railway — remains
 unbuilt for both content and credentials. The triggers above still govern it.
+
+---
+
+## Amendment, 2026-11-15 — `documents.raw` is kept
+
+**What changes.** Item 3 of the decision is reversed. Alfred keeps the body of
+each item that came in, one time, in `documents.raw`, for every source: a mail,
+an attachment, a webhook delivery, or a polled event
+([stores theory](../theory/stores.md)). All other data is rebuilt from that
+copy, or is a conclusion that cites it. One reader for each source turns the
+body into facts. For mail, that reader is the mail-facts reader of
+[triage slice 0b](../plans/triage-theory-v1.md).
+
+**Why.** "Gmail is the durable copy" is not sufficient:
+
+- A rebuild must not depend on a live provider call. A mail can be deleted,
+  and a grant can be revoked.
+- Readers need the full message. ADR-0118 (the activity record), ADR-0122
+  (the DMARC check reads `Authentication-Results`), and the mail-facts reader
+  read `documents.raw`.
+- One copy is fewer moving parts than a copy for each consumer. Today one
+  GitHub delivery is stored two times (`event_receipts.payload` and
+  `documents.raw`). The stores theory removes the second copy.
+
+**What did not change.** Content stays under the posture above: vendor
+at-rest crypto, no app-layer encryption. The OAuth credential carve-out of
+2026-07-30 stays.
+
+**Facts that the original text states differently.**
+
+- The threat row "Fat `documents.raw` JSON copied into a debug dump — Column
+  doesn't exist" no longer holds. The column exists and holds full bodies.
+- The log redaction list (`SENSITIVE_LOG_PATHS` in
+  `packages/contracts/src/log-redaction.ts`) holds only credential paths
+  today. It does not hold `*.content`, `*.body`, or `documents.raw`, as the
+  implementation shape above proposed.
+
+**Open (held with the security work, owner decision 2026-11-15).**
+
+- How long `documents.raw` keeps a body (retention).
+- Whether the redaction list adds body and content paths.
