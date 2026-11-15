@@ -270,12 +270,7 @@
   ],
   "packages/assistant/src/triage/email-html.ts": ["EMAIL_CSP_META"],
   "packages/assistant/src/triage/hedge.ts": ["HedgeAttempt"],
-  "packages/assistant/src/triage/observations.ts": [
-    "ContentFlags",
-    "GmailSignals",
-    "extractContentFlags",
-    "extractGmailSignals"
-  ],
+  "packages/assistant/src/triage/observations.ts": ["ContentFlags", "extractContentFlags"],
   "packages/assistant/src/triage/sender-extraction-event.ts": ["FLOOR_TRACE_PROJECTIONS"],
   "packages/assistant/src/triage/sender-kind.ts": ["senderKindSignalFromProfile"],
   "packages/assistant/src/triage/sender-relationship.ts": [
