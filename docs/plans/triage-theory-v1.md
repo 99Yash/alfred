@@ -60,6 +60,15 @@ Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 
 **Removes:** `follow_up` and the follow-up/awaiting split in the prompt and in reply drafting, plus the numbered `LABEL_NAMES`.
 *Gate:* the compiler finds every reader. Each Gmail label is renamed, not created again.
 
+## Slice 2a — What triage tags
+
+- Triage skips mail outside the scope of [the theory page](../theory/triage.md#what-triage-tags). The Gmail labels decide: `CATEGORY_SOCIAL`, `CATEGORY_PROMOTIONS`, `CATEGORY_FORUMS`, `SPAM`, no `INBOX`, or a mail from Yash's own address to his own addresses only.
+- In the same PR, the briefing reads the mail that triage did not label, from `documents`. Today the briefing reads only `email_triage` rows (`briefings/gather.ts`). Without this change, the briefing loses that mail.
+- The briefing says when a mail that it reports is in spam.
+
+**Removes:** the triage calls on mail outside the scope, and the spam floor (`triage/floors/spam.ts`).
+*Gate:* the eval deck holds. Each deck case outside the scope expects no label.
+
 ## Slice 3 — The prompt is the theory
 
 - The system prompt is rewritten from the theory page. It holds the job, the labels, precedence, the evidence principles, the profile slot, and the instructions slot.
