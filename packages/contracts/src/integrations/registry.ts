@@ -154,7 +154,7 @@ export const INTEGRATIONS = {
       shape: "google_oauth",
       features: ["briefing", "triage", "reply_draft"],
       anyOfScopes: [GOOGLE_SCOPE.gmail.readonly, GOOGLE_SCOPE.gmail.modify],
-      grants: { modify: [GOOGLE_SCOPE.gmail.modify], send: [GOOGLE_SCOPE.gmail.send] },
+      grants: { modify: [GOOGLE_SCOPE.gmail.modify] },
     },
     // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
     // stays for ingestion, and reply drafting writes its Gmail draft through the client (the

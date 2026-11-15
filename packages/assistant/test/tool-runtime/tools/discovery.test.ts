@@ -19,7 +19,6 @@ import {
 } from "@alfred/assistant/tool-runtime/discovery";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
-  availableToolNames,
   evaluateToolAvailability,
   registerTool,
 } from "../../../src/tool-runtime/internal/registry";
@@ -354,62 +353,6 @@ describe("tool discovery", () => {
   });
 });
 
-test("exact availability respects tool scopes and caller context", () => {
-  const readonlyScope = "contacts.readonly";
-
-  const read = liveTool({
-    integration: "contacts",
-    action: "search",
-    riskTier: "no_risk",
-    replay: "safe",
-    description: "Search contacts.",
-    availability: { credential: { provider: "google", anyOfScopes: [readonlyScope] } },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const send = liveTool({
-    integration: "sheets",
-    action: "append_values",
-    riskTier: "high",
-    replay: "safe",
-    description: "Append rows.",
-    availability: { credential: { provider: "google", anyOfScopes: ["sheets.append"] } },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const spawn = liveTool({
-    integration: "system",
-    action: "spawn_sub_agent",
-    riskTier: "no_risk",
-    replay: "safe",
-    description: "Spawn child.",
-    availability: { callers: ["boss"] },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const snapshot: IntegrationAvailabilitySnapshot = {
-    integrations: new Map([
-      ["contacts", { health: "active", accountLabel: null }],
-      ["sheets", { health: "active", accountLabel: null }],
-    ]),
-    providers: new Map([["google", [provider("active", [readonlyScope])]]]),
-    passthroughEnabled: new Map(),
-  };
-
-  assert.deepEqual(
-    [
-      ...availableToolNames(snapshot, [read, send, spawn], [], {
-        caller: "sub_agent",
-        interaction: "background",
-      }),
-    ],
-    ["contacts.search"],
-  );
-});
-
 describe("evaluateToolAvailability reason codes (#413)", () => {
   const scoped = "contacts.readonly";
 
@@ -419,7 +362,6 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     riskTier: "no_risk",
     replay: "safe",
     description: "Search contacts.",
-    availability: { credential: { provider: "google", anyOfScopes: [scoped] } },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
@@ -481,11 +423,6 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
     const result = evaluateToolAvailability(snapshot, search, new Set(), ctx);
     assert.equal(result.available === false && result.code, "needs_reauth");
-  });
-
-  test("missing_scope when active but the required scope is absent", () => {
-    const result = evaluateToolAvailability(active(["contacts.other"]), search, new Set(), ctx);
-    assert.equal(result.available === false && result.code, "missing_scope");
   });
 
   test("not_allowed when outside the workflow integration allowlist", () => {

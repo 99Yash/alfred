@@ -52,13 +52,6 @@ const CASES: readonly Case[] = [
       assert.equal(d.pageToken, "tok");
     },
   },
-  // ── JSON-string arrays (coerceJsonArrayFields) ───────────────────────────
-  {
-    name: "sheets.append_values JSON-array-string values → array (coerceJsonArrayFields)",
-    tool: "sheets.append_values",
-    input: { spreadsheetId: "sheet_1", range: "Sheet1!A1", values: '[["a"]]' },
-    expect: (d) => assert.deepEqual(d.values, [["a"]]),
-  },
 ];
 
 describe("param-ergonomics: measured fumbles validate first-try through dispatch", () => {
@@ -74,17 +67,4 @@ describe("param-ergonomics: measured fumbles validate first-try through dispatch
       if (c.expect) c.expect(parsed.data);
     });
   }
-});
-
-describe("param-ergonomics: shape tolerance is not a blanket accept-anything", () => {
-  // The wrap fixed shape, not content. The tool is gone; the sheets schema keeps a guard.
-  test("sheets.append_values values that are not arrays still bounce", () => {
-    const parsed = dispatchParse("sheets.append_values", {
-      spreadsheetId: "sheet_1",
-      range: "Sheet1!A1",
-      values: '["a"]',
-    });
-
-    assert.equal(parsed.success, false);
-  });
 });

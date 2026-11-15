@@ -1,10 +1,9 @@
 import { z } from "zod";
-import {
-  holdsAnyScope,
-  type CredentialProofRow,
-  type CredentialProvider,
-  type LoadableIntegrationSlug,
-  type SupportedPassthroughSlug,
+import type {
+  CredentialProofRow,
+  CredentialProvider,
+  LoadableIntegrationSlug,
+  SupportedPassthroughSlug,
 } from "./integrations";
 
 /** One `integration_credentials` row, as the availability policy reads it. */
@@ -15,31 +14,6 @@ export interface ProviderAvailability extends CredentialProofRow {
   installationId: string | null;
   accountLabel: string | null;
   metadata: unknown;
-}
-
-/** A tool's own credential need, when it is narrower than its integration's. */
-export interface ToolCredentialRequirement {
-  provider: CredentialProvider;
-  anyOfScopes: readonly string[];
-  /** More grants that the SAME row must hold: one scope from each list. */
-  alsoAnyOfScopes?: readonly (readonly string[])[];
-}
-
-/**
- * The first scope list of `requirement` that `granted` holds no scope from, or `null` when one
- * row holds them all. A reauthorize recovery asks for that list.
- */
-export function missingRequiredScopes(
-  granted: Iterable<string>,
-  requirement: ToolCredentialRequirement,
-): readonly string[] | null {
-  const held = [...granted];
-
-  for (const anyOf of [requirement.anyOfScopes, ...(requirement.alsoAnyOfScopes ?? [])]) {
-    if (!holdsAnyScope(held, anyOf)) return anyOf;
-  }
-
-  return null;
 }
 
 /** `needs_reauth` when no row passes the connected rule. No rows at all is `null` at the use site. */

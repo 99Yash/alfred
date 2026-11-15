@@ -111,13 +111,9 @@ const gmailAvailability: IntegrationAvailabilitySnapshot = {
   passthroughEnabled: new Map(),
 };
 
-/** The same two Google accounts. No registered tool names scopes any more, so rows only carry health. */
-const googleAccountAvailability: IntegrationAvailabilitySnapshot = {
+/** The same two Gmail accounts, with the modify and send grants. */
+const gmailSendAvailability: IntegrationAvailabilitySnapshot = {
   ...gmailAvailability,
-  integrations: new Map([
-    ["gmail", { health: "active", accountLabel: "other@example.com" }],
-    ["sheets", { health: "active", accountLabel: "other@example.com" }],
-  ]),
   providers: new Map([
     [
       "google",
@@ -241,96 +237,11 @@ describe("workflow readiness", () => {
     );
   });
 
-  test("activation rejects more than one account binding for the same tool", () => {
-    const candidate = definition({
-      allowedIntegrations: ["sheets"],
-      allowedTools: ["sheets.append_values"],
-      requiredCapabilities: [
-        { tool: "sheets.append_values", accountRef: "account-1" },
-        { tool: "sheets.append_values", accountRef: "account-2" },
-      ],
-    });
-
-    const validated = validateWorkflowDefinition(candidate, {
-      timezone: "UTC",
-      requireActivatable: true,
-    });
-
-    assert.equal(validated.ok, false);
-
-    assert.equal(
-      validated.problems.some((problem) => problem.code === "ambiguous_tool_capability"),
-      true,
-    );
-
-    assert.equal(
-      resolveWorkflowReadiness({
-        definition: candidate,
-        availability: googleAccountAvailability,
-      }).some((problem) => problem.code === "choose_account"),
-      true,
-    );
-  });
-
   test("a local system capability is ready without integration credentials", () => {
     assert.deepEqual(
       resolveWorkflowReadiness({ definition: definition(), availability: unavailable }),
       [],
     );
-  });
-
-  test("a disconnected exact tool blocks activation", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["sheets"],
-        allowedTools: ["sheets.append_values"],
-        requiredCapabilities: [{ tool: "sheets.append_values" }],
-      }),
-      availability: unavailable,
-    });
-
-    assert.equal(problems[0]?.code, "not_connected");
-    assert.deepEqual(problems[0]?.recoveryAction, {
-      kind: "connect",
-      integration: "sheets",
-    });
-  });
-
-  test("an integration that needs reauthorization returns the reauthorize action", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["sheets"],
-        allowedTools: ["sheets.append_values"],
-        requiredCapabilities: [{ tool: "sheets.append_values", accountRef: "account-1" }],
-      }),
-      availability: {
-        integrations: new Map([["sheets", { health: "needs_reauth", accountLabel: null }]]),
-        providers: new Map([
-          [
-            "google",
-            [
-              {
-                credentialId: "credential-1",
-                accountId: "account-1",
-                status: "needs_reauth",
-                scopes: new Set(["https://www.googleapis.com/auth/gmail.readonly"]),
-                installationId: null,
-                accountLabel: "selected@example.com",
-                metadata: {},
-              },
-            ],
-          ],
-        ]),
-        passthroughEnabled: new Map(),
-      },
-    });
-
-    assert.equal(problems[0]?.code, "needs_reauth");
-    assert.deepEqual(problems[0]?.recoveryAction, {
-      kind: "reauthorize",
-      integration: "sheets",
-      accountRef: "account-1",
-    });
   });
 
   test("a disabled passthrough feature returns an enable action", () => {
@@ -378,19 +289,6 @@ describe("workflow readiness", () => {
     });
 
     assert.equal(problems[0]?.code, "no_tool_surface");
-  });
-
-  test("an account reference rides an available integration capability", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["sheets"],
-        allowedTools: ["sheets.append_values"],
-        requiredCapabilities: [{ tool: "sheets.append_values", accountRef: "account-1" }],
-      }),
-      availability: googleAccountAvailability,
-    });
-
-    assert.deepEqual(problems, []);
   });
 
   test("an approved scope without an external grant fact is enforced at dispatch", () => {
@@ -446,26 +344,6 @@ describe("workflow readiness", () => {
     assert.deepEqual(problems, []);
   });
 
-  test("connection recovery takes priority over a resource grant", () => {
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        allowedIntegrations: ["sheets"],
-        allowedTools: ["sheets.append_values"],
-        requiredCapabilities: [
-          { tool: "sheets.append_values", resourceScope: { labelId: "important" } },
-        ],
-      }),
-      availability: unavailable,
-    });
-
-    assert.equal(problems.length, 1);
-    assert.equal(problems[0]?.code, "not_connected");
-    assert.deepEqual(problems[0]?.recoveryAction, {
-      kind: "connect",
-      integration: "sheets",
-    });
-  });
-
   test("a Gmail event requires a live watch", () => {
     const now = new Date("2026-07-31T00:00:00.000Z");
 
@@ -480,33 +358,11 @@ describe("workflow readiness", () => {
     assert.equal(problems.at(-1)?.code, "trigger_not_ready");
   });
 
-  test("a Gmail trigger with no account of its own asks the user to choose one", () => {
-    const now = new Date("2026-07-31T00:00:00.000Z");
-
-    const problems = resolveWorkflowReadiness({
-      definition: definition({
-        trigger: { kind: "event", source: "gmail", type: "message_received" },
-        allowedIntegrations: ["gmail", "sheets"],
-        allowedTools: ["sheets.append_values"],
-        requiredCapabilities: [{ tool: "sheets.append_values", accountRef: "other@example.com" }],
-      }),
-      availability: googleAccountAvailability,
-      eventSourceHealth: gmailHealth(new Map(), now),
-    });
-
-    assert.equal(problems.at(-1)?.code, "choose_account");
-    assert.equal(problems.at(-1)?.field, "trigger");
-    assert.deepEqual(problems.at(-1)?.recoveryAction, {
-      kind: "choose_account",
-      integration: "gmail",
-    });
-  });
-
   test("a Gmail event requires receiver, cursor, and recent-sync health", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
 
     const healthy: IntegrationAvailabilitySnapshot = {
-      ...googleAccountAvailability,
+      ...gmailSendAvailability,
       providers: new Map([
         [
           "google",
@@ -563,11 +419,11 @@ describe("workflow readiness", () => {
 
   test("an expired Gmail watch asks for renewal even when sync is stale", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
-    const selected = googleAccountAvailability.providers.get("google")?.[0];
+    const selected = gmailSendAvailability.providers.get("google")?.[0];
     assert.ok(selected);
 
     const availability: IntegrationAvailabilitySnapshot = {
-      ...googleAccountAvailability,
+      ...gmailSendAvailability,
       providers: new Map([
         [
           "google",
@@ -621,11 +477,11 @@ describe("workflow readiness", () => {
 
   test("a configured live watch reports delayed delivery as a deferral", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
-    const selected = googleAccountAvailability.providers.get("google")?.[0];
+    const selected = gmailSendAvailability.providers.get("google")?.[0];
     assert.ok(selected);
 
     const availability: IntegrationAvailabilitySnapshot = {
-      ...googleAccountAvailability,
+      ...gmailSendAvailability,
       providers: new Map([
         [
           "google",
@@ -679,11 +535,11 @@ describe("workflow readiness", () => {
 
   test("server-side Gmail delivery configuration does not offer OAuth recovery", () => {
     const now = new Date("2026-07-31T00:10:00.000Z");
-    const selected = googleAccountAvailability.providers.get("google")?.[0];
+    const selected = gmailSendAvailability.providers.get("google")?.[0];
     assert.ok(selected);
 
     const availability: IntegrationAvailabilitySnapshot = {
-      ...googleAccountAvailability,
+      ...gmailSendAvailability,
       providers: new Map([
         [
           "google",

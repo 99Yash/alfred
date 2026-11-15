@@ -18,6 +18,7 @@ import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execut
 import { standingInstructions } from "@alfred/assistant/knowledge";
 import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
+import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { integrations } from "@alfred/integrations";
 import {
   extractSenderContext,
@@ -45,17 +46,6 @@ import { decideReplyWorthiness, noDraftResult, replyStandingInstructionState } f
  * with a typed reason, not failures.
  */
 
-/** The draft one `stage` attempt created. The same key the send tool kept. */
-const replyDraftRefSchema = z.object({
-  credentialId: z.string().min(1),
-  draftId: z.string().min(1),
-  threadId: z.string().min(1),
-  /** Epoch ms on Alfred's clock, just before the draft was saved. Not Gmail's clock. */
-  alfredSavedAt: z.number(),
-});
-
-type ReplyDraftRef = z.infer<typeof replyDraftRefSchema>;
-
 const stateSchema = z.object({
   documentId: z.string().min(1),
   sourceThreadId: z.string().min(1),
@@ -73,8 +63,7 @@ const stateSchema = z.object({
   prepared: z
     .object({ input: replyDraftMessageSchema, provenance: replyDraftProvenanceSchema })
     .optional(),
-  /** The created draft, recorded before the result, so a retry reuses it. */
-  draft: replyDraftRefSchema.optional(),
+  /** Only a legacy run parked on a send approval carries this. */
   result: replyDraftResultSchema.optional(),
 });
 
@@ -364,7 +353,7 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
     });
   }
 
-  // Commit the candidate before dispatch, so retries and resumes use one body and one call id.
+  // Commit the candidate before `stage`, so retries and resumes use one body.
   return {
     kind: "next",
     nextStep: "stage",
@@ -373,11 +362,11 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
 }
 
 async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
+  const recorded = ctx.state.result;
   const result = await draftReply(ctx);
 
-  if (result.kind === "done") {
-    // A legacy staged run parks on an approval row that names the deleted send tool; close
-    // it on early exit. New runs stage nothing.
+  // A legacy run parked on a send approval: its approval row names the deleted send tool.
+  if (recorded?.outcome === "staged" && recorded.stagingId != null) {
     await withdrawToolCallApproval({
       userId: ctx.userId,
       runId: ctx.runId,
@@ -391,18 +380,13 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
   return result;
 }
 
-/**
- * Save one plain-text Gmail draft on the source thread through the integration client, the
- * same call the send tool made. The step writes nothing to `action_stagings`.
- */
+/** Save one plain-text Gmail draft on the source thread. Returns the Gmail draft id. */
 async function createReplyDraft(args: {
   userId: string;
   accountRef: string;
   credentialId: string;
   input: ReplyDraftMessage;
-}): Promise<ReplyDraftRef> {
-  const alfredSavedAt = Date.now();
-
+}): Promise<string> {
   const draft = await integrations({
     userId: args.userId,
     accountRef: args.accountRef,
@@ -417,12 +401,7 @@ async function createReplyDraft(args: {
     threadId: args.input.threadId,
   });
 
-  return {
-    credentialId: args.credentialId,
-    draftId: draft.draftId,
-    threadId: draft.threadId,
-    alfredSavedAt,
-  };
+  return draft.draftId;
 }
 
 /**
@@ -431,18 +410,12 @@ async function createReplyDraft(args: {
  * thread and finishes with the `staged` outcome; no approval card, no staging row.
  */
 async function draftReply(ctx: StepContext<State>): Promise<StepResult<State>> {
-  const { prepared, mailbox, gather } = ctx.state;
+  const { prepared, mailbox } = ctx.state;
 
-  if (!prepared || !mailbox || !gather)
+  if (!prepared || !mailbox)
     throw new Error("[reply-drafting] stage entered without verified input");
 
-  if (ctx.state.result) {
-    // A resumed run keeps its recorded decision. A legacy staged run carries the staging
-    // result it parked on; `runStage` closes its approval row.
-    return finish(ctx, ctx.state, ctx.state.result);
-  }
-
-  // Compose can be slow: recheck gate and access before the first write.
+  // Compose can be slow: recheck gate and access before the write.
   const gate = await runGate(ctx);
 
   if (gate.kind !== "next") return gate;
@@ -468,25 +441,28 @@ async function draftReply(ctx: StepContext<State>): Promise<StepResult<State>> {
     });
   }
 
-  // One draft per source message: a committed retry reuses the recorded ref. A crash between
-  // Gmail's answer and this step's commit can save a second draft (residual risk).
-  const draft =
-    ctx.state.draft ??
-    (await createReplyDraft({
-      userId: ctx.userId,
-      accountRef: mailbox.accountId,
-      credentialId: access.credentialId,
-      input: prepared.input,
-    }));
+  if (!gmailMailboxWritesEnabled()) {
+    await ctx.log("stage: withheld reason=mailbox_writes_disabled");
 
-  const result: ReplyDraftResult = {
-    outcome: "staged",
-    stagingId: null,
-    draftId: draft.draftId,
-    provenance: prepared.provenance,
-  };
+    return finish(ctx, ctx.state, {
+      outcome: "withheld",
+      reason: "mailbox_writes_disabled",
+      detail: null,
+      provenance: prepared.provenance,
+    });
+  }
 
-  return finish(ctx, { ...ctx.state, draft }, result);
+  // Gmail `drafts.create` takes no idempotency key, so a failure after Gmail answers and before
+  // the step commits can save a second draft; the user sees both and deletes one (owner
+  // decision, 2026-11-15).
+  const draftId = await createReplyDraft({
+    userId: ctx.userId,
+    accountRef: mailbox.accountId,
+    credentialId: access.credentialId,
+    input: prepared.input,
+  });
+
+  return finish(ctx, ctx.state, { outcome: "staged", draftId, provenance: prepared.provenance });
 }
 
 export const replyDraftingWorkflow: Workflow<

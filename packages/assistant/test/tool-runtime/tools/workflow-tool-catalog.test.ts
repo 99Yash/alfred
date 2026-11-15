@@ -35,7 +35,6 @@ describe("workflow tool catalog", () => {
       assert.ok(facts, `missing catalog entry for ${tool.name}`);
       assert.equal(facts.name, tool.name);
       assert.equal(facts.integration, tool.integration);
-      assert.deepEqual(facts.availability?.credential, tool.availability?.credential);
     }
   });
 

@@ -172,15 +172,7 @@ async function main() {
       "a drafted run must leave no live approval; recovered rows must be withdrawn",
     );
 
-    const state = z
-      .object({ draft: z.object({ draftId: z.string().min(1) }).optional() })
-      .parse(run.state);
-
-    assert(state.draft, "a drafted run records the created draft in its state");
-    assert(
-      result.draftId !== undefined && result.draftId === state.draft.draftId,
-      "the result names the created draft",
-    );
+    assert(result.draftId !== undefined, "the result names the created draft");
 
     const provenance = z.object({ verifier: z.unknown() }).parse(result.provenance);
     assert(
@@ -196,7 +188,7 @@ async function main() {
     assert(result.provenance.style !== null, "style selection or style_missing must be recorded");
     assert(result.provenance.recipients.to.length > 0, "a draft names its recipients");
     console.log(
-      `[smoke-reply-drafting] created Gmail draft ${state.draft.draftId}; review and send it in Gmail`,
+      `[smoke-reply-drafting] created Gmail draft ${result.draftId}; review and send it in Gmail`,
     );
   } else {
     assert(

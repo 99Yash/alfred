@@ -16,7 +16,6 @@ const workflowToolCatalogSource: WorkflowToolCatalogSource = {
       entries.set(tool.name, {
         name: tool.name,
         integration: tool.integration,
-        availability: tool.availability,
         evaluateAvailability: (input) =>
           evaluateToolAvailability(input.availability, tool, input.allowed, input.context),
       });

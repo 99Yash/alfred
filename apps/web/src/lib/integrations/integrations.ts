@@ -67,7 +67,7 @@ const INTEGRATION_PAGE_COPY = {
     capabilities: [
       "Read Emails",
       "Compose Emails",
-      "Send Emails",
+      "Draft Emails",
       "Reply to Emails",
       "Manage Labels",
       "Search Conversations",

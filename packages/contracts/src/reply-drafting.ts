@@ -27,7 +27,7 @@ export const REPLY_DRAFT_OUTCOMES = [
   "clarification",
   /** Alfred lacks the Gmail connection or scope needed to send at all. */
   "no_access",
-  /** A draft was composed but the verifier refused to stage it. */
+  /** A draft was composed but not written: the verifier or a check before the write refused it. */
   "withheld",
 ] as const;
 
@@ -124,7 +124,10 @@ export const REPLY_WITHHELD_REASONS = [
   "empty_body",
   "context_mismatch",
   "invalid_candidate",
+  /** No longer written. Kept so stored runs still parse. */
   "staging_unavailable",
+  /** Gmail mailbox writes are off in this deployment, so no draft was written. */
+  "mailbox_writes_disabled",
 ] as const;
 
 export type ReplyWithheldReason = (typeof REPLY_WITHHELD_REASONS)[number];
@@ -295,15 +298,12 @@ const resultBase = { provenance: replyDraftProvenanceSchema };
 export const replyDraftResultSchema = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("staged"),
-    /**
-     * Retired; only recorded runs from before the 2026-11-15 amendment carry it.
-     * New runs create the draft directly and omit the field.
-     */
+    /** Retired: only runs from before the 2026-11-15 amendment carry it. */
     actionKind: replyDraftActionKindSchema.optional(),
-    /** `action_stagings.id` of a staged approval. New runs create no approval, so `null`. */
-    stagingId: z.string().nullable(),
-    /** Gmail draft id of the created draft, when the run created one. */
-    draftId: z.string().nullable().optional(),
+    /** Retired: `action_stagings.id` of the send approval of a run from before 2026-11-15. */
+    stagingId: z.string().optional(),
+    /** Gmail draft id of the created draft. Runs from before 2026-11-15 have none. */
+    draftId: z.string().min(1).optional(),
     ...resultBase,
   }),
   z.object({
