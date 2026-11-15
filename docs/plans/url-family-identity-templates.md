@@ -1,9 +1,11 @@
 ---
-status: proposed
+status: superseded
 evidence: "Read-only replay of 35 days of production Gmail (995 mails) on 2026-10-25. The draft harness and templates are in the gitignored references/scratch/lifecycle-replay/. No runtime change."
 ---
 
 # URL-family identity templates
+
+Superseded by ADR-0122 decision 3c (2026-11-11): a thing is a key from the evidence, with no templates. The code was deleted.
 
 Alfred must connect related mails about one thing, for example a payment request and its receipt, or three failure mails about one deploy. Each integration and each industry puts the identity of a thing in a different place. This plan makes that place reviewed data. A deterministic back-test checks it on real mail before the owner approves it. The consistency gates alone do not prove that related mail joins; known pairs need explicit controls.
 

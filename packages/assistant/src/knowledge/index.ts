@@ -32,12 +32,6 @@ export {
 } from "./gmail-projection-run";
 
 export {
-  type ReferentEvidence,
-  type ReferentKeyInput,
-  type ReferentThreadingHeaders,
-} from "./referent-identity";
-
-export {
   buildOrgAffiliationObservationInput,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,

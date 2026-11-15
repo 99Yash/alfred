@@ -89,7 +89,7 @@ The store is built. The graph model is built. Only the extraction of non-person 
 
 **Build status (verified 2026-10-21).**
 
-- The S1 identity module exists: `referentKeyForEmail` (`packages/assistant/src/knowledge/referent-identity.ts:96`). Only its test and the re-export at `knowledge/index.ts:36-38` call it. No fold mints a `referent` node in production.
+- The S1 identity module was deleted (2026-11-15, after ADR-0122 decision 3c keyed a thing from the evidence with no templates). It had no production caller; only its test and the re-export at `knowledge/index.ts:36-38` called it. No fold mints a `referent` node in production.
 - `integration_object_keys` already maps a key from any source (a `head_sha`, a PR URL from mail) to one `integration_objects` row (`packages/db/src/schema/integration-objects.ts:64-92`). This ADR did not mention that table.
 - `integration_object_relations` is the only table that links a work object to a thing. Its `entity_id` references the old `entities` table, not `entity_nodes` (`integration-objects.ts:97-128`). No code writes it.
 

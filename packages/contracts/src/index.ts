@@ -44,8 +44,6 @@ export * from "./integration-objects";
 
 export * from "./object-state-vocabulary";
 
-export * from "./url-family";
-
 export * from "./object-identity";
 
 export * from "./integration-availability";

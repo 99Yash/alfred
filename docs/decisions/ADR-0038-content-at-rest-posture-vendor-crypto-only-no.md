@@ -10,6 +10,8 @@
 > supersedes the design). They now name the chat attachment column that
 > actually exists: `chat_attachments.degraded_text`.
 
+**Code drift (2026-11-15).** Item 3 below no longer holds: Gmail ingest persists the full message to `documents.raw` (`persistMessage` in `packages/assistant/src/connections/ingestion/gmail-ingest.ts`). ADR-0118, ADR-0122 (the DMARC check), and triage slice 0b rely on the stored raw message. The decision text below is unchanged; the owner has not yet decided the posture.
+
 **Decision.** No app-layer encryption on user content (`documents.content`, `chunks.content`, `chat_attachments.degraded_text`, `memory_facts.value`, briefing bodies, `email_sends.body`). Three concrete layers stand in:
 
 1. **Vendor at-rest encryption** — Railway managed Postgres + Redis + object storage all encrypt disks/volumes at the provider layer. Already on, free.
