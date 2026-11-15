@@ -125,7 +125,11 @@ export { publishGoogleCallbackCompleted } from "./google-callback-events";
 
 export { readRawReceiptInventory, seenRawKinds } from "./raw-receipt-inventory";
 
-export { readReceiptDocument, type ReceiptDocument } from "./ingestion/receipt-document";
+export {
+  readReceiptDocument,
+  receiptDocumentJoin,
+  type ReceiptDocument,
+} from "./ingestion/receipt-document";
 
 export { GMAIL_POLL_SWEEP_INTERVAL_MS } from "./ingestion/gmail-delivery-policy";
 

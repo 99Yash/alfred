@@ -49,7 +49,7 @@ Verified against the code on 2026-11-14. This table is the seed of the map; the 
 | --- | --- | --- | --- |
 | Mail (`documents`) | Years back: Gmail holds mail from before sign-in | — | Q-A (sent mail), Q-E, source facts |
 | Activity record (`observations`, ADR-0118) | From the integration connect | No actor mark; acts and state changes, not each delivery (forty CI webhooks on one branch are one change) | Q-A, Q-B |
-| `event_receipts` | Every delivery, raw kinds kept (ADR-0097) | Gmail receipts hold no body; webhook bodies released after 90 days (`RECEIPT_PAYLOAD_RETENTION_MS`); no actor mark | Q-A |
+| `event_receipts` | Every delivery, raw kinds kept (ADR-0097) | Holds no body: a webhook body is in its document (`documents.raw`); Gmail receipts never had one; no actor mark | Q-A |
 | Object state | From connect | Exact ids only today ([memory.md §8](./memory.md#8-theory-state-and-code-state)) | Q-A, Q-D |
 | Chat turns | From the first turn | No embeddings yet; context search does not read them ([journal.md §10](./journal.md#10-theory-state-and-code-state)) | Q-E, Q-C |
 | Claims and name links | From first capture | Not built ([memory.md §8](./memory.md#8-theory-state-and-code-state)) | Q-D, Q-E, Q-B |

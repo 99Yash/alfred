@@ -62,13 +62,14 @@ Each row in the received and derived layers carries two times. Each time has one
 - **The model always gets the time now and the user's zone.** Each time that a reader gives the model is in the user's zone, with the weekday. The model works out what came before what.
 - **The model knows that it can read these times.** Each store's entry on the [evidence map](./evidence-map.md) names its two times and what they mean (owner direction, 2026-11-15). The briefing is the main reader: mail times and the times of key activities give the chronology that makes the context. Triage can use them, but its cheap first call is not expected to depend on them.
 - **A row that has no source clock says so.** The reader shows the received time and marks it as such. It never shows the received time as the happened time.
+- **A webhook document's time is its arrival (owner, 2026-11-15).** For GitHub, `documents.authored_at` is when the delivery arrived, and the briefing's activity window uses it to put each act in exactly one briefing (ADR-0118). It is not moved to the payload's time. The act's own time is on its activity row (`observations.occurred_at`). Sometimes the model needs an exact time that no row carries, such as a merge time. It then reads the source live first (Code Mode). The stored body (`documents.raw`) is the fallback. A source can have an outage. When a read fails or looks wrong, the model can read the source's status page (githubstatus.com for GitHub).
 - **A time in the future is a fact in the source's words.** An expiry, a renewal, or a due date stays in the text of the item, and the model reads it (principle 4). Code does not parse it into a column. Reminders and the push from such a time are on hold (owner, 2026-11-15). When they return, a reminder checks at fire time that it still applies, as meeting prep reads the calendar when it runs ([core-agent.md](./core-agent.md)).
 
 The columns today, and where they break this rule:
 
 | Table | Happened | Received | Fault |
 | --- | --- | --- | --- |
-| `documents` | `authored_at` | `ingested_at` | For GitHub, `authored_at` is the arrival time (ADR-0118). The briefing windows mail on `ingested_at`. |
+| `documents` | `authored_at` | `ingested_at` | For GitHub, `authored_at` is the arrival time, by decision (see above). The briefing windows mail on `ingested_at`. |
 | `observations` | `occurred_at` | from the item that the row points to | — |
 | `integration_objects` | `provider_event_at` | `state_delivered_at` | — |
 | `event_receipts` | — | `delivered_at` | It holds deliveries, so it has no happened time. Correct. |
@@ -118,9 +119,9 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
 | Three layers, every source | Settled (owner, 2026-11-15) | Partly | Only GitHub has an activity fold. Two GitHub bodies. |
-| One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Partly | Gmail: yes. GitHub: two copies. |
+| One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Partly | Gmail: yes. Webhooks: new receipts store no body, and the fold reads `documents.raw`. Old receipts keep `payload` until the backfill reports 0 and the column is dropped. |
 | One reader for each source | Settled for mail (slice 0b) | Not built | Three header parsers for mail; three GitHub parses |
-| Two times with one meaning each | Proposed | Partly | GitHub `authored_at`; the briefing window |
+| Two times with one meaning each | Proposed; GitHub arrival time settled (owner, 2026-11-15) | Partly | The mail briefing window |
 | The new people graph only | Settled (owner, 2026-11-15) | Not built | The projection is not active; four old-graph readers |
 | Outputs are never evidence | Settled (principle 5) | Partly | `sender_priors` (slice 1); the category copy in `observations` |
 
@@ -130,7 +131,7 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 
 1. **This page, and the ADR-0038 amendment.**
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
-3. **One GitHub body.** The object-state fold reads `documents.raw`, and `event_receipts` stops storing the payload. GitHub `authored_at` takes the time from the payload.
+3. **One GitHub body.** The object-state fold reads `documents.raw`, and `event_receipts` stops storing the payload. A committed backfill moves each old receipt body that has no document into one. When it reports 0, a second change drops `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner, 2026-11-15).
 4. **The briefing windows on the happened time.** This goes with triage slice 2a, which already changes what the briefing reads.
 5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).

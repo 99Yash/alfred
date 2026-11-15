@@ -141,8 +141,8 @@ function backgroundServices(config: RuntimeConfig) {
       start: startMcpConnectionRecovery,
       stop: stopMcpConnectionRecovery,
     },
-    // Frees old `event_receipts` bodies. After `drainMs`, `stop()` may return
-    // while one reaper `UPDATE` still runs.
+    // Frees old `event_receipts` bodies. New receipts store none, so this goes with the column.
+    // After `drainMs`, `stop()` may return while one reaper `UPDATE` still runs.
     receiptPayloadReaper: {
       kind: "scheduled-loop",
       label: "receipt-payload reaper",

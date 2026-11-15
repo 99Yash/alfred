@@ -5,8 +5,9 @@ import {
   isRawEventType,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { typedEventReceipts } from "@alfred/db/schemas";
+import { documents, typedEventReceipts } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
+import { receiptDocumentJoin } from "../ingestion/receipt-document";
 import { receiptDeliveryInstant } from "./delivery-instant";
 import { parseReceiptEvent } from "./events";
 import { objectStateStore } from "./store";
@@ -14,7 +15,8 @@ import { isInboundDomainEvent, type TriggerConsumer } from "@alfred/assistant/tr
 
 /**
  * The object-state fold: one trigger consumer per inbound source (ADR-0047, ADR-0062, ADR-0097).
- * Reads the receipt back by id, parses it once into its provider's event, and runs that reducer.
+ * Reads the receipt's body back from its document by receipt id, parses it once into its
+ * provider's event, and runs that reducer.
  * Vercel deploys arrive as GitHub `repository_dispatch`, so the GitHub consumer folds them too.
  * `propagate`: a fold failure fails `ingress.deliver` and the queue retries. Reducers are
  * idempotent, so a retry cannot regress state. Raw events have no reducer and return early.
@@ -38,13 +40,17 @@ function objectStateFoldConsumer<S extends InboundEventSource>(source: S): Trigg
       if (!isEventTypeForSource(source, event.type)) return;
       const { receiptId } = event.payload;
 
+      // The body is in the receipt's document (stores.md). The receive path writes the document in
+      // the receipt's transaction. Only an old receipt can have no document. The live fold then
+      // skips it, and the object-state backfill folds it after the corpus backfill writes it.
       const [receipt] = await db()
         .select({
-          payload: typedEventReceipts.payload,
+          body: documents.raw,
           // Not the raw column: a JS `Date` drops the microseconds the store orders on (#1200).
           deliveredAt: receiptDeliveryInstant(),
         })
         .from(typedEventReceipts)
+        .innerJoin(documents, receiptDocumentJoin(typedEventReceipts))
         .where(
           and(eq(typedEventReceipts.id, receiptId), eq(typedEventReceipts.userId, event.userId)),
         )
@@ -52,7 +58,7 @@ function objectStateFoldConsumer<S extends InboundEventSource>(source: S): Trigg
 
       if (!receipt) return;
       // A type that folds nothing, or a body that is not an object. A retry would not change it.
-      const parsed = parseReceiptEvent(source, event.type, receipt.payload);
+      const parsed = parseReceiptEvent(source, event.type, receipt.body);
 
       if (!parsed) return;
 
