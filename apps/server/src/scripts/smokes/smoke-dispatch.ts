@@ -1,6 +1,6 @@
 /**
  * Smoke test for the tool dispatcher against real Postgres and Redis. Tools are
- * in-process stubs and `gmail` and `contacts` connection health is stubbed as active, so no OAuth
+ * in-process stubs and `sheets` and `contacts` connection health is stubbed as active, so no OAuth
  * account is needed.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-dispatch.ts
@@ -78,7 +78,7 @@ async function createSmokeRun(userId: string, label: string): Promise<string> {
 
 async function setIntegrationMode(
   userId: string,
-  slug: "gmail" | "contacts",
+  slug: "sheets" | "contacts",
   mode: "autonomy" | "gated",
 ): Promise<void> {
   await db()
@@ -92,17 +92,17 @@ async function setIntegrationMode(
 
 interface Stubs {
   readonly searchExecCount: () => number;
-  readonly draftExecCount: () => number;
+  readonly appendExecCount: () => number;
   registerStubs(): void;
 }
 
 function buildStubs(): Stubs {
   let searchExec = 0;
-  let draftExec = 0;
+  let appendExec = 0;
 
   return {
     searchExecCount: () => searchExec,
-    draftExecCount: () => draftExec,
+    appendExecCount: () => appendExec,
     registerStubs() {
       const contactsSearchInput = z
         .object({
@@ -110,11 +110,11 @@ function buildStubs(): Stubs {
         })
         .strict();
 
-      const gmailSendDraftInput = z
+      const sheetsAppendValuesInput = z
         .object({
-          to: z.array(z.email()).min(1).max(25),
-          subject: z.string().min(1).max(1000),
-          bodyText: z.string().min(1).max(50_000),
+          spreadsheetId: z.string().min(1).max(200),
+          range: z.string().min(1).max(200),
+          values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).min(1),
         })
         .strict();
 
@@ -133,16 +133,16 @@ function buildStubs(): Stubs {
           },
         }),
         liveTool({
-          integration: "gmail",
-          action: "send_draft",
+          integration: "sheets",
+          action: "append_values",
           riskTier: "high",
           replay: "unsafe",
-          description: "Smoke-test Gmail draft send tool.",
-          inputSchema: gmailSendDraftInput,
+          description: "Smoke-test Sheets append tool.",
+          inputSchema: sheetsAppendValuesInput,
           execute: async (input) => {
-            draftExec += 1;
+            appendExec += 1;
 
-            return { sentTo: input.to[0], subject: input.subject };
+            return { appendedCells: input.values.flat().length };
           },
         }),
       ]);
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
     runId: runId1,
     stepId: "turn-1",
     toolCallId: "tc_unknown_tool",
-    toolName: "gmail.hallucinated_action",
+    toolName: "sheets.hallucinated_action",
     activeTools: [],
     input: { q: "in:inbox" },
     userId,
@@ -249,16 +249,16 @@ async function main(): Promise<void> {
   console.log("[smoke-dispatch] 1. unknown tool: recoverable result, no row ✓");
 
   // 2. Gated path
-  await setIntegrationMode(userId, "gmail", "gated");
+  await setIntegrationMode(userId, "sheets", "gated");
   const runId2 = await createSmokeRun(userId, "gated-turn");
 
   const staged = await dispatchToolCall({
     runId: runId2,
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: { spreadsheetId: "sheet_1", range: "Sheet1!A1", values: [["yash"]] },
     userId,
     timezone,
     caller: "boss",
@@ -273,7 +273,7 @@ async function main(): Promise<void> {
     staged.wake.approvalKind === "action_staging",
     "wake.approvalKind must be 'action_staging'",
   );
-  assert(stubs.draftExecCount() === 0, "gated path must not execute tool before approval");
+  assert(stubs.appendExecCount() === 0, "gated path must not execute tool before approval");
 
   const gatedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -285,15 +285,15 @@ async function main(): Promise<void> {
   console.log("[smoke-dispatch] 2. gated: row=pending, wake=action_staging ✓");
 
   // A switch to autonomy must not run a pending gated row. Only an approval does.
-  await setIntegrationMode(userId, "gmail", "autonomy");
+  await setIntegrationMode(userId, "sheets", "autonomy");
 
   const stillStaged = await dispatchToolCall({
     runId: runId2,
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: { to: ["yash@example.com"], subject: "phase 3 smoke", bodyText: "hi" },
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: { spreadsheetId: "sheet_1", range: "Sheet1!A1", values: [["yash"]] },
     userId,
     timezone,
     caller: "boss",
@@ -305,10 +305,10 @@ async function main(): Promise<void> {
     stillStaged.kind === "staged",
     `pending row must remain staged after policy flip, got '${stillStaged.kind}'`,
   );
-  assert(stubs.draftExecCount() === 0, "policy flip must not trigger execute on pending row");
+  assert(stubs.appendExecCount() === 0, "policy flip must not trigger execute on pending row");
   console.log("[smoke-dispatch] 2. gated: policy gated→autonomy keeps pending row staged ✓");
 
-  await setIntegrationMode(userId, "gmail", "gated");
+  await setIntegrationMode(userId, "sheets", "gated");
 
   // Park the run by hand, as the executor would, so signalRun has something to wake.
   await db()
@@ -319,7 +319,7 @@ async function main(): Promise<void> {
         kind: "hil",
         approvalId: stagedId,
         approvalKind: "action_staging",
-        prompt: "Approve gmail.send_draft",
+        prompt: "Approve sheets.append_values",
       },
     })
     .where(eq(agentRuns.id, runId2));
@@ -347,12 +347,12 @@ async function main(): Promise<void> {
     runId: runId2,
     stepId: "turn-1",
     toolCallId: "tc_draft_gated",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
     input: {
-      to: ["attacker@example.com"],
-      subject: "smuggled payload",
-      bodyText: "should not run",
+      spreadsheetId: "sheet_evil",
+      range: "Sheet9!Z9",
+      values: [["should not run"]],
     },
     userId,
     timezone,
@@ -363,10 +363,10 @@ async function main(): Promise<void> {
 
   assert(resumed.kind === "executed", `resume expected 'executed', got '${resumed.kind}'`);
   assert(
-    getStringPath(resumed.toolResult, "sentTo") === "yash@example.com",
+    getStringPath(resumed.toolResult, "appendedCells") === "1",
     "approved resume must execute the STAGED proposed_input, not the caller's new input",
   );
-  assert(stubs.draftExecCount() === 1, "approved tool should execute exactly once on resume");
+  assert(stubs.appendExecCount() === 1, "approved tool should execute exactly once on resume");
 
   const resumedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -385,9 +385,9 @@ async function main(): Promise<void> {
     runId: runId3,
     stepId: "turn-1",
     toolCallId: "tc_draft_rs_1",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: { spreadsheetId: "sheet_1", range: "Sheet1!B1", values: [["no"]] },
     userId,
     timezone,
     caller: "boss",
@@ -407,16 +407,16 @@ async function main(): Promise<void> {
     })
     .where(eq(actionStagings.id, firstAttemptId));
 
-  const draftExecBefore = stubs.draftExecCount();
+  const appendExecBefore = stubs.appendExecCount();
 
   // Same tool_name and input under a new tool_call_id.
   const reproposed = await dispatchToolCall({
     runId: runId3,
     stepId: "turn-2",
     toolCallId: "tc_draft_rs_2",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: { to: ["someone@example.com"], subject: "do not send", bodyText: "no" },
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: { spreadsheetId: "sheet_1", range: "Sheet1!B1", values: [["no"]] },
     userId,
     timezone,
     caller: "boss",
@@ -429,7 +429,10 @@ async function main(): Promise<void> {
     `retry-suppression expected 'rejected', got '${reproposed.kind}'`,
   );
   assert(reproposed.stagingId === null, "retry-suppression must NOT write a new staging row");
-  assert(stubs.draftExecCount() === draftExecBefore, "retry-suppression must not execute the tool");
+  assert(
+    stubs.appendExecCount() === appendExecBefore,
+    "retry-suppression must not execute the tool",
+  );
 
   const allRsRows = await db()
     .select()
@@ -452,10 +455,10 @@ async function main(): Promise<void> {
         runId: runId4,
         stepId: "turn-1",
         toolCallId: "tc_cancel_1",
-        toolName: "gmail.send_draft",
-        integration: "gmail",
+        toolName: "sheets.append_values",
+        integration: "sheets",
         riskTier: "high",
-        proposedInput: { to: ["one@example.com"], subject: "cancel", bodyText: "one" },
+        proposedInput: { spreadsheetId: "sheet_1", range: "Sheet1!C1", values: [["one"]] },
         proposedInputHash: "smoke-cancel-1",
         effectKey: `eff:${runId4}:cancel_1`,
         attemptKey: `eff:${runId4}:cancel_1:1`,
@@ -468,10 +471,10 @@ async function main(): Promise<void> {
         runId: runId4,
         stepId: "turn-1",
         toolCallId: "tc_cancel_2",
-        toolName: "gmail.send_draft",
-        integration: "gmail",
+        toolName: "sheets.append_values",
+        integration: "sheets",
         riskTier: "high",
-        proposedInput: { to: ["two@example.com"], subject: "cancel", bodyText: "two" },
+        proposedInput: { spreadsheetId: "sheet_1", range: "Sheet1!C2", values: [["two"]] },
         proposedInputHash: "smoke-cancel-2",
         effectKey: `eff:${runId4}:cancel_2`,
         attemptKey: `eff:${runId4}:cancel_2:1`,
@@ -519,7 +522,7 @@ async function main(): Promise<void> {
   console.log("[smoke-dispatch] cleanup ok");
 }
 
-const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail", "contacts"]);
+const restoreIntegrationHealth = stubIntegrationHealthForTests(["sheets", "contacts"]);
 
 try {
   await main();

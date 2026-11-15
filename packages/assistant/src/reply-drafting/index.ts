@@ -1,6 +1,7 @@
 /**
- * Reply drafting (ADR-0098): gate, verifier, send-access check, workflow, post-triage
- * consumer, and decision trace. Triage never imports this; the seam is `email-triage.classified`.
+ * Reply drafting (ADR-0098, amended 2026-11-15): gate, verifier, draft-access check,
+ * workflow, post-triage consumer, and decision trace. Triage never imports this; the seam
+ * is `email-triage.classified`.
  */
 
 export { replyDraftingWorkflowInputSchema } from "./workflow-input";
@@ -24,9 +25,9 @@ export type {
   ReplyVerifierContext,
 } from "./verifier";
 
-export { checkGmailSendAccess } from "./access";
+export { checkGmailDraftAccess } from "./access";
 
-export type { GmailSendAccess } from "./access";
+export type { GmailDraftAccess } from "./access";
 
 export { recordReplyDraftDecision, REPLY_DRAFT_DECISION_TRACE_KIND } from "./decision";
 

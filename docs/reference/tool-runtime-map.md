@@ -34,10 +34,11 @@ summary, `system.search_tools`, or `mcp.list_tools`. It calls the tool with
 `mcp.call`. The registry entry `INTEGRATIONS.github` has `actions: []` and
 `passthrough: null`.
 
-Google follows the same rule (ADR-0126). The six Google Workspace MCP servers are
-the Google tool surface, and their rows borrow the Google credential's token. Four
-REST tools stay, because no server covers them: `gmail.send_draft`,
-`sheets.append_values`, and the three `contacts.*` tools. A pinned read tool of a
+Google follows the same rule (ADR-0126, amended 2026-11-15: Alfred makes Gmail drafts
+only). The six Google Workspace MCP servers are the Google tool surface, and their rows
+borrow the Google credential's token. Three REST tools stay, because no server covers
+them: `sheets.append_values` and the three `contacts.*` tools. Reply drafting writes its
+Gmail draft through the integration client, not a tool. A pinned read tool of a
 Google server runs at `low` with the `read` effect class
 (`connections/mcp/built-in-tool-pins.ts`). Each Google MCP write waits for
 approval, and `mcp.call` refuses it where Gmail mailbox writes are off.

@@ -62,34 +62,34 @@ describe("deriveToolDiscovery", () => {
 
   test("merges hand-authored overrides on top of the derived baseline", () => {
     const discovery = deriveToolDiscovery({
-      integration: "gmail",
-      action: "search",
-      description: "Search Gmail messages.",
+      integration: "sheets",
+      action: "append_values",
+      description: "Append rows to a spreadsheet.",
       inputSchema: z.object({ q: z.string() }).strict(),
       overrides: {
-        title: "Search email",
-        summary: "Find messages in the inbox.",
-        aliases: ["find email"],
-        tags: ["communication"],
-        entities: ["message"],
-        relatedTools: ["gmail.send_draft"],
+        title: "Add rows",
+        summary: "Append values to a sheet.",
+        aliases: ["add rows"],
+        tags: ["spreadsheets"],
+        entities: ["row"],
+        relatedTools: ["contacts.get"],
       },
     });
 
-    assert.equal(discovery.title, "Search email", "authored title wins over the derived default");
-    assert.equal(discovery.summary, "Find messages in the inbox.", "authored summary wins");
+    assert.equal(discovery.title, "Add rows", "authored title wins over the derived default");
+    assert.equal(discovery.summary, "Append values to a sheet.", "authored summary wins");
     assert.ok(
-      discovery.aliases?.includes("find email") && discovery.aliases.includes("gmail search"),
+      discovery.aliases?.includes("add rows") && discovery.aliases.includes("sheets append values"),
       "authored and derived aliases are unioned",
     );
     assert.ok(
-      discovery.tags?.includes("communication") && discovery.tags.includes("gmail"),
+      discovery.tags?.includes("spreadsheets") && discovery.tags.includes("sheets"),
       "authored tags augment the derived identity tag",
     );
-    assert.ok(discovery.verbs?.includes("search"), "the derived verb survives when not overridden");
+    assert.ok(discovery.verbs?.includes("append"), "the derived verb survives when not overridden");
     assert.deepEqual(
       discovery.relatedTools,
-      ["gmail.send_draft"],
+      ["contacts.get"],
       "authored relatedTools pass through",
     );
   });

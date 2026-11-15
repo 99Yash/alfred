@@ -11,7 +11,6 @@ import {
 import { contactsTools } from "./internal/tools/contacts";
 import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
-import { gmailTools } from "./internal/tools/gmail";
 import { mcpTools } from "./internal/tools/mcp";
 import { sheetsTools } from "./internal/tools/sheets";
 import { systemTools } from "./internal/tools/system";
@@ -33,7 +32,6 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(systemTools);
   registerTools(contextSearchTools);
   registerTools(corpusTools);
-  registerTools(gmailTools);
   registerTools(sheetsTools);
   registerTools(contactsTools);
   registerTools(vercelTools);

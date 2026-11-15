@@ -38,7 +38,7 @@ describe("Google configured client", () => {
   test("binds each method to its service-specific credential authority", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ messages: [], id: "sent", threadId: "thread" }), {
+      new Response(JSON.stringify({ id: "draft", message: { id: "msg", threadId: "thread" } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -52,7 +52,12 @@ describe("Google configured client", () => {
 
     try {
       await client.gmail.listMessages({ credentialId: "account" });
-      await client.gmail.sendDraft({ credentialId: "account", draftId: "draft" });
+      await client.gmail.createDraft({
+        credentialId: "account",
+        to: ["a@example.com"],
+        subject: "Hello",
+        bodyText: "Body",
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

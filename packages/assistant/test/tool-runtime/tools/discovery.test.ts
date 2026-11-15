@@ -94,13 +94,13 @@ const contactsGet = liveTool({
   execute: async () => ({ ok: true }),
 });
 
-const greleaseRedeploy = liveTool({
-  integration: "gmail",
-  action: "send_draft",
+const sheetsAppend = liveTool({
+  integration: "sheets",
+  action: "append_values",
   riskTier: "high",
   replay: "safe",
-  description: "Send mail messages.",
-  discovery: { aliases: ["mail task", "common task"], entities: ["mail"], verbs: ["handle"] },
+  description: "Append spreadsheet rows.",
+  discovery: { aliases: ["sheet task", "common task"], entities: ["sheet"], verbs: ["handle"] },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
@@ -141,7 +141,7 @@ function access(
   const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
 
-  for (const tool of [contactsSearch, contactsGet, greleaseRedeploy, vercelRedeploy, vercelList]) {
+  for (const tool of [contactsSearch, contactsGet, sheetsAppend, vercelRedeploy, vercelList]) {
     // Like evaluateToolCatalog, the allowlist is decided first as `not_allowed`.
     availability.set(
       tool.name,
@@ -334,7 +334,7 @@ describe("tool discovery", () => {
   });
 
   test("applies the preload limit after removing already-active candidates", () => {
-    const ranked = [vercelRedeploy, vercelList, contactsGet, contactsSearch, greleaseRedeploy];
+    const ranked = [vercelRedeploy, vercelList, contactsGet, contactsSearch, sheetsAppend];
     const activeTools = ranked.slice(0, 4).map((tool) => tool.name);
     assert.deepEqual(
       preloadToolCatalog({
@@ -349,7 +349,7 @@ describe("tool discovery", () => {
           ),
         },
       }),
-      ["gmail.send_draft"],
+      ["sheets.append_values"],
     );
   });
 });
@@ -369,12 +369,12 @@ test("exact availability respects tool scopes and caller context", () => {
   });
 
   const send = liveTool({
-    integration: "gmail",
-    action: "send_draft",
+    integration: "sheets",
+    action: "append_values",
     riskTier: "high",
     replay: "safe",
-    description: "Send mail.",
-    availability: { credential: { provider: "google", anyOfScopes: ["gmail.send"] } },
+    description: "Append rows.",
+    availability: { credential: { provider: "google", anyOfScopes: ["sheets.append"] } },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
@@ -393,7 +393,7 @@ test("exact availability respects tool scopes and caller context", () => {
   const snapshot: IntegrationAvailabilitySnapshot = {
     integrations: new Map([
       ["contacts", { health: "active", accountLabel: null }],
-      ["gmail", { health: "active", accountLabel: null }],
+      ["sheets", { health: "active", accountLabel: null }],
     ]),
     providers: new Map([["google", [provider("active", [readonlyScope])]]]),
     passthroughEnabled: new Map(),

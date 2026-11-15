@@ -69,7 +69,7 @@ async function seedThreadWithParkedRun(): Promise<{
       runId,
       stepId: "dispatch-tools",
       toolCallId,
-      toolName: "gmail.send_draft",
+      toolName: "vercel.redeploy",
       integration: "gmail",
       riskTier: "high",
       proposedInput: {},

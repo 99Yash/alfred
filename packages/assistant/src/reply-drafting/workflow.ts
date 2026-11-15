@@ -1,5 +1,5 @@
 import {
-  gmailSendDraftInput,
+  replyDraftMessageSchema,
   replyDraftProvenanceSchema,
   replyDraftResultSchema,
   replyDraftInvocationSchema,
@@ -7,23 +7,18 @@ import {
   replyDraftStyleSelectionSchema,
   replyDraftTriageSnapshotSchema,
   toMessage,
-  type IanaTimezone,
+  type ReplyDraftMessage,
   type ReplyDraftProvenance,
   type ReplyDraftResult,
   type ReplyDraftTriageSnapshot,
   REPLY_DRAFTING_WORKFLOW_SLUG,
 } from "@alfred/contracts";
 import { z } from "zod";
-import {
-  toolRuntimeForRun,
-  type StepContext,
-  type StepResult,
-  type ToolRunIdentity,
-  type Workflow,
-} from "@alfred/assistant/execution";
+import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
 import { standingInstructions } from "@alfred/assistant/knowledge";
 import { withdrawToolCallApproval } from "@alfred/assistant/tool-runtime";
 import { settings } from "@alfred/assistant/settings";
+import { integrations } from "@alfred/integrations";
 import {
   extractSenderContext,
   getThreadState,
@@ -31,7 +26,7 @@ import {
   recipientAddresses,
   type TriageRow,
 } from "@alfred/assistant/triage";
-import { checkGmailSendAccess } from "./access";
+import { checkGmailDraftAccess } from "./access";
 import { composeReply } from "./compose";
 import { gatherReplyContext, loadReplyDocument, replyGatherSchema } from "./gather";
 import { prepareReplyStaging } from "./verifier";
@@ -41,12 +36,25 @@ import { replyDraftingWorkflowInputSchema } from "./workflow-input";
 import { decideReplyWorthiness, noDraftResult, replyStandingInstructionState } from "./worthiness";
 
 /**
- * `reply-drafting` workflow (ADR-0098): `gate`, `gather`, `compose`, `stage`.
- * `gate` reruns the rubric on the live row. `gather` checks the mailbox can send and freezes
- * the facts the verifier binds to. `compose` freezes one verified candidate before `stage`.
- * Resuming never composes a second body. `no_draft`, `no_access`, and `withheld` are
- * completed runs with a typed reason, not failures.
+ * `reply-drafting` workflow (ADR-0098, amended 2026-11-15): `gate`, `gather`, `compose`,
+ * `stage`. `gate` reruns the rubric on the live row. `gather` checks the mailbox can write
+ * a Gmail draft and freezes the facts the verifier binds to. `compose` freezes one verified
+ * candidate before `stage`. `stage` creates the Gmail draft on the source thread through the
+ * integration client; the user reviews and sends it in Gmail. No approval card. Resuming
+ * never composes a second body. `no_draft`, `no_access`, and `withheld` are completed runs
+ * with a typed reason, not failures.
  */
+
+/** The draft one `stage` attempt created. The same key the send tool kept. */
+const replyDraftRefSchema = z.object({
+  credentialId: z.string().min(1),
+  draftId: z.string().min(1),
+  threadId: z.string().min(1),
+  /** Epoch ms on Alfred's clock, just before the draft was saved. Not Gmail's clock. */
+  alfredSavedAt: z.number(),
+});
+
+type ReplyDraftRef = z.infer<typeof replyDraftRefSchema>;
 
 const stateSchema = z.object({
   documentId: z.string().min(1),
@@ -63,8 +71,10 @@ const stateSchema = z.object({
   style: replyDraftStyleSelectionSchema.optional(),
   gather: replyGatherSchema.optional(),
   prepared: z
-    .object({ input: gmailSendDraftInput, provenance: replyDraftProvenanceSchema })
+    .object({ input: replyDraftMessageSchema, provenance: replyDraftProvenanceSchema })
     .optional(),
+  /** The created draft, recorded before the result, so a retry reuses it. */
+  draft: replyDraftRefSchema.optional(),
   result: replyDraftResultSchema.optional(),
 });
 
@@ -247,7 +257,7 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
 
   if (!mailbox) throw new Error("[reply-drafting] gather entered without mailbox state");
 
-  const access = await checkGmailSendAccess({ userId: ctx.userId, accountId: mailbox.accountId });
+  const access = await checkGmailDraftAccess({ userId: ctx.userId, accountId: mailbox.accountId });
 
   if (!access.ok) {
     await ctx.log(`gather: no_access reason=${access.reason}`);
@@ -363,17 +373,18 @@ async function runCompose(ctx: StepContext<State>): Promise<StepResult<State>> {
 }
 
 async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
-  const result = await dispatchReply(ctx);
+  const result = await draftReply(ctx);
 
   if (result.kind === "done") {
-    // The action insert and checkpoint are separate commits; close a pending row on early exit.
+    // A legacy staged run parks on an approval row that names the deleted send tool; close
+    // it on early exit. New runs stage nothing.
     await withdrawToolCallApproval({
       userId: ctx.userId,
       runId: ctx.runId,
       stepId: "stage",
       attempt: ctx.attempt,
       toolCallId: REPLY_TOOL_CALL_ID,
-      reason: "Reply drafting completed without a pending approval.",
+      reason: "Reply drafting no longer stages an approval.",
     });
   }
 
@@ -381,103 +392,101 @@ async function runStage(ctx: StepContext<State>): Promise<StepResult<State>> {
 }
 
 /**
- * The tool-run identity of one reply-drafting run. It allows exactly one tool on the one mailbox
- * that `gather` checked. No integration is in the run envelope, and dispatch reads the absent list
- * and the empty list as the same empty set. The zone is the one `gather` froze for the composer.
+ * Save one plain-text Gmail draft on the source thread through the integration client, the
+ * same call the send tool made. The step writes nothing to `action_stagings`.
  */
-function replyToolRunIdentity(
-  ctx: Pick<StepContext<State>, "userId" | "runId">,
-  accountRef: string,
-  timezone: IanaTimezone,
-): ToolRunIdentity {
+async function createReplyDraft(args: {
+  userId: string;
+  accountRef: string;
+  credentialId: string;
+  input: ReplyDraftMessage;
+}): Promise<ReplyDraftRef> {
+  const alfredSavedAt = Date.now();
+
+  const draft = await integrations({
+    userId: args.userId,
+    accountRef: args.accountRef,
+    retry: "none",
+  }).google.gmail.createDraft({
+    credentialId: args.credentialId,
+    to: args.input.to,
+    ...(args.input.cc?.length ? { cc: args.input.cc } : {}),
+    subject: args.input.subject,
+    bodyText: args.input.bodyText,
+    // The verifier checked it; the draft groups into the inbound thread.
+    threadId: args.input.threadId,
+  });
+
   return {
-    userId: ctx.userId,
-    runId: ctx.runId,
-    workflow: REPLY_DRAFTING_WORKFLOW_SLUG,
-    caller: "boss",
-    runContext: { caller: "boss", interaction: "background" },
-    timezone,
-    allowedIntegrations: [],
-    allowedTools: ["gmail.send_draft"],
-    requiredCapabilities: [{ tool: "gmail.send_draft", accountRef }],
+    credentialId: args.credentialId,
+    draftId: draft.draftId,
+    threadId: draft.threadId,
+    alfredSavedAt,
   };
 }
 
-async function dispatchReply(ctx: StepContext<State>): Promise<StepResult<State>> {
+/**
+ * The stage step creates the Gmail draft itself (owner decision of 2026-11-15: Alfred makes
+ * drafts only and never sends mail). On a verifier pass it writes the draft on the source
+ * thread and finishes with the `staged` outcome; no approval card, no staging row.
+ */
+async function draftReply(ctx: StepContext<State>): Promise<StepResult<State>> {
   const { prepared, mailbox, gather } = ctx.state;
 
   if (!prepared || !mailbox || !gather)
     throw new Error("[reply-drafting] stage entered without verified input");
 
-  if (!ctx.state.result) {
-    // Compose can be slow: recheck gate and access before the first approval.
-    const gate = await runGate(ctx);
-
-    if (gate.kind !== "next") return gate;
-    const access = await checkGmailSendAccess({ userId: ctx.userId, accountId: mailbox.accountId });
-
-    if (!access.ok)
-      return finish(ctx, ctx.state, {
-        outcome: "no_access",
-        reason: access.reason,
-        provenance: prepared.provenance,
-      });
-
-    if (
-      gate.state.mailbox?.accountId !== mailbox.accountId ||
-      gate.state.sender !== ctx.state.sender ||
-      access.mailboxAddress !== mailbox.address
-    ) {
-      return finish(ctx, ctx.state, {
-        outcome: "withheld",
-        reason: "context_mismatch",
-        detail: "The mailbox or sender changed before staging.",
-        provenance: prepared.provenance,
-      });
-    }
+  if (ctx.state.result) {
+    // A resumed run keeps its recorded decision. A legacy staged run carries the staging
+    // result it parked on; `runStage` closes its approval row.
+    return finish(ctx, ctx.state, ctx.state.result);
   }
 
-  const round = await toolRuntimeForRun(
-    replyToolRunIdentity(ctx, mailbox.accountId, gather.timezone),
-  ).dispatch({
-    stepId: "stage",
-    fence: ctx.fence,
-    attempt: ctx.attempt,
-    calls: [
-      { toolCallId: REPLY_TOOL_CALL_ID, toolName: "gmail.send_draft", input: prepared.input },
-    ],
-    transcript: ctx.transcript,
-    activeNames: ["gmail.send_draft"],
-  });
+  // Compose can be slow: recheck gate and access before the first write.
+  const gate = await runGate(ctx);
 
-  if (round.kind === "waiting") {
-    if (round.wake.kind !== "hil" || round.wake.approvalKind !== "action_staging") {
-      throw new Error("[reply-drafting] expected an action-staging approval");
-    }
+  if (gate.kind !== "next") return gate;
+  const access = await checkGmailDraftAccess({ userId: ctx.userId, accountId: mailbox.accountId });
 
-    const result: ReplyDraftResult = {
-      outcome: "staged",
-      actionKind: "approval_staged_send",
-      stagingId: round.wake.approvalId,
+  if (!access.ok)
+    return finish(ctx, ctx.state, {
+      outcome: "no_access",
+      reason: access.reason,
       provenance: prepared.provenance,
-    };
+    });
 
-    ctx.trace("reply_drafting.decision", result);
-
-    return { kind: "interrupt", state: { ...ctx.state, result }, wake: round.wake };
-  }
-
-  // A resumed run uses the dispatcher's stored input. The decision stays the staging result.
-  const result =
-    ctx.state.result ??
-    ({
+  if (
+    gate.state.mailbox?.accountId !== mailbox.accountId ||
+    gate.state.sender !== ctx.state.sender ||
+    access.mailboxAddress !== mailbox.address
+  ) {
+    return finish(ctx, ctx.state, {
       outcome: "withheld",
-      reason: "staging_unavailable",
-      detail: "The dispatcher did not offer an approval.",
+      reason: "context_mismatch",
+      detail: "The mailbox or sender changed before the draft.",
       provenance: prepared.provenance,
-    } satisfies ReplyDraftResult);
+    });
+  }
 
-  return { ...finish(ctx, ctx.state, result), transcript: round.transcript };
+  // One draft per source message: a committed retry reuses the recorded ref. A crash between
+  // Gmail's answer and this step's commit can save a second draft (residual risk).
+  const draft =
+    ctx.state.draft ??
+    (await createReplyDraft({
+      userId: ctx.userId,
+      accountRef: mailbox.accountId,
+      credentialId: access.credentialId,
+      input: prepared.input,
+    }));
+
+  const result: ReplyDraftResult = {
+    outcome: "staged",
+    stagingId: null,
+    draftId: draft.draftId,
+    provenance: prepared.provenance,
+  };
+
+  return finish(ctx, { ...ctx.state, draft }, result);
 }
 
 export const replyDraftingWorkflow: Workflow<
@@ -489,7 +498,7 @@ export const replyDraftingWorkflow: Workflow<
   slug: REPLY_DRAFTING_WORKFLOW_SLUG,
   name: "Reply drafting",
   description:
-    "Decide whether an inbound email deserves a drafted reply and, when it does, stage one for approval (ADR-0098).",
+    "Decide whether an inbound email deserves a drafted reply and, when it does, create a Gmail draft for the user to review and send (ADR-0098).",
   trigger: { kind: "event", source: "email-triage", type: "reply_worthy" },
   initialStep: "gate",
   stateSchema,

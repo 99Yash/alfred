@@ -3,25 +3,25 @@ import { integrations } from "@alfred/integrations";
 import { GoogleCredentialSelectionError } from "@alfred/integrations/google";
 
 /**
- * Can Alfred send from this mailbox (ADR-0098)? `no_access` is a decision, not an error:
- * Gmail is not connected, or no account holds both the send and the modify grant that
- * `gmail.send_draft` needs, so no draft is composed.
+ * Can Alfred write a Gmail draft in this mailbox (ADR-0098, amended 2026-11-15)?
+ * `no_access` is a decision, not an error: Gmail is not connected, or no account holds
+ * the `gmail.modify` grant that `drafts.create` needs, so no draft is composed.
  */
-export type GmailSendAccess =
+export type GmailDraftAccess =
   | { ok: true; credentialId: string; mailboxAddress: string | null }
   | { ok: false; reason: ReplyNoAccessReason };
 
-export async function checkGmailSendAccess(args: {
+export async function checkGmailDraftAccess(args: {
   userId: string;
   /** `integration_credentials.account_id` of the receiving mailbox. */
   accountId: string;
-}): Promise<GmailSendAccess> {
+}): Promise<GmailDraftAccess> {
   try {
     const mailbox = await integrations({
       userId: args.userId,
       accountRef: args.accountId,
       retry: "none",
-    }).google.gmail.sendCredential();
+    }).google.gmail.modifyCredential();
 
     return { ok: true, credentialId: mailbox.id, mailboxAddress: mailbox.accountLabel };
   } catch (err) {

@@ -249,22 +249,22 @@ describe("executeToolCallRound", () => {
         dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
         forecastApproval: (_userId, name) =>
           Promise.resolve(
-            name === "gmail.send_draft" || name === "sheets.append_values" ? "waivable" : "none",
+            name === "vercel.redeploy" || name === "sheets.append_values" ? "waivable" : "none",
           ),
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
       },
-      ["system.await_sub_agent", "gmail.send_draft", "sheets.append_values"],
+      ["system.await_sub_agent", "vercel.redeploy", "sheets.append_values"],
       async () => {
         const outcome = await executeToolCallRound({
           calls: [
             call("child", "system.await_sub_agent"),
-            call("send", "gmail.send_draft"),
+            call("send", "vercel.redeploy"),
             call("archive", "sheets.append_values"),
           ],
           transcript: [],
-          activeNames: ["system.await_sub_agent", "gmail.send_draft", "sheets.append_values"],
+          activeNames: ["system.await_sub_agent", "vercel.redeploy", "sheets.append_values"],
           run: liveRun,
         });
 

@@ -18,7 +18,7 @@ function toolMessage(...toolCallIds: string[]): TranscriptMessage {
     content: toolCallIds.map((id) => ({
       type: "tool-result",
       toolCallId: id,
-      toolName: "gmail.send_draft",
+      toolName: "vercel.redeploy",
       output: { type: "json", value: { status: "invalid_input" } },
     })),
   };
@@ -52,7 +52,7 @@ describe("appendModelResponseMessages", () => {
 
     const assistant: TranscriptMessage = {
       role: "assistant",
-      content: [{ type: "tool-call", toolCallId: "tc_1", toolName: "gmail.send_draft", input: {} }],
+      content: [{ type: "tool-call", toolCallId: "tc_1", toolName: "vercel.redeploy", input: {} }],
     };
 
     const messages = [assistant, toolMessage("tc_1")];

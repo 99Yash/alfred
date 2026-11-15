@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 import { significanceBandSchema } from "./attention";
-import { enumGuard } from "./guards";
+import { enumGuard, parseEmailAddress } from "./guards";
 import {
   standingInstructionEvidenceSchema,
   standingInstructionUnknownSchema,
@@ -15,7 +15,11 @@ import { triageCategorySchema, triageTodoDecisionSchema, type TriageCategory } f
 // ─── Outcomes ─────────────────────────────────────────────────────────────
 
 export const REPLY_DRAFT_OUTCOMES = [
-  /** A gated `gmail.send_draft` action was staged for the user to approve. */
+  /**
+   * A Gmail draft was created on the source thread for the user to review and send.
+   * The stored value keeps its old name: the workflow once staged a gated
+   * `gmail.send_draft` action (owner decision of 2026-11-15: Alfred makes drafts only).
+   */
   "staged",
   /** The message does not deserve a drafted reply. Carries a gate reason. */
   "no_draft",
@@ -97,8 +101,8 @@ export const REPLY_NO_ACCESS_REASONS = [
   /** No active Google credential for this mailbox. */
   "gmail_not_connected",
   /**
-   * No credential holds both `gmail.send` (the consent) and `gmail.modify` (the draft calls of
-   * `gmail.send_draft`). The stored value keeps its old name.
+   * No credential holds the `gmail.modify` grant that `drafts.create` needs. The stored
+   * value keeps its old name: it once named the send grant too.
    */
   "gmail_send_scope_missing",
 ] as const;
@@ -138,7 +142,36 @@ export type ReplyClarificationReason = (typeof REPLY_CLARIFICATION_REASONS)[numb
 
 export const replyClarificationReasonSchema = z.enum(REPLY_CLARIFICATION_REASONS);
 
-/** `gmail.send_draft` sends real mail on approval. It does not create a Gmail Draft. */
+/**
+ * The message the workflow writes with `drafts.create` (the integration client's
+ * `createDraft`). Reply drafting builds it in code; the verifier is the only door to it.
+ * Recipients must parse as mailbox addresses.
+ */
+const draftRecipientSchema = z
+  .string()
+  .refine((value) => parseEmailAddress(value) !== null, "Invalid email address");
+
+export const replyDraftMessageSchema = z.object({
+  to: z.array(draftRecipientSchema).min(1).max(25),
+  cc: z.array(draftRecipientSchema).max(25).optional(),
+  subject: z
+    .string()
+    .min(1)
+    .max(1000)
+    .refine((s) => !/[\r\n]/.test(s), {
+      message: "subject must not contain line breaks",
+    }),
+  bodyText: z.string().min(1).max(50_000),
+  /** Gmail thread id of the inbound message, so the draft groups into the thread. */
+  threadId: z.string().optional(),
+});
+
+export type ReplyDraftMessage = z.infer<typeof replyDraftMessageSchema>;
+
+/**
+ * Retired: the workflow once staged a gated send (owner decision of 2026-11-15).
+ * The stored value stays so recorded runs and traces still parse.
+ */
 export const REPLY_DRAFT_ACTION_KINDS = ["approval_staged_send"] as const;
 
 export type ReplyDraftActionKind = (typeof REPLY_DRAFT_ACTION_KINDS)[number];
@@ -262,9 +295,15 @@ const resultBase = { provenance: replyDraftProvenanceSchema };
 export const replyDraftResultSchema = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("staged"),
-    actionKind: replyDraftActionKindSchema,
-    /** `action_stagings.id` of the parked approval, when the dispatcher returned one. */
+    /**
+     * Retired; only recorded runs from before the 2026-11-15 amendment carry it.
+     * New runs create the draft directly and omit the field.
+     */
+    actionKind: replyDraftActionKindSchema.optional(),
+    /** `action_stagings.id` of a staged approval. New runs create no approval, so `null`. */
     stagingId: z.string().nullable(),
+    /** Gmail draft id of the created draft, when the run created one. */
+    draftId: z.string().nullable().optional(),
     ...resultBase,
   }),
   z.object({

@@ -30,7 +30,7 @@ export const contactsTools: readonly RegisteredTool[] = [
       tags: ["contacts", "people", "address book"],
       entities: ["contact", "person", "email address", "phone number"],
       verbs: ["search", "find", "look up"],
-      relatedTools: ["contacts.get", "gmail.send_draft"],
+      relatedTools: ["contacts.get"],
     },
     inputSchema: contactsSearchInput,
     execute: async (input, ctx) => {

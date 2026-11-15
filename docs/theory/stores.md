@@ -132,7 +132,7 @@ Each step deletes what it replaces. None of them waits for Code Mode.
 2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
 3. **One GitHub body.** The object-state fold reads `documents.raw`, and `event_receipts` stops storing the payload. GitHub `authored_at` takes the time from the payload.
 4. **The briefing windows on the happened time.** This goes with triage slice 2a, which already changes what the briefing reads.
-5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. Delete `gmail.send_draft` and its send check: Alfred makes drafts only, and the user sends from Gmail (owner, 2026-11-15). Then drop `entities`, `entity_relations`, and their writers.
+5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
 7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.
 

@@ -5,7 +5,7 @@
  * Covers: staging sets `expires_at` and queues a job; the deferred gate no-ops expiry before
  * `expires_at`; expiry wakes the run and a re-dispatch returns 'auto-expired' without executing;
  * a human decision wins; `removeApprovalExpiryJob` cancels the timer.
- * The smoke user has no real Google credential, so it stubs `gmail` connection health as active.
+ * The smoke user has no real Google credential, so it stubs `sheets` connection health as active.
  * Run it with no `pnpm dev` running. A live worker can expire the row or lease the run first,
  * so the smoke checks for one and stops.
  *
@@ -128,7 +128,7 @@ async function createSmokeRun(userId: string, label: string): Promise<string> {
 async function setGated(userId: string): Promise<void> {
   await db()
     .update(userActionPolicies)
-    .set({ integrationRules: { system: { mode: "autonomy" }, gmail: { mode: "gated" } } })
+    .set({ integrationRules: { system: { mode: "autonomy" }, sheets: { mode: "gated" } } })
     .where(eq(userActionPolicies.userId, userId));
   bustPolicyCache(userId);
 }
@@ -143,7 +143,7 @@ async function parkRunOnApproval(runId: string, stagingId: string): Promise<void
         kind: "hil",
         approvalId: stagingId,
         approvalKind: "action_staging",
-        prompt: "Approve gmail.send_draft",
+        prompt: "Approve sheets.append_values",
       },
     })
     .where(eq(agentRuns.id, runId));
@@ -157,17 +157,17 @@ async function backdateExpiry(stagingId: string): Promise<void> {
     .where(eq(actionStagings.id, stagingId));
 }
 
-const sendDraftInput = z
+const appendValuesInput = z
   .object({
-    to: z.array(z.email()).min(1).max(25),
-    subject: z.string().min(1).max(1000),
-    bodyText: z.string().min(1).max(50_000),
+    spreadsheetId: z.string().min(1).max(200),
+    range: z.string().min(1).max(200),
+    values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).min(1),
   })
   .strict();
 
-const DRAFT_INPUT = { to: ["yash@example.com"], subject: "expiry smoke", bodyText: "hi" };
+const APPEND_INPUT = { spreadsheetId: "sheet_1", range: "Sheet1!A1", values: [["yash"]] };
 
-async function stageGatedDraft(
+async function stageGatedAppend(
   userId: string,
   runId: string,
   toolCallId: string,
@@ -177,9 +177,9 @@ async function stageGatedDraft(
     runId,
     stepId: "turn-1",
     toolCallId,
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: DRAFT_INPUT,
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: APPEND_INPUT,
     userId,
     timezone,
     caller: "boss",
@@ -199,22 +199,22 @@ async function main(): Promise<void> {
   await warmPool();
   clearToolRegistryForTests();
 
-  let draftExec = 0;
+  let appendExec = 0;
   // Read the counter through a call: the tool's execute closure bumps it, and a direct
-  // `draftExec === 0` read stays narrowed to the literal after the first assert.
-  const draftExecCount = (): number => draftExec;
+  // `appendExec === 0` read stays narrowed to the literal after the first assert.
+  const appendExecCount = (): number => appendExec;
   registerTools([
     liveTool({
-      integration: "gmail",
-      action: "send_draft",
+      integration: "sheets",
+      action: "append_values",
       riskTier: "high",
       replay: "unsafe",
-      description: "Smoke-test Gmail draft send tool.",
-      inputSchema: sendDraftInput,
+      description: "Smoke-test Sheets append tool.",
+      inputSchema: appendValuesInput,
       execute: async (input) => {
-        draftExec += 1;
+        appendExec += 1;
 
-        return { sentTo: input.to[0], subject: input.subject };
+        return { appendedCells: input.values.flat().length };
       },
     }),
   ]);
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
 
   // 1. Staging sets expires_at + queues an expiry job
   const runId1 = await createSmokeRun(userId, "expire-turn");
-  const stagedId = await stageGatedDraft(userId, runId1, "tc_expire_1", timezone);
+  const stagedId = await stageGatedAppend(userId, runId1, "tc_expire_1", timezone);
 
   const stagedRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -271,13 +271,13 @@ async function main(): Promise<void> {
     parkedRun?.status === "waiting" && parkedRun.wakeCondition !== null,
     `deferred run expected 'waiting' with its wake, got '${parkedRun?.status}'`,
   );
-  assert(draftExecCount() === 0, "deferred expiry must not execute the tool");
+  assert(appendExecCount() === 0, "deferred expiry must not execute the tool");
   console.log("[smoke-expiry] 2. deferred: expiry before expires_at is a no-op ✓");
 
   await backdateExpiry(stagedId);
   const expired = await stagedAction({ userId, stagingId: stagedId }).expire();
   assert(expired.kind === "expired", `expire expected 'expired', got ${JSON.stringify(expired)}`);
-  assert(draftExecCount() === 0, "expiry must not execute the tool");
+  assert(appendExecCount() === 0, "expiry must not execute the tool");
 
   const expiredRow = (
     await db().select().from(actionStagings).where(eq(actionStagings.id, stagedId))
@@ -307,9 +307,9 @@ async function main(): Promise<void> {
     runId: runId1,
     stepId: "turn-1",
     toolCallId: "tc_expire_1",
-    toolName: "gmail.send_draft",
-    activeTools: ["gmail.send_draft"],
-    input: DRAFT_INPUT,
+    toolName: "sheets.append_values",
+    activeTools: ["sheets.append_values"],
+    input: APPEND_INPUT,
     userId,
     timezone,
     caller: "boss",
@@ -325,7 +325,7 @@ async function main(): Promise<void> {
     reDispatched.result.reason === "auto-expired",
     "re-dispatch must synthesize reason='auto-expired'",
   );
-  assert(draftExecCount() === 0, "re-dispatch of expired row must not execute the tool");
+  assert(appendExecCount() === 0, "re-dispatch of expired row must not execute the tool");
   console.log("[smoke-expiry] 2. re-dispatch: synthesized auto-expired rejection, tool not run ✓");
 
   const expiredAgain = await stagedAction({ userId, stagingId: stagedId }).expire();
@@ -339,7 +339,7 @@ async function main(): Promise<void> {
 
   // 3. Human decision wins over expiry
   const runId2 = await createSmokeRun(userId, "decided-turn");
-  const decidedId = await stageGatedDraft(userId, runId2, "tc_expire_2", timezone);
+  const decidedId = await stageGatedAppend(userId, runId2, "tc_expire_2", timezone);
   await db()
     .update(actionStagings)
     .set({ status: "approved", decidedAt: new Date() })
@@ -362,7 +362,7 @@ async function main(): Promise<void> {
 
   // 4. removeApprovalExpiryJob dequeues the fallback timer
   const runId3 = await createSmokeRun(userId, "cancel-job-turn");
-  const cancelId = await stageGatedDraft(userId, runId3, "tc_expire_3", timezone);
+  const cancelId = await stageGatedAppend(userId, runId3, "tc_expire_3", timezone);
   assert(
     await queue.getJob("approval.expire", { stagingId: cancelId }),
     "expiry job should be queued after staging",
@@ -373,7 +373,7 @@ async function main(): Promise<void> {
   console.log("[smoke-expiry] 4. removeApprovalExpiryJob: job dequeued ✓");
 }
 
-const restoreIntegrationHealth = stubIntegrationHealthForTests(["gmail"]);
+const restoreIntegrationHealth = stubIntegrationHealthForTests(["sheets"]);
 
 try {
   await assertNoLiveWorkers();

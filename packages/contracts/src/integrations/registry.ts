@@ -157,9 +157,11 @@ export const INTEGRATIONS = {
       grants: { modify: [GOOGLE_SCOPE.gmail.modify], send: [GOOGLE_SCOPE.gmail.send] },
     },
     // The model reads Google through the Google Workspace MCP built-ins (ADR-0126). The credential
-    // stays for ingestion and the kept REST tools, so the entry has no passthrough.
+    // stays for ingestion, and reply drafting writes its Gmail draft through the client (the
+    // owner decision of 2026-11-15: Alfred makes drafts only), so the entry has no passthrough
+    // and no REST model tool.
     passthrough: null,
-    actions: ["send_draft"],
+    actions: [],
     summaryBlurb: "the user's email",
     domain: "mail.google.com",
   },

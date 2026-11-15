@@ -57,7 +57,7 @@
         {
           "type": "tool-result",
           "toolCallId": "call_002",
-          "toolName": "gmail.send_draft",
+          "toolName": "vercel.redeploy",
           "output": {
             "type": "json",
             "value": {
