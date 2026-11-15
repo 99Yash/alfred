@@ -1,8 +1,5 @@
 /** Email-triage limits and thresholds. */
 
-/** Maximum body evidence included in one classifier prompt. */
-export const TRIAGE_BODY_MAX_CHARS = 6_000;
-
 /** Maximum rows read when deriving thread state. */
 export const TRIAGE_THREAD_STATE_ROW_LIMIT = 500;
 

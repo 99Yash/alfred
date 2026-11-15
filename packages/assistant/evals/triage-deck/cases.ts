@@ -21,6 +21,11 @@ export interface DeckMail {
   body: string;
   authoredAt: string;
   labelIds: readonly string[];
+  /**
+   * Stored headers beyond From, Subject, and Date (for example `To`, `Reply-To`,
+   * `Authentication-Results`), as Gmail recorded them. With no `To` here, the mail has no To header.
+   */
+  headers?: Readonly<Record<string, string>>;
   /** The label that prod gave this mail. For the reader only; no scorer reads it. */
   prodCategory: TriageCategory;
   /** Alfred's own past labels for the sender. Slice 1 deletes this input. */
@@ -671,6 +676,50 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-21T08:00:00Z",
         labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "urgent",
+      },
+    ],
+  },
+  // ── Gmail filed it as spam ─────────────────────────────────────────────────
+  {
+    label: "spam-filed-sign-this-invite-sent-bcc-style",
+    accept: ["fyi", "marketing"],
+    note: "Gmail filed it as spam. The user is not in To or Cc, and the mail asks to review and sign a stranger's document through a link. Authentication passes, so the sender's own account sent it; that does not make the ask real. Prod gave action_needed, and the morning brief showed it. After slice 2a, spam is not tagged: this case checks the skip, and the briefing must say the mail is in spam.",
+    mails: [
+      {
+        from: "H. Blake <h.blake@studio-example.com>",
+        subject:
+          "Invitation: Studio Project Collaboration @ Tue Nov 10, 2026 4pm - 5pm (EDT) (H. Blake)",
+        body: "H. Blake from Studio sent you an invitation, please review and sign. Review Document <https://app.powerbi.com/view?r=REDACTED> ________________________________ From: Erin C. <erin@studio-example.com> Sent: Thursday, August 3, 2023 18:57 To: Victoria B. <victoria@studio-example.com>",
+        authoredAt: "2026-11-09T22:16:13Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "SPAM"],
+        headers: {
+          To: "",
+          "Authentication-Results":
+            "mx.google.com; dkim=permerror (no key for signature) header.i=@studio-example.com; arc=pass; spf=pass (google.com: domain of h.blake@studio-example.com designates 2a01:111:f403:c107::1 as permitted sender) smtp.mailfrom=h.blake@studio-example.com; dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=studio-example.com",
+        },
+        prodCategory: "action_needed",
+        senderRelationship: "no prior contact on record",
+      },
+    ],
+  },
+  {
+    label: "spam-filed-recruiter-ask-on-the-users-own-application",
+    accept: ["action_needed", "awaiting_reply"],
+    note: "Synthetic, from #1098: Gmail's filter is wrong about 1 time in 100. The user applied for the role, the recruiter writes to the user directly with a deadline, and authentication passes. The ask is the user's own obligation, so it stays loud. prodCategory is what the hard spam floor of #1097 gave this shape. After slice 2a, spam is not tagged: this case checks the skip, and the briefing must say the mail is in spam.",
+    mails: [
+      {
+        from: "Priya N. <priya@talent.acme-example.com>",
+        subject: "Re: Backend Engineer application: next step",
+        body: "Hi Yash, thanks for applying to the Backend Engineer role. The team liked your profile. The next step is a short take-home task; please send it back by Friday 6 pm IST, or tell me if you need more time. Best, Priya",
+        authoredAt: "2026-11-06T09:30:00Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "SPAM"],
+        headers: {
+          "Authentication-Results":
+            "mx.google.com; dkim=pass header.i=@talent.acme-example.com; spf=pass (google.com: domain of priya@talent.acme-example.com designates 198.51.100.7 as permitted sender) smtp.mailfrom=priya@talent.acme-example.com; dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=acme-example.com",
+        },
+        prodCategory: "fyi",
+        senderRelationship: "you reached out first (one sent message, no reply yet)",
+        thread: { messageCount: 2, newestDirection: "received" },
       },
     ],
   },

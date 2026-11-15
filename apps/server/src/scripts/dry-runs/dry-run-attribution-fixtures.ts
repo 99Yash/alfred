@@ -3,10 +3,11 @@ import { parseGmailDocumentMetadata, toMessage } from "@alfred/contracts";
  * Read-only fixtures for rule 16a (ii): an action assigned to a named third party
  * must not mint a todo for the user. A positive control checks a real ask still does.
  */
+import { readMailFacts } from "@alfred/assistant/knowledge";
+import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import {
   assembleObservations,
   classifyEmail,
-  extractSenderContext,
   resolveTodoSuggestion,
 } from "@alfred/assistant/triage";
 
@@ -57,11 +58,25 @@ async function main() {
   for (const f of FIXTURES) {
     const content = `From: ${f.from}\nTo: ${f.to}\nSubject: ${f.subject}\n\n${f.body}`;
 
-    const scResult = extractSenderContext({
-      fromHeader: f.from,
-      subject: f.subject,
-      body: content,
-    });
+    const document = {
+      id: "fixture",
+      title: f.subject,
+      content,
+      authoredAt: null,
+      metadata: parseGmailDocumentMetadata({ from: f.from, to: f.to }),
+    };
+
+    // A fixture has no stored Gmail message, so the reader falls back to the metadata.
+    const mailFacts = readMailFacts(
+      { ...document, sourceId: "fixture", sourceThreadId: null, accountId: null, raw: null },
+      {
+        timezone: DEFAULT_USER_TIMEZONE,
+        mailboxByAccountId: new Map(),
+        userAddresses: new Set(),
+        knownContacts: new Set(),
+        ownReplies: [],
+      },
+    );
 
     const observations = assembleObservations({
       senderKey: null,
@@ -76,14 +91,8 @@ async function main() {
     });
 
     const { classification } = await classifyEmail({
-      document: {
-        id: "fixture",
-        title: f.subject,
-        content,
-        authoredAt: null,
-        metadata: parseGmailDocumentMetadata({ from: f.from, to: f.to }),
-      },
-      senderContext: scResult.context,
+      document,
+      mailFacts,
       observations,
       identity: IDENTITY,
       // The fixtures check the todo decision, so the rubric stays on.

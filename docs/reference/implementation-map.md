@@ -67,7 +67,7 @@ flowchart LR
 | `workflow-operations.ts` (1127) | The four step bodies, the edge table, skip paths, trace plumbing. **God-file.** |
 | `classify.ts` (1077) | The rubric (`SYSTEM_PROMPT` — the only live source of category rules), the cheap-model call, `detectConflict`, the second pass, floor application. **God-file.** |
 | `store.ts` (482) | The one classifier writer of `email_triage`. User-pinned no-op, recency guard, same-transaction decision trace. |
-| `sender-context.ts` (400) | Deterministic From-envelope parsing (the fix for the original misclassification source). |
+| `../knowledge/sender-context.ts` (400) | Deterministic From-envelope parsing (the fix for the original misclassification source). It moved to `knowledge` so the mail-facts reader can call it. |
 | `gmail-reconcile.ts` (347) | The relabel sweep job — converges Gmail when the workflow could not. |
 | `floors/sender-kind.ts` (347) | Group/no-reply demotion with vetoes. |
 | `sender-extraction-event.ts` (228) | Floor audits → flat trace fields (the `triage.classification` decision trace). |

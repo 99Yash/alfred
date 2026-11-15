@@ -4,7 +4,6 @@ import {
   mapConcurrent,
   parseGmailDocumentMetadata,
   toMessage,
-  type GmailDocumentMetadata,
   type StandingInstructionScopeResult,
   type TriageInstructionEvaluation,
 } from "@alfred/contracts";
@@ -16,12 +15,14 @@ import { and, desc, eq, gt, gte, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { enqueueTriageRelabel } from "@alfred/assistant/connections/ingestion";
 import {
+  loadMailFacts,
   standingInstructions,
   standingInstructionsOf,
   type ActiveStandingInstruction,
   type LoadedMailStandingInstructions,
+  type MailFacts,
 } from "../knowledge";
-import { triageEmailBody, triageEmailHeaderLines, type TriageEmailDocument } from "./classify";
+import { triageEmailHeaderLines } from "./classify";
 import {
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_REMATCH_CONCURRENCY,
@@ -76,9 +77,6 @@ async function loadRematchRows(userId: string) {
       instructionEvaluation: emailTriage.instructionEvaluation,
       accountId: documents.accountId,
       metadata: documents.metadata,
-      title: documents.title,
-      content: documents.content,
-      authoredAt: documents.authoredAt,
       // Before the limit, so the job can report the rows past the cap.
       inWindow: sql<number>`count(*) over ()`.mapWith(Number),
     })
@@ -133,18 +131,13 @@ async function matchScopes(args: {
   return result.output.instructionMatches;
 }
 
-/** The document fields one match-only prompt reads. */
-type RematchPromptDocument = Omit<TriageEmailDocument, "metadata"> & {
-  metadata: GmailDocumentMetadata;
-};
-
 /**
  * The prompt for one match-only call. A row with no model verdict (from before ADR-0113, or
  * the classifier fallback) shows its cached category to the `covers` rule, which is the best
  * record it has. A document with no triage row for it shows no category.
  */
 function rematchPrompt(
-  document: RematchPromptDocument,
+  facts: MailFacts,
   verdict: TriageRow["modelVerdict"],
   cachedCategory: TriageRow["category"] | null,
   instructionLines: readonly string[],
@@ -164,13 +157,13 @@ function rematchPrompt(
     "=== The stored verdict ===",
     JSON.stringify(stored),
     "",
-    ...triageEmailHeaderLines(document),
+    ...triageEmailHeaderLines(facts),
     "",
     "=== Subject ===",
-    document.title?.trim() || "(no subject)",
+    facts.subject?.trim() || "(no subject)",
     "",
     "=== Body ===",
-    triageEmailBody(document),
+    facts.body,
   ].join("\n");
 }
 
@@ -308,20 +301,34 @@ export async function rematchStandingInstructions(args: {
   // label behind its category, and a relabel would do nothing.
   const relabels = gmailMailboxWritesEnabled();
 
+  // One pure pass: the instruction view of each row, and the instructions its call would send.
+  const plans = rows.map((row) => {
+    const metadata = parseGmailDocumentMetadata(row.metadata);
+    const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
+    const evaluation = parseTriageEvaluationColumns(row);
+    const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
+    const fit = unknown.length > 0 ? fitStandingScopeInstructions(unknown) : null;
+
+    return { row, mail, evaluation, unknown, fit };
+  });
+
+  // One read of the mail facts, for the rows that get a call. A failed read fails those calls.
+  const callIds = plans.flatMap((plan) => (plan.fit?.sent.length ? [plan.row.documentId] : []));
+
+  const factsById = await loadMailFacts(userId, callIds).catch((err: unknown) => {
+    logger.warn({ err, userId }, "[triage.rematch] mail facts read failed");
+
+    return new Map<string, MailFacts>();
+  });
+
   await mapConcurrent(
-    rows,
+    plans,
     TRIAGE_REMATCH_CONCURRENCY,
-    async (row, scope) => {
-      const metadata = parseGmailDocumentMetadata(row.metadata);
-      const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
-
-      const evaluation = parseTriageEvaluationColumns(row);
-      const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
-
+    async ({ row, mail, evaluation, unknown, fit }, scope) => {
       let fresh: StandingInstructionScopeResult[] = [];
 
-      if (unknown.length > 0) {
-        const { sent, lines } = fitStandingScopeInstructions(unknown);
+      if (fit) {
+        const { sent, lines } = fit;
 
         counts.unknownLeft += unknown.length - sent.length;
 
@@ -329,15 +336,14 @@ export async function rematchStandingInstructions(args: {
           counts.called += 1;
 
           try {
+            const facts = factsById.get(row.documentId);
+
+            if (!facts) throw new Error(`mail facts missing for document ${row.documentId}`);
+
             const output = await matchScopes({
               userId,
               documentId: row.documentId,
-              prompt: rematchPrompt(
-                { ...row, metadata },
-                evaluation.modelVerdict,
-                row.category,
-                lines,
-              ),
+              prompt: rematchPrompt(facts, evaluation.modelVerdict, row.category, lines),
               signal: scope.signal,
               purpose: "triage.standing_rematch",
             });
@@ -482,9 +488,6 @@ export async function previewStandingScopeMatches(args: {
       documentId: documents.id,
       accountId: documents.accountId,
       metadata: documents.metadata,
-      title: documents.title,
-      content: documents.content,
-      authoredAt: documents.authoredAt,
       triageDocumentId: emailTriage.documentId,
       category: emailTriage.category,
       modelVerdict: emailTriage.modelVerdict,
@@ -500,6 +503,7 @@ export async function previewStandingScopeMatches(args: {
     )
     .where(and(eq(documents.userId, args.userId), inArray(documents.id, [...args.documentIds])));
 
+  const factsById = await loadMailFacts(args.userId, args.documentIds);
   const previews: StandingScopePreview[] = [];
 
   await mapConcurrent(
@@ -519,12 +523,16 @@ export async function previewStandingScopeMatches(args: {
       let fresh: StandingInstructionScopeResult[] = [];
       let error: string | null = null;
 
-      if (sent.length > 0) {
+      const facts = factsById.get(row.documentId);
+
+      if (sent.length > 0 && !facts) {
+        error = `mail facts missing for document ${row.documentId}`;
+      } else if (sent.length > 0 && facts) {
         try {
           const output = await matchScopes({
             userId: args.userId,
             documentId: row.documentId,
-            prompt: rematchPrompt({ ...row, metadata }, verdict, own ? row.category : null, lines),
+            prompt: rematchPrompt(facts, verdict, own ? row.category : null, lines),
             signal: scope.signal,
             purpose: "triage.standing_rematch.preview",
           });

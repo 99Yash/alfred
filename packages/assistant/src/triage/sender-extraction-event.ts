@@ -15,7 +15,7 @@ import {
   type StandingFloorOutcome,
 } from "./floors";
 import type { Observations } from "./observations";
-import type { SenderContextResult } from "./sender-context";
+import type { SenderContextResult } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { TriageTodoStandingRead } from "./todo-decision";
 

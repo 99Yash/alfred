@@ -6,7 +6,8 @@
  */
 import { classifyEmail } from "@alfred/assistant/triage/classify";
 import { parseGmailDocumentMetadata } from "@alfred/contracts";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { readMailFacts } from "@alfred/assistant/knowledge";
+import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
@@ -132,24 +133,32 @@ async function main() {
   let failures = 0;
 
   for (const c of CASES) {
-    const { context: senderContext } = extractSenderContext({
-      fromHeader: c.from,
-      subject: c.subject,
-      body: c.body,
-    });
+    const document = {
+      id: "smoke",
+      title: c.subject,
+      content: `From: ${c.from}\nTo: ${c.to}\nSubject: ${c.subject}\n\n${c.body}`,
+      authoredAt: new Date("2026-06-11T09:51:48Z"),
+      metadata: parseGmailDocumentMetadata({ from: c.from, to: c.to, labelIds: c.labelIds }),
+    };
+
+    // A smoke case has no stored Gmail message, so the reader falls back to the metadata.
+    const mailFacts = readMailFacts(
+      { ...document, sourceId: "smoke", sourceThreadId: null, accountId: null, raw: null },
+      {
+        timezone: DEFAULT_USER_TIMEZONE,
+        mailboxByAccountId: new Map(),
+        userAddresses: new Set(),
+        knownContacts: new Set(),
+        ownReplies: [],
+      },
+    );
 
     const { classification, model } = await classifyEmail({
       identity: { name: "Yash", email: c.to },
       // Keep the prompt the smoke was written against: action items on.
       proposeTodo: true,
-      document: {
-        id: "smoke",
-        title: c.subject,
-        content: `From: ${c.from}\nTo: ${c.to}\nSubject: ${c.subject}\n\n${c.body}`,
-        authoredAt: new Date("2026-06-11T09:51:48Z"),
-        metadata: parseGmailDocumentMetadata({ from: c.from, to: c.to, labelIds: c.labelIds }),
-      },
-      senderContext,
+      document,
+      mailFacts,
       observations: baseObs({
         persona: c.persona,
         senderPrior: { key: c.priorKey, categoryCounts: c.prior ?? {}, lastCategory: null },

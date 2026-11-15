@@ -5,7 +5,7 @@ import type { ActiveEntityProfile } from "@alfred/assistant/knowledge";
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
 import { applyFloors, type FloorContext, type FloorOutcome } from "@alfred/assistant/triage/floors";
 import type { Observations } from "@alfred/assistant/triage/observations";
-import type { SenderContextResult } from "@alfred/assistant/triage/sender-context";
+import type { SenderContextResult } from "@alfred/assistant/knowledge/sender-context";
 import { senderExtractionEvent } from "../../src/triage/sender-extraction-event";
 import { senderKindSignalFromProfile } from "../../src/triage/sender-kind";
 

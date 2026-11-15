@@ -11,7 +11,7 @@ import {
 } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import type { Observations } from "../observations";
-import { canonicalizeEmailForMatch, recipientAddresses } from "../sender-context";
+import { canonicalizeEmailForMatch, recipientAddresses } from "../../knowledge";
 import type { FloorResult } from "./floor";
 import { matchesExposedCredentialClaim } from "./override";
 

@@ -53,7 +53,7 @@ From `gh issue view 353` Failure taxonomy, corroborated in `.handoff/2026-07-03T
 
 `sender-kind.ts:126` `senderKindFloorShouldDemoteCategory` — `awaiting_reply` always demoted; `urgent` only on `broadcast_auth_signin_confirmation|monitoring_alarm`; `action_needed` on any non-null reason.
 
-**Audience gate:** `sender-kind.ts:302` `isBroadcastAudience` — parses `To`/`Cc` via `recipientAddresses` (`packages/assistant/src/triage/sender-context.ts`), exact address + plus-tag normalized via `canonicalizeEmailForMatch`; proves user **not** in To/Cc. Missing `accountEmail` or empty recipients = no-op (conservative).
+**Audience gate:** `sender-kind.ts:302` `isBroadcastAudience` — parses `To`/`Cc` via `recipientAddresses` (`packages/assistant/src/knowledge/sender-context.ts`), exact address + plus-tag normalized via `canonicalizeEmailForMatch`; proves user **not** in To/Cc. Missing `accountEmail` or empty recipients = no-op (conservative).
 
 ### 4.2 Todo rail suppression (why category ≠ rail)
 
@@ -119,7 +119,7 @@ Via `.handoff/2026-07-07T082543Z.md:20` read-only `psql` on Railway Postgres (po
 - `gh issue view 353/218/351/210` (taxonomies, counts, root-cause statements)
 - `docs/decisions/ADR-0066-triage-user-model-the-category-becomes.md:3,13,15,21` and `docs/decisions/ADR-0067-multi-source-user-model-substrate-an-event.md:7`
 - `packages/assistant/src/triage/classify.ts:252,295,315,399,540,602,707,733,744,878,989,120` and `packages/assistant/src/triage/floors/sender-kind.ts:12,47,73,81,119,126,138,174,215,233,263,302`
-- `packages/assistant/src/triage/floors/index.ts:58,99` · `packages/assistant/src/triage/sender-kind.ts:11` · `packages/assistant/src/triage/sender-context.ts` · `packages/assistant/src/tasks/suggest.ts:38,77`
+- `packages/assistant/src/triage/floors/index.ts:58,99` · `packages/assistant/src/triage/sender-kind.ts:11` · `packages/assistant/src/knowledge/sender-context.ts` · `packages/assistant/src/tasks/suggest.ts:38,77`
 - `.handoff/2026-07-03T105607Z.md:15,18,24,28,31,40` and `.handoff/2026-07-07T082543Z.md:15,20,28` (prod query recipe: `.lessons/prod-adhoc-query-recipe.md`)
 
 ## 11. Minimal fix checklist for a new assignee

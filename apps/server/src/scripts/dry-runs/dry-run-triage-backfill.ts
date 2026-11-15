@@ -11,11 +11,11 @@
  *
  * Run:  pnpm --filter server tsx --env-file=.env src/scripts/dry-runs/dry-run-triage-backfill.ts
  */
+import { loadMailFacts } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import {
   classifyEmail,
   decideTriageTodo,
-  extractSenderContext,
   gatherObservations,
   loadTriageContext,
   triageTodoStanding,
@@ -108,13 +108,15 @@ async function main() {
       continue;
     }
 
-    const scResult = extractSenderContext({
-      fromHeader: ctxData.document.metadata.from ?? null,
-      subject: ctxData.document.title,
-      body: ctxData.document.content,
-    });
+    const mailFacts = (await loadMailFacts(t.userId, [docRow.id])).get(docRow.id);
 
-    const senderContext = scResult.context;
+    if (!mailFacts) {
+      console.log(`? ${header}\n    document gone — skipped\n`);
+      unresolved++;
+      continue;
+    }
+
+    const senderContext = mailFacts.sender.parse.context;
 
     const { observations, suppressions } = await gatherObservations({
       userId: t.userId,
@@ -124,8 +126,7 @@ async function main() {
       document: ctxData.document,
       accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      senderContext,
-      senderAddress: scResult.senderAddress,
+      mailFacts,
     });
 
     let classified;
@@ -140,7 +141,7 @@ async function main() {
           authoredAt: ctxData.document.authoredAt,
           metadata: ctxData.document.metadata,
         },
-        senderContext,
+        mailFacts,
         observations,
         identity: ctxData.identity,
         // This dry run audits the todo rubric, so it asks for a todo whatever the user's flag.
@@ -172,7 +173,7 @@ async function main() {
       actionItemsEnabled: flags.actionItems,
       standing: triageTodoStanding({
         suppressions,
-        sender: scResult.senderAddress ?? ctxData.document.metadata.from ?? null,
+        sender: mailFacts.sender.address ?? ctxData.document.metadata.from ?? null,
         accountId: ctxData.document.accountId,
         triage: {
           documentId: ctxData.document.id,
