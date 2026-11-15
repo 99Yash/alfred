@@ -11,7 +11,8 @@ import {
   triageClassificationSchema,
   type RunPass,
 } from "@alfred/assistant/triage/classify";
-import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
+import { readMailFacts } from "@alfred/assistant/knowledge";
+import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import {
   clamp01,
   collabActivityPartition,
@@ -212,11 +213,28 @@ async function main() {
   let failures = 0;
 
   for (const c of CASES) {
-    const { context: senderContext } = extractSenderContext({
-      fromHeader: c.from,
-      subject: c.subject,
-      body: c.body,
-    });
+    const document = {
+      id: "smoke",
+      title: c.subject,
+      content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
+      authoredAt: new Date("2026-06-11T09:51:48Z"),
+      metadata: parseGmailDocumentMetadata({
+        from: c.from,
+        to: "yash.k@oliv.ai",
+        labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+      }),
+    };
+
+    // A smoke case has no stored Gmail message, so the reader falls back to the metadata.
+    const mailFacts = readMailFacts(
+      { ...document, sourceId: "smoke", sourceThreadId: null, accountId: null, raw: null },
+      {
+        timezone: DEFAULT_USER_TIMEZONE,
+        mailboxByAccountId: new Map(),
+        knownContacts: new Set(),
+        ownReplies: [],
+      },
+    );
 
     let result: Awaited<ReturnType<typeof classifyEmail>>;
 
@@ -225,18 +243,8 @@ async function main() {
         identity: { name: "Yash", email: "yash.k@oliv.ai" },
         // The smoke checks the todo rubric too, so it runs with action items on.
         proposeTodo: true,
-        document: {
-          id: "smoke",
-          title: c.subject,
-          content: `From: ${c.from}\nTo: yash.k@oliv.ai\nSubject: ${c.subject}\n\n${c.body}`,
-          authoredAt: new Date("2026-06-11T09:51:48Z"),
-          metadata: parseGmailDocumentMetadata({
-            from: c.from,
-            to: "yash.k@oliv.ai",
-            labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
-          }),
-        },
-        senderContext,
+        document,
+        mailFacts,
         runPass: runLivePass,
         observations: baseObs({
           senderPrior: {

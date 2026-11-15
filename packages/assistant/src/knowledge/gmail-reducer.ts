@@ -48,21 +48,26 @@ export interface GmailReductionResult {
   readonly issues: GmailReductionIssue[];
 }
 
-interface ParsedAddress {
+/** One parsed mailbox from a From, To, Cc, or Bcc header. */
+export interface ParsedAddress {
   readonly identity: IdentityRef;
   readonly displayName?: string;
   readonly raw: string;
 }
 
-interface HeaderLookup {
+/** Case-insensitive header reads. The first occurrence of a name wins. */
+export interface GmailHeaderLookup {
+  /** The trimmed value, or null when the header is absent or empty. */
   readonly get: (name: string) => string | null;
+  /** True when the header is present, also when its value is empty. */
+  readonly has: (name: string) => boolean;
 }
 
 export function reduceGmailDocument(row: GmailDocumentForReduction): GmailReductionResult {
   const issues: GmailReductionIssue[] = [];
   // One parse of `documents.raw`; a row that is not a Gmail message falls back to metadata.
   const message = parseStoredGmailMessage(row.raw);
-  const headers = headersFromList(message?.payload?.headers);
+  const headers = gmailHeaderLookup(message?.payload?.headers);
   const metadata = parseGmailDocumentMetadata(row.metadata);
 
   const occurredAt = row.authoredAt ?? internalDateFromMessage(message);
@@ -161,7 +166,7 @@ function skip(documentId: string, code: string, message: string): GmailReduction
 
 /** List/bulk signals from a raw `payload.headers` array, so a scan never loads bodies (#1198). */
 export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSignals {
-  const lookup = headersFromList(headers);
+  const lookup = gmailHeaderLookup(headers);
 
   return {
     listId: lookup.get("list-id"),
@@ -171,11 +176,15 @@ export function gmailPayloadSignalsFromHeaders(headers: unknown): GmailPayloadSi
   };
 }
 
-function headersFromList(headers: unknown): HeaderLookup {
+/**
+ * The one lookup over a raw Gmail `payload.headers` array. The first occurrence wins: Gmail
+ * puts the newest hop first, so a repeated `Authentication-Results` reads as Gmail's own.
+ */
+export function gmailHeaderLookup(headers: unknown): GmailHeaderLookup {
   const out = new Map<string, string>();
 
   if (!Array.isArray(headers)) {
-    return { get: () => null };
+    return { get: () => null, has: () => false };
   }
 
   for (const h of headers) {
@@ -188,11 +197,14 @@ function headersFromList(headers: unknown): HeaderLookup {
     if (key && !out.has(key)) out.set(key, value);
   }
 
-  return { get: (name) => normalizeHeader(out.get(name.toLowerCase()) ?? null) };
+  return {
+    get: (name) => normalizeHeader(out.get(name.toLowerCase()) ?? null),
+    has: (name) => out.has(name.toLowerCase()),
+  };
 }
 
 function headerOrMetadata(
-  headers: HeaderLookup,
+  headers: GmailHeaderLookup,
   metadata: GmailDocumentMetadata,
   name: "from" | "to" | "cc",
 ): string | null {
@@ -215,7 +227,8 @@ function firstNonEmpty(...values: readonly (string | null | undefined)[]): strin
   return null;
 }
 
-function internalDateFromMessage(message: GmailMessage | null): Date | null {
+/** Gmail's `internalDate` (epoch milliseconds) as a date, or null when absent or bad. */
+export function internalDateFromMessage(message: GmailMessage | null): Date | null {
   const value = message?.internalDate;
 
   if (value === undefined) return null;
@@ -235,13 +248,17 @@ function isSentMessage(message: GmailMessage | null, metadata: GmailDocumentMeta
   return metadata.labelIds?.some((label) => label === SENT_LABEL) === true;
 }
 
-interface ParsedAddressList {
+export interface ParsedAddressList {
   parsed: ParsedAddress[];
   role: Extract<ObservationParticipantRole, "to" | "cc" | "bcc">;
   dropped: number;
 }
 
-function parseAddressList(raw: string | null, role: ParsedAddressList["role"]): ParsedAddressList {
+/** Every parseable address in a To, Cc, or Bcc value, and a count of the dropped ones. */
+export function parseAddressList(
+  raw: string | null,
+  role: ParsedAddressList["role"],
+): ParsedAddressList {
   if (!raw) return { parsed: [], role, dropped: 0 };
   let dropped = 0;
   const parsed: ParsedAddress[] = [];
@@ -256,7 +273,8 @@ function parseAddressList(raw: string | null, role: ParsedAddressList["role"]): 
   return { parsed, role, dropped };
 }
 
-function parseSingleAddress(raw: string | null): ParsedAddress | null {
+/** One mailbox (`Name <a@x>` or a bare address), or null when it holds no valid address. */
+export function parseSingleAddress(raw: string | null): ParsedAddress | null {
   const normalized = normalizeHeader(raw);
   const mailbox = parseMailbox(normalized);
   const value = parseEmailIdentity(mailbox?.address);

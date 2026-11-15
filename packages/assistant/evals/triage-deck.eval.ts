@@ -13,9 +13,9 @@ import {
   type ActiveStandingInstruction,
 } from "@alfred/assistant/knowledge/standing-instructions";
 import { assembleObservations } from "@alfred/assistant/triage/observations";
-import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
 import { PROD_INSTRUCTION_ROWS } from "./triage-deck/instructions";
+import { evalMailFacts } from "./lib/stored-mail";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
 
 /**
@@ -51,11 +51,19 @@ const INSTRUCTIONS = standingInstructionsOf(
 );
 
 function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs {
-  const sender = extractSenderContext({
-    fromHeader: mail.from,
+  const id = `deck_${c.label}_${index}`;
+
+  // Every mail fact comes from the prod reader over a stored Gmail message.
+  const mailFacts = evalMailFacts({
+    id,
+    from: mail.from,
     subject: mail.subject,
     body: mail.body,
-  }).context;
+    authoredAt: new Date(mail.authoredAt),
+    labelIds: mail.labelIds,
+    headers: mail.headers,
+    knownContact: mail.knownContact,
+  });
 
   const observations = assembleObservations({
     senderKey: mail.senderPrior?.key ?? null,
@@ -81,7 +89,7 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
       : null,
     standingInstructions: INSTRUCTIONS.forMail({ sender: mail.from, accountId: null }),
     userContext: USER_CONTEXT,
-    labelIds: mail.labelIds,
+    labelIds: mailFacts.labelIds,
     signalText: [mail.from, mail.subject, mail.body, ...mail.labelIds].join("\n"),
   });
 
@@ -89,8 +97,9 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
     identity: USER,
     // Prod runs with action items off, and the theory moves todos out of triage (slice 7).
     proposeTodo: false,
+    // The floors read this row (slice 3 deletes them); the prompt reads `mailFacts`.
     document: {
-      id: `deck_${c.label}_${index}`,
+      id,
       title: mail.subject,
       content: mail.body,
       authoredAt: new Date(mail.authoredAt),
@@ -100,7 +109,7 @@ function argsFor(c: DeckCase, mail: DeckMail, index: number): ClassifyEmailArgs 
         labelIds: [...mail.labelIds],
       }),
     },
-    senderContext: sender,
+    mailFacts,
     observations,
     maxRetries: 1,
     hedgeDelayMs: 0,

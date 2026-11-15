@@ -12,14 +12,10 @@
  *   RECAT_THREAD_IDS=19a1b2c3d4e5f6a7,19b2c3d4e5f6a7b8 \
  *     node dist/scripts/dry-runs/dry-run-triage-recategorize-committed.js
  */
+import { loadMailFacts } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import type { ClassifyAudit } from "@alfred/assistant/triage";
-import {
-  classifyEmail,
-  extractSenderContext,
-  gatherObservations,
-  loadTriageContext,
-} from "@alfred/assistant/triage";
+import { classifyEmail, gatherObservations, loadTriageContext } from "@alfred/assistant/triage";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { toMessage } from "@alfred/contracts";
@@ -103,13 +99,12 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
       continue;
     }
 
-    const scResult = extractSenderContext({
-      fromHeader: ctxData.document.metadata.from ?? null,
-      subject: ctxData.document.title,
-      body: ctxData.document.content,
-    });
+    const mailFacts = (await loadMailFacts(u.userId, [row.documentId])).get(row.documentId);
 
-    const senderContext = scResult.context;
+    if (!mailFacts) {
+      skipped++;
+      continue;
+    }
 
     // One bind: the action-items flag and the gather share its load, as in the live step.
     const userSettings = settings({ userId: u.userId });
@@ -123,8 +118,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
       document: ctxData.document,
       accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      senderContext,
-      senderAddress: scResult.senderAddress,
+      mailFacts,
     });
 
     let newCategory: string;
@@ -140,7 +134,7 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
           authoredAt: ctxData.document.authoredAt,
           metadata: ctxData.document.metadata,
         },
-        senderContext,
+        mailFacts,
         observations,
         identity: ctxData.identity,
         proposeTodo: flags.actionItems,

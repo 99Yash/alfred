@@ -208,6 +208,39 @@ async function findPersonMetadataByAddress(
   return parsePersonEntityMetadata(rows[0]?.metadata);
 }
 
+/**
+ * The addresses in `addresses` that a `person` row holds as an alias, lowercased. One batch
+ * read for the mail-facts reader. The people-graph step replaces this one function. It
+ * rejects on a failed read; the caller decides what a failure means.
+ */
+export async function knownContactAddresses(
+  userId: string,
+  addresses: readonly string[],
+): Promise<Set<string>> {
+  const targets = new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean));
+
+  if (targets.size === 0) return new Set();
+
+  const rows = await db()
+    .select({ aliases: entities.aliases })
+    .from(entities)
+    .where(
+      and(eq(entities.userId, userId), eq(entities.kind, "person"), entityAliasMatch([...targets])),
+    );
+
+  const known = new Set<string>();
+
+  for (const row of rows) {
+    for (const alias of row.aliases) {
+      const normalized = alias.trim().toLowerCase();
+
+      if (targets.has(normalized)) known.add(normalized);
+    }
+  }
+
+  return known;
+}
+
 export interface SenderSignificance {
   /** Precomputed (ADR-0057); never recomputed on read. */
   score: number;

@@ -11,10 +11,13 @@ import {
 } from "@alfred/assistant/connections";
 import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
 import {
+  loadMailFacts,
   readSenderPerson,
   readUserContextLine,
   standingInstructions,
+  type MailFacts,
   type ReportedStandingInstructionSet,
+  type SenderContextResult,
   type SenderPersonRead,
 } from "../knowledge";
 import {
@@ -29,7 +32,6 @@ import {
   type ClassifyEmailArgs,
   type TriageClassification,
 } from "./classify";
-import { extractSenderContext } from "../knowledge";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
 import { resolveSenderRelationship } from "./sender-relationship";
@@ -63,6 +65,7 @@ import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   assertNever,
   documentAskProposalSchema,
+  emailDomain,
   gmailTodoSources,
   isHttpError,
   isSentGmailMetadata,
@@ -72,7 +75,6 @@ import {
   triageCategorySchema,
   type AccountPersona,
   type GmailDocumentMetadata,
-  type SenderContext,
   type SignificanceBand,
   type TodoObjectRef,
   type TodoSource,
@@ -199,12 +201,18 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     return skip("sent-document");
   }
 
-  const senderContextResult = extractSenderContext({
-    fromHeader: ctxData.document.metadata.from ?? null,
-    subject: ctxData.document.title,
-    body: ctxData.document.content,
-  });
+  // The prompt's mail input. The sender parse is the reader's, so triage parses the sender once.
+  const mailFacts = (await loadMailFacts(ctx.userId, [ctx.state.documentId])).get(
+    ctx.state.documentId,
+  );
 
+  if (!mailFacts) {
+    await ctx.log(`mail facts gone: ${ctx.state.documentId}`);
+
+    return skip("document-not-found");
+  }
+
+  const senderContextResult = senderContextResultOf(mailFacts);
   const senderContext = senderContextResult.context;
 
   // A row from THIS run is reused, so a retry does not re-bill the model.
@@ -310,8 +318,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       document: ctxData.document,
       accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      senderContext,
-      senderAddress: senderContextResult.senderAddress,
+      mailFacts,
     });
 
     observations = gathered.observations;
@@ -326,7 +333,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           authoredAt: ctxData.document.authoredAt,
           metadata: ctxData.document.metadata,
         },
-        senderContext,
+        mailFacts,
         observations,
         identity: ctxData.identity,
         // Action items off: the model gets no todo rubric and returns no todo fields.
@@ -1056,14 +1063,14 @@ function todoObjectOf(
 export interface StoredTriageClassifyInput {
   input: Pick<
     ClassifyEmailArgs,
-    "userId" | "identity" | "proposeTodo" | "document" | "senderContext" | "observations"
+    "userId" | "identity" | "proposeTodo" | "document" | "mailFacts" | "observations"
   >;
   accountId: string | null;
 }
 
 /**
  * The classify input of one stored mail, built as the classify step builds it: the context
- * load, the sender parse, and the observation gather. It reads only and calls no model. A dry
+ * load, the mail facts, and the observation gather. It reads only and calls no model. A dry
  * run or a replay calls it, so it classifies the same input as the live step. Null when the
  * document or its thread is gone.
  */
@@ -1077,12 +1084,9 @@ export async function loadStoredTriageClassifyInput(args: {
   if (!ctxData || !sourceThreadId) return null;
 
   const { document } = ctxData;
+  const mailFacts = (await loadMailFacts(args.userId, [args.documentId])).get(args.documentId);
 
-  const sender = extractSenderContext({
-    fromHeader: document.metadata.from ?? null,
-    subject: document.title,
-    body: document.content,
-  });
+  if (!mailFacts) return null;
 
   // One bind: the action-items flag and the observation gather share its load.
   const userSettings = settings({ userId: args.userId });
@@ -1096,8 +1100,7 @@ export async function loadStoredTriageClassifyInput(args: {
     document,
     accountId: document.accountId,
     persona: ctxData.persona,
-    senderContext: sender.context,
-    senderAddress: sender.senderAddress,
+    mailFacts,
   });
 
   return {
@@ -1112,7 +1115,7 @@ export async function loadStoredTriageClassifyInput(args: {
         authoredAt: document.authoredAt,
         metadata: document.metadata,
       },
-      senderContext: sender.context,
+      mailFacts,
       observations,
     },
     accountId: document.accountId,
@@ -1142,13 +1145,15 @@ export async function gatherObservations(args: {
   /** Scopes a per-account standing instruction. */
   accountId: string | null;
   persona: AccountPersona | null;
-  senderContext: SenderContext;
-  senderAddress: string | null;
+  /** The sender parse and the labels come from here. */
+  mailFacts: MailFacts;
 }): Promise<GatheredObservations> {
   const meta = args.document.metadata;
-  const labelIds = meta.labelIds ?? [];
+  const { labelIds } = args.mailFacts;
+  const senderContext = args.mailFacts.sender.context;
+  const senderAddress = args.mailFacts.sender.address;
 
-  const isHumanSender = args.senderContext.effectiveAuthor === "person";
+  const isHumanSender = senderContext.effectiveAuthor === "person";
 
   const [thread, senderKindEnabled, suppressions, userContext, sender] = await Promise.all([
     getThreadState({
@@ -1174,24 +1179,22 @@ export async function gatherObservations(args: {
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
-    readSenderPerson(args.userId, args.senderAddress),
+    readSenderPerson(args.userId, senderAddress),
   ]);
 
   // The target hits and the scoped candidates for this mail (ADR-0113).
   const mailInstructions = suppressions.forMail({
-    sender: args.senderAddress ?? meta.from ?? null,
+    sender: senderAddress ?? meta.from ?? null,
     accountId: args.accountId,
   });
 
   const senderKind =
-    senderKindEnabled && args.senderAddress
-      ? await resolveSenderKind(args.userId, args.senderAddress)
-      : null;
+    senderKindEnabled && senderAddress ? await resolveSenderKind(args.userId, senderAddress) : null;
 
-  const baseSenderKey = senderKeyFor(args.senderContext, args.senderAddress);
+  const baseSenderKey = senderKeyFor(senderContext, senderAddress);
 
   const senderKey =
-    baseSenderKey ?? (senderKind && args.senderAddress ? args.senderAddress.toLowerCase() : null);
+    baseSenderKey ?? (senderKind && senderAddress ? senderAddress.toLowerCase() : null);
 
   const senderPrior = senderKey
     ? await getSenderPrior(args.userId, senderKey).catch((err: unknown) => {
@@ -1241,6 +1244,16 @@ export async function gatherObservations(args: {
   });
 
   return { observations, sender, suppressions };
+}
+
+/** The sender parse in the shape of the `triage.classification` trace, from the mail facts. */
+function senderContextResultOf(facts: MailFacts): SenderContextResult {
+  return {
+    context: facts.sender.context,
+    parserHit: facts.sender.parserHit,
+    senderAddress: facts.sender.address,
+    senderDomain: emailDomain(facts.sender.address),
+  };
 }
 
 /** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */
