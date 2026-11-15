@@ -1,4 +1,5 @@
 import type {
+  ActionStagingStatus,
   AskUserUnansweredResult,
   CancellationEnvelope,
   IntegrationSlug,
@@ -136,4 +137,10 @@ export interface ToolCallRoundAdapter {
   ): Promise<boolean>;
   executionLane(toolName: string): NonNullable<RegisteredTool["executionLane"]> | null;
   artifactStreamMode(toolName: string): NonNullable<RegisteredTool["artifactStream"]> | null;
+  /** The status of one tool call's staging row, or `null` when `stagingId` names no row of it. */
+  readApprovalStatus(args: {
+    runId: string;
+    toolCallId: string;
+    stagingId: string;
+  }): Promise<ActionStagingStatus | null>;
 }

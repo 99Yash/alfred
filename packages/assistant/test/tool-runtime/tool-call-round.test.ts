@@ -121,6 +121,7 @@ describe("executeToolCallRound", () => {
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       [],
       async () => {
@@ -156,6 +157,7 @@ describe("executeToolCallRound", () => {
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       ["contacts.search"],
       async () => {
@@ -203,6 +205,7 @@ describe("executeToolCallRound", () => {
         executionLane: (name) =>
           name.startsWith("system.append_artifact") ? "artifact_mutation" : null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       ["system.web_search", "system.append_artifact_section"],
       async () => {
@@ -254,6 +257,7 @@ describe("executeToolCallRound", () => {
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       ["system.await_sub_agent", "vercel.redeploy", "sheets.append_values"],
       async () => {
@@ -311,6 +315,7 @@ describe("executeToolCallRound", () => {
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       ["system.load_tool", "contacts.search", "contacts.list"],
       async () => {
@@ -348,6 +353,7 @@ describe("executeToolCallRound", () => {
         readFullAutonomy: () => Promise.resolve(false),
         executionLane: () => null,
         artifactStreamMode: () => null,
+        readApprovalStatus: () => Promise.resolve(null),
       },
       ["system.update_artifact", "contacts.search"],
       async () => {

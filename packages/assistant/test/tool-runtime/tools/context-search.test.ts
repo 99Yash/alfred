@@ -202,6 +202,7 @@ describe("system.search_context", () => {
       readFullAutonomy: () => Promise.resolve(false),
       executionLane: () => null,
       artifactStreamMode: () => null,
+      readApprovalStatus: () => Promise.resolve(null),
     });
 
     try {

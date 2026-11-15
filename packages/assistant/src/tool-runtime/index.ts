@@ -1225,6 +1225,13 @@ export function artifactStreamMode(
   return requireToolCallRoundAdapter().artifactStreamMode(toolName);
 }
 
+/** The status of one tool call's staging row, or `null` when `stagingId` names no row of it. */
+export function readToolCallApprovalStatus(
+  args: Parameters<ToolCallRoundAdapter["readApprovalStatus"]>[0],
+): ReturnType<ToolCallRoundAdapter["readApprovalStatus"]> {
+  return requireToolCallRoundAdapter().readApprovalStatus(args);
+}
+
 function requireToolRuntimeAdapter(): ToolRuntimeAdapter {
   return toolRuntimeAdapterPort.read();
 }

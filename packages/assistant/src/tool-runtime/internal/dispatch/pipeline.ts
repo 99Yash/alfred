@@ -1198,6 +1198,11 @@ const dispatchToolCallRoundAdapter: DispatchToolCallRoundAdapter = {
 
     return getTool(toolName)?.artifactStream ?? null;
   },
+  async readApprovalStatus({ runId, toolCallId, stagingId }) {
+    const row = await stagingStore().readStaging({ runId, toolCallId });
+
+    return row?.id === stagingId ? row.status : null;
+  },
 };
 
 /** Install the dispatcher as the call-round adapter at boot. */
