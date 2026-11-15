@@ -17,7 +17,6 @@ import {
   standingInstructions,
   type MailFacts,
   type ReportedStandingInstructionSet,
-  type SenderContextResult,
   type SenderPersonRead,
 } from "../knowledge";
 import {
@@ -65,7 +64,6 @@ import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import {
   assertNever,
   documentAskProposalSchema,
-  emailDomain,
   gmailTodoSources,
   isHttpError,
   isSentGmailMetadata,
@@ -212,7 +210,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     return skip("document-not-found");
   }
 
-  const senderContextResult = senderContextResultOf(mailFacts);
+  const senderContextResult = mailFacts.sender.parse;
   const senderContext = senderContextResult.context;
 
   // A row from THIS run is reused, so a retry does not re-bill the model.
@@ -1150,8 +1148,8 @@ export async function gatherObservations(args: {
 }): Promise<GatheredObservations> {
   const meta = args.document.metadata;
   const { labelIds } = args.mailFacts;
-  const senderContext = args.mailFacts.sender.context;
-  const senderAddress = args.mailFacts.sender.address;
+  // The parse's own address, as the classify step read it before the reader.
+  const { context: senderContext, senderAddress } = args.mailFacts.sender.parse;
 
   const isHumanSender = senderContext.effectiveAuthor === "person";
 
@@ -1244,16 +1242,6 @@ export async function gatherObservations(args: {
   });
 
   return { observations, sender, suppressions };
-}
-
-/** The sender parse in the shape of the `triage.classification` trace, from the mail facts. */
-function senderContextResultOf(facts: MailFacts): SenderContextResult {
-  return {
-    context: facts.sender.context,
-    parserHit: facts.sender.parserHit,
-    senderAddress: facts.sender.address,
-    senderDomain: emailDomain(facts.sender.address),
-  };
 }
 
 /** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */

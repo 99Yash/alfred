@@ -22,7 +22,7 @@ import {
   type LoadedMailStandingInstructions,
   type MailFacts,
 } from "../knowledge";
-import { triageEmailBody, triageEmailHeaderLines } from "./classify";
+import { triageEmailHeaderLines } from "./classify";
 import {
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_REMATCH_CONCURRENCY,
@@ -163,7 +163,7 @@ function rematchPrompt(
     facts.subject?.trim() || "(no subject)",
     "",
     "=== Body ===",
-    triageEmailBody(facts),
+    facts.body,
   ].join("\n");
 }
 
@@ -301,20 +301,34 @@ export async function rematchStandingInstructions(args: {
   // label behind its category, and a relabel would do nothing.
   const relabels = gmailMailboxWritesEnabled();
 
+  // One pure pass: the instruction view of each row, and the instructions its call would send.
+  const plans = rows.map((row) => {
+    const metadata = parseGmailDocumentMetadata(row.metadata);
+    const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
+    const evaluation = parseTriageEvaluationColumns(row);
+    const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
+    const fit = unknown.length > 0 ? fitStandingScopeInstructions(unknown) : null;
+
+    return { row, mail, evaluation, unknown, fit };
+  });
+
+  // One read of the mail facts, for the rows that get a call. A failed read fails those calls.
+  const callIds = plans.flatMap((plan) => (plan.fit?.sent.length ? [plan.row.documentId] : []));
+
+  const factsById = await loadMailFacts(userId, callIds).catch((err: unknown) => {
+    logger.warn({ err, userId }, "[triage.rematch] mail facts read failed");
+
+    return new Map<string, MailFacts>();
+  });
+
   await mapConcurrent(
-    rows,
+    plans,
     TRIAGE_REMATCH_CONCURRENCY,
-    async (row, scope) => {
-      const metadata = parseGmailDocumentMetadata(row.metadata);
-      const mail = set.forMail({ sender: metadata.from ?? null, accountId: row.accountId });
-
-      const evaluation = parseTriageEvaluationColumns(row);
-      const { unknown } = currentScopeResults(evaluation.instructionEvaluation, mail.scoped);
-
+    async ({ row, mail, evaluation, unknown, fit }, scope) => {
       let fresh: StandingInstructionScopeResult[] = [];
 
-      if (unknown.length > 0) {
-        const { sent, lines } = fitStandingScopeInstructions(unknown);
+      if (fit) {
+        const { sent, lines } = fit;
 
         counts.unknownLeft += unknown.length - sent.length;
 
@@ -322,8 +336,7 @@ export async function rematchStandingInstructions(args: {
           counts.called += 1;
 
           try {
-            // Only a row that gets a call reads its mail facts.
-            const facts = (await loadMailFacts(userId, [row.documentId])).get(row.documentId);
+            const facts = factsById.get(row.documentId);
 
             if (!facts) throw new Error(`mail facts missing for document ${row.documentId}`);
 

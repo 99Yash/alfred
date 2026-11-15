@@ -12,10 +12,9 @@ import {
   parseIanaTimezone,
   type GmailDocumentMetadata,
   type IanaTimezone,
-  type SenderContext,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { documents } from "@alfred/db/schemas";
+import { documents, type Document } from "@alfred/db/schemas";
 import {
   extractAttachments,
   extractMessageContent,
@@ -23,7 +22,7 @@ import {
 } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { settings, userIdentity } from "@alfred/assistant/settings";
+import { settings, userIdentity, type UserIdentity } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import {
   gmailHeaderLookup,
@@ -31,6 +30,8 @@ import {
   parseAddressList,
   parseSingleAddress,
   type GmailHeaderLookup,
+  type ParsedAddress,
+  type ParsedAddressList,
 } from "./gmail-reducer";
 import { extractSenderContext, type SenderContextResult } from "./sender-context";
 import { knownContactAddresses } from "./significance";
@@ -50,9 +51,20 @@ const STATED_MAX_VALUE_CHARS = 120;
 
 const STATED_SCAN_LINES = 200;
 
+type RecipientRole = ParsedAddressList["role"];
+
+const RECIPIENT_ROLES = ["to", "cc", "bcc"] as const satisfies readonly RecipientRole[];
+
 export interface MailRecipient {
   readonly address: string;
   readonly displayName: string | null;
+  /** One of the user's own addresses. Never also a known contact. */
+  readonly isUser: boolean;
+  /**
+   * A `person` row in `entities` holds the address as an alias. The sender's `Known contact:`
+   * observation reads the same aliases (`readSenderPerson`). The people-graph step replaces
+   * both with one reader.
+   */
   readonly knownContact: boolean;
 }
 
@@ -78,12 +90,11 @@ export interface MailFacts {
     readonly timezone: string;
   } | null;
   readonly sender: {
+    /** The parse's own address (`metadata.from`), else the raw `From` header's. */
     readonly address: string | null;
     readonly displayName: string | null;
-    /** `extractSenderContext`; `effectiveAuthor` lives here. */
-    readonly context: SenderContext;
-    /** Which body parser named the actor. The triage decision trace records it. */
-    readonly parserHit: SenderContextResult["parserHit"];
+    /** `extractSenderContext` as the classify step ran it: the context, the parser, the address. */
+    readonly parse: SenderContextResult;
   };
   /** The header value, trimmed. */
   readonly replyTo: string | null;
@@ -96,7 +107,7 @@ export interface MailFacts {
   readonly subject: string | null;
   /** Plain body, capped at MAIL_FACTS_BODY_MAX_CHARS with "\n[…truncated]". */
   readonly body: string;
-  /** The user's own replies in this thread, newest first, quoted history removed. */
+  /** The user's own replies in this thread up to this mail, newest first, quoted history removed. */
   readonly ownReplies: readonly MailOwnReply[];
   /** Copied from labelled body lines, in the mail's own words. */
   readonly stated: {
@@ -112,22 +123,17 @@ export interface MailFacts {
   readonly authenticationResults: string | null;
 }
 
-/** The stored row the pure reader reads. */
-export interface MailFactsRow {
-  readonly id: string;
-  readonly sourceId: string;
-  readonly sourceThreadId: string | null;
-  readonly accountId: string | null;
-  readonly title: string | null;
-  readonly content: string;
-  readonly authoredAt: Date | null;
-  readonly raw: unknown;
-  readonly metadata: unknown;
-}
+/** The stored row the reader reads. `raw` and `metadata` stay `unknown`: the reader parses them. */
+export type MailFactsRow = Pick<
+  Document,
+  "id" | "sourceId" | "sourceThreadId" | "accountId" | "title" | "content" | "authoredAt"
+> & { readonly raw: unknown; readonly metadata: unknown };
 
 export interface MailFactsContext {
   readonly timezone: IanaTimezone;
   readonly mailboxByAccountId: ReadonlyMap<string, string>;
+  /** The user's own addresses (`UserIdentity.emails`). */
+  readonly userAddresses: ReadonlySet<string>;
   /** Lowercased addresses. */
   readonly knownContacts: ReadonlySet<string>;
   readonly ownReplies: MailFacts["ownReplies"];
@@ -146,15 +152,36 @@ const STATED_FIELD_BY_LABEL: ReadonlyMap<string, keyof MailFacts["stated"]> = ne
 
 const STATED_LINE_RE = /^\s*([A-Za-z][A-Za-z /]*?)\s*:\s*(.*?)\s*$/;
 
-/** The mail facts of one stored Gmail row. Pure: every lookup comes in `ctx`. */
-export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFacts {
+/** One parse of a stored row: every fact that needs no lookup. */
+interface ParsedMail {
+  readonly row: MailFactsRow;
+  readonly headers: GmailHeaderLookup;
+  readonly sender: MailFacts["sender"];
+  readonly recipients: Readonly<Record<RecipientRole, readonly ParsedAddress[] | null>>;
+  readonly subject: string | null;
+  readonly fullBody: string;
+  readonly at: Date | null;
+  readonly labelIds: readonly string[];
+  readonly hasAttachments: boolean;
+}
+
+function parseMail(row: MailFactsRow): ParsedMail {
   const message = parseStoredGmailMessage(row.raw);
   const headers = gmailHeaderLookup(message?.payload?.headers);
   const metadata = parseGmailDocumentMetadata(row.metadata);
 
-  const fromRaw = headers.get("from") ?? trimmedOrNull(metadata.from);
-  const sender = parseSingleAddress(fromRaw);
-  const subject = headers.get("subject") ?? trimmedOrNull(row.title);
+  // The same inputs the live classify step gave the parse before this reader: the stored
+  // `metadata.from`, the title, and the stored content with its envelope lines. A body parser
+  // can read an envelope line (a Linear subject), so the sender parse does not change here.
+  const parse = extractSenderContext({
+    fromHeader: metadata.from ?? null,
+    subject: row.title,
+    body: row.content,
+  });
+
+  // The address and the name come from the string the parse read; the raw header is a fallback.
+  const mailbox =
+    parseSingleAddress(metadata.from ?? null) ?? parseSingleAddress(headers.get("from"));
 
   const fullBody = message
     ? extractMessageContent(message).body
@@ -165,46 +192,79 @@ export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFac
         subject: row.title,
       });
 
-  // The same inputs the live classify step gave the parse before this reader: the stored
-  // `metadata.from`, the title, and the stored content with its envelope lines. A body parser
-  // can read an envelope line (a Linear subject), so the sender parse does not change here.
-  const senderParse = extractSenderContext({
-    fromHeader: metadata.from ?? null,
-    subject: row.title,
-    body: row.content,
-  });
+  const recipients = (role: RecipientRole) => {
+    const raw = recipientHeader(headers, metadata, role);
 
-  const at = row.authoredAt ?? internalDateFromMessage(message);
-  const labelIds = metadata.labelIds ?? message?.labelIds ?? [];
+    return raw === null ? null : parseAddressList(raw, role).parsed;
+  };
 
-  const recipients = (name: "to" | "cc" | "bcc") =>
-    readRecipients(recipientHeader(headers, metadata, name), name, ctx.knownContacts);
+  return {
+    row,
+    headers,
+    sender: {
+      address: parse.senderAddress ?? mailbox?.identity.value ?? null,
+      displayName: mailbox?.displayName ?? null,
+      parse,
+    },
+    recipients: { to: recipients("to"), cc: recipients("cc"), bcc: recipients("bcc") },
+    subject: headers.get("subject") ?? trimmedOrNull(row.title),
+    fullBody,
+    at: row.authoredAt ?? internalDateFromMessage(message),
+    labelIds: metadata.labelIds ?? message?.labelIds ?? [],
+    hasAttachments: message ? extractAttachments(message).length > 0 : false,
+  };
+}
+
+/** The sender and every recipient address of a parse, for the one known-contact read. */
+function mailAddresses(parsed: ParsedMail): string[] {
+  const recipients = RECIPIENT_ROLES.flatMap((role) => parsed.recipients[role] ?? []);
+
+  return [
+    ...(parsed.sender.address ? [parsed.sender.address] : []),
+    ...recipients.map((address) => address.identity.value),
+  ];
+}
+
+function finishMailFacts(parsed: ParsedMail, ctx: MailFactsContext): MailFacts {
+  const { row, headers, labelIds } = parsed;
+
+  const recipients = (role: RecipientRole): MailRecipient[] | null =>
+    parsed.recipients[role]?.map((address) => {
+      const isUser = ctx.userAddresses.has(address.identity.value);
+
+      return {
+        address: address.identity.value,
+        displayName: address.displayName ?? null,
+        isUser,
+        knownContact: !isUser && ctx.knownContacts.has(address.identity.value),
+      };
+    }) ?? null;
 
   return {
     documentId: row.id,
     messageId: row.sourceId,
     threadId: row.sourceThreadId,
-    arrivedAt: at ? arrivalOf(at, ctx.timezone) : null,
-    sender: {
-      address: sender?.identity.value ?? null,
-      displayName: sender?.displayName ?? null,
-      context: senderParse.context,
-      parserHit: senderParse.parserHit,
-    },
+    arrivedAt: parsed.at ? arrivalOf(parsed.at, ctx.timezone) : null,
+    sender: parsed.sender,
     replyTo: headers.get("reply-to"),
     to: recipients("to"),
     cc: recipients("cc"),
     bcc: recipients("bcc"),
     receivedBy: row.accountId ? (ctx.mailboxByAccountId.get(row.accountId) ?? null) : null,
-    subject,
-    body: capBody(fullBody),
+    subject: parsed.subject,
+    body: capBody(parsed.fullBody),
     ownReplies: ctx.ownReplies,
-    stated: readStated(fullBody),
+    stated: readStated(parsed.fullBody),
     labelIds,
     spam: labelIds.includes("SPAM"),
-    hasAttachments: message ? extractAttachments(message).length > 0 : false,
+    hasAttachments: parsed.hasAttachments,
     authenticationResults: headers.get("authentication-results"),
   };
+}
+
+/** The mail facts of one stored Gmail row. Pure: every lookup comes in `ctx`. */
+export function readMailFacts(row: MailFactsRow, ctx: MailFactsContext): MailFacts {
+  return finishMailFacts(parseMail(row), ctx);
 }
 
 /** The arrival with its year: `2026-10-19 13:30`, `Mon`, and the zone. */
@@ -232,27 +292,13 @@ function trimmedOrNull(value: string | null | undefined): string | null {
 function recipientHeader(
   headers: GmailHeaderLookup,
   metadata: GmailDocumentMetadata,
-  name: "to" | "cc" | "bcc",
+  role: RecipientRole,
 ): string | null {
-  if (headers.has(name)) return headers.get(name) ?? "";
+  if (headers.has(role)) return headers.get(role) ?? "";
 
-  if (name === "bcc") return null;
+  if (role === "bcc") return null;
 
-  return metadata[name] ?? null;
-}
-
-function readRecipients(
-  raw: string | null,
-  role: "to" | "cc" | "bcc",
-  knownContacts: ReadonlySet<string>,
-): MailRecipient[] | null {
-  if (raw === null) return null;
-
-  return parseAddressList(raw, role).parsed.map((address) => ({
-    address: address.identity.value,
-    displayName: address.displayName ?? null,
-    knownContact: knownContacts.has(address.identity.value.toLowerCase()),
-  }));
+  return metadata[role] ?? null;
 }
 
 function capBody(body: string): string {
@@ -304,9 +350,12 @@ function ownReplyText(body: string): string {
     : text;
 }
 
+const UTC = parseIanaTimezone("UTC");
+
 /**
  * The mail facts of stored Gmail rows, keyed by document id. A missing id has no entry.
- * Every lookup is best-effort: a failed read gives its empty value and a warning.
+ * Every lookup is best-effort: a failed read gives its empty value (UTC for the zone) and a
+ * warning.
  */
 export async function loadMailFacts(
   userId: string,
@@ -339,42 +388,41 @@ export async function loadMailFacts(
 
   if (rows.length === 0) return out;
 
-  // The addresses come from the same parse the reader makes, so both sides agree.
-  const addresses = new Set<string>();
+  // Each row is parsed one time; the lookups then finish the facts.
+  const parsed = rows.map(parseMail);
 
-  for (const row of rows) {
-    const facts = readMailFacts(row, EMPTY_LOOKUPS);
+  const bestEffort = <T>(what: string, read: Promise<T>, fallback: T): Promise<T> =>
+    read.catch((err: unknown) => {
+      logger.warn({ err, userId }, `[knowledge.mail-facts] ${what} read failed`);
 
-    if (facts.sender.address) addresses.add(facts.sender.address);
+      return fallback;
+    });
 
-    for (const list of [facts.to, facts.cc, facts.bcc]) {
-      for (const recipient of list ?? []) addresses.add(recipient.address);
-    }
-  }
+  const noIdentity: Pick<UserIdentity, "mailboxByAccountId" | "emails"> = {
+    mailboxByAccountId: new Map(),
+    emails: new Set(),
+  };
 
   const [identity, timezone, knownContacts, ownReplies] = await Promise.all([
-    userIdentity({ userId }),
-    settings({ userId }).timezone(),
-    knownContactAddresses(userId, [...addresses]).catch((err: unknown) => {
-      logger.warn({ err, userId }, "[knowledge.mail-facts] known-contact read failed");
-
-      return new Set<string>();
-    }),
-    readOwnReplies(userId, rows).catch((err: unknown) => {
-      logger.warn({ err, userId }, "[knowledge.mail-facts] own-reply read failed");
-
-      return new Map<string, MailOwnReply[]>();
-    }),
+    bestEffort("user identity", userIdentity({ userId }), noIdentity),
+    bestEffort("timezone", settings({ userId }).timezone(), UTC),
+    bestEffort(
+      "known-contact",
+      knownContactAddresses(userId, [...new Set(parsed.flatMap(mailAddresses))]),
+      new Set<string>(),
+    ),
+    bestEffort("own-reply", readOwnReplies(userId, rows), new Map<string, MailOwnReply[]>()),
   ]);
 
-  for (const row of rows) {
+  for (const mail of parsed) {
     out.set(
-      row.id,
-      readMailFacts(row, {
+      mail.row.id,
+      finishMailFacts(mail, {
         timezone,
         mailboxByAccountId: identity.mailboxByAccountId,
+        userAddresses: identity.emails,
         knownContacts,
-        ownReplies: ownReplies.get(row.id) ?? [],
+        ownReplies: ownReplies.get(mail.row.id) ?? [],
       }),
     );
   }
@@ -382,21 +430,13 @@ export async function loadMailFacts(
   return out;
 }
 
-/** The lookups of a first parse that only collects addresses. */
-const EMPTY_LOOKUPS: MailFactsContext = {
-  timezone: parseIanaTimezone("UTC"),
-  mailboxByAccountId: new Map(),
-  knownContacts: new Set(),
-  ownReplies: [],
-};
-
 /**
- * The user's sent messages in each row's thread, newest first, without the row itself.
+ * The user's sent messages in each row's thread up to its arrival, newest first.
  * Metadata first, then bodies only for the kept replies.
  */
 async function readOwnReplies(
   userId: string,
-  rows: readonly { id: string; sourceThreadId: string | null }[],
+  rows: readonly Pick<MailFactsRow, "id" | "sourceThreadId" | "authoredAt">[],
 ): Promise<Map<string, MailOwnReply[]>> {
   const out = new Map<string, MailOwnReply[]>();
   const threadIds = [...new Set(rows.flatMap((row) => row.sourceThreadId ?? []))];
@@ -415,29 +455,42 @@ async function readOwnReplies(
     .select({
       id: documents.id,
       sourceThreadId: documents.sourceThreadId,
+      authoredAt: documents.authoredAt,
       metadata: documents.metadata,
     })
     .from(documents)
     .where(threadWhere)
     .orderBy(newestFirst);
 
-  const sentByThread = new Map<string, string[]>();
+  const sentByThread = new Map<string, { id: string; authoredAt: Date | null }[]>();
 
   for (const sibling of siblings) {
     if (!sibling.sourceThreadId) continue;
 
     if (!isSentGmailMetadata(parseGmailDocumentMetadata(sibling.metadata))) continue;
-    const ids = sentByThread.get(sibling.sourceThreadId) ?? [];
-    ids.push(sibling.id);
-    sentByThread.set(sibling.sourceThreadId, ids);
+    const sent = sentByThread.get(sibling.sourceThreadId) ?? [];
+    sent.push({ id: sibling.id, authoredAt: sibling.authoredAt });
+    sentByThread.set(sibling.sourceThreadId, sent);
   }
 
-  // Per row: the newest sent messages that are not the row itself.
+  // Per row: the newest sent messages at or before its arrival, without the row itself. A row
+  // with no time keeps every sent message; a sent message with no time is out of order, so out.
   const keptByRow = new Map<string, string[]>();
 
   for (const row of rows) {
     const sent = row.sourceThreadId ? (sentByThread.get(row.sourceThreadId) ?? []) : [];
-    keptByRow.set(row.id, sent.filter((id) => id !== row.id).slice(0, OWN_REPLY_LIMIT));
+    const arrived = row.authoredAt;
+
+    const kept = sent.filter(
+      (reply) =>
+        reply.id !== row.id &&
+        (arrived === null || (reply.authoredAt !== null && reply.authoredAt <= arrived)),
+    );
+
+    keptByRow.set(
+      row.id,
+      kept.slice(0, OWN_REPLY_LIMIT).map((reply) => reply.id),
+    );
   }
 
   const bodyIds = [...new Set([...keptByRow.values()].flat())];

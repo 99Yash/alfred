@@ -116,7 +116,7 @@ async function main() {
       continue;
     }
 
-    const senderContext = mailFacts.sender.context;
+    const senderContext = mailFacts.sender.parse.context;
 
     const { observations, suppressions } = await gatherObservations({
       userId: t.userId,

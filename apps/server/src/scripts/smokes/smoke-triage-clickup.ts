@@ -231,6 +231,7 @@ async function main() {
       {
         timezone: DEFAULT_USER_TIMEZONE,
         mailboxByAccountId: new Map(),
+        userAddresses: new Set(),
         knownContacts: new Set(),
         ownReplies: [],
       },

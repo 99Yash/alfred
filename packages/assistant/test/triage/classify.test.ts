@@ -108,12 +108,16 @@ function factsFor(document: ClassifyEmailArgs["document"]): MailFacts {
     {
       timezone: parseIanaTimezone("UTC"),
       mailboxByAccountId: new Map(),
+      userAddresses: new Set(),
       knownContacts: new Set(),
       ownReplies: [],
     },
   );
 
-  return { ...facts, sender: { ...facts.sender, context: TEST_SENDER } };
+  return {
+    ...facts,
+    sender: { ...facts.sender, parse: { ...facts.sender.parse, context: TEST_SENDER } },
+  };
 }
 
 function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {

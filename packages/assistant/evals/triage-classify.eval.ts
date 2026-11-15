@@ -932,7 +932,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     serverEnv();
     const args = buildArgs(input);
     const email = { from: input.from, subject: input.subject, body: input.body };
-    const context = renderJudgeContext(input, args.mailFacts.sender.context);
+    const context = renderJudgeContext(input, args.mailFacts.sender.parse.context);
 
     let classification;
     let model;

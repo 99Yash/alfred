@@ -479,13 +479,20 @@ function renderObservations(obs: Observations): string {
   return lines.join("\n");
 }
 
+/** `Name <addr>`, or the bare address. The From, To, and Cc lines share it. */
+function mailboxText(address: string, displayName: string | null): string {
+  return displayName ? `${displayName} <${address}>` : address;
+}
+
 function recipientLine(label: string, list: readonly MailRecipient[] | null): string[] {
   if (list === null) return [];
 
   if (list.length === 0) return [`${label}: (empty)`];
 
   const entries = list.map((r) => {
-    const mailbox = r.displayName ? `${r.displayName} <${r.address}>` : r.address;
+    const mailbox = mailboxText(r.address, r.displayName);
+
+    if (r.isUser) return `${mailbox} (you)`;
 
     return r.knownContact ? `${mailbox} (known contact)` : mailbox;
   });
@@ -500,14 +507,8 @@ function recipientLine(label: string, list: readonly MailRecipient[] | null): st
 export function triageEmailHeaderLines(facts: MailFacts): string[] {
   const { sender, stated } = facts;
 
-  const from = sender.address
-    ? sender.displayName
-      ? `${sender.displayName} <${sender.address}>`
-      : sender.address
-    : null;
-
   return [
-    ...(from ? [`From: ${from}`] : []),
+    ...(sender.address ? [`From: ${mailboxText(sender.address, sender.displayName)}`] : []),
     ...(facts.replyTo ? [`Reply-To: ${facts.replyTo}`] : []),
     ...recipientLine("To", facts.to),
     ...recipientLine("Cc", facts.cc),
@@ -523,11 +524,6 @@ export function triageEmailHeaderLines(facts: MailFacts): string[] {
   ];
 }
 
-/** The body text, already cut by the reader at `MAIL_FACTS_BODY_MAX_CHARS`. */
-export function triageEmailBody(facts: MailFacts): string {
-  return facts.body;
-}
-
 function userPrompt(
   args: ClassifyEmailArgs,
   conflict: TriageConflict | null,
@@ -536,7 +532,7 @@ function userPrompt(
   const lines: string[] = [];
 
   lines.push("=== SenderContext ===");
-  lines.push(JSON.stringify(args.mailFacts.sender.context));
+  lines.push(JSON.stringify(args.mailFacts.sender.parse.context));
   lines.push("");
 
   // For the ownership gate (rule 16a). Absent, the model guesses.
@@ -565,7 +561,7 @@ function userPrompt(
   lines.push(args.mailFacts.subject?.trim() || "(no subject)");
   lines.push("");
   lines.push("=== Body ===");
-  lines.push(triageEmailBody(args.mailFacts));
+  lines.push(args.mailFacts.body);
 
   lines.push("");
   lines.push("=== Earlier thread context — use this to decide loop state and ownership ===");
@@ -1066,7 +1062,7 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     firstPass,
     args.observations,
     floorMatches,
-    args.mailFacts.sender.context,
+    args.mailFacts.sender.parse.context,
   );
 
   let working = first;
@@ -1098,7 +1094,7 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     signalText,
     collabVetoText,
     senderKind: args.observations.senderKind,
-    effectiveAuthor: args.mailFacts.sender.context.effectiveAuthor,
+    effectiveAuthor: args.mailFacts.sender.parse.context.effectiveAuthor,
     sender: from ?? null,
     subject: args.document.title,
     to: to ?? null,

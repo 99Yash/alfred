@@ -66,6 +66,7 @@ export function evalMailFacts(mail: EvalStoredMail): MailFacts {
     {
       timezone: EVAL_TIMEZONE,
       mailboxByAccountId: new Map([[EVAL_ACCOUNT_ID, EVAL_MAILBOX]]),
+      userAddresses: new Set([EVAL_MAILBOX]),
       knownContacts: new Set(mail.knownContact && senderAddress ? [senderAddress] : []),
       ownReplies: [],
     },
