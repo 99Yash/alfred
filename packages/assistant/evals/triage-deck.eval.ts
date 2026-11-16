@@ -24,7 +24,10 @@ import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/tri
  * The ADR-0121 eval deck (`docs/plans/triage-theory-v1.md`, slice 0). It runs the real
  * `classifyEmail` on production mail with the input that prod gave it, and scores the label
  * against `docs/theory/triage.md`. Each later slice runs it before and after, and lands only
- * when no case gets worse. Run it alone:
+ * when no case gets worse. `Coverage` and `Provider failures` sit next to `Label`, so a
+ * provider outage reads as weather, not as a model regression. Each case runs three times,
+ * and the runner reports each trial on its own: a case regressed only when every trial
+ * misses it. Run it alone:
  * `pnpm --filter @alfred/assistant exec evalite run triage-deck`.
  */
 
@@ -157,6 +160,11 @@ interface MailResult {
   rationale: string;
 }
 
+/** A mail with a verdict: the scope skipped it before a call, or the model gave a label. */
+function hasVerdict(m: MailResult): boolean {
+  return m.scope.actual !== null || m.category !== null;
+}
+
 /** The mail's result as the scorers print it: the skip, the label, or a provider failure. */
 function resultOf(m: MailResult): string {
   return m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed");
@@ -226,11 +234,52 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
   },
   scorers: [
     {
-      // The share of mails with the right result: a skip where the case expects one (slice 2a),
-      // else a label in the accept set. A provider failure counts as a miss.
+      // The share of mails that got any verdict: a scope skip, or a model label. A
+      // provider failure is not a verdict, so an outage reads here first.
+      name: "Coverage",
+      scorer: ({ output }) => {
+        const verdicts = output.mails.filter(hasVerdict).length;
+
+        return {
+          score: output.mails.length === 0 ? 1 : verdicts / output.mails.length,
+          metadata: `${verdicts}/${output.mails.length} mails got a verdict (a skip counts)`,
+        };
+      },
+    },
+    {
+      // The count of mails whose every attempt failed. The score is a count, not a
+      // share. These mails sit outside the Label score, so an outage cannot read as a
+      // model regression.
+      name: "Provider failures",
+      scorer: ({ output }) => {
+        const failed = output.mails.filter((m) => !hasVerdict(m));
+
+        return {
+          score: failed.length,
+          metadata:
+            failed.length === 0
+              ? "no provider failures"
+              : failed.map((m) => `failed: ${m.subject}`).join("\n"),
+        };
+      },
+    },
+    {
+      // The label accuracy over the mails that got a verdict only. A skip where the
+      // case expects one is correct (slice 2a). A provider failure is out of the
+      // score. Each trial scores on its own, so a case regressed only when every
+      // trial misses it; one miss in one trial is run-to-run variance.
       name: "Label",
       scorer: ({ output, expected }) => {
-        const lines = output.mails.map((m) => {
+        const scored = output.mails.filter(hasVerdict);
+
+        if (scored.length === 0) {
+          return {
+            score: 1,
+            metadata: "no verdicts, so no mail got a label; read Coverage",
+          };
+        }
+
+        const lines = scored.map((m) => {
           const ok =
             m.scope.expected !== null
               ? m.scope.actual === m.scope.expected
@@ -251,9 +300,10 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
         const hits = lines.filter((l) => l.ok).length;
 
         return {
-          score: hits / lines.length,
+          score: hits / scored.length,
           metadata: [
             `want ${expected.accept.join("/")}`,
+            `hit ${hits}/${scored.length} scored mails (of ${output.mails.length} mails)`,
             ...lines.map((l) => l.line),
             `why: ${expected.note}`,
           ].join("\n"),
@@ -261,12 +311,19 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
       },
     },
     {
-      // The theory's consistency check: the same kind of mail from one sender keeps one label.
+      // The theory's consistency check: the same kind of mail from one sender keeps one
+      // label. Only verdict mails are in the group; a provider failure is not a label.
       name: "One label for the group",
       scorer: ({ output, expected }) => {
         if (!expected.oneKind) return { score: 1, metadata: "not one kind from one sender" };
 
-        const labels = new Set(output.mails.map(resultOf));
+        const verdicts = output.mails.filter(hasVerdict);
+
+        if (verdicts.length === 0) {
+          return { score: 1, metadata: "no verdicts, so no group to check; read Coverage" };
+        }
+
+        const labels = new Set(verdicts.map(resultOf));
 
         return {
           score: labels.size === 1 ? 1 : 0,
@@ -275,5 +332,9 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
       },
     },
   ],
-  trialCount: 1,
+  // Three trials of each case, because one classify call is not stable near a label
+  // boundary (the 2026-11-07 baselines: 67% and 70% on the same deck). The runner
+  // scores each trial on its own and reports one result per trial, so read a case
+  // across its trials: a case regressed only when every trial misses it.
+  trialCount: 3,
 });
