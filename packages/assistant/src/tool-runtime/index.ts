@@ -8,6 +8,7 @@ import type {
   ActivateWorkflowInput,
   AttributionActor,
   CancellationFence,
+  CorrespondentHistory,
   ChatConnectNudge,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
@@ -569,17 +570,7 @@ export interface ReadUserContextResult {
     readonly confidence: number;
   }[];
   readonly preferences: readonly { readonly key: string; readonly value: unknown }[];
-  readonly people: readonly {
-    readonly address: string;
-    readonly displayName: string | null;
-    readonly firstSeenAt: Date | null;
-    readonly lastSeenAt: Date | null;
-    readonly receivedCount: number;
-    readonly lastReceivedAt: Date | null;
-    readonly sentCount: number;
-    readonly lastSentAt: Date | null;
-    readonly windowStartedAt: Date | null;
-  }[];
+  readonly people: readonly CorrespondentHistory[];
   readonly recentMemory: readonly { readonly kind: string; readonly preview: string }[];
 }
 

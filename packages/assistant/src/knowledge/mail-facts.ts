@@ -10,6 +10,7 @@ import {
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
   parseIanaTimezone,
+  type CorrespondentHistory,
   type GmailDocumentMetadata,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -34,7 +35,7 @@ import {
   type ParsedAddressList,
 } from "./gmail-reducer";
 import { extractSenderContext, type SenderContextResult } from "./sender-context";
-import { readMailCorrespondents, type CorrespondentHistory } from "./correspondents";
+import { readMailCorrespondents } from "./correspondents";
 
 /** The body cap. Past it the body ends in `"\n[…truncated]"`. */
 export const MAIL_FACTS_BODY_MAX_CHARS = 6_000;
@@ -82,7 +83,7 @@ export interface MailFacts {
     readonly at: Date;
     readonly local: string;
     readonly weekday: string;
-    readonly timezone: string;
+    readonly timezone: IanaTimezone;
   } | null;
   readonly sender: {
     /** The parse's own address (`metadata.from`), else the raw `From` header's. */

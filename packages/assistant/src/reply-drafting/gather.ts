@@ -9,7 +9,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { readUserContext } from "@alfred/assistant/knowledge";
+import { describeCorrespondentHistory, readUserContext } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { getThreadState } from "@alfred/assistant/triage";
@@ -67,7 +67,9 @@ export async function gatherReplyContext(args: {
   const [userContext, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
-      include: ["profile", "facts", "preferences", "people"],
+      include: args.sender
+        ? ["profile", "facts", "preferences", "people"]
+        : ["profile", "facts", "preferences"],
       settings: userSettings,
     }),
     userSettings.timezone(),
@@ -80,6 +82,14 @@ export async function gatherReplyContext(args: {
   ]);
 
   const now = new Date();
+  const { people, ...ownerContext } = userContext;
+
+  const history = people.map(
+    (person) =>
+      `Mail history for ${person.address}: ${describeCorrespondentHistory(person, timezone)}`,
+  );
+
+  const roomForOwnerContext = SOURCE_MAX_CHARS - history.join("\n").length;
 
   const body = extractGmailDocumentBody(document.content, {
     from: document.metadata.from,
@@ -136,7 +146,7 @@ export async function gatherReplyContext(args: {
         kind: "user_context",
         ref: args.userId,
         status: "resolved",
-        facts: [JSON.stringify(userContext).slice(0, SOURCE_MAX_CHARS)],
+        facts: [...history, JSON.stringify(ownerContext).slice(0, roomForOwnerContext)],
       },
     ],
   } satisfies ReplyGather);

@@ -329,6 +329,10 @@ export async function listEmailsSinceWatermark(
       attentionBand: toTriageCategory(r.triageCategory)
         ? (attention[i]?.band ?? "normal")
         : "normal",
+      correspondentHistory:
+        history && facts?.arrivedAt
+          ? describeCorrespondentHistory(history, facts.arrivedAt.timezone)
+          : null,
       contentLength: Number(r.contentLength),
       // One history line for the sender address (ADR-0127); null on a read failure.
       correspondentHistory: history ? describeCorrespondentHistory(history) : null,

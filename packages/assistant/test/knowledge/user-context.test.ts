@@ -162,6 +162,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       ctx.people.map((person) => person.address);
 
     const plain = await readUserContext(userId);
+    // ADR-0127 decision 7 caps the default people section at 20 addresses.
     assert.equal(plain.people.length, 20);
     assert.equal(addresses(plain).includes("subject@example.test"), false);
 

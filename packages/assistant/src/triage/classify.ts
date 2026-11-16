@@ -365,7 +365,7 @@ function recipientLine(
  * authentication results nor the user's own replies (slice 3 decides those).
  */
 export function triageEmailHeaderLines(facts: MailFacts): string[] {
-  const { sender, stated } = facts;
+  const { arrivedAt, sender, stated } = facts;
   const shown = new Set<string>();
 
   const withHistory = ({ address, displayName, history, isUser }: MailRecipient): string => {
@@ -373,10 +373,10 @@ export function triageEmailHeaderLines(facts: MailFacts): string[] {
 
     if (isUser) return `${mailbox} (you)`;
 
-    if (!history || shown.has(address)) return mailbox;
+    if (!history || !arrivedAt || shown.has(address)) return mailbox;
     shown.add(address);
 
-    return `${mailbox} (${describeCorrespondentHistory(history)})`;
+    return `${mailbox} (${describeCorrespondentHistory(history, arrivedAt.timezone)})`;
   };
 
   return [

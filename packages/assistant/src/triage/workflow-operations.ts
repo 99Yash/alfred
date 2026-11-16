@@ -382,10 +382,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     const decisionTrace = senderExtractionEvent({
       senderContextResult,
-      // One history line for the sender address (ADR-0127); null on a read failure.
-      senderCorrespondentHistory: mailFacts.sender.history
-        ? describeCorrespondentHistory(mailFacts.sender.history)
-        : null,
+      senderCorrespondentHistory:
+        mailFacts.sender.history && mailFacts.arrivedAt
+          ? describeCorrespondentHistory(mailFacts.sender.history, mailFacts.arrivedAt.timezone)
+          : null,
       observations,
       audit,
       classification,

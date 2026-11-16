@@ -289,30 +289,26 @@ function overlayTriageTags(
   const merged = items.map((item) => {
     const tag = item.threadId ? tagsByThreadId.get(item.threadId) : undefined;
 
-    if (!tag) return { item, significanceBand: null };
+    if (!tag) return item;
 
-    const withTag =
-      item.category === tag.category && item.categorySource === tag.source
-        ? item
-        : { ...item, category: tag.category, categorySource: tag.source };
-
-    return { item: withTag, significanceBand: tag.senderSignificanceBand };
+    return item.category === tag.category && item.categorySource === tag.source
+      ? item
+      : { ...item, category: tag.category, categorySource: tag.source };
   });
 
   // Score the page together so cross-row recurrence works. Untriaged rows get no band.
   const scored = scoreAttentionForItems(
-    merged.map(({ item, significanceBand }) => ({
+    merged.map((item) => ({
       // The bare address shows bulk mailboxes and keys recurrence.
       sender: item.senderAddress ?? item.sender,
       subject: item.subject,
       category: item.category ?? "fyi",
-      significanceBand,
       // The rail is newest-first; without this the latest repeat would stay demanding.
       occurredAtMs: item.authoredAtMs,
     })),
   );
 
-  const withBand = merged.map(({ item }, i) => {
+  const withBand = merged.map((item, i) => {
     const band: AttentionBand | null = item.category ? (scored[i]?.band ?? null) : null;
 
     return item.attentionBand === band ? item : { ...item, attentionBand: band };

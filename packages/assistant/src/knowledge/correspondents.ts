@@ -1,4 +1,10 @@
-import { parseEmailIdentity } from "@alfred/contracts";
+import {
+  correspondentHistorySchema,
+  parseEmailIdentity,
+  type CorrespondentHistory,
+  type IanaTimezone,
+} from "@alfred/contracts";
+import { inZone } from "@alfred/assistant/time";
 import { db, rowsFromExecute } from "@alfred/db";
 import { observationFamilyHeads, observations } from "@alfred/db/schemas";
 import { sql, type SQL } from "drizzle-orm";
@@ -7,25 +13,9 @@ import { liveObservationHeadJoin } from "./observations";
 
 const PEOPLE_LIMIT = 20;
 
-const historyDateSchema = z.coerce.date().nullable();
-
-const correspondentHistorySchema = z.object({
-  address: z.string(),
-  displayName: z.string().nullable(),
-  firstSeenAt: historyDateSchema,
-  lastSeenAt: historyDateSchema,
-  receivedCount: z.int().nonnegative(),
-  lastReceivedAt: historyDateSchema,
-  sentCount: z.int().nonnegative(),
-  lastSentAt: historyDateSchema,
-  windowStartedAt: historyDateSchema,
-});
-
 const correspondentRowSchema = correspondentHistorySchema.extend({
   documentId: z.string().nullable(),
 });
-
-export type CorrespondentHistory = z.infer<typeof correspondentHistorySchema>;
 
 interface MailCorrespondents {
   readonly documentId: string;
@@ -76,12 +66,17 @@ function restrictResults(selection: Selection): SQL {
       order by history.last_sent_at desc, history.address limit ${PEOPLE_LIMIT}`;
   }
 
-  const queryWords = selection.query.toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+  return sql`order by history.last_seen_at desc nulls last, history.address`;
+}
 
-  return sql`
-    where regexp_split_to_array(lower(concat_ws(' ', history.address, history.display_name)), '[^[:alnum:]]+')
-      && array(select jsonb_array_elements_text(${JSON.stringify(queryWords)}::jsonb))
-    order by history.last_seen_at desc nulls last, history.address limit ${PEOPLE_LIMIT}`;
+/** Use the same Unicode word boundaries for a question and a stored name or address. */
+function wordsIn(text: string): string[] {
+  return (
+    text
+      .normalize("NFC")
+      .toLowerCase()
+      .match(/[\p{L}\p{M}\p{N}]+/gu) ?? []
+  );
 }
 
 /** The live Gmail heads supply both the counts and their time window. */
@@ -156,9 +151,21 @@ export async function readCorrespondents(
       ? addresses
       : { addresses: requestedAddresses(addresses) };
 
+  const words = "query" in selection ? new Set(wordsIn(selection.query)) : null;
+
+  if (words?.size === 0) return [];
+
   const rows = await readCorrespondentRows(userId, selection);
 
-  return rows.map(({ documentId: _documentId, ...history }) => history);
+  const histories = words
+    ? rows
+        .filter((row) =>
+          wordsIn(`${row.displayName ?? ""} ${row.address}`).some((word) => words.has(word)),
+        )
+        .slice(0, PEOPLE_LIMIT)
+    : rows;
+
+  return histories.map(({ documentId: _documentId, ...history }) => history);
 }
 
 /** Mail history before each message, all in one read. The current message is never evidence. */
@@ -183,15 +190,16 @@ export async function readMailCorrespondents(
 }
 
 /** State the window so zero counts cannot imply that the user never wrote to an address. */
-export function describeCorrespondentHistory(history: CorrespondentHistory): string {
+export function describeCorrespondentHistory(
+  history: CorrespondentHistory,
+  timezone: IanaTimezone,
+): string {
   if (history.windowStartedAt === null) return "no stored mail history for this time";
 
-  const window = history.windowStartedAt.toISOString().slice(0, 10);
-  const sent = history.lastSentAt ? `, last ${history.lastSentAt.toISOString().slice(0, 10)}` : "";
-
-  const received = history.lastReceivedAt
-    ? `, last ${history.lastReceivedAt.toISOString().slice(0, 10)}`
-    : "";
+  const zone = inZone(timezone);
+  const window = zone.day(history.windowStartedAt);
+  const sent = history.lastSentAt ? `, last ${zone.day(history.lastSentAt)}` : "";
+  const received = history.lastReceivedAt ? `, last ${zone.day(history.lastReceivedAt)}` : "";
 
   return `stored mail since ${window}: you sent ${history.sentCount}${sent}; they sent ${history.receivedCount}${received}`;
 }
