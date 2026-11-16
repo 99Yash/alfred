@@ -87,6 +87,7 @@ function deckMailFacts(c: DeckCase, mail: DeckMail, index: number): MailFacts {
     labelIds: mail.labelIds,
     headers: mail.headers,
     knownContact: mail.knownContact,
+    ownReplies: mail.ownReplies?.map((reply) => ({ at: new Date(reply.at), text: reply.text })),
   });
 }
 
@@ -105,10 +106,14 @@ function argsFor(
       : null,
     persona: "personal",
     thread: {
-      lastUserReplyAt: null,
+      lastUserReplyAt: mail.thread?.lastUserReplyAt ? new Date(mail.thread.lastUserReplyAt) : null,
       newestDirection: mail.thread?.newestDirection ?? null,
       messageCount: mail.thread?.messageCount ?? 0,
-      recentMessages: [],
+      recentMessages: (mail.thread?.recentMessages ?? []).map((message) => ({
+        direction: message.direction,
+        authoredAt: new Date(message.authoredAt),
+        snippet: message.snippet,
+      })),
     },
     knownContact: mail.knownContact ?? false,
     senderRelationship: mail.senderRelationship ?? null,

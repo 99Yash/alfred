@@ -3,8 +3,9 @@ import type { TriageOutOfScope } from "@alfred/assistant/triage/scope";
 import type { TriageSenderKindSignal } from "@alfred/assistant/triage/sender-kind";
 
 /**
- * The ADR-0121 eval deck (plan slice 0). Each mail is a real production mail from the
- * read-only pull on 2026-11-06. The repo is public, so each body is a short excerpt with the
+ * The ADR-0121 eval deck (plan slice 0). Most mails are real production mail from the read-only
+ * pull on 2026-11-06; the echo cases come from the read-only pull on 2026-11-16, and two cases
+ * are synthetic and say so in their notes. The repo is public, so each body is a short excerpt with the
  * owner's address, client ids, card digits, and account links removed. Outside people get a
  * first name and initial on their real domain. Each listed company and the broker get an invented
  * name, so the deck does not show the owner's holdings; the registry senders stay real. The excerpt
@@ -39,7 +40,30 @@ export interface DeckMail {
   senderKind?: Pick<TriageSenderKindSignal, "kind" | "confidence" | "evidenceCodes">;
   knownContact?: boolean;
   senderRelationship?: string;
-  thread?: { messageCount: number; newestDirection: "sent" | "received" };
+  thread?: {
+    messageCount: number;
+    newestDirection: "sent" | "received";
+    /**
+     * When the user's newest dated send in the thread was (`thread-state.ts`). Null or unset:
+     * he has not replied.
+     */
+    lastUserReplyAt?: string;
+    /**
+     * The thread state the current mail arrives into, newest first (`thread-state.ts`, cap 6,
+     * snippet cap 220). Short redacted excerpts, as the prompt renders them.
+     */
+    recentMessages?: readonly {
+      direction: "sent" | "received";
+      authoredAt: string;
+      snippet: string;
+    }[];
+  };
+  /**
+   * The user's own sent messages in the thread, newest first (`MailFacts.ownReplies`). The
+   * prompt does not render them yet (slice 3 decides), but the fixture carries them so the
+   * reader sees what prod sees.
+   */
+  ownReplies?: readonly { at: string; text: string }[];
 }
 
 export interface DeckCase {
@@ -538,7 +562,7 @@ export const DECK: readonly DeckCase[] = [
   {
     label: "own-ci-and-deploy-failures",
     accept: ["fyi"],
-    note: "Owner, 2026-11-07: alfred ships many PRs a day and he sees each failure in the PR, so even a failed alfred prod build is not loud. Blair is inactive, and a Polylane autofix PR started that deploy. His activity decides, not the sender.",
+    note: "Owner, 2026-11-07: alfred ships many PRs a day and he sees each failure in the PR, so even a failed alfred prod build is not loud. Blair is inactive, and a Polylane autofix PR started that deploy. His activity decides, not the sender. Prod had no thread on any of these mails; the thread and own-reply fixtures below are the owner-mandated stand-ins (2026-11-16) for the activity the gather will carry in slice 6: his pushes and merges on the same projects, which the deck could not express before.",
     mails: [
       {
         from: "Railway <hello@notify.railway.app>",
@@ -549,6 +573,30 @@ export const DECK: readonly DeckCase[] = [
         prodCategory: "urgent",
         senderPrior: { key: "hello@notify.railway.app", counts: { urgent: 3 } },
         senderKind: { kind: "service", confidence: 0.92, evidenceCodes: ["email:local:service"] },
+        thread: {
+          messageCount: 2,
+          newestDirection: "received",
+          lastUserReplyAt: "2026-11-03T07:45:00Z",
+          recentMessages: [
+            {
+              direction: "sent",
+              authoredAt: "2026-11-03T07:45:00Z",
+              snippet:
+                "Merged the server fix to alfred main — production build will roll, I watch it in the PR",
+            },
+            {
+              direction: "received",
+              authoredAt: "2026-11-03T07:44:00Z",
+              snippet: "Build started for alfred (production)",
+            },
+          ],
+        },
+        ownReplies: [
+          {
+            at: "2026-11-03T07:45:00Z",
+            text: "Merged the server fix to alfred main — production build will roll, I watch it in the PR",
+          },
+        ],
       },
       {
         from: "Vercel <notifications@vercel.com>",
@@ -563,6 +611,27 @@ export const DECK: readonly DeckCase[] = [
           confidence: 0.92,
           evidenceCodes: ["email:local:service_strong"],
         },
+        thread: {
+          messageCount: 2,
+          newestDirection: "received",
+          lastUserReplyAt: "2026-10-20T09:00:00Z",
+          recentMessages: [
+            {
+              direction: "received",
+              authoredAt: "2026-11-06T10:00:00Z",
+              snippet:
+                "Polylane autofix PR #11 merged — production deploy started for blair (commit 0a3b055)",
+            },
+            {
+              direction: "sent",
+              authoredAt: "2026-10-20T09:00:00Z",
+              snippet: "Merged the last manual change to blair",
+            },
+          ],
+        },
+        ownReplies: [
+          { at: "2026-10-20T09:00:00Z", text: "Merged the last manual change to blair" },
+        ],
       },
       {
         from: "Linear <notifications@linear.app>",
@@ -573,6 +642,23 @@ export const DECK: readonly DeckCase[] = [
         prodCategory: "action_needed",
         senderPrior: { key: "notifications@linear.app", counts: { fyi: 2, action_needed: 5 } },
         senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
+        thread: {
+          messageCount: 2,
+          newestDirection: "received",
+          recentMessages: [
+            {
+              direction: "received",
+              authoredAt: "2026-11-02T07:51:00Z",
+              snippet:
+                "Linear checks started on the PR (feat(briefing) — read the ADR-0118 activity record)",
+            },
+            {
+              direction: "received",
+              authoredAt: "2026-11-01T16:00:00Z",
+              snippet: "Linear checks passed on an earlier push of the same PR",
+            },
+          ],
+        },
       },
       {
         from: "Yash Gourav Kar <notifications@github.com>",
@@ -582,6 +668,30 @@ export const DECK: readonly DeckCase[] = [
         labelIds: UPDATES,
         prodCategory: "action_needed",
         senderPrior: { key: "notifications@github.com", counts: { action_needed: 7 } },
+        thread: {
+          messageCount: 2,
+          newestDirection: "received",
+          lastUserReplyAt: "2026-09-06T07:55:00Z",
+          recentMessages: [
+            {
+              direction: "received",
+              authoredAt: "2026-09-06T07:56:00Z",
+              snippet: "ci workflow run started on main",
+            },
+            {
+              direction: "sent",
+              authoredAt: "2026-09-06T07:55:00Z",
+              snippet:
+                "Merged to alfred main (9fcac39) — CI runs on the merge, I watch it in the PR",
+            },
+          ],
+        },
+        ownReplies: [
+          {
+            at: "2026-09-06T07:55:00Z",
+            text: "Merged to alfred main (9fcac39) — CI runs on the merge, I watch it in the PR",
+          },
+        ],
       },
       {
         from: "Yash Gourav Kar <notifications@github.com>",
@@ -595,6 +705,31 @@ export const DECK: readonly DeckCase[] = [
           key: "notifications@github.com",
           counts: { fyi: 26, urgent: 1, action_needed: 26 },
         },
+        thread: {
+          messageCount: 3,
+          newestDirection: "received",
+          lastUserReplyAt: "2026-09-22T07:20:00Z",
+          recentMessages: [
+            {
+              direction: "sent",
+              authoredAt: "2026-09-22T07:20:00Z",
+              snippet:
+                "Pushed fix(library): give the artifact viewer the chat rail's width to the PR — CI on every push",
+            },
+            {
+              direction: "received",
+              authoredAt: "2026-09-22T07:10:00Z",
+              snippet:
+                "PR run succeeded: ci — fix(library): give the artifact viewer the chat rail's width",
+            },
+          ],
+        },
+        ownReplies: [
+          {
+            at: "2026-09-22T07:20:00Z",
+            text: "Pushed fix(library): give the artifact viewer the chat rail's width to the PR — CI on every push",
+          },
+        ],
       },
     ],
   },
@@ -675,7 +810,25 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "done",
         senderRelationship: "no prior contact on record",
-        thread: { messageCount: 4, newestDirection: "sent" },
+        thread: {
+          messageCount: 4,
+          newestDirection: "sent",
+          lastUserReplyAt: "2026-11-02T18:40:00Z",
+          recentMessages: [
+            {
+              direction: "sent",
+              authoredAt: "2026-11-02T18:40:00Z",
+              snippet:
+                "Hi Joeri — quick one before we go further: for a free listing, do I need payout setup first? Does Stripe work for India, or how do payouts run here?",
+            },
+          ],
+        },
+        ownReplies: [
+          {
+            at: "2026-11-02T18:40:00Z",
+            text: "Hi Joeri — quick one before we go further: for a free listing, do I need payout setup first? Does Stripe work for India, or how do payouts run here?",
+          },
+        ],
       },
     ],
   },
@@ -738,7 +891,153 @@ export const DECK: readonly DeckCase[] = [
         },
         prodCategory: "fyi",
         senderRelationship: "you reached out first (one sent message, no reply yet)",
-        thread: { messageCount: 2, newestDirection: "received" },
+        thread: {
+          messageCount: 2,
+          newestDirection: "received",
+          lastUserReplyAt: "2026-11-04T06:00:00Z",
+          recentMessages: [
+            {
+              direction: "sent",
+              authoredAt: "2026-11-04T06:00:00Z",
+              snippet: "Application for the Backend Engineer role — resume attached, a line on fit",
+            },
+          ],
+        },
+        ownReplies: [
+          {
+            at: "2026-11-04T06:00:00Z",
+            text: "Application for the Backend Engineer role — resume attached, a line on fit",
+          },
+        ],
+      },
+    ],
+  },
+
+  // ── Echoes of the user's own actions (theory: triage.md, echoes) ──────────
+  {
+    label: "echoes-of-the-users-own-sign-ins",
+    accept: ["fyi"],
+    note: "The nine sign-in and OTP echoes of the 2026-11-13 cluster (probe P1, 2026-11-14): three Google accounts signed in on the new Galaxy A56 within one minute, then Samsung, Uber, Myntra, Zerodha (login and 2FA OTP), and Zomato through the evening — all records of an act Yash did himself, setting up the phone that day. Prod gave every one urgent (five were loud by the morning of 2026-11-13, the fault the theory's echo section answers). An echo is FYI: it is never Urgent and never Action. The A56 order trail is the journal case for the join, not a deck case.",
+    mails: [
+      {
+        from: "Google <no-reply@accounts.google.com>",
+        subject: "Security alert",
+        body: "A new sign-in on Galaxy A56 5G. We noticed a new sign-in to your Google Account on a Galaxy A56 5G device. If this was you, you don't need to do anything. If not, we'll help you secure your account.",
+        authoredAt: "2026-11-13T05:55:45Z",
+        labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "service:google-security", counts: { fyi: 3, urgent: 7 } },
+        senderKind: {
+          kind: "service",
+          confidence: 0.92,
+          evidenceCodes: ["email:local:service_strong"],
+        },
+      },
+      {
+        from: "Google <no-reply@accounts.google.com>",
+        subject: "Security alert for [redacted]@gmail.com",
+        body: "This is a copy of a security alert sent to [redacted]@gmail.com. A new sign-in on Galaxy A56 5G. We noticed a new sign-in to your Google Account on a Galaxy A56 5G device. If this was you, you don't need to do anything. If not, we'll help you secure your account.",
+        authoredAt: "2026-11-13T05:55:47Z",
+        labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "service:google-security", counts: { fyi: 3, urgent: 7 } },
+        senderKind: {
+          kind: "service",
+          confidence: 0.92,
+          evidenceCodes: ["email:local:service_strong"],
+        },
+      },
+      {
+        from: "Google <no-reply@accounts.google.com>",
+        subject: "Security alert for [redacted]@oliv.ai",
+        body: "This is a copy of a security alert sent to [redacted]@oliv.ai. A new sign-in on Galaxy A56 5G. We noticed a new sign-in to your Google Account on a Galaxy A56 5G device. If this was you, you don't need to do anything. If not, we'll help you secure your account.",
+        authoredAt: "2026-11-13T05:55:48Z",
+        labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "service:google-security", counts: { fyi: 3, urgent: 9 } },
+        senderKind: {
+          kind: "service",
+          confidence: 0.92,
+          evidenceCodes: ["email:local:service_strong"],
+        },
+      },
+      {
+        from: "Samsung account <sa.noreply@samsung-mail.com>",
+        subject: "New sign-in to your Samsung account",
+        body: "New sign-in to your Samsung account. Your Samsung account was signed in to from a new device. Device Galaxy A56 5G. Date and time 2026.11.13 am 11:31 (India Time). Location India. If it wasn't you who signed in, reset your password now to keep your account secure.",
+        authoredAt: "2026-11-13T06:01:21Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "sa.noreply@samsung-mail.com", counts: {} },
+      },
+      {
+        from: "Uber <noreply@uber.com>",
+        subject: "New device sign-in",
+        body: "Your Uber account has been signed into from a new device. New device log-in. Please review the details below to confirm it was you. Date and time of sign-in: 2026-11-13 06:46:38 UTC. Sign-in country: India. Type of device: Android. If this wasn't you, reset your password below.",
+        authoredAt: "2026-11-13T06:46:39Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "noreply@uber.com", counts: { fyi: 7, marketing: 6 } },
+        senderKind: {
+          kind: "group",
+          confidence: 0.99,
+          evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
+        },
+      },
+      {
+        from: "Myntra <no-reply@myntra.com>",
+        subject: "New Device Login",
+        body: "Login detected on new device. Hey Yash Gourav, We noticed a new login for your account. Date & Time: 13 November 2026 19:29:18. Device: SM-A566E. If this was you, please disregard this mail. If this wasn't you, we recommend you to reset your password immediately.",
+        authoredAt: "2026-11-13T13:59:20Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "no-reply@myntra.com", counts: {} },
+      },
+      {
+        from: "Zerodha <auth@mailer.zerodha.net>",
+        subject: "Important: Login from new device and location",
+        body: "Hi Yash, Your account [redacted] has logged in from a new device and location. If this is not you, use the forgot password option immediately and reset your login credentials. Location [redacted], India. Device Kite (samsung SM-A566E; Android 17). Time 2026-11-13T19:40:58+05:30.",
+        authoredAt: "2026-11-13T14:10:58Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+      },
+      {
+        from: "Zerodha <noreply@alertsmailer.zerodha.net>",
+        subject: "[code] is your Kite 2FA OTP",
+        body: "Kite — 2FA OTP to login to your account [redacted] is [code]. If you did not initiate this login request, someone may be trying to gain access to your account.",
+        authoredAt: "2026-11-13T14:10:58Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "noreply@alertsmailer.zerodha.net", counts: {} },
+      },
+      {
+        from: "Zomato <noreply@zomato.com>",
+        subject: "Login Alert for your Zomato account!",
+        body: "Hi Yash Gourav Kar, We noticed a login to your account. Device: Samsung SM-A566E. Time: 13 Nov, 09:37 PM IST. If this was you, you can ignore this message. There's no need to take any action. If this wasn't you, protect your account by clicking here.",
+        authoredAt: "2026-11-13T16:07:42Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
+        senderPrior: { key: "noreply@zomato.com", counts: { done: 2 } },
+        senderKind: {
+          kind: "service",
+          confidence: 0.92,
+          evidenceCodes: ["email:local:service_strong"],
+        },
+      },
+    ],
+  },
+  {
+    label: "sign-in-by-another-person-is-loud",
+    accept: ["urgent", "action_needed"],
+    note: "Synthetic, from the theory's echo section: 'The deck also needs a sign-in by another person, with a loud label, so that it guards the worst error too.' No prod mail shows one yet (checked 2026-11-16). The same sign-in shape as the echo case, but the facts point to another person: a device Yash does not use, a place he is not in, at an hour outside his pattern. It is a security notice, not an echo: the loud question applies.",
+    mails: [
+      {
+        from: "Acme Studio <no-reply@notify.acme-example.com>",
+        subject: "New sign-in to your Acme account",
+        body: "New sign-in to your Acme account. Your account was signed in to from a new device. Device: Windows PC. App: Acme Studio desktop. Location: Sao Paulo, Brazil. Date and time: 2026-11-14 03:42 (India Time). If this wasn't you, reset your password now to keep your account secure.",
+        authoredAt: "2026-11-13T22:12:00Z",
+        labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
+        prodCategory: "urgent",
       },
     ],
   },

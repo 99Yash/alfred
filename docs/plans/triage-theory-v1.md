@@ -26,6 +26,8 @@ Built: `packages/assistant/evals/triage-deck.eval.ts`, with the cases in `evals/
 
 To add (2026-11-14, from [the echo section](../theory/triage.md#echoes-of-the-users-own-actions)): the nine sign-in and OTP echoes of 2026-11-12 and 11-13 → `fyi`, and one sign-in by another person → loud, so that the deck guards both errors. The A56 join trail is a journal case, not a deck case.
 
+Built (2026-11-16): the deck takes the nine sign-in and OTP echoes of 2026-11-13 → `fyi` (`echoes-of-the-users-own-sign-ins`), with one synthetic sign-in by another person → loud (`sign-in-by-another-person-is-loud`). The echoes are the nine that went `urgent` in prod that day (probe P1). On the first run every echo came back `urgent`: the recorded fault that the slice 3 prompt rewrite takes. The loud case held `urgent`.
+
 Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 mails). Each run makes real model calls, so a case near a label boundary can change from run to run. Run the deck two times before and after a slice, and read the label of each mail, not only the total. The misses are the faults above: every payment failure gets `payment`, the webinars get `action_needed` or `meeting`, the own CI failures get `action_needed`, and the streak mails get three labels.
 
 Gate tool per change (owner decision, 2026-11-16): the paired prod replay (`apps/server/src/scripts/dry-runs/triage-prompt-replay.ts`) is the gate for a prompt or model slice. The deck is the gate for a theory or product change. The replay compares before and after with no labels, so it sees every changed behavior; the deck checks the labels the owner set.
