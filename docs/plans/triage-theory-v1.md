@@ -28,6 +28,10 @@ To add (2026-11-14, from [the echo section](../theory/triage.md#echoes-of-the-us
 
 Baseline on 2026-11-07, before any slice: 67% and 70% on two runs (20 cases, 43 mails). Each run makes real model calls, so a case near a label boundary can change from run to run. Run the deck two times before and after a slice, and read the label of each mail, not only the total. The misses are the faults above: every payment failure gets `payment`, the webinars get `action_needed` or `meeting`, the own CI failures get `action_needed`, and the streak mails get three labels.
 
+Gate tool per change (owner decision, 2026-11-16): the paired prod replay (`apps/server/src/scripts/dry-runs/triage-prompt-replay.ts`) is the gate for a prompt or model slice. The deck is the gate for a theory or product change. The replay compares before and after with no labels, so it sees every changed behavior; the deck checks the labels the owner set.
+
+The deck now runs each case three times (2026-11-16). The runner scores each trial on its own and reports one result per trial. So read a case across its trials: a case regressed only when every trial misses it. One miss in one trial is run-to-run variance, not a regression.
+
 ## Slice 0b — The mail-facts reader (foundation)
 
 - One reader of `documents.raw` builds the mail facts that [the theory page](../theory/triage.md#the-mail-facts) requires. Triage, the loop joins, the briefing, and the user model read from it.
