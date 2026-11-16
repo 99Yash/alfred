@@ -22,13 +22,13 @@ Last verified: 2026-10-21 at `fd13e6427`.
 
 **Loop.** A thing that a pointer from any source holds open and that nothing has closed. A loop is not a separate record. A cheap model judges the verdict against the ask, and each closure cites a fact from the source that owns the thing, or the user's own word (ADR-0122 decision 3c, which supersedes the ADR-0120 definition). A matter from chat with no thing is a journal entry, not a loop ([journal.md](./journal.md), ADR-0122 decision 3d).
 
-**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". Table: `entity_edges`. ADR-0122 (proposed) puts a link between two `integration_objects` rows in a `integration_object_relations` table, and a fact writes it. The table is not built today (migration 0171 dropped the empty schema-only stub); the projection work creates it when it lands.
+**Link.** A relation between two things, for example "this PR belongs to this repository" or "this person owns this task". No table today: ADR-0127 drops the empty `entity_edges`, and a link table comes back when a link has a writer (for example the user's claim "Priya works at X"). ADR-0122 (proposed) puts a link between two `integration_objects` rows in a `integration_object_relations` table, and a fact writes it. The table is not built today (migration 0171 dropped the empty schema-only stub); the projection work creates it when it lands.
 
 **Work item.** Something that the user must do or wants to watch. It has a status, and it points to the things that it is about. Today the only work item is a todo. Table: `todos`.
 
 **Referent.** A thing with no lifecycle that a notification is about and that no connected provider tracks, for example the Baserow alarm from SNS ([ADR-0092](../decisions/ADR-0092-notification-referent-dedup-on-the-observation-log.md)). A referent is a thing. It is not a new idea. When a provider tracks the thing, for example a PR with GitHub connected, the `integration_objects` row is the thing, and no referent is made.
 
-**Projection.** A table that code rebuilds from events. You can delete a projection and build it again from the events. `entity_nodes`, `entity_identities`, `entity_profiles`, and `entity_edges` are projections. `observations` is not a projection.
+**Projection.** A table that code rebuilds from events. You can delete a projection and build it again from the events. ADR-0127 drops the versioned projections (`entity_profiles`, `entity_edges`, `entity_co_occurrence`). `entity_nodes` and `entity_identities` stay as stable records, which a writer makes when something must point at a thing. The people store is a query over `observations`, not a table ([stores.md §5](./stores.md#5-the-people-store)). `observations` is not a projection.
 
 ## Glean's words and Alfred's words
 
@@ -54,7 +54,7 @@ Alfred has one user, but that user works in an organization with other employees
 
 **Person.** A colleague, a customer, or any other human. Node kind `person`. A person can have a **role**, for example "engineering lead".
 
-The links between them already exist as edge types (`ENTITY_EDGE_TYPES`, `packages/contracts/src/user-model.ts:1017`): `works_at`, `in_org`, `member_of`, `reports_to`, and `frequent_collaborator`. Only `works_at` is written, by the shadow edge fold `packages/assistant/src/knowledge/gmail-edge-fold.ts`; the other types have no grounding path. No production code reads edges (`knowledge/reader.ts` exposes `listEdges`, and nothing calls it).
+The links between them already exist as edge types (`ENTITY_EDGE_TYPES`, `packages/contracts/src/user-model.ts:1017`): `works_at`, `in_org`, `member_of`, `reports_to`, and `frequent_collaborator`. Only `works_at` has a writer, the edge fold `packages/assistant/src/knowledge/gmail-edge-fold.ts`, and production has 0 edges (2026-11-15). No production code reads edges. ADR-0127 deletes the fold and the table. A role or a team is a claim from the user or from evidence ([memory.md](./memory.md)) until a link table has a writer.
 
 **What Alfred does with a colleague's work.** Alfred knows who the colleague is, their team and role, and which things they work on. The briefing can use this as team context. Alfred tracks a colleague's work as a work item only when the user asks for it in a standing instruction. Alfred always tracks the user's own work.
 
@@ -80,7 +80,8 @@ These facts are verified at the commit above.
 1. **Three stores hold things.** `entities` (old memory; the nightly memory-extraction run writes it through `knowledge/team-graph.ts` and `knowledge/entity-graph.ts`, with a significance pass in `knowledge/significance.ts`; `knowledge/user-context.ts` and `knowledge/significance.ts` (used by briefings and triage) read it), `entity_nodes` (the user model), and `integration_objects` (the state of PRs, deploys, and tasks). One PR can be a referent in `entity_nodes` and also a row in `integration_objects`, and no link joins the two rows. ADR-0092 does not mention `integration_objects`.
 2. **The one link table from a work object to a thing points at the old store.** The schema-only `integration_object_relations` stub referenced `entities`, not `entity_nodes`, and no code wrote it; migration 0171 dropped it. ADR-0122's projection work creates the table with its FK at `integration_objects`.
 3. **No store holds the user's work except `todos`.** A meeting-notes action item, a commitment in chat, and a PR that the user is writing have no shared record.
-4. **The user-model projection is not active in production.** So `entity_nodes` is empty in production, and only triage reads it.
+4. **The user-model projection keeps every run, and holds only a kind.** Correction of 2026-11-15: the projection has been active since 2026-10-30. It keeps 434 runs (133,175 `entity_profiles` rows), with 0 edges, and only the triage sender kind reads it. ADR-0127 deletes it.
+5. **A node has no kind.** `entity_nodes` has no kind column. The kind was in `entity_profiles`, which ADR-0127 drops. Open: what gives a node its kind (a claim, or a column that the writer sets). No reader needs it yet.
 
 ## Is a graph database necessary?
 

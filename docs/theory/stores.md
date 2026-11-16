@@ -27,7 +27,7 @@ Owner decision, 2026-11-15: three layers, and every integration writes to them. 
 RECEIVED   what came in, as it came. One copy. One reader for each source.
    │
    ▼       only a fold writes here; code can delete and rebuild each table
-DERIVED    the activity record · the state of things · the people graph · the search index
+DERIVED    the activity record · the state of things · the people store · the search index
    │
    ▼       evidence points down
 MEMORY     claims · name links · journal entries · standing instructions
@@ -42,7 +42,7 @@ MEMORY     claims · name links · journal entries · standing instructions
 
 - **The activity record** (`observations`, ADR-0118). Acts by a person on a thing, and changes of a thing's state category, from every source. A row points to the received item and never copies its body or headers. Mail writes activity rows too: a person sent the user a mail, the user replied.
 - **The state of things** (`integration_objects`). The current state of a thing that has a lifecycle. Only the source that owns the thing sets it ([context-graph.md](./context-graph.md#who-owns-which-thing)).
-- **The people graph** (`entity_nodes`, `entity_identities`, `entity_profiles`, `entity_edges`). See [section 5](#5-the-people-graph).
+- **The people store.** Mail history for each address, read from the activity record by one reader. It is a query, not a table. See [section 5](#5-the-people-store).
 - **The search index** (`documents.content`, `chunks`). The text of each received item and its embeddings.
 
 **Memory.** Statements that the user made or that the agent concluded, each with evidence that points to the layers below ([memory.md](./memory.md)). Claims, name links, journal entries, and standing instructions are here. A statement is in words, with no fixed field for its shape. A shift-work week is one claim, not a schema (owner decision, 2026-11-15).
@@ -84,25 +84,40 @@ The columns today, and where they break this rule:
 | `chunks` | Derived | The search index | — |
 | `observations` | Derived | The activity record of every source, rows that point and never copy | The `email_message` header copy (it becomes a slim activity row); `email_interpretation` (triage slice 7) |
 | `integration_objects` (+ `_keys`) | Derived | The state of things, rebuilt from received items by the owning source's fold | Writes that a rebuild cannot repeat |
-| `entity_nodes`, `entity_identities`, `entity_profiles`, `entity_edges` | Derived | The one people graph | — |
-| `entities`, `entity_relations` | — | Dropped ([section 5](#5-the-people-graph)) | The old graph, `team-graph.ts`, `entity-graph.ts`, `significance.ts` |
+| `entity_nodes`, `entity_identities` | Things | The one record of a thing and its keys ([context-graph.md](./context-graph.md#who-owns-which-thing)). A writer makes a node only when something must point at it (ADR-0127) | The bulk mint from mail |
+| `entity_profiles`, `entity_edges`, `entity_co_occurrence`, `projection_runs`, `projection_cursors`, `active_projection_versions` | — | Dropped ([section 5](#5-the-people-store)) | The versioned projection, the kind classifier, the refold |
+| `entities`, `entity_relations` | — | Dropped ([section 5](#5-the-people-store)) | The old graph, `team-graph.ts`, `entity-graph.ts`, `significance.ts` |
 | `user_facts` | Memory | Claims (ADR-0123) | Standing instructions move out (triage slice 4) |
 | `sender_priors` | — | Dropped (principle 5) | Triage slice 1 stops the write and the read |
 | `email_triage` | Alfred's output | The triage record | The second copy of the category in `observations` |
 
-## 5. The people graph
+## 5. The people store
 
-Owner decision, 2026-11-15: the new graph supersedes the old one. This agrees with [context-graph.md](./context-graph.md#who-owns-which-thing) (2026-10-21), which gave `entities` no new readers or writers. The old tables can be dropped when no reader is left.
+Owner decision, 2026-11-16 ([ADR-0127](../decisions/ADR-0127-the-people-store-is-mail-history-read-from-the-activity-record.md)). This replaces the decision of 2026-11-15 that the new graph supersedes the old one: a production read showed that neither graph is worth keeping.
 
-The new graph is empty in production today, because its projection is not active ([context-graph.md](./context-graph.md#where-alfred-is-confused-today), item 4). The readers of the old graph and where each one goes:
+**What production showed (2026-11-15).** The user-model projection was active, not empty. It made a new run for each new mail and kept every run: 434 runs, 133,175 `entity_profiles` rows, about 140 MB. It held only a kind for each of 344 addresses, with 0 edges. The old graph had 76 rows. Moving "known contact" to the projection would mark a cold sender as known after their first mail.
+
+**The job.** The store answers one question for the model: what is Alfred's history with this address? It answers with facts in the source's terms, from mail:
+
+- the name shown, first seen, and last seen;
+- the mails from the address, and the last one;
+- the mails that the user sent to it (To or Cc), and the last one.
+
+There is no kind and no score. The model judges the sender from the mail (principle 4). The user's sent mail is the user's own act (principle 5).
+
+**Where it lives.** One reader, `readCorrespondents(userId, addresses)`, groups the Gmail activity rows in `observations`. No table keeps counts. Each fact gives the start of the window, because Alfred has mail only since the connect. For older history, the model searches Gmail live (Code Mode).
+
+**Things and names.** `entity_nodes` and `entity_identities` stay as the record of a thing and its keys. A writer makes a node only when something must point at it, for example a name link or a claim. Name resolution is memory's name links. An identity join across sources is a user claim.
+
+**The readers and where each one goes:**
 
 | Reader | Goes to |
 | --- | --- |
-| `knowledge/user-context.ts` (`system.read_user_context`, reply drafting, the triage user line) | The new graph's reader (`knowledge/reader.ts`) |
-| `knowledge/significance.ts` (the triage sender line) | Claims about the sender, when triage slice 3 rewrites the prompt |
+| `knowledge/user-context.ts` (`system.read_user_context`, reply drafting) | One `people` section from `readCorrespondents` |
+| The mail-facts `knownContact` mark and the triage `Known contact:` line | One history line for each address |
+| The triage sender-kind line and floor | Deleted: the model judges the sender |
+| `knowledge/significance.ts` (the briefing `attentionBand`, the triage `sender_significance_band`) | The history line. `attentionBand` keeps only recurrence |
 | `tool-runtime/internal/tools/gmail-recipient-policy.ts` (the send check) | Deleted with `gmail.send_draft`: Alfred makes drafts only (owner, 2026-11-15) |
-
-The graph folds from mail through the mail-facts reader, not from a header copy in `observations`.
 
 ## 6. What this page changes in other pages
 
@@ -123,7 +138,7 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 | One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Built | — (webhooks: #1763 and migration 0172) |
 | One reader for each source | Settled for mail (slice 0b) | Not built | Three header parsers for mail; three GitHub parses |
 | Two times with one meaning each | Proposed; GitHub arrival time and the briefing pass settled (owner, 2026-11-15) | Partly | The evidence map does not name the two times of each store yet (step 6) |
-| The new people graph only | Settled (owner, 2026-11-15) | Not built | The projection is not active; four old-graph readers |
+| The people store: mail history from the activity record | Settled (owner, 2026-11-16, ADR-0127) | Not built | Two graphs with six readers; the projection keeps every run (140 MB) |
 | Outputs are never evidence | Settled (principle 5) | Partly | `sender_priors` (slice 1); the category copy in `observations` |
 
 ## 8. Order of work
@@ -131,10 +146,10 @@ The graph folds from mail through the mail-facts reader, not from a header copy 
 Each step deletes what it replaces. None of them waits for Code Mode.
 
 1. **This page, and the ADR-0038 amendment.**
-2. **The mail-facts reader** (triage slice 0b). The people-graph fold and the activity fold for mail read through it. The `email_message` header copy ends.
+2. **The mail-facts reader** (triage slice 0b). The activity fold for mail reads through it. The `email_message` header copy ends. The slim activity row keeps the participant addresses and the sent time, because the people store reads them (section 5).
 3. **One GitHub body.** Done (2026-11-15). The object-state fold reads `documents.raw`, and `event_receipts` stores no body (#1763). The production report showed no old body without a document, so migration 0172 dropped `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner).
 4. **The briefing times.** Settled with triage slice 2a: the briefing picks mail by the received time and orders it by the sent time (section 3). Slice 2a changed only the order of the composer's mail list (`list_emails_since`), which was by the received time.
-5. **The people graph.** Activate the projection in production. Move `user-context.ts` to the new reader. The sender line goes with triage slice 3. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them). Then drop `entities`, `entity_relations`, and their writers.
+5. **The people store** (ADR-0127). First, add `readCorrespondents` and move every reader to it, with the triage deck and the briefing eval as the gates. Then delete the projection, the old graph, and their code, and drop the eight tables in one migration. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them).
 6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
 7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.
 
