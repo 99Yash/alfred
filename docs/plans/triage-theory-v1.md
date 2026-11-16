@@ -88,6 +88,8 @@ The line tests showed that one changed fact line moves mails near a category bou
 **Removes:** the prior write and read, `priorBulkProfile`, `priorActionShare`, `detectConflict` (`classify.ts:575-730`).
 *Gate:* the eval deck holds. The chess.com cases keep one label.
 
+Held (owner, 2026-11-16): the gate fails without the prior. On the branch merged to today's main (#1767, #1768), three trials each: `chess-streak-mail-keeps-one-label` 0.50 → 0.25, and `voyage-review-payment-method-by-date` 1 → 0, both deterministic across trials. The removed second pass was also the echo amplifier: it re-asked when the label disagreed with the self-taught prior, and it re-escalated its own `fyi` echoes back to `urgent` (the echo case improves 0 → 0.22 with it gone). The owner chose to hold slice 1 until the slice 3 prompt rewrite makes the deck hold without the prior. The self-confirmation write keeps running in prod until then, and that cost is accepted. The resolved merge sits on the branch, unpushed. Slice 3 takes this deck state as its before-run.
+
 ## Slice 2 — The nine labels
 
 - New category ids: `urgent`, `action`, `reply`, `meeting`, `receipt`, `fyi`, `done`, `news`, `promo`, in `@alfred/contracts`.
