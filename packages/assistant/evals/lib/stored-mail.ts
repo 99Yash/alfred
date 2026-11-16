@@ -20,6 +20,11 @@ export interface EvalStoredMail {
   readonly headers?: Readonly<Record<string, string>> | undefined;
   /** The sender is a known contact. */
   readonly knownContact?: boolean | undefined;
+  /**
+   * The user's own sent messages in the thread, newest first (`MailFacts.ownReplies`), as the
+   * reader's ctx takes them. The prompt does not render them yet (slice 3 decides).
+   */
+  readonly ownReplies?: readonly { at: Date; text: string }[] | undefined;
 }
 
 /** A stored Gmail message (`documents.raw`) for an eval mail: one `text/plain` part. */
@@ -68,7 +73,7 @@ export function evalMailFacts(mail: EvalStoredMail): MailFacts {
       mailboxByAccountId: new Map([[EVAL_ACCOUNT_ID, EVAL_MAILBOX]]),
       userAddresses: new Set([EVAL_MAILBOX]),
       knownContacts: new Set(mail.knownContact && senderAddress ? [senderAddress] : []),
-      ownReplies: [],
+      ownReplies: mail.ownReplies ?? [],
     },
   );
 }
