@@ -18,13 +18,19 @@ export interface EvalStoredMail {
   readonly labelIds: readonly string[];
   /** Stored headers beyond From, Subject, and Date. No `To` here means no To header. */
   readonly headers?: Readonly<Record<string, string>> | undefined;
-  /** The sender is a known contact. */
-  readonly knownContact?: boolean | undefined;
+  /** Lower-bound correspondent counts for the sender, from the fixture's prior-mail evidence. */
+  readonly history?: EvalCorrespondentCounts | undefined;
   /**
    * The user's own sent messages in the thread, newest first (`MailFacts.ownReplies`), as the
    * reader's ctx takes them. The prompt does not render them yet (slice 3 decides).
    */
   readonly ownReplies?: readonly { at: Date; text: string }[] | undefined;
+}
+
+/** Lower-bound counts from the fixture's prior-mail evidence. */
+export interface EvalCorrespondentCounts {
+  readonly receivedCount: number;
+  readonly sentCount: number;
 }
 
 /** A stored Gmail message (`documents.raw`) for an eval mail: one `text/plain` part. */
@@ -56,6 +62,30 @@ function storedGmailMessage(mail: EvalStoredMail) {
 export function evalMailFacts(mail: EvalStoredMail): MailFacts {
   const senderAddress = parseMailbox(mail.from)?.address;
 
+  // The fixture knows the counts, but rarely has the timestamps of the earlier mail.
+  const history = mail.history;
+  const storedSince = new Date("2026-09-05T00:00:00Z");
+
+  const correspondentHistory =
+    senderAddress && history
+      ? new Map([
+          [
+            senderAddress,
+            {
+              address: senderAddress,
+              displayName: null,
+              firstSeenAt: null,
+              lastSeenAt: null,
+              windowStartedAt: storedSince <= mail.authoredAt ? storedSince : null,
+              receivedCount: history.receivedCount,
+              lastReceivedAt: null,
+              sentCount: history.sentCount,
+              lastSentAt: null,
+            },
+          ],
+        ])
+      : new Map();
+
   return readMailFacts(
     {
       id: mail.id,
@@ -72,7 +102,7 @@ export function evalMailFacts(mail: EvalStoredMail): MailFacts {
       timezone: EVAL_TIMEZONE,
       mailboxByAccountId: new Map([[EVAL_ACCOUNT_ID, EVAL_MAILBOX]]),
       userAddresses: new Set([EVAL_MAILBOX]),
-      knownContacts: new Set(mail.knownContact && senderAddress ? [senderAddress] : []),
+      correspondentHistory,
       ownReplies: mail.ownReplies ?? [],
     },
   );

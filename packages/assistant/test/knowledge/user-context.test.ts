@@ -3,16 +3,20 @@ import { createHash, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 
 import { closeConnections, db } from "@alfred/db";
-import { entities, memoryChunks, user, userFacts } from "@alfred/db/schemas";
+import { memoryChunks, user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
-import { readUserContext } from "@alfred/assistant/knowledge";
+import {
+  appendObservationFamilyMember,
+  readUserContext,
+  reduceGmailDocument,
+} from "@alfred/assistant/knowledge";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * `readUserContext` bounded slice. Needs a migrated `DATABASE_URL`.
- * Entities rank by significance (ADR-0057), unscored last. A focused lookup pulls in
- * its subject below the cap. Identity facts always fit, so per-email noise cannot evict them.
+ * The people section ranks the recently mailed addresses, or reads a focus. Identity facts
+ * always fit, so per-email noise cannot evict them.
  */
 const SKIP = dbBackedSkip("database");
 
@@ -36,25 +40,28 @@ async function seedUser(): Promise<string> {
   return userId;
 }
 
-interface SeedEntity {
-  name: string;
-  /** `metadata.significance.score`; `null` leaves the row unscored. */
-  score: number | null;
-  aliases?: string[];
-}
+/** Put a sent Gmail message through the production activity writer. */
+async function seedSentMail(
+  userId: string,
+  recipients: ReadonlyArray<{ name: string; address: string; sentAt: Date }>,
+): Promise<void> {
+  const observations = recipients.flatMap(({ name, address, sentAt }, index) => {
+    const id = `mail-${index}`;
 
-async function seedEntities(userId: string, specs: SeedEntity[]): Promise<void> {
-  await db()
-    .insert(entities)
-    .values(
-      specs.map((spec) => ({
-        userId,
-        kind: "person",
-        canonicalName: spec.name,
-        aliases: spec.aliases ?? [],
-        metadata: spec.score === null ? {} : { significance: { score: spec.score } },
-      })),
-    );
+    return reduceGmailDocument({
+      id,
+      userId,
+      raw: null,
+      metadata: { from: `${userId}@example.test`, to: `${name} <${address}>`, isSent: true },
+      sourceId: id,
+      sourceThreadId: null,
+      title: null,
+      accountId: null,
+      authoredAt: sentAt,
+    }).observations;
+  });
+
+  await Promise.all(observations.map((observation) => appendObservationFamilyMember(observation)));
 }
 
 interface SeedFact {
@@ -121,56 +128,48 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     await closeConnections();
   });
 
-  test("ranks entities by significance (unscored last), not alphabetically", async () => {
+  test("ranks people by the last sent mail", async () => {
     const userId = await seedUser();
-    // Names run opposite to significance, so an alphabetical sort fails.
-    await seedEntities(userId, [
-      { name: "Aaron Aardvark", score: 0.1 },
-      { name: "Mallory Mid", score: 0.5 },
-      { name: "Zoe Zenith", score: 0.9 },
-      { name: "Uma Unscored", score: null },
+    await seedSentMail(userId, [
+      { name: "Aaron Aardvark", address: "aaron@example.test", sentAt: new Date("2026-09-05") },
+      { name: "Mallory Mid", address: "mallory@example.test", sentAt: new Date("2026-09-06") },
+      { name: "Zoe Zenith", address: "zoe@example.test", sentAt: new Date("2026-09-07") },
     ]);
 
     const ctx = await readUserContext(userId);
-    const order = ctx.entities.map((e) => e.canonicalName);
 
     assert.deepEqual(
-      order,
-      ["Zoe Zenith", "Mallory Mid", "Aaron Aardvark", "Uma Unscored"],
-      "entities should be significance-desc with the unscored row last",
+      ctx.people.map((person) => person.address),
+      ["zoe@example.test", "mallory@example.test", "aaron@example.test"],
     );
-    assert.notEqual(order[0], "Aaron Aardvark", "must not be ordered alphabetically");
   });
 
-  test("guarantees a focused contact (subjectEmail / query) past the ranked cap", async () => {
+  test("guarantees a focused address past the recent mail cap", async () => {
     const userId = await seedUser();
 
-    // Fill the cap (ENTITY_LIMIT = 50) with high-significance contacts; the subject ranks 51st.
-    const fillers: SeedEntity[] = Array.from({ length: 50 }, (_, i) => ({
-      name: `Filler ${String(i).padStart(2, "0")}`,
-      score: 0.9,
+    const fillers = Array.from({ length: 20 }, (_, i) => ({
+      name: `Filler ${i}`,
+      address: `filler-${i}@example.test`,
+      sentAt: new Date("2026-09-06"),
     }));
 
-    await seedEntities(userId, [
+    await seedSentMail(userId, [
       ...fillers,
-      { name: "Subject Person", score: 0.01, aliases: ["subject@example.com"] },
+      { name: "Subject Person", address: "subject@example.test", sentAt: new Date("2026-09-05") },
     ]);
 
-    const hasSubject = (ctx: Awaited<ReturnType<typeof readUserContext>>): boolean =>
-      ctx.entities.some((e) => e.canonicalName === "Subject Person");
+    const addresses = (ctx: Awaited<ReturnType<typeof readUserContext>>): string[] =>
+      ctx.people.map((person) => person.address);
 
-    // Baseline: the subject is below the cap, so a plain read drops it.
     const plain = await readUserContext(userId);
-    assert.equal(plain.entities.length, 50, "ranked slice is capped at ENTITY_LIMIT");
-    assert.equal(hasSubject(plain), false, "low-significance subject is truncated without a focus");
+    assert.equal(plain.people.length, 20);
+    assert.equal(addresses(plain).includes("subject@example.test"), false);
 
-    // subjectEmail (case-insensitive alias match) rescues it.
-    const byEmail = await readUserContext(userId, { subjectEmail: "Subject@Example.com" });
-    assert.equal(hasSubject(byEmail), true, "subjectEmail must guarantee the contact is included");
+    const byEmail = await readUserContext(userId, { subjectEmail: "Subject@Example.test" });
+    assert.deepEqual(addresses(byEmail), ["subject@example.test"]);
 
-    // A free-text query that hits the name does too.
     const byQuery = await readUserContext(userId, { query: "subject person" });
-    assert.equal(hasSubject(byQuery), true, "a name-matching query must guarantee inclusion");
+    assert.deepEqual(addresses(byQuery), ["subject@example.test"]);
   });
 
   test("guarantees canonical identity facts survive a flood of recent noise (issue #329)", async () => {

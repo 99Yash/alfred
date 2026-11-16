@@ -381,7 +381,7 @@ function toolSurface(): Record<string, Tool> {
   const surface = {
     [READ_CONTEXT_TOOL]: tool({
       description:
-        "Read Alfred's stored context about the user's profile, preferences, relationships, people, projects, and recent memory.",
+        "Read Alfred's stored context about the user's profile, preferences, mail history by address, and recent memory.",
       inputSchema: readUserContextInput,
     }),
     [WEB_SEARCH_TOOL]: tool({
@@ -541,11 +541,11 @@ async function runThinPersonResearchReplay(
     stopWhen: isStepCount(5),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
-        description: "Read Alfred's stored context about the user's people and projects.",
+        description: "Read Alfred's stored mail history by address.",
         inputSchema: readUserContextInput,
         execute: async () => ({
           profile: null,
-          entities: [{ name: "Sakshi Jindal", summary: "Seen in recent work context only." }],
+          people: [],
           facts: [],
           recentMemory: [],
         }),
@@ -718,9 +718,9 @@ async function runPersonResearchDepth(
     stopWhen: isStepCount(6),
     tools: {
       [READ_CONTEXT_TOOL]: tool({
-        description: "Read Alfred's stored context about the user's people and projects.",
+        description: "Read Alfred's stored mail history by address.",
         inputSchema: readUserContextInput,
-        execute: async () => ({ profile: null, entities: [], facts: [], recentMemory: [] }),
+        execute: async () => ({ profile: null, people: [], facts: [], recentMemory: [] }),
       }),
       [WEB_SEARCH_TOOL]: tool({
         description: WEB_SEARCH_DESCRIPTION,
@@ -1053,9 +1053,9 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
         execute: async (input) => githubMcpResult(input),
       }),
       [READ_CONTEXT_TOOL]: tool({
-        description: "Read Alfred's stored context about the user's people and projects.",
+        description: "Read Alfred's stored mail history by address.",
         inputSchema: readUserContextInput,
-        execute: async () => ({ profile: null, entities: [], facts: [], recentMemory: [] }),
+        execute: async () => ({ profile: null, people: [], facts: [], recentMemory: [] }),
       }),
     },
   });

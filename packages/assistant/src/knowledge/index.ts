@@ -86,6 +86,8 @@ export {
 
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
+export { describeCorrespondentHistory } from "./correspondents";
+
 export {
   readUserContext,
   readUserContextItems,
@@ -120,12 +122,7 @@ export { valueSignature } from "./signature";
 
 export { isUninformativeRelationshipFact } from "./fact-policy";
 
-export {
-  getSenderSignificanceBatch,
-  readSenderPerson,
-  type SenderPersonRead,
-  type SenderSignificance,
-} from "./significance";
+export { readSenderPerson } from "./significance";
 
 export { type Significance } from "@alfred/contracts";
 

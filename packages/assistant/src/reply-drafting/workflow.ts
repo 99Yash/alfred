@@ -79,7 +79,6 @@ function snapshotFromRow(row: TriageRow, fallbackDocumentId: string): ReplyDraft
     model: row.model,
     todoDecision: row.todoDecision ?? null,
     senderRelationshipIsCold: row.senderRelationshipIsCold ?? null,
-    senderSignificanceBand: row.senderSignificanceBand ?? null,
   };
 }
 
@@ -297,8 +296,6 @@ async function runGather(ctx: StepContext<State>): Promise<StepResult<State>> {
     document,
     sender: ctx.state.sender ?? null,
     mailboxAddress: access.mailboxAddress,
-    relationship:
-      ctx.state.triage?.senderRelationshipIsCold === false ? "established_contact" : "unknown",
   });
 
   const state: State = {

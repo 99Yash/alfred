@@ -1,10 +1,10 @@
+import { significanceBandSchema } from "./attention";
 /**
  * Reply-drafting result shapes (ADR-0098). Every run ends in one of five outcomes.
  * The four that stage nothing are recorded too, so a skip always has a reason.
  */
 
 import { z } from "zod";
-import { significanceBandSchema } from "./attention";
 import { enumGuard, parseEmailAddress } from "./guards";
 import {
   standingInstructionEvidenceSchema,
@@ -194,7 +194,8 @@ export const replyDraftTriageSnapshotSchema = z.object({
   model: z.string(),
   todoDecision: triageTodoDecisionSchema.nullable(),
   senderRelationshipIsCold: z.boolean().nullable(),
-  senderSignificanceBand: significanceBandSchema.nullable(),
+  /** Kept for stored provenance from before ADR-0127. New runs omit it. */
+  senderSignificanceBand: significanceBandSchema.nullable().optional(),
 });
 
 export type ReplyDraftTriageSnapshot = z.infer<typeof replyDraftTriageSnapshotSchema>;

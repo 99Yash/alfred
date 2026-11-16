@@ -2,7 +2,6 @@ import {
   deriveLoopKey,
   isSentGmailMetadata,
   isTriageCategory,
-  parseEmailAddress,
   parseGmailDocumentMetadata,
   scoreAttentionForItems,
 } from "@alfred/contracts";
@@ -13,14 +12,13 @@ import type {
   FullBriefing,
   GmailDocumentMetadata,
   IanaTimezone,
-  SignificanceBand,
   TriageCategory,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
 import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
 import {
-  getSenderSignificanceBatch,
+  describeCorrespondentHistory,
   loadMailFacts,
   standingInstructions,
   type MailFacts,
@@ -34,7 +32,6 @@ import {
   type EffectiveTriageRow,
 } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
-import { logger } from "@alfred/logging";
 import type { ActivityWindow } from "@alfred/assistant/connections";
 import { officialWarningsFallback } from "./provenance";
 
@@ -93,6 +90,8 @@ export interface EmailListItem {
   previouslySurfaced: boolean;
   /** Demand band (ADR-0064). A ranking hint only. It never changes `triageCategory`. */
   attentionBand: AttentionBand;
+  /** The sender's mail history line (ADR-0127). Null on a read failure. */
+  correspondentHistory: string | null;
   /** Lets the agent decide if a `read_email` call is worth it. */
   contentLength: number;
   /**
@@ -291,23 +290,13 @@ export async function listEmailsSinceWatermark(
     rows.map((r) => r.documentId),
   );
 
-  // Significance demotes cold senders inside their category (ADR-0064).
-  // An unscored sender is neutral.
-  const significanceByAddress = await loadSignificanceBands(args.userId, senders);
-
-  const bandFor = (from: string | null): SignificanceBand | null => {
-    const address = parseEmailAddress(from);
-
-    return address ? (significanceByAddress.get(address) ?? null) : null;
-  };
-
   // Score the whole window together: recurrence is cross-row. Untriaged rows stay `normal`.
+  // No significance input: the band is recurrence only (ADR-0127).
   const attention = scoreAttentionForItems(
     rows.map((r, i) => ({
       sender: senders[i],
       subject: r.subject,
       category: toTriageCategory(r.triageCategory) ?? "fyi",
-      significanceBand: bandFor(senders[i] ?? null),
       // Rows arrive newest-first.
       occurredAtMs: (r.authoredAt ?? r.ingestedAt).getTime(),
     })),
@@ -320,6 +309,8 @@ export async function listEmailsSinceWatermark(
     const surfacedByThread = r.sourceThreadId ? surfaced.threadIds.has(r.sourceThreadId) : false;
     const surfacedByLoop = loopKey ? surfaced.loopKeys.has(loopKey) : false;
     const receiptInstant = gmailReceivedAt(r.gmailInternalDate);
+    const facts = mailFacts.get(r.documentId);
+    const history = facts?.sender.history;
 
     return {
       documentId: r.documentId,
@@ -339,7 +330,9 @@ export async function listEmailsSinceWatermark(
         ? (attention[i]?.band ?? "normal")
         : "normal",
       contentLength: Number(r.contentLength),
-      outsideTriage: outsideTriageOf(meta, mailFacts.get(r.documentId)),
+      // One history line for the sender address (ADR-0127); null on a read failure.
+      correspondentHistory: history ? describeCorrespondentHistory(history) : null,
+      outsideTriage: outsideTriageOf(meta, facts),
     } satisfies EmailListItem;
   });
 
@@ -382,32 +375,6 @@ function gmailReceivedAt(internalDate: string | null): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** One batched read of precomputed significance. Missing senders are absent from the map. */
-async function loadSignificanceBands(
-  userId: string,
-  rawSenders: ReadonlyArray<string | null>,
-): Promise<Map<string, SignificanceBand>> {
-  const addresses = new Set<string>();
-
-  for (const raw of rawSenders) {
-    const address = parseEmailAddress(raw);
-
-    if (address) addresses.add(address);
-  }
-
-  if (addresses.size === 0) return new Map();
-
-  const significanceByAddress = await getSenderSignificanceBatch(userId, [...addresses]);
-
-  const out = new Map<string, SignificanceBand>();
-
-  for (const [address, significance] of significanceByAddress) {
-    out.set(address, significance.band);
-  }
-
-  return out;
-}
-
 /** One already-gathered priority email, reduced to the scorer's inputs. */
 export interface PriorityEmailDemandItem {
   /** Raw `From`; a display name is fine. */
@@ -430,38 +397,18 @@ export interface PriorityEmailDemand {
  * Score gathered priority emails for the morning suppression gate (ADR-0064).
  * Uses the same scorer as `list_emails_since`, so the gate and the agent agree on "demanding".
  * Pass the whole window in one call: recurrence is cross-row.
- * Failed or due payments pin to demanding. A significance read failure falls back to category only.
+ * Failed or due payments pin to demanding. No significance read: category and recurrence decide.
  */
-export async function scorePriorityEmailDemand(
-  userId: string,
+export function scorePriorityEmailDemand(
   items: readonly PriorityEmailDemandItem[],
-): Promise<PriorityEmailDemand> {
+): PriorityEmailDemand {
   if (items.length === 0) return { demandingCount: 0, topBand: "muted" };
-
-  let bands: Map<string, SignificanceBand> = new Map();
-
-  try {
-    bands = await loadSignificanceBands(
-      userId,
-      items.map((item) => item.sender),
-    );
-  } catch (err) {
-    // Never fail the briefing over significance.
-    logger.warn({ err }, "[briefing.read] significance unavailable for suppression gate");
-  }
-
-  const bandFor = (from: string | null): SignificanceBand | null => {
-    const address = parseEmailAddress(from);
-
-    return address ? (bands.get(address) ?? null) : null;
-  };
 
   const scored = scoreAttentionForItems(
     items.map((item) => ({
       sender: item.sender,
       subject: item.subject,
       category: item.category,
-      significanceBand: bandFor(item.sender),
       occurredAtMs: item.occurredAtMs,
       pinnedDemanding: isDemandingPayment(item),
     })),

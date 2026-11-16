@@ -569,20 +569,16 @@ export interface ReadUserContextResult {
     readonly confidence: number;
   }[];
   readonly preferences: readonly { readonly key: string; readonly value: unknown }[];
-  readonly entities: readonly {
-    readonly id: string;
-    readonly kind: string;
-    readonly canonicalName: string;
-    readonly aliases: unknown;
-    readonly metadata: unknown;
-  }[];
-  readonly relations: readonly {
-    readonly relation: string;
-    readonly fromEntityId: string;
-    readonly from: string | null;
-    readonly toEntityId: string;
-    readonly to: string | null;
-    readonly metadata: unknown;
+  readonly people: readonly {
+    readonly address: string;
+    readonly displayName: string | null;
+    readonly firstSeenAt: Date | null;
+    readonly lastSeenAt: Date | null;
+    readonly receivedCount: number;
+    readonly lastReceivedAt: Date | null;
+    readonly sentCount: number;
+    readonly lastSentAt: Date | null;
+    readonly windowStartedAt: Date | null;
   }[];
   readonly recentMemory: readonly { readonly kind: string; readonly preview: string }[];
 }

@@ -11,10 +11,10 @@ import { serverEnv } from "@alfred/env/server";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import type { ClassifyEmailArgs, RunPass } from "@alfred/assistant/triage/classify";
-import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
+import { assembleObservations } from "@alfred/assistant/triage/observations";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
-import { evalMailFacts } from "./lib/stored-mail";
+import { evalMailFacts, type EvalCorrespondentCounts } from "./lib/stored-mail";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
 
 /**
@@ -58,19 +58,14 @@ interface Case {
   snippet?: string;
   labelIds?: string[];
   persona?: AccountPersona;
-  knownContact?: boolean;
-  /** Sender relationship line (ADR-0059), set here so no graph is needed. `undefined` = no line. */
-  senderRelationship?: string | null;
-  /** Rule-16b cold-contact flag, as `resolveSenderRelationship` derives it in prod. */
-  isColdContact?: boolean;
+  /** Lower-bound correspondent counts for the sender (ADR-0127). Absent: no history line. */
+  history?: EvalCorrespondentCounts;
   /** Newest first. */
   recentMessages?: ThreadMessageContext[];
   messageCount?: number;
   newestDirection?: "sent" | "received";
   /** Rule 18: the user's own reply closes the loop. */
   lastUserReplyAt?: Date | null;
-  /** Set when a case must exercise the sender-kind floors. */
-  senderKind?: Observations["senderKind"];
   /**
    * Canned cheap-model passes, only for a case that pins a deterministic floor.
    * A floor that fires only on a demand lane cannot be reached through a passive prompt.
@@ -107,7 +102,6 @@ const CASES: Case[] = [
     subject: "Standup coverage today",
     body: "Heads up — Sakshi is running standup today while I'm out. Nothing needed from you, just so you know who's driving.",
     persona: "work",
-    knownContact: true,
     expected: {
       category: ["fyi"],
       note: "The action is owned by Sakshi, not the user (16a-ii) — fyi, no todo.",
@@ -139,13 +133,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Backlog",
     body: "Brain: Done. Created [Investigate slow dashboard load] in the 26.3 Backlog list.\nView comment or reply to add a comment",
-    senderKind: {
-      kind: "service",
-      confidence: 0.92,
-      evidenceCodes: ["email:local:service_strong"],
-      entityId: "ent_clickup",
-      displayName: "Oliv AI",
-    },
     expected: {
       category: ["fyi"],
       collabActivity: "other_activity",
@@ -157,13 +144,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix deal driver messages after imports",
     body: "dvd set the status to 10 web\nView task or reply to add a comment",
-    senderKind: {
-      kind: "service",
-      confidence: 0.92,
-      evidenceCodes: ["email:local:service_strong"],
-      entityId: "ent_clickup",
-      displayName: "Oliv AI",
-    },
     expected: {
       category: ["fyi"],
       collabActivity: "state_change",
@@ -175,13 +155,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Conservice: Show all CRM fields as options",
     body: "Akash Ojha commented\nyes good catch\nView comment or reply to add a comment",
-    senderKind: {
-      kind: "service",
-      confidence: 0.92,
-      evidenceCodes: ["email:local:service_strong"],
-      entityId: "ent_clickup",
-      displayName: "Oliv AI",
-    },
     expected: {
       category: ["fyi"],
       collabActivity: "other_activity",
@@ -193,13 +166,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix login redirect loop on SSO",
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
-    senderKind: {
-      kind: "service",
-      confidence: 0.92,
-      evidenceCodes: ["email:local:service_strong"],
-      entityId: "ent_clickup",
-      displayName: "Oliv AI",
-    },
     expected: {
       category: ["action"],
       collabActivity: "assigned_to_user",
@@ -211,13 +177,6 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Deal Merge Flow",
     body: "Sanyam mentioned you in a comment\n@yash.k pls merge this PR before the release branch is cut: https://github.com/OlivAIRepo/autosched-mirror/pull/654",
-    senderKind: {
-      kind: "service",
-      confidence: 0.92,
-      evidenceCodes: ["email:local:service_strong"],
-      entityId: "ent_clickup",
-      displayName: "Oliv AI",
-    },
     expected: {
       category: ["action"],
       collabActivity: "mentioned_user",
@@ -282,8 +241,6 @@ const CASES: Case[] = [
     subject: "Priya sent you a message",
     body: "Priya: Can you confirm whether the API migration is safe to ship this week?",
     persona: "work",
-    knownContact: true,
-    senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
       category: ["reply"],
       note: "Rule 8a exception: a real correspondent's platform message with a genuine ask is judged on content; strong relationship means a real person is waiting.",
@@ -305,7 +262,6 @@ const CASES: Case[] = [
     subject: "Order shipped — and one more thing",
     body: "Good news, your order has shipped (tracking #1Z999AA). Separately — please send the signed SOW by Friday so we can kick the project off on time.",
     persona: "work",
-    knownContact: true,
     authoredAt: NOW,
     expected: {
       category: ["done"],
@@ -319,8 +275,6 @@ const CASES: Case[] = [
     subject: "Re: Founding Engineer Role @ ShortLoop",
     body: "Hi Yash — would you be open to a quick chat this week about the founding engineer role at ShortLoop? Happy to work around your schedule.",
     persona: "personal",
-    senderRelationship: "no prior contact on record",
-    isColdContact: true,
     messageCount: 2,
     newestDirection: "sent",
     lastUserReplyAt: new Date("2026-06-10T11:30:00Z"),
@@ -364,8 +318,6 @@ const CASES: Case[] = [
     subject: "Quick favor — a recommendation?",
     body: "Hi, we haven't really met, but I'm applying for a new role and would love a LinkedIn recommendation from you. Could you write a few lines about my work? Would mean a lot.",
     persona: "work",
-    senderRelationship: "no prior contact on record",
-    isColdContact: true,
     expected: {
       category: ["reply"],
       note: "Cold sender, no correspondence history — not a real person waiting (16b cold_sender). The direct ask keeps awaiting_reply honest, but no todo. THIS is failure A.",
@@ -378,8 +330,6 @@ const CASES: Case[] = [
     subject: "Re: TormentNexus for 99Yash -- Thoughts?",
     body: "Just wanted to follow up on my previous note about TormentNexus. I'll keep this brief: it provides progressive MCP tool routing, dual-tier memory, and a resilient LLM waterfall with zero downtime. If you're even remotely curious about improving your agent coordination, I'd love to share a quick demo. Worth a conversation?",
     persona: "personal",
-    senderRelationship: "no prior contact on record",
-    isColdContact: true,
     authoredAt: NOW,
     expected: {
       category: ["reply"],
@@ -392,8 +342,6 @@ const CASES: Case[] = [
     subject: "Need your changes on the Q3 budget",
     body: "Can you review the Q3 budget sheet and send me your edits? Finance review is blocked on your numbers.",
     persona: "work",
-    knownContact: true,
-    senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
       category: ["action"],
       note: "Strong two-way same-org colleague with a direct, blocking ask — a real person is waiting (16b passes). Same ask shape as the cold seeker, opposite todo call.",
@@ -405,8 +353,6 @@ const CASES: Case[] = [
     subject: "Invoice #44 — $4,000 now overdue",
     body: "Following up on invoice #44 for the design work delivered in May. The $4,000 balance is now 15 days overdue — please remit payment this week.",
     persona: "work",
-    senderRelationship: "no prior contact on record",
-    isColdContact: true,
     expected: {
       category: ["receipt"],
       note: "Cold sender, but money owed is an INTRINSIC stake — NOT gated by the person-waiting rule. Over-correction guard: the relationship gate must not kill real bills.",
@@ -428,8 +374,6 @@ const CASES: Case[] = [
     subject: "Camera-ready due Jun 18",
     body: "Your accepted paper's camera-ready version is due Jun 18. Submit via the portal by then or it will be withdrawn from the proceedings.",
     persona: "work",
-    senderRelationship: "weak · one-way inbound (you never replied)",
-    isColdContact: true,
     authoredAt: NOW,
     expected: {
       category: ["action"],
@@ -442,8 +386,6 @@ const CASES: Case[] = [
     subject: "Staging migration plan?",
     body: "Can you put together the staging migration plan and send it over by EOD? I'm blocked on it for my PR.",
     persona: "work",
-    knownContact: true,
-    senderRelationship: "moderate · two-way thread · same-org",
     authoredAt: NOW,
     expected: {
       category: ["action"],
@@ -559,7 +501,7 @@ const CASES: Case[] = [
     },
   },
   {
-    // Prod miss #1097. `senderKind` stays null on purpose, so the sender-kind floor stays silent.
+    // Prod miss #1097. No hand-set `sender`: the fix lives in `extractSenderContext`.
     label: "linkedin-invite-reminder-relay",
     from: "Vaibhav Sharma (via LinkedIn) <messages-noreply@linkedin.com>",
     subject: "Reminder: Vaibhav Sharma invited you to connect",
@@ -615,7 +557,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     body: c.body,
     authoredAt,
     labelIds: c.labelIds ?? ["INBOX"],
-    knownContact: c.knownContact,
+    history: c.history,
   });
 
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
@@ -628,10 +570,6 @@ function buildArgs(c: Case): ClassifyEmailArgs {
       messageCount: c.messageCount ?? 0,
       recentMessages: c.recentMessages ?? [],
     },
-    knownContact: c.knownContact ?? false,
-    senderRelationship: c.senderRelationship ?? null,
-    senderRelationshipIsCold: c.isColdContact ?? false,
-    senderKind: c.senderKind ?? null,
     labelIds: mailFacts.labelIds,
     signalText,
   });
@@ -663,7 +601,6 @@ function renderJudgeContext(c: Case, sender: SenderContext): string {
   const lines: string[] = [
     // The reader's context: that is what the classifier saw.
     `SenderContext: ${JSON.stringify(sender)}`,
-    `Known contact: ${c.knownContact ? "yes" : "no"}`,
   ];
 
   // The classifier reads Gmail labels, so the judge must too, or a cited spam verdict looks invented.
@@ -671,8 +608,10 @@ function renderJudgeContext(c: Case, sender: SenderContext): string {
     lines.push(`Gmail labels: ${c.labelIds.join(", ")}`);
   }
 
-  if (c.senderRelationship) {
-    lines.push(`Sender relationship: ${c.senderRelationship}`);
+  if (c.history) {
+    lines.push(
+      `Correspondent history: stored since 2026-09-05; they sent ${c.history.receivedCount}; you sent ${c.history.sentCount}`,
+    );
   }
 
   if (c.messageCount || c.recentMessages?.length) {

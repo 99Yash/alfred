@@ -26,7 +26,6 @@ export const replyGatherSchema = z.object({
   authoredAt: z.string().nullable(),
   mailboxAddress: z.string().nullable(),
   audience: z.literal("generic"),
-  relationship: z.string(),
   now: z.string(),
   timezone: ianaTimezoneSchema,
   localDate: z.string(),
@@ -55,7 +54,6 @@ export async function gatherReplyContext(args: {
   document: NonNullable<Awaited<ReturnType<typeof loadReplyDocument>>>;
   sender: string | null;
   mailboxAddress: string | null;
-  relationship: string;
 }): Promise<ReplyGather> {
   const { document } = args;
 
@@ -69,7 +67,7 @@ export async function gatherReplyContext(args: {
   const [userContext, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
-      include: ["profile", "facts", "preferences", "entities", "relationships"],
+      include: ["profile", "facts", "preferences", "people"],
       settings: userSettings,
     }),
     userSettings.timezone(),
@@ -100,7 +98,6 @@ export async function gatherReplyContext(args: {
     authoredAt: document.authoredAt?.toISOString() ?? null,
     mailboxAddress: args.mailboxAddress,
     audience: "generic",
-    relationship: args.relationship,
     now: now.toISOString(),
     timezone,
     localDate: inZone(timezone).day(now),

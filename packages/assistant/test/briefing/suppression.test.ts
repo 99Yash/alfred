@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { after, describe, test } from "node:test";
+import { describe, test } from "node:test";
 
-import { closeConnections } from "@alfred/db";
-
-import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { isQuietMorning, scorePriorityEmailDemand } from "@alfred/assistant/briefings/read";
-import { closeRedis } from "@alfred/db/redis";
-import { dbBackedSkip } from "../support/db-backed";
 
 /** A cron morning is suppressed when nothing is demanding, even with priority items present (ADR-0064). */
 describe("isQuietMorning", () => {
@@ -58,28 +52,18 @@ describe("isQuietMorning", () => {
 });
 
 /**
- * DB-backed: {@link scorePriorityEmailDemand} reads sender significance. A fresh user scores on category alone.
+ * Pure now: the gate reads category and the history line, not a graph read (ADR-0127).
  * A failed payment must stay demanding from its subject or snippet.
  */
-const SKIP = dbBackedSkip("database");
-
-describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
-  const userId = `test-briefing-suppression-${randomUUID()}`;
-
-  after(async () => {
-    await closeReplicachePokeBridge().catch(() => {});
-    await closeRedis().catch(() => {});
-    await closeConnections().catch(() => {});
-  });
-
-  test("empty set ⇒ no demand, muted top band", async () => {
-    const demand = await scorePriorityEmailDemand(userId, []);
+describe("scorePriorityEmailDemand", () => {
+  test("empty set ⇒ no demand, muted top band", () => {
+    const demand = scorePriorityEmailDemand([]);
     assert.equal(demand.demandingCount, 0);
     assert.equal(demand.topBand, "muted");
   });
 
-  test("a quiet day of sub-cutoff items ⇒ zero demanding (the $6.79 case suppresses)", async () => {
-    const demand = await scorePriorityEmailDemand(userId, [
+  test("a quiet day of sub-cutoff items ⇒ zero demanding (the $6.79 case suppresses)", () => {
+    const demand = scorePriorityEmailDemand([
       {
         sender: "billing@railway.app",
         subject: "Payment receipt",
@@ -105,8 +89,8 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
     assert.equal(demand.topBand, "normal"); // receipt sits at normal; news and fyi sit below it
   });
 
-  test("an actionable payment failure counts as demanding ⇒ send", async () => {
-    const demand = await scorePriorityEmailDemand(userId, [
+  test("an actionable payment failure counts as demanding ⇒ send", () => {
+    const demand = scorePriorityEmailDemand([
       {
         sender: "billing@railway.app",
         subject: "Payment failed - update your card",
@@ -120,8 +104,8 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
     assert.equal(demand.topBand, "demanding");
   });
 
-  test("an unscored action counts as demanding ⇒ send (errs toward sending)", async () => {
-    const demand = await scorePriorityEmailDemand(userId, [
+  test("an unscored action counts as demanding ⇒ send (errs toward sending)", () => {
+    const demand = scorePriorityEmailDemand([
       {
         sender: "colleague@acme.com",
         subject: "Please review",

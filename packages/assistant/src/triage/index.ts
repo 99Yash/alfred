@@ -66,16 +66,6 @@ export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
 export type { ThreadState, GetThreadStateArgs, GmailThreadClosure } from "./thread-state";
 
-export { resolveSenderRelationship } from "./sender-relationship";
-
-export {
-  triageSenderKindProjectionEnabled,
-  TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD,
-  TRIAGE_SENDER_KIND_FEATURE_KEY,
-} from "./sender-kind";
-
-export type { TriageSenderKindSignal } from "./sender-kind";
-
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 
 export { TRIAGE_OUT_OF_SCOPE_MEANING, triageOutOfScope, type TriageOutOfScope } from "./scope";

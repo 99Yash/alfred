@@ -116,8 +116,7 @@ describe("system-tool product seams with registered adapters", () => {
         activeIntegrations: [],
         confirmedFacts: [],
         preferences: [],
-        entities: [],
-        relations: [],
+        people: [],
         recentMemory: [],
       } as const,
       remember: {
