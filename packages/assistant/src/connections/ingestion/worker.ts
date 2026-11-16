@@ -29,7 +29,6 @@ import { runGmailTriageRelabel } from "./gmail-triage";
 import { refoldGmailKindProjection, scheduleGmailKindRefoldSweep } from "./gmail-user-model";
 import { deliverInboundReceipt } from "./inbound-deliver";
 import { ingestionQueue } from "./queue";
-import { backfillReceiptDocuments } from "./receipt-corpus-backfill";
 
 type GmailInsertJobKind = GmailDocumentsIngestedPayload["jobKind"];
 
@@ -305,15 +304,10 @@ export const ingestionWorker = ingestionQueue.consume({
 
     "gmail.embed_sweep": async () => {
       // Retry failed embeds in separate bounded batches, so a busy source cannot starve another.
-      // Inbound batches also project receipts stored before #989.
       const [mail, media, ...inbound] = await Promise.all([
         retryPending({ source: "gmail", limit: 50 }),
         retryPending({ source: "gmail_attachment", limit: 50 }),
-        ...INBOUND_EVENT_SOURCES.map(async (source) => {
-          await backfillReceiptDocuments(source);
-
-          return retryPending({ source, limit: 50 });
-        }),
+        ...INBOUND_EVENT_SOURCES.map((source) => retryPending({ source, limit: 50 })),
       ]);
 
       const candidates =

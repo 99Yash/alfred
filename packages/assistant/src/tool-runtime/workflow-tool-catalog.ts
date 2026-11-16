@@ -2,7 +2,6 @@ import type {
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   ToolAvailabilityResult,
-  ToolCredentialRequirement,
   ToolName,
   ToolRunContext,
 } from "@alfred/contracts";
@@ -13,7 +12,6 @@ import { bootPort } from "@alfred/assistant/boot-port";
 export interface WorkflowToolFacts {
   name: ToolName;
   integration: IntegrationSlug;
-  availability?: { credential?: ToolCredentialRequirement } | undefined;
   /** `evaluateToolAvailability` bound to this tool. */
   evaluateAvailability(input: {
     availability: IntegrationAvailabilitySnapshot;

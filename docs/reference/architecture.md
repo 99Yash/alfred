@@ -93,8 +93,8 @@ commits.
 GitHub deliveries enter through `POST /webhooks/inbound/:source`.
 The receive path stores one `event_receipts` row and publishes
 `<source>.<event>` on the trigger bus (ADR-0097). The `github-activity-fold`
-trigger consumer reads the receipt back and runs the
-ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
+trigger consumer reads the body back from the receipt's document
+(`documents.raw`, the one copy) and runs the ADR-0062 object-state reducer over it. `objectStateFoldConsumers()` builds one
 consumer per inbound source. Each one parses the body once with
 `parseReceiptEvent` into an `ObjectStateEvent`, a union keyed on provider and
 event type, so a provider without a reducer is a compile error. The consumers live beside the

@@ -94,10 +94,8 @@ export const RULES = [
       "packages/assistant/src/connections/ingestion/inbound-receive.ts",
       "packages/assistant/src/connections/ingestion/inbound-deliver.ts",
       "packages/assistant/src/connections/raw-receipt-inventory.ts",
-      "packages/assistant/src/connections/ingestion/receipt-corpus-backfill.ts",
-      "packages/assistant/src/connections/ingestion/receipt-payload-reaper.ts",
     ],
-    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, the deliver job (publishes both tiers), raw inventory, corpus backfill, and payload retention may read both tiers of eventReceipts.",
+    fix: "Read typedEventReceipts from @alfred/db/schemas. Only the view definition, receipt conflict read-back, the deliver job (publishes both tiers), and raw inventory may read both tiers of eventReceipts.",
   },
   {
     id: "humanize-integration-slug",
@@ -634,7 +632,7 @@ export const RULES = [
     // `google/gmail`, so the assistant's `./internal/tools/gmail` tool module is
     // not this file. A named import of the pure parsers (`extractMessageContent`,
     // the types) stays legal.
-    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|createDraft|sendDraft|deleteDraft|getAttachment)\b[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']|\bimport\(\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']\s*\)/,
+    re: /\b(?:import|export)\s*(?:\{[^}]*\b(?:listMessages|getMessage|getThreadMessageLabels|listHistory|startWatch|stopWatch|listLabels|createLabel|modifyMessageLabels|batchModifyMessages|createDraft|getAttachment)\b[^}]*\}|\*(?:\s*as\s+\w+)?)\s*from\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']|\bimport\(\s*["'](?:[^"']*\/google\/|\.\.?\/)gmail(?:\.[cm]?[jt]s)?["']\s*\)/,
     scope: "chain",
     severity: "gate",
     owners: ["packages/integrations/src/google/mailbox.ts"],
@@ -710,7 +708,7 @@ export const RULES = [
     id: "hand-rolled-domain-literal-match",
     // The same idiom with the base written out: `domain === "sentry.io" ||
     // domain.endsWith(".sentry.io")`. `hint`, because such sites predate
-    // the helper: three in `triage/sender-context.ts`, and one each in
+    // the helper: three in `knowledge/sender-context.ts`, and one each in
     // `hosted-endpoint.ts` and the web `briefing-link.tsx`. The backreference pins both
     // halves to one value and one host, so a different host on either side does
     // not match.

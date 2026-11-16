@@ -17,11 +17,11 @@ import {
   type RunPass,
   type TodoDecisionOutcome,
 } from "@alfred/assistant/triage/classify";
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
 import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
+import { evalMailFacts } from "./lib/stored-mail";
 import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
 
 /**
@@ -45,7 +45,7 @@ interface Expected {
    */
   category: readonly [TriageCategory, ...TriageCategory[]];
   /**
-   * Whole tags from `classifyEmail`'s `model` string that must be present, like `+2pass` or `+spamfloor`.
+   * Whole tags from `classifyEmail`'s `model` string that must be present, like `+2pass`.
    * Matched as whole tags: `+2pass` does not match `+2pass_failed`.
    * Name the tag when a deterministic guard must decide the case. The accept set alone
    * often holds both answers, so it still scores 1 when the guard is deleted.
@@ -81,11 +81,6 @@ interface Case {
   /** Set when a case must exercise the sender-kind floors. */
   senderKind?: Observations["senderKind"];
   /**
-   * Omit to derive it from the headers through `extractSenderContext`. A case that pins the
-   * envelope parse must omit it, or it asserts its own precondition and stays green after a revert.
-   */
-  sender?: SenderContext;
-  /**
    * Canned cheap-model passes, only for a case that pins a deterministic floor.
    * A floor that fires only on a demand lane cannot be reached through a passive prompt.
    */
@@ -94,20 +89,12 @@ interface Case {
   expected: Expected;
 }
 
-function senderContextFor(c: Case): SenderContext {
-  return (
-    c.sender ??
-    extractSenderContext({ fromHeader: c.from, subject: c.subject, body: c.body }).context
-  );
-}
-
 const CASES: Case[] = [
   {
     label: "github-secret-exposed",
     from: "GitHub <noreply@github.com>",
     subject: "[acme/api] Redis URI exposed on GitHub",
     body: "A secret (Redis connection URI) was found exposed in a commit to acme/api. Rotate the credential immediately and remove it from history.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["urgent"],
       todo: "mint",
@@ -119,7 +106,6 @@ const CASES: Case[] = [
     from: "Anthropic <noreply@anthropic.com>",
     subject: "Your login code is 123456",
     body: "Enter this one-time code to finish signing in. It expires in 10 minutes. If you didn't request this, ignore the email.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -133,7 +119,6 @@ const CASES: Case[] = [
     body: "Heads up — Sakshi is running standup today while I'm out. Nothing needed from you, just so you know who's driving.",
     persona: "work",
     knownContact: true,
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -156,11 +141,6 @@ const CASES: Case[] = [
           "dvd assigned you a comment: there is still a bug here — imports aren't triggering the deal driver messages. please make sure this is fixed.",
       },
     ],
-    sender: {
-      fromKind: "service",
-      effectiveAuthor: "bot",
-      bodyActor: { kind: "bot", name: "Brain" },
-    },
     expected: {
       category: ["action_needed"],
       todo: "mint",
@@ -178,11 +158,6 @@ const CASES: Case[] = [
       evidenceCodes: ["email:local:service_strong"],
       entityId: "ent_clickup",
       displayName: "Oliv AI",
-    },
-    sender: {
-      fromKind: "service",
-      effectiveAuthor: "bot",
-      bodyActor: { kind: "bot", name: "Brain" },
     },
     expected: {
       category: ["fyi"],
@@ -203,7 +178,6 @@ const CASES: Case[] = [
       entityId: "ent_clickup",
       displayName: "Oliv AI",
     },
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -223,7 +197,6 @@ const CASES: Case[] = [
       entityId: "ent_clickup",
       displayName: "Oliv AI",
     },
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -243,7 +216,6 @@ const CASES: Case[] = [
       entityId: "ent_clickup",
       displayName: "Oliv AI",
     },
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["action_needed"],
       todo: "mint",
@@ -263,7 +235,6 @@ const CASES: Case[] = [
       entityId: "ent_clickup",
       displayName: "Oliv AI",
     },
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["action_needed"],
       todo: "mint",
@@ -276,12 +247,6 @@ const CASES: Case[] = [
     from: "GitHub <notifications@github.com>",
     subject: "coderabbitai commented on pull request #42",
     body: "Review comment on /pull/42: consider adding an index on user_id to speed up this query. Nit: rename `foo` to `bar` for clarity. Overall looks good.",
-    sender: {
-      fromKind: "service",
-      effectiveAuthor: "bot",
-      botSlug: "coderabbit",
-      bodyActor: { kind: "bot", name: "coderabbitai" },
-    },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -293,7 +258,6 @@ const CASES: Case[] = [
     from: "Greptile <noreply@greptile.com>",
     subject: "You've reached your 50-review trial limit",
     body: "99Yash has reached the 50-review trial limit. Upgrade your plan to continue getting automated reviews from Greptile.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["marketing"],
       todo: "suppress",
@@ -318,7 +282,6 @@ const CASES: Case[] = [
     from: "LinkedIn <notifications@linkedin.com>",
     subject: "People you may know at Acme",
     body: "Grow your network: add Priya, Karan, and Maya to your LinkedIn network. View profiles or connect now.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -330,7 +293,6 @@ const CASES: Case[] = [
     from: "LinkedIn <notifications@linkedin.com>",
     subject: "You appeared in 13 searches this week",
     body: "Your profile appeared in 13 searches this week. See who's searching for you and update your profile to get more views.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -344,11 +306,6 @@ const CASES: Case[] = [
     body: "Priya: Can you confirm whether the API migration is safe to ship this week?",
     persona: "work",
     knownContact: true,
-    sender: {
-      fromKind: "service",
-      effectiveAuthor: "person",
-      bodyActor: { kind: "person", name: "Priya" },
-    },
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
       category: ["awaiting_reply"],
@@ -361,7 +318,6 @@ const CASES: Case[] = [
     from: "Stripe <billing@stripe.com>",
     subject: "Your payment failed — update your card",
     body: "We couldn't charge your card for the $49.00 monthly invoice. Update your payment method by Jun 15 to avoid losing access to your account.",
-    sender: { fromKind: "service", effectiveAuthor: "service", botSlug: "stripe-billing" },
     expected: {
       category: ["payment"],
       todo: "mint",
@@ -375,7 +331,6 @@ const CASES: Case[] = [
     body: "Good news, your order has shipped (tracking #1Z999AA). Separately — please send the signed SOW by Friday so we can kick the project off on time.",
     persona: "work",
     knownContact: true,
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     authoredAt: NOW,
     expected: {
       category: ["done"],
@@ -390,7 +345,6 @@ const CASES: Case[] = [
     subject: "Re: Founding Engineer Role @ ShortLoop",
     body: "Hi Yash — would you be open to a quick chat this week about the founding engineer role at ShortLoop? Happy to work around your schedule.",
     persona: "personal",
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     messageCount: 2,
@@ -423,7 +377,6 @@ const CASES: Case[] = [
     subject: "Your weekly digest: 5 stories you might like",
     body: "Here are this week's top stories from the writers you follow. Read on the web or in the app. Unsubscribe anytime from your settings.",
     labelIds: ["INBOX", "CATEGORY_UPDATES"],
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["newsletter"],
       todo: "suppress",
@@ -439,7 +392,6 @@ const CASES: Case[] = [
     subject: "Quick favor — a recommendation?",
     body: "Hi, we haven't really met, but I'm applying for a new role and would love a LinkedIn recommendation from you. Could you write a few lines about my work? Would mean a lot.",
     persona: "work",
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
@@ -455,7 +407,6 @@ const CASES: Case[] = [
     subject: "Re: TormentNexus for 99Yash -- Thoughts?",
     body: "Just wanted to follow up on my previous note about TormentNexus. I'll keep this brief: it provides progressive MCP tool routing, dual-tier memory, and a resilient LLM waterfall with zero downtime. If you're even remotely curious about improving your agent coordination, I'd love to share a quick demo. Worth a conversation?",
     persona: "personal",
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     authoredAt: NOW,
@@ -472,7 +423,6 @@ const CASES: Case[] = [
     body: "Can you review the Q3 budget sheet and send me your edits? Finance review is blocked on your numbers.",
     persona: "work",
     knownContact: true,
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
       category: ["action_needed"],
@@ -486,7 +436,6 @@ const CASES: Case[] = [
     subject: "Invoice #44 — $4,000 now overdue",
     body: "Following up on invoice #44 for the design work delivered in May. The $4,000 balance is now 15 days overdue — please remit payment this week.",
     persona: "work",
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
@@ -500,7 +449,6 @@ const CASES: Case[] = [
     from: "LinkedIn <invitations@linkedin.com>",
     subject: "Arjun Rao wants to connect",
     body: "Arjun Rao, Founder & CEO at NimbusAI, would like to connect with you on LinkedIn. Accept or ignore.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -513,7 +461,6 @@ const CASES: Case[] = [
     subject: "Camera-ready due Jun 18",
     body: "Your accepted paper's camera-ready version is due Jun 18. Submit via the portal by then or it will be withdrawn from the proceedings.",
     persona: "work",
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "weak · one-way inbound (you never replied)",
     isColdContact: true,
     authoredAt: NOW,
@@ -530,7 +477,6 @@ const CASES: Case[] = [
     body: "Can you put together the staging migration plan and send it over by EOD? I'm blocked on it for my PR.",
     persona: "work",
     knownContact: true,
-    sender: { fromKind: "person", effectiveAuthor: "person" },
     senderRelationship: "moderate · two-way thread · same-org",
     authoredAt: NOW,
     expected: {
@@ -546,7 +492,6 @@ const CASES: Case[] = [
     subject: "Claude Incident — elevated error rate on Opus 4.8",
     body: "We are investigating elevated error rates affecting the Claude API and Console. Some requests may fail or be delayed. We will post updates here as we have them.",
     persona: "work",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -559,12 +504,6 @@ const CASES: Case[] = [
     subject: "[acme-api] Error rate spiking in production",
     body: "Your project acme-api is throwing 500s in production. Error rate is 40% over the last 10 minutes and climbing. Issue: TypeError in checkout handler, first seen 12 minutes ago.",
     persona: "work",
-    sender: {
-      fromKind: "service",
-      effectiveAuthor: "bot",
-      botSlug: "sentry",
-      bodyActor: { kind: "bot", name: "Sentry" },
-    },
     expected: {
       category: ["urgent"],
       todo: "mint",
@@ -577,7 +516,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "[GitHub] Sudo email verification code",
     body: "Here is your sudo verification code: 284613. Enter it to confirm your identity and continue. This code expires in 15 minutes. If you did not request it, you can ignore this email.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -589,7 +527,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "Passkey created",
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -601,7 +538,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "Two-factor authentication enabled",
     body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -613,7 +549,6 @@ const CASES: Case[] = [
     from: "Google <no-reply@accounts.google.com>",
     subject: "Suspicious sign-in from a new device — was this you?",
     body: "We detected a suspicious sign-in to your account from a new device in a location you don't usually sign in from. If this wasn't you, secure your account immediately.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["urgent"],
       todo: "mint",
@@ -626,7 +561,6 @@ const CASES: Case[] = [
     from: "Wellfound <team@wellfound.com>",
     subject: "Your Wellfound password was changed",
     body: "Your Wellfound password was changed. If you did not make this change, your account may be compromised — contact support immediately.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -640,7 +574,6 @@ const CASES: Case[] = [
     from: "LinkedIn <security-noreply@linkedin.com>",
     subject: "Your verification code is 419283",
     body: "Your one-time token is 419283. This token expires in 10 minutes. Never share this token with anyone. If you did not request it, your account may be compromised.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -653,7 +586,6 @@ const CASES: Case[] = [
     from: "Supabase <noreply@mail.app.supabase.io>",
     subject: "Reset your password",
     body: "Follow this link to reset your password: https://app.example.com/auth/v1/verify?token=pkce_9f1c4&type=recovery. If you did not request a password reset, your account may be compromised.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -665,7 +597,6 @@ const CASES: Case[] = [
     from: "GitHub <noreply@github.com>",
     subject: "A third-party OAuth application was added to your account",
     body: "The OAuth application 'DeployBot' was authorized to access your account with repo and read:org scopes. If you did not authorize this, revoke its access.",
-    sender: { fromKind: "service", effectiveAuthor: "service" },
     expected: {
       category: ["fyi"],
       todo: "suppress",
@@ -699,87 +630,6 @@ const CASES: Case[] = [
       note: "The envelope is the platform's, not Rhea's, so rule 8a governs: passive social activity → fyi, never awaiting_reply off the relayed reminder copy. No todo (16a-i no_obligation).",
     },
   },
-  {
-    // Prod miss #1097. Person-shaped on purpose, so only the Gmail SPAM label decides.
-    label: "spam-filed-cold-promo",
-    from: "Arjun Mehta <arjun@growthloop-outreach.com>",
-    subject: "A quick idea for your onboarding funnel",
-    body: "Hi Yash — I put together a short teardown of your onboarding funnel and found three drop-off points you could close in a week. Would love your thoughts!",
-    labelIds: ["SPAM"],
-    sender: { fromKind: "person", effectiveAuthor: "person" },
-    expected: {
-      category: ["marketing", "fyi", "newsletter"],
-      todo: "suppress",
-      note: "Gmail filed this as spam — a third party's verdict that the mail is unsolicited (rule 20). Judge the gist, not the phrasing: an unsolicited pitch is right as any passive tag and wrong in a reply lane, which the spam floor demotes to fyi if the model emits one.",
-    },
-  },
-  {
-    // Pins the spam floor's demote branch. `spam-filed-cold-promo` scores 1 with or without the floor,
-    // so this case cans both passes into `awaiting_reply` and asserts `+spamfloor`.
-    label: "spam-filed-reply-lane-demotes",
-    from: "Mira Sethi <mira@agentbuild-summit.com>",
-    subject: "Re: AgentBuild Summit <> Yash!",
-    body: "Hey Yash — following up on the summit. Would love your thoughts on the blog post we published last week. Registration closes soon, grab a spot here.",
-    labelIds: ["SPAM"],
-    sender: { fromKind: "person", effectiveAuthor: "person" },
-    runPass: () =>
-      Promise.resolve({
-        category: "awaiting_reply",
-        confidence: 0.8,
-        rationale: "The sender asks for the user's thoughts on a post and is waiting on a reply.",
-        todoSuggestion: { name: "Reply with thoughts on the blog post", assist: null },
-        todoDecision: { outcome: "proposed", note: "The sender is waiting on a response." },
-        collabActivity: null,
-      }),
-    expected: {
-      category: ["fyi"],
-      guards: ["+spamfloor"],
-      todo: "suppress",
-      note: 'Gmail filed this as spam, so "would love your thoughts" is engagement copy, not an owed reply (rule 20). A reply lane claims the SENDER is owed something, which is exactly what the spam verdict denies, so the floor demotes it to fyi and clears the proposed todo — demote, never bury.',
-    },
-  },
-  {
-    // The other half of #1098: a spam-filed demand lane keeps the model's answer.
-    // A fired floor lands on `fyi`, which is outside this accept set, so no negative guard is needed.
-    // The phish body is deliberate: #1098 accepted a dismissible false `urgent` over a buried real ask.
-    label: "spam-filed-phish-keeps-model-answer",
-    from: "Billing Support <secure-billing@acme-invoices-verify.com>",
-    subject: "URGENT: your account will be suspended in 24 hours",
-    body: "We could not process your last payment. Verify your billing details within 24 hours or your account and all data will be permanently suspended.",
-    labelIds: ["SPAM"],
-    sender: { fromKind: "service", effectiveAuthor: "service" },
-    runPass: () =>
-      Promise.resolve({
-        category: "urgent",
-        confidence: 0.9,
-        rationale:
-          "The body threatens permanent account suspension within 24 hours unless billing details are verified now.",
-        todoSuggestion: { name: "Verify billing details", assist: null },
-        todoDecision: { outcome: "proposed", note: "Stated 24-hour deadline on account access." },
-        collabActivity: null,
-      }),
-    expected: {
-      category: ["urgent"],
-      todo: "mint",
-      note: "The spam floor no longer gates `urgent`/`action_needed` (#1098): Gmail's spam verdict is a fallible third party's, so on the demand lanes it is a prompt-side prior and the model owns the call. This row cans the model away, so it pins the floor's silence alone — and the surviving todo is the accepted cost, since the floor no longer clears one here.",
-    },
-  },
-  {
-    // Pins rule 20's exception: a spam-filed mail with an obligation the user already owns keeps its
-    // demand lane. No `runPass` and no hand-set `sender`, so the real classifier answers.
-    // A prompt exemplar names "a ticket the user opened", so this proves compliance, not generalization.
-    // See .lessons/a-strengthened-prompt-masks-the-deterministic-branch-under-it.md.
-    label: "spam-filed-owned-ticket-keeps-demand-lane",
-    from: "Deepa Raman <deepa.raman@northbeam-support.com>",
-    subject: "Ticket HD-4471 needs your diagnostics upload before Friday",
-    body: "Hi Yash — your ticket HD-4471 is open with our engineering team. They cannot reproduce the fault until you upload the diagnostics bundle to the support portal and set the firmware version on the ticket. The ticket auto-closes on Friday if the upload is still missing.",
-    labelIds: ["SPAM"],
-    expected: {
-      category: ["action_needed", "urgent"],
-      todo: "mint",
-      note: "Gmail filed this as spam and Gmail is wrong: the user opened ticket HD-4471 themselves, so the upload is an obligation the user ALREADY owns and it does not depend on trusting the sender (rule 20's exception). A hard spam bound would bury a real ask — demote, never bury, cuts the other way on the demand lanes.",
-    },
-  },
 ];
 
 interface TaskOutput {
@@ -807,6 +657,18 @@ interface TaskOutput {
 
 function buildArgs(c: Case): ClassifyEmailArgs {
   const authoredAt = c.authoredAt ?? NOW;
+
+  // Every mail fact, the sender context too, comes from the prod reader over a stored message.
+  const mailFacts = evalMailFacts({
+    id: `eval_${c.label}`,
+    from: c.from,
+    subject: c.subject,
+    body: c.body,
+    authoredAt,
+    labelIds: c.labelIds ?? ["INBOX"],
+    knownContact: c.knownContact,
+  });
+
   const signalText = [c.subject, c.body, c.snippet ?? ""].join("\n");
 
   const observations = assembleObservations({
@@ -821,7 +683,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
     senderRelationship: c.senderRelationship ?? null,
     senderRelationshipIsCold: c.isColdContact ?? false,
     senderKind: c.senderKind ?? null,
-    labelIds: c.labelIds ?? ["INBOX"],
+    labelIds: mailFacts.labelIds,
     signalText,
   });
 
@@ -839,7 +701,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
         snippet: c.snippet ?? c.body.slice(0, 160),
       }),
     },
-    senderContext: senderContextFor(c),
+    mailFacts,
     observations,
     // `exactOptionalPropertyTypes`: `runPass: undefined` is not the same as an absent key.
     ...(c.runPass ? { runPass: c.runPass } : {}),
@@ -852,7 +714,7 @@ function buildArgs(c: Case): ClassifyEmailArgs {
 
 function renderJudgeContext(c: Case, sender: SenderContext): string {
   const lines: string[] = [
-    // The resolved context, not `c.sender`: that is what the classifier saw.
+    // The reader's context: that is what the classifier saw.
     `SenderContext: ${JSON.stringify(sender)}`,
     `Known contact: ${c.knownContact ? "yes" : "no"}`,
   ];
@@ -896,7 +758,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
     serverEnv();
     const args = buildArgs(input);
     const email = { from: input.from, subject: input.subject, body: input.body };
-    const context = renderJudgeContext(input, args.senderContext);
+    const context = renderJudgeContext(input, args.mailFacts.sender.parse.context);
 
     let classification;
     let model;
@@ -964,7 +826,7 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
   },
   scorers: [
     {
-      // When the case names a guard, it must have run. Without that check the spam floor had no test.
+      // When the case names a guard, it must have run. Without that check a guard can go untested.
       name: "Category match",
       scorer: ({ output, expected }) => {
         if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };

@@ -6,7 +6,7 @@
  */
 
 // Deep import: the triage barrel loads the queues and model routes.
-import { extractSenderContext } from "@alfred/assistant/triage/sender-context";
+import { extractSenderContext } from "@alfred/assistant/knowledge/sender-context";
 import type { SenderContext } from "@alfred/contracts";
 
 interface Fixture {

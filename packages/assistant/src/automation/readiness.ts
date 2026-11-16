@@ -2,7 +2,6 @@ import {
   INTEGRATIONS,
   canonicalJson,
   eventDeliveryAccounts,
-  missingRequiredScopes,
   integrationDisplayName,
   integrationFromToolName,
   isIntegrationSlug,
@@ -82,33 +81,12 @@ function selectAccountRow(
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
-function eligibleRows(
-  availability: IntegrationAvailabilitySnapshot,
-  capability: WorkflowRequiredCapability,
-  toolCatalog: WorkflowToolCatalog,
-): ProviderAvailability[] {
-  const credential = toolCatalog.get(capability.tool)?.availability?.credential;
-
-  if (!credential) return [];
-
-  return (availability.providers.get(credential.provider) ?? []).filter(
-    (row) => row.status === "active" && missingRequiredScopes(row.scopes, credential) === null,
-  );
-}
-
 /** Map labels and unambiguous defaults to durable account ids. */
 export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefinition>(args: {
   definition: T;
   availability: IntegrationAvailabilitySnapshot;
-  toolCatalog: WorkflowToolCatalog;
 }): T {
-  const capabilities = args.definition.requiredCapabilities.map((capability) => {
-    const rows = eligibleRows(args.availability, capability, args.toolCatalog);
-    const selected = selectAccountRow(rows, capability.accountRef);
-
-    return selected ? { ...capability, accountRef: selected.accountId } : capability;
-  });
-
+  const capabilities = args.definition.requiredCapabilities;
   let trigger = args.definition.trigger;
   const accounts = trigger.kind === "event" ? eventDeliveryAccounts(trigger.source) : null;
 
@@ -143,7 +121,6 @@ export function canonicalizeWorkflowAccounts<T extends WorkflowReadinessDefiniti
 export function resolveWorkflowApprovalDisplay(
   definition: WorkflowRevisionDefinition,
   availability: IntegrationAvailabilitySnapshot,
-  toolCatalog: WorkflowToolCatalog,
 ): WorkflowApprovalDisplay {
   const resolvedAccounts = new Map<string, WorkflowAccountDisplay>();
 
@@ -164,23 +141,12 @@ export function resolveWorkflowApprovalDisplay(
   };
 
   const resolvedCapabilities = definition.requiredCapabilities
-    .map((capability) => {
-      const tool = toolCatalog.get(capability.tool);
-      const provider = tool?.availability?.credential?.provider;
-
-      const account =
-        provider && capability.accountRef
-          ? displayAccount(provider, capability.accountRef)
-          : undefined;
-
-      return {
-        tool: capability.tool,
-        title: toolLabel(capability.tool)?.title ?? capability.tool,
-        ...(capability.accountRef ? { accountRef: capability.accountRef } : {}),
-        ...(account ? { accountLabel: account.accountLabel } : {}),
-        ...(capability.resourceScope ? { resourceScope: capability.resourceScope } : {}),
-      };
-    })
+    .map((capability) => ({
+      tool: capability.tool,
+      title: toolLabel(capability.tool)?.title ?? capability.tool,
+      ...(capability.accountRef ? { accountRef: capability.accountRef } : {}),
+      ...(capability.resourceScope ? { resourceScope: capability.resourceScope } : {}),
+    }))
     .toSorted(
       (a, b) =>
         a.tool.localeCompare(b.tool) || (a.accountRef ?? "").localeCompare(b.accountRef ?? ""),
@@ -267,59 +233,6 @@ export function resolveWorkflowReadiness(args: {
       continue;
     }
 
-    const credential = tool.availability?.credential;
-
-    if (credential) {
-      // No ref means the user must still choose; filling the sole row is canonicalization's job.
-      const selected = capability.accountRef
-        ? selectAccountRow(snapshot.providers.get(credential.provider) ?? [], capability.accountRef)
-        : undefined;
-
-      if (!selected) {
-        problems.push({
-          code: "choose_account",
-          message: `Choose the connected account for '${capability.tool}' from the available account labels.`,
-          field: `${field}.accountRef`,
-          recoveryAction: { kind: "choose_account", integration: tool.integration },
-        });
-        continue;
-      }
-
-      if (selected.status !== "active") {
-        problems.push({
-          code: "needs_reauth",
-          message: `The selected account for '${capability.tool}' needs to be reconnected.`,
-          field: `${field}.accountRef`,
-          recoveryAction: {
-            kind: "reauthorize",
-            integration: tool.integration,
-            accountRef: capability.accountRef,
-            ...(credential.anyOfScopes.length > 0
-              ? { acceptableScopes: [...credential.anyOfScopes] }
-              : {}),
-          },
-        });
-        continue;
-      }
-
-      const missingScopes = missingRequiredScopes(selected.scopes, credential);
-
-      if (missingScopes !== null) {
-        problems.push({
-          code: "missing_scope",
-          message: `The selected account for '${capability.tool}' is missing a required permission.`,
-          field: `${field}.accountRef`,
-          recoveryAction: {
-            kind: "reauthorize",
-            integration: tool.integration,
-            accountRef: capability.accountRef,
-            acceptableScopes: [...missingScopes],
-          },
-        });
-        continue;
-      }
-    }
-
     if (capability.resourceScope && args.resourceAccessFacts) {
       const resourceFact = args.resourceAccessFacts.find(
         (fact) =>
@@ -392,7 +305,6 @@ export function resolveWorkflowCapabilities<TDefinition extends WorkflowRevision
       requiredCapabilities,
     },
     availability: args.context.availability,
-    toolCatalog: args.toolCatalog,
   });
 
   const missing = resolveWorkflowReadiness({
@@ -490,17 +402,12 @@ function recoveryForToolProblem(
     return { recoveryAction: { kind: "connect", integration: tool.integration } };
   }
 
-  if (code === "needs_reauth" || code === "missing_scope") {
-    const acceptableScopes = tool.availability?.credential?.anyOfScopes;
-
+  if (code === "needs_reauth") {
     return {
       recoveryAction: {
         kind: "reauthorize",
         integration: tool.integration,
         ...(accountRef ? { accountRef } : {}),
-        ...(acceptableScopes && acceptableScopes.length > 0
-          ? { acceptableScopes: [...acceptableScopes] }
-          : {}),
       },
     };
   }

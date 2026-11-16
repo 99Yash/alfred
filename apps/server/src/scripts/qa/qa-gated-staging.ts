@@ -1,8 +1,8 @@
 /**
- * Manual QA: start a run that parks on one gated `gmail.send_draft`, then exit and
+ * Manual QA: start a run that parks on one gated `sheets.append_values`, then exit and
  * leave the pending staging for a human at /approvals.
  *
- * Warning: `gmail.send_draft` sends live mail. Approving the card sends the BRIEF email.
+ * Warning: approving the card appends rows to the spreadsheet in the brief.
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/qa/qa-gated-staging.ts
  */
@@ -27,7 +27,7 @@ import { closeScriptResources } from "../script-runtime";
 const WORKFLOW_SLUG = `qa-gated-staging${process.argv[2] ? `-${process.argv[2]}` : ""}`;
 
 const BRIEF =
-  "@gmail — Draft a short email to yashgouravkar@gmail.com with the subject 'Alfred approvals QA' and the body 'This is a test of the approvals flow.' Then send the draft to deliver it.";
+  "@sheets — Append one row ['Alfred approvals QA'] after the last row of range Sheet1!A1 in the spreadsheet whose id is in the 'sheets.qa.spreadsheet_id' scratch key. This write is gated; stop and wait for approval.";
 
 const POLL_INTERVAL_MS = 500;
 
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   const target = await pickGoogleUser();
 
   if (!target) {
-    console.log("[qa-gated-staging] no google-connected user — connect Gmail first.");
+    console.log("[qa-gated-staging] no google-connected user — connect Google first.");
 
     return;
   }
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       name: "QA gated staging",
       brief: BRIEF,
       trigger: { kind: "manual" },
-      allowedIntegrations: ["gmail"],
+      allowedIntegrations: ["sheets"],
       status: "active",
       isBuiltin: false,
     });

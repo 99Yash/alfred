@@ -59,7 +59,7 @@ const CALENDAR_LIST_HIT = {
 // A connected summary for a Google user (ADR-0053). The prompt must embed it.
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
-  "- gmail.send_draft — the user's email",
+  "- sheets.append_values — the user's spreadsheets",
   `- ${JSON.stringify(CALENDAR_CONNECTION.label)} MCP server (connectionId ${CALENDAR_CONNECTION.id}) — 9 tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`,
 ].join("\n");
 

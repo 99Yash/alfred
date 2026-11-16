@@ -16,6 +16,8 @@
 
 ## Amendment (2026-08-30) — live Gmail sends also have a recipient floor
 
+> **Amended 2026-11-15 (owner; PR #1760):** Alfred makes drafts only. `gmail.send_draft` and its recipient floor are deleted.
+
 `gmail.send_draft` is a historical name: its execute path saves a Gmail draft
 and calls `users.drafts.send` at once (ADR-0034 amendment item 10), so approval
 causes a live external effect. The hard

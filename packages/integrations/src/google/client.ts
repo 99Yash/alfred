@@ -39,8 +39,6 @@ import type {
   ModifyMessageLabelsArgs,
   ModifyThreadLabelsArgs,
   DraftMessageArgs,
-  DraftRefArgs,
-  SentMessage,
 } from "./gmail";
 import { gmailMailboxFor } from "./mailbox";
 import {
@@ -208,14 +206,6 @@ export function createGoogleClient(
         ...args
       }: WithCredentialId<DraftMessageArgs>): Promise<CreateDraftResult> =>
         mailbox(credentialId, "gmail_modify").createDraft(args),
-      // `drafts.send` takes `gmail.modify` or `gmail.compose`, not `gmail.send`.
-      sendDraft: ({
-        credentialId,
-        ...args
-      }: WithCredentialId<DraftRefArgs>): Promise<SentMessage> =>
-        mailbox(credentialId, "gmail_modify").sendDraft(args),
-      deleteDraft: ({ credentialId, ...args }: WithCredentialId<DraftRefArgs>): Promise<void> =>
-        mailbox(credentialId, "gmail_modify").deleteDraft(args),
     },
     calendar: {
       listEvents: ({ credentialId, ...args }: WithCredentialId<ListEventsArgs>) =>
@@ -333,11 +323,9 @@ export function googleClientForUser(options: ProviderBindOptions) {
       ...client.gmail,
       readCredential: () => first("gmail"),
       /**
-       * An account that can send through a draft: the send grant is the user's consent, and the
-       * draft calls need the modify grant. The send grant comes first, so a missing consent
-       * names `gmail_send`.
+       * An account that can write a Gmail draft: the draft calls need the modify grant
+       * (the owner decision of 2026-11-15: Alfred makes drafts only, it never sends mail).
        */
-      sendCredential: () => first("gmail_send", "gmail_modify"),
       modifyCredential: () => first("gmail_modify"),
       /** Every account that can change labels. A message picks one by `accountId`. */
       modifyCredentials: () =>

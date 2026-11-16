@@ -1,5 +1,7 @@
 # ADR-0057 — Passive memory capture + the significance-score primitive + chat→memory write path
 
+> **Superseded in part 2026-11-16 by ADR-0127 (owner): the significance score and the team graph are deleted.** Code does not score who matters. Each reader gets the mail history of an address from `readCorrespondents`, and the model judges. The chat-to-memory write path is now ADR-0123.
+
 **Decision.** Memory **capture is fully passive**. The team graph + identity facts are inferred from integration signal (Gmail/Calendar) and **enriched/corroborated via web search**, written autonomously under ADR-0056, kept fresh by continuous extraction + Loop-1 supersession — **no active onboarding interrogation, no prompted confirmation card**. Web-search enrichment is gated by a new first-class **significance score** over `entities`, which is _also_ the single source for todo personal-relevance (ADR-0050 **D1**), triage sender priority, and meeting-prep attendee prioritization. Direct user statements become durable memory through a two-path **chat→memory** write, with a durable-vs-run-scoped intent split. Companion to ADR-0056; the two together are the long-term-memory foundation. Build sequence + file detail in [docs/plans/long-term-memory-v1.md](../plans/long-term-memory-v1.md).
 
 **Micro-decisions.**

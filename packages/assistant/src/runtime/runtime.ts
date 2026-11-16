@@ -9,11 +9,7 @@ import {
   workflowsWorker,
 } from "@alfred/assistant/automation";
 import { briefingWorker } from "@alfred/assistant/briefings";
-import {
-  ingestionWorker,
-  startReceiptPayloadReaper,
-  stopReceiptPayloadReaper,
-} from "@alfred/assistant/connections/ingestion";
+import { ingestionWorker } from "@alfred/assistant/connections/ingestion";
 import type { BackgroundWorker } from "@alfred/assistant/queue-jobs";
 import {
   startDocumentAskReconciler,
@@ -96,12 +92,11 @@ type BackgroundService = BackgroundWorker | ScheduledLoop;
  * Teardown order. Each group stops every member, then closes every member's
  * queue, so a worker that enqueues onto a sibling's queue shares its group:
  * the chat-memory worker enqueues agent runs, so it stops before the agent
- * queue closes. The scheduled loops stop first; no step waits on them, and
- * row locks keep the receipt-payload reaper safe beside the workers.
+ * queue closes. The scheduled loops stop first; no step waits on them.
  * The names here and the keys of `backgroundServices` must match exactly.
  */
 const SHUTDOWN_ORDER = [
-  ["receiptPayloadReaper", "documentAskReconciler", "mcpConnectionRecovery"],
+  ["documentAskReconciler", "mcpConnectionRecovery"],
   ["agent", "subAgentJoinWake", "chatMemory", "conversationCompaction", "triageRematch"],
   ["approvalNotification"],
   ["approvalExpiry"],
@@ -140,14 +135,6 @@ function backgroundServices(config: RuntimeConfig) {
       label: "MCP connection recovery",
       start: startMcpConnectionRecovery,
       stop: stopMcpConnectionRecovery,
-    },
-    // Frees old `event_receipts` bodies. After `drainMs`, `stop()` may return
-    // while one reaper `UPDATE` still runs.
-    receiptPayloadReaper: {
-      kind: "scheduled-loop",
-      label: "receipt-payload reaper",
-      start: startReceiptPayloadReaper,
-      stop: stopReceiptPayloadReaper,
     },
     // Re-runs document-ask threads that a lost media job left. Gated: dev needs
     // no recovery, and an ungated pass would resolve rows under DB tests.

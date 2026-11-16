@@ -25,7 +25,7 @@ describe("splitPersistedToolCalls", () => {
       },
       {
         toolCallId: "t2",
-        toolName: "gmail.send_draft",
+        toolName: "contacts.search",
         status: "failed",
         segmentIndex: 0,
         connectNudge: { integration: "gmail", action: "connect" },
@@ -43,7 +43,7 @@ describe("splitPersistedToolCalls", () => {
     const { cards, nudges } = splitPersistedToolCalls([
       {
         toolCallId: "a",
-        toolName: "gmail.send_draft",
+        toolName: "contacts.search",
         status: "failed",
         segmentIndex: 0,
         connectNudge: { integration: "gmail", action: "connect" },
@@ -57,7 +57,7 @@ describe("splitPersistedToolCalls", () => {
       },
       {
         toolCallId: "c",
-        toolName: "gmail.send_draft",
+        toolName: "contacts.get",
         status: "failed",
         segmentIndex: 2,
         connectNudge: { integration: "gmail", action: "reconnect" },

@@ -1,5 +1,10 @@
 # ADR-0126 — The model uses Google Workspace through the Google Workspace MCP servers; the Google credential stays for ingestion and lends its token
 
+> **Amended 2026-11-15 (owner): Alfred makes Gmail drafts only and never sends mail.
+> `gmail.send_draft` and its recipient check are deleted. Reply drafting creates a Gmail
+> draft with no approval card.** The decision text below is unchanged; it is the record of
+> what was decided on 2026-11-13, when `gmail.send_draft` was the one REST tool kept.
+
 **Status.** Accepted; built. Decided with the owner on 2026-11-13. Amends ADR-0068 (the calendar half), ADR-0074 (Google leaves the passthrough tier), ADR-0088 and ADR-0096 (code-owned policy entries), ADR-0093 (a built-in can borrow a credential), and ADR-0114 (a new auth mode). Builds on ADR-0125 (GitHub went the same way) and on the provider rule of the ADR-0093 amendment of 2026-10-23.
 
 **Decision in one paragraph.** Six Google Workspace MCP servers are built-ins: Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, and Google Slides. They are the model's Google tool surface. Their connection rows hold no grant. Each request borrows the access token of the user's Google credential, and the Google credential code refreshes it. Code-owned policy entries, bound to descriptor hashes, let the read tools run without approval. Every write keeps the `high` floor. The REST model tools that the servers cover are deleted. Four REST model tools stay because no server covers them. Background code (ingestion, triage, briefing, knowledge, reply drafts, Drive context search, backfills) stays on REST with the same credential.

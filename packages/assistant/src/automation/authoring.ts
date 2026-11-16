@@ -17,7 +17,7 @@ import { and, eq, like } from "drizzle-orm";
 import { availableSlug, slugBase } from "@alfred/contracts/slug";
 import { workflowScheduleSummary } from "./scheduling";
 import type { readFreshIntegrationAvailability } from "@alfred/assistant/connections";
-import { workflowToolCatalog, type WorkflowToolCatalog } from "@alfred/assistant/tool-runtime";
+import { workflowToolCatalog } from "@alfred/assistant/tool-runtime";
 import { readWorkflowReadinessContext } from "./readiness-context";
 import { resolveWorkflowCapabilities, type WorkflowReadinessProblem } from "./readiness";
 import {
@@ -124,7 +124,6 @@ export async function authorWorkflowDraft(args: {
               definition,
               authoringProposal,
               availability,
-              toolCatalog,
               timezone: args.timezone,
             }),
           }
@@ -188,7 +187,6 @@ function activationProposalFor(args: {
   definition: AuthorableWorkflowDefinition;
   authoringProposal: WorkflowAuthoringProposal;
   availability: Awaited<ReturnType<typeof readFreshIntegrationAvailability>>;
-  toolCatalog: WorkflowToolCatalog;
   timezone: IanaTimezone;
 }): ActivateWorkflowInput {
   const timezone =
@@ -202,7 +200,6 @@ function activationProposalFor(args: {
     definition: args.definition,
     authoringProposal: args.authoringProposal,
     availability: args.availability,
-    toolCatalog: args.toolCatalog,
     timezone,
   });
 }

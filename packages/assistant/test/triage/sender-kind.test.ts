@@ -5,7 +5,7 @@ import type { ActiveEntityProfile } from "@alfred/assistant/knowledge";
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
 import { applyFloors, type FloorContext, type FloorOutcome } from "@alfred/assistant/triage/floors";
 import type { Observations } from "@alfred/assistant/triage/observations";
-import type { SenderContextResult } from "@alfred/assistant/triage/sender-context";
+import type { SenderContextResult } from "@alfred/assistant/knowledge/sender-context";
 import { senderExtractionEvent } from "../../src/triage/sender-extraction-event";
 import { senderKindSignalFromProfile } from "../../src/triage/sender-kind";
 
@@ -139,7 +139,6 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
           reason: "collab_passive_activity",
         },
         meeting: { verdict: { kind: "keep" }, reason: null },
-        spam: { verdict: { kind: "keep" }, outcome: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -232,7 +231,6 @@ function floorContext(): FloorContext {
     cc: null,
     accountEmail: null,
     contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
-    isSpam: false,
   };
 }
 
@@ -275,7 +273,6 @@ function classification(overrides: Partial<TriageClassification> = {}): TriageCl
 
 function observations(): Observations {
   return {
-    senderPrior: { key: null, categoryCounts: {}, lastCategory: null },
     persona: null,
     thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
     knownContact: false,

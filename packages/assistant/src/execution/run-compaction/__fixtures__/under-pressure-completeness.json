@@ -83,12 +83,12 @@
         {
           "type": "tool-result",
           "toolCallId": "call_send_rejected",
-          "toolName": "gmail.send_draft",
+          "toolName": "vercel.redeploy",
           "output": {
             "type": "json",
             "value": {
               "status": "rejected_by_user",
-              "toolName": "gmail.send_draft",
+              "toolName": "vercel.redeploy",
               "reason": "release note is not ready; keep drafting"
             }
           }
@@ -125,7 +125,7 @@
       "contains": "Do not drop GH-101, GH-102, or GH-103 from the final release note"
     },
     { "section": "actions_completed", "contains": "mcp.call" },
-    { "section": "actions_rejected", "contains": "gmail.send_draft" },
+    { "section": "actions_rejected", "contains": "vercel.redeploy" },
     { "section": "actions_failed", "contains": "github.add_label" },
     { "section": "key_entities", "contains": "GH-101" },
     { "section": "key_entities", "contains": "GH-102" },

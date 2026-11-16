@@ -11,9 +11,11 @@ import {
 } from "@alfred/assistant/connections";
 import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
 import {
+  loadMailFacts,
   readSenderPerson,
   readUserContextLine,
   standingInstructions,
+  type MailFacts,
   type ReportedStandingInstructionSet,
   type SenderPersonRead,
 } from "../knowledge";
@@ -29,11 +31,11 @@ import {
   type ClassifyEmailArgs,
   type TriageClassification,
 } from "./classify";
-import { extractSenderContext } from "./sender-context";
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
 import { resolveSenderRelationship } from "./sender-relationship";
 import { mayBeUnflaggedSentMail } from "./sent-mail";
+import { triageOutOfScope, type TriageOutOfScope } from "./scope";
 import {
   getDocumentAuthoredAt,
   getTriage,
@@ -66,7 +68,6 @@ import {
   triageCategorySchema,
   type AccountPersona,
   type GmailDocumentMetadata,
-  type SenderContext,
   type SignificanceBand,
   type TodoObjectRef,
   type TodoSource,
@@ -119,6 +120,8 @@ const CLASSIFY_SKIP_SUMMARIES = {
   "missing-thread-id": "Skipped: the document carries no Gmail thread id",
   "source-message-not-found": "Skipped: the Gmail message no longer exists",
   "sent-document": "Skipped: the message is the user's own sent mail",
+  "out-of-scope":
+    "Skipped: triage does not label this mail (spam, outside the inbox, the Social, Promotions, or Forums tab, or mail to yourself)",
   "thread-already-tagged": "Skipped: the thread is tagged and this message is not newer",
 } as const;
 
@@ -129,7 +132,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 ): Promise<StepResult<State, EmailTriageStepName>> {
   const skip = (
     reason: ClassifySkipReason,
-    extra?: { category: TriageCategory },
+    extra?: { category: TriageCategory } | { where: TriageOutOfScope },
   ): StepResult<State, EmailTriageStepName> => ({
     kind: "done",
     state: ctx.state,
@@ -193,12 +196,28 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     return skip("sent-document");
   }
 
-  const senderContextResult = extractSenderContext({
-    fromHeader: ctxData.document.metadata.from ?? null,
-    subject: ctxData.document.title,
-    body: ctxData.document.content,
-  });
+  // The prompt's mail input. The sender parse is the reader's, so triage parses the sender once.
+  const mailFacts = (await loadMailFacts(ctx.userId, [ctx.state.documentId])).get(
+    ctx.state.documentId,
+  );
 
+  if (!mailFacts) {
+    await ctx.log(`mail facts gone: ${ctx.state.documentId}`);
+
+    return skip("document-not-found");
+  }
+
+  // Before any model call: the Gmail labels decide the scope (docs/theory/triage.md § What triage
+  // tags). The briefing reads this mail and says where it is.
+  const outOfScope = triageOutOfScope(mailFacts);
+
+  if (outOfScope) {
+    await ctx.log(`classify: doc=${ctx.state.documentId} out of scope (${outOfScope}) — skipping`);
+
+    return skip("out-of-scope", { where: outOfScope });
+  }
+
+  const senderContextResult = mailFacts.sender.parse;
   const senderContext = senderContextResult.context;
 
   // A row from THIS run is reused, so a retry does not re-bill the model.
@@ -304,8 +323,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       document: ctxData.document,
       accountId: ctxData.document.accountId,
       persona: ctxData.persona,
-      senderContext,
-      senderAddress: senderContextResult.senderAddress,
+      mailFacts,
     });
 
     observations = gathered.observations;
@@ -320,7 +338,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
           authoredAt: ctxData.document.authoredAt,
           metadata: ctxData.document.metadata,
         },
-        senderContext,
+        mailFacts,
         observations,
         identity: ctxData.identity,
         // Action items off: the model gets no todo rubric and returns no todo fields.
@@ -1006,14 +1024,14 @@ function todoObjectOf(
 export interface StoredTriageClassifyInput {
   input: Pick<
     ClassifyEmailArgs,
-    "userId" | "identity" | "proposeTodo" | "document" | "senderContext" | "observations"
+    "userId" | "identity" | "proposeTodo" | "document" | "mailFacts" | "observations"
   >;
   accountId: string | null;
 }
 
 /**
  * The classify input of one stored mail, built as the classify step builds it: the context
- * load, the sender parse, and the observation gather. It reads only and calls no model. A dry
+ * load, the mail facts, and the observation gather. It reads only and calls no model. A dry
  * run or a replay calls it, so it classifies the same input as the live step. Null when the
  * document or its thread is gone.
  */
@@ -1027,12 +1045,9 @@ export async function loadStoredTriageClassifyInput(args: {
   if (!ctxData || !sourceThreadId) return null;
 
   const { document } = ctxData;
+  const mailFacts = (await loadMailFacts(args.userId, [args.documentId])).get(args.documentId);
 
-  const sender = extractSenderContext({
-    fromHeader: document.metadata.from ?? null,
-    subject: document.title,
-    body: document.content,
-  });
+  if (!mailFacts) return null;
 
   // One bind: the action-items flag and the observation gather share its load.
   const userSettings = settings({ userId: args.userId });
@@ -1046,8 +1061,7 @@ export async function loadStoredTriageClassifyInput(args: {
     document,
     accountId: document.accountId,
     persona: ctxData.persona,
-    senderContext: sender.context,
-    senderAddress: sender.senderAddress,
+    mailFacts,
   });
 
   return {
@@ -1062,7 +1076,7 @@ export async function loadStoredTriageClassifyInput(args: {
         authoredAt: document.authoredAt,
         metadata: document.metadata,
       },
-      senderContext: sender.context,
+      mailFacts,
       observations,
     },
     accountId: document.accountId,
@@ -1092,13 +1106,15 @@ export async function gatherObservations(args: {
   /** Scopes a per-account standing instruction. */
   accountId: string | null;
   persona: AccountPersona | null;
-  senderContext: SenderContext;
-  senderAddress: string | null;
+  /** The sender parse and the labels come from here. */
+  mailFacts: MailFacts;
 }): Promise<GatheredObservations> {
   const meta = args.document.metadata;
-  const labelIds = meta.labelIds ?? [];
+  const { labelIds } = args.mailFacts;
+  // The parse's own address, as the classify step read it before the reader.
+  const { context: senderContext, senderAddress } = args.mailFacts.sender.parse;
 
-  const isHumanSender = args.senderContext.effectiveAuthor === "person";
+  const isHumanSender = senderContext.effectiveAuthor === "person";
 
   const [thread, senderKindEnabled, suppressions, userContext, sender] = await Promise.all([
     getThreadState({
@@ -1124,19 +1140,17 @@ export async function gatherObservations(args: {
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
-    readSenderPerson(args.userId, args.senderAddress),
+    readSenderPerson(args.userId, senderAddress),
   ]);
 
   // The target hits and the scoped candidates for this mail (ADR-0113).
   const mailInstructions = suppressions.forMail({
-    sender: args.senderAddress ?? meta.from ?? null,
+    sender: senderAddress ?? meta.from ?? null,
     accountId: args.accountId,
   });
 
   const senderKind =
-    senderKindEnabled && args.senderAddress
-      ? await resolveSenderKind(args.userId, args.senderAddress)
-      : null;
+    senderKindEnabled && senderAddress ? await resolveSenderKind(args.userId, senderAddress) : null;
 
   const usePersonTreatment = isHumanSender && senderKind == null;
 

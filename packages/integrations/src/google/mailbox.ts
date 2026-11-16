@@ -4,7 +4,6 @@ import {
   batchModifyMessages,
   createDraft,
   createLabel,
-  deleteDraft,
   getAttachment,
   getMessage,
   getThread,
@@ -14,7 +13,6 @@ import {
   listMessages,
   modifyMessageLabels,
   modifyThreadLabels,
-  sendDraft,
   startWatch,
   stopWatch,
   type BatchModifyMessagesArgs,
@@ -29,7 +27,6 @@ import {
   type ModifyMessageLabelsArgs,
   type ModifyThreadLabelsArgs,
   type DraftMessageArgs,
-  type DraftRefArgs,
   type StartWatchArgs,
 } from "./gmail";
 
@@ -76,10 +73,6 @@ export function gmailMailboxFor(
       batchModifyMessages({ ...args, accessToken: await accessToken() }),
     createDraft: async (args: Unbound<DraftMessageArgs>) =>
       createDraft({ ...args, accessToken: await accessToken() }),
-    sendDraft: async (args: Unbound<DraftRefArgs>) =>
-      sendDraft({ ...args, accessToken: await accessToken() }),
-    deleteDraft: async (args: Unbound<DraftRefArgs>) =>
-      deleteDraft({ ...args, accessToken: await accessToken() }),
     getAttachment: async (args: Unbound<GetAttachmentArgs>) =>
       getAttachment({ ...args, accessToken: await accessToken() }, retry),
   };

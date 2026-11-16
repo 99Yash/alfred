@@ -50,7 +50,7 @@ Last verified: 2026-10-20 at `fd13e6427`. A section or a part that names a diffe
 **Gaps.**
 
 - Object state does not touch todos. A merged PR does not close its todo.
-- The ADR-0092 referent identity (`knowledge/referent-identity.ts:96`) is built but has no production caller.
+- The ADR-0092 referent identity (`knowledge/referent-identity.ts`) was deleted (2026-11-15, ADR-0122 decision 3c); it had no production caller.
 - `todos` has no unique index.
 - A second producer from a non-Gmail source needs the same source-ref scheme, or duplicates will occur.
 
@@ -66,7 +66,7 @@ The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This sectio
 
 1. Gmail push or poll → `persistMessage` (`connections/ingestion/gmail-ingest.ts:266`) → `documents` row → `gmail.documents_ingested`.
 2. One `gmail.message_received` event for each inbound document. A user reply emits the event again on the newest inbound message, with `force` (`runtime/adapters/gmail-ingested-consumers.ts:299`).
-3. Classify (`triage/workflow-operations.ts:107`): gather observations (`:892`) → model pass on `route("cheap")` (`classifyEmail`, `triage/classify.ts:889`) → optional second pass on a conflict → 5 deterministic floors (`triage/floors/index.ts:160`: override → sender kind → spam → standing → meeting).
+3. Classify (`triage/workflow-operations.ts:107`): gather observations (`:892`) → model pass on `route("cheap")` (`classifyEmail`, `triage/classify.ts:889`) → optional second pass on a conflict → deterministic floors (`triage/floors/index.ts`: override → sender kind → meeting, then standing). Before the model, the step skips mail outside the triage scope (`triage/scope.ts`: spam, no `INBOX`, the Social, Promotions, or Forums tab, mail to yourself).
 4. `upsertTriage` (`triage/store.ts:123`) writes one `email_triage` row for each thread, under a thread lock. A user override (`source='user'`) is never overwritten.
 5. Todo decision → Gmail label (`triage/tags.ts:74`) → document ask → close-loop todos.
 

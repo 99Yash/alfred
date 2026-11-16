@@ -1,6 +1,6 @@
 # ADR-0113 — A standing instruction matches by meaning at read time; code enforces only the effects the user asked for
 
-**Status.** Proposed; not built. Amended 2026-10-28: cues, capsules, and followups. Amended 2026-10-29: partial class words, full cover for a demotion, anchors, relation words, and notes. Amended 2026-10-29: a sweep starts the re-match (see the amendments at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
+**Status.** Partly built (2026-11-15). The v2 schema, the scope match inside classify, and `exceptionOf` are built: see `packages/assistant/src/knowledge/standing-instructions.ts`, `packages/assistant/src/triage/standing-scope.ts`, and `packages/assistant/src/triage/floors/standing.ts`. The core is superseded by ADR-0121 decision 7 (2026-11-06): an instruction is the user's words, and the model weighs it; triage slice 4 removes the typed effects. Amended 2026-10-28: cues, capsules, and followups. Amended 2026-10-29: partial class words, full cover for a demotion, anchors, relation words, and notes. Amended 2026-10-29: a sweep starts the re-match (see the amendments at the end). Builds the ADR-0060 schema v2 that was never built. Supersedes the sender-only match of ADR-0106 and ADR-0110, and the ADR-0106 rule that every row carries every effect. Keeps the ADR-0110 floor and the security floor.
 
 **Decision.** A standing instruction is the user's words, a plain-text **scope**, optional exact **targets**, and the typed **effects** that the words ask for. Two different parts of the system answer two different questions:
 
@@ -194,7 +194,7 @@ A new example shows the limits of a scope that only the model can match. The own
 - The `List-ID` of a single advisory names the advisory (`99Yash/GHSA-…`), not the repo. The digest has no `List-ID`. The repo is only in the body URLs.
 - A plain `github.com/<a>/<b>` read of the 7 digest bodies returns `99Yash/turbo-insta`, and also `settings/emails`, `settings/notifications`, and `email/unsubscribe`. A repo cue needs a reviewed URL template.
 - On the AI gateway, the cheap triage model has a floor of about 1.6 s, also under 1k input tokens. 10k more input tokens add about 0.7 s. Thus a larger instruction block costs little. A decision that code makes costs no model call.
-- Triage reads no sender authentication result (DKIM, SPF, or ARC). The GitHub bot handle comes from the body text (`triage/sender-context.ts:321`). Any mail can claim to be Dependabot.
+- Triage reads no sender authentication result (DKIM, SPF, or ARC). The GitHub bot handle comes from the body text (`knowledge/sender-context.ts:321`). Any mail can claim to be Dependabot.
 - The GitHub produce and close of ADR-0052 for `security_alert` is designed but not built. Production has 2 Dependabot todos that an agent created. Both are dismissed.
 
 ### D1 — New combinations of fixed parts, not new parts

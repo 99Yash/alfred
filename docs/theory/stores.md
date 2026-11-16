@@ -1,0 +1,160 @@
+# The stores: what came in, what Alfred derives, and what Alfred concludes
+
+Status: draft for owner review, 2026-11-15. The decisions dated 2026-11-15 are owner direction from the foundations session. The rest is the agent's proposal, marked as open where the owner has not decided.
+
+Read first: [README principles](./README.md#2-the-principles), [context-graph.md](./context-graph.md) (thing, identity, event, state), [memory.md §2](./memory.md#2-the-frame) (the raw record and the notes), and [evidence-map.md](./evidence-map.md) (how the model knows what it can read). [ADR-0118](../decisions/ADR-0118-alfred-keeps-one-activity-record-across-every-source.md) is the activity record that this page keeps.
+
+---
+
+## 1. The job
+
+**Alfred keeps one copy of each thing that came in, from every integration. All other data is rebuilt from that copy, or is a conclusion that cites it.** A reader finds each kind of data in one place, with one meaning for each time.
+
+**The fault that started this theory.** One GitHub delivery is stored two times: in `event_receipts.payload` and in `documents.raw`. Code parses it three times, and two consumers read different copies. One Gmail message has three header parsers, a copy of its headers in `observations`, and its triage label in two tables. People live in two graphs. The owner named this the messiest part of the code (2026-11-15).
+
+**The worst errors**, in order:
+
+1. Two copies of one thing disagree, and a reader trusts the wrong copy.
+2. A reader orders events by the wrong time, and the model draws a false chronology.
+3. A derived table cannot be rebuilt, so a rule change cannot be replayed.
+4. One kind of data has two homes, and each new feature picks one at random.
+
+## 2. The three layers
+
+Owner decision, 2026-11-15: three layers, and every integration writes to them. Mail is one source among many.
+
+```
+RECEIVED   what came in, as it came. One copy. One reader for each source.
+   │
+   ▼       only a fold writes here; code can delete and rebuild each table
+DERIVED    the activity record · the state of things · the people store · the search index
+   │
+   ▼       evidence points down
+MEMORY     claims · name links · journal entries · standing instructions
+```
+
+**Received.** Each item that came in: a mail, an attachment, a webhook delivery, a polled event. The body is stored one time, in `documents.raw` (owner decision, 2026-11-15). One reader for each source turns the body into the facts that every consumer reads. For mail, that reader is the mail-facts reader of [triage slice 0b](../plans/triage-theory-v1.md). No consumer parses a body by itself.
+
+- `event_receipts` stays the record of each verified delivery: the dedup key, the verification, the owner, and the processing status (ADR-0097). It holds no body.
+- Mail has a property that other sources do not have: the received copy is itself a searchable history, years back. A Code Mode program can read past mail directly. For other sources, the activity rows and the items that they point to are the history.
+
+**Derived.** Each table here is a fold over the received layer. A fold has a version, so a rule change replays.
+
+- **The activity record** (`observations`, ADR-0118). Acts by a person on a thing, and changes of a thing's state category, from every source. A row points to the received item and never copies its body or headers. Mail writes activity rows too: a person sent the user a mail, the user replied.
+- **The state of things** (`integration_objects`). The current state of a thing that has a lifecycle. Only the source that owns the thing sets it ([context-graph.md](./context-graph.md#who-owns-which-thing)).
+- **The people store.** Mail history for each address, read from the activity record by one reader. It is a query, not a table. See [section 5](#5-the-people-store).
+- **The search index** (`documents.content`, `chunks`). The text of each received item and its embeddings.
+
+**Memory.** Statements that the user made or that the agent concluded, each with evidence that points to the layers below ([memory.md](./memory.md)). Claims, name links, journal entries, and standing instructions are here. A statement is in words, with no fixed field for its shape. A shift-work week is one claim, not a schema (owner decision, 2026-11-15).
+
+**Outside the layers: Alfred's own outputs.** Triage labels (`email_triage`), briefings, run records, approval rows, and loop checks are records of what Alfred did. They are never evidence of what the user wants (principle 5). The user's act on an output is evidence: a label correction, a dismissed todo.
+
+## 3. Time
+
+Each row in the received and derived layers carries two times. Each time has one meaning:
+
+| Time | Meaning | Example |
+| --- | --- | --- |
+| **Happened** | When it happened, by the source's clock | The mail's sent time, `pull_request.merged_at` |
+| **Received** | When Alfred got it | The ingest time of the mail or the delivery |
+
+- **An order uses the happened time.** The received time answers one question: what is new since the last pass.
+- **A briefing is a pass (owner, 2026-11-15).** It picks the mail that Alfred received since the last briefing, and orders it by the sent time. A window on the sent time would lose a mail that arrives late (a backfilled thread, a slow delivery) and could show one mail in two briefings. This is the same rule as the GitHub arrival time below.
+- **The model always gets the time now and the user's zone.** Each time that a reader gives the model is in the user's zone, with the weekday. The model works out what came before what.
+- **The model knows that it can read these times.** Each store's entry on the [evidence map](./evidence-map.md) names its two times and what they mean (owner direction, 2026-11-15). The briefing is the main reader: mail times and the times of key activities give the chronology that makes the context. Triage can use them, but its cheap first call is not expected to depend on them.
+- **A row that has no source clock says so.** The reader shows the received time and marks it as such. It never shows the received time as the happened time.
+- **A webhook document's time is its arrival (owner, 2026-11-15).** For GitHub, `documents.authored_at` is when the delivery arrived, and the briefing's activity window uses it to put each act in exactly one briefing (ADR-0118). It is not moved to the payload's time. The act's own time is on its activity row (`observations.occurred_at`). Sometimes the model needs an exact time that no row carries, such as a merge time. It then reads the source live first (Code Mode). The stored body (`documents.raw`) is the fallback. A source can have an outage. When a read fails or looks wrong, the model can read the source's status page (githubstatus.com for GitHub).
+- **A time in the future is a fact in the source's words.** An expiry, a renewal, or a due date stays in the text of the item, and the model reads it (principle 4). Code does not parse it into a column. Reminders and the push from such a time are on hold (owner, 2026-11-15). When they return, a reminder checks at fire time that it still applies, as meeting prep reads the calendar when it runs ([core-agent.md](./core-agent.md)).
+
+The columns today, and where they break this rule:
+
+| Table | Happened | Received | Fault |
+| --- | --- | --- | --- |
+| `documents` | `authored_at` | `ingested_at` | For GitHub, `authored_at` is the arrival time, by decision (see above). The briefing picks mail by `ingested_at` and orders it by `authored_at`, by decision (see above). |
+| `observations` | `occurred_at` | from the item that the row points to | — |
+| `integration_objects` | `provider_event_at` | `state_delivered_at` | — |
+| `event_receipts` | — | `delivered_at` | It holds deliveries, so it has no happened time. Correct. |
+
+## 4. What each table becomes
+
+| Table | Layer | Becomes | Removes |
+| --- | --- | --- | --- |
+| `documents` | Received + index | The one copy of each body (`raw`), its text (`content`), and both times | The second GitHub body |
+| `event_receipts` | Received | The delivery record, with no body | `payload` and the 90-day payload reaper (done, migration 0172) |
+| `chunks` | Derived | The search index | — |
+| `observations` | Derived | The activity record of every source, rows that point and never copy | The `email_message` header copy (it becomes a slim activity row); `email_interpretation` (triage slice 7) |
+| `integration_objects` (+ `_keys`) | Derived | The state of things, rebuilt from received items by the owning source's fold | Writes that a rebuild cannot repeat |
+| `entity_nodes`, `entity_identities` | Things | The one record of a thing and its keys ([context-graph.md](./context-graph.md#who-owns-which-thing)). A writer makes a node only when something must point at it (ADR-0127) | The bulk mint from mail |
+| `entity_profiles`, `entity_edges`, `entity_co_occurrence`, `projection_runs`, `projection_cursors`, `active_projection_versions` | — | Dropped ([section 5](#5-the-people-store)) | The versioned projection, the kind classifier, the refold |
+| `entities`, `entity_relations` | — | Dropped ([section 5](#5-the-people-store)) | The old graph, `team-graph.ts`, `entity-graph.ts`, `significance.ts` |
+| `user_facts` | Memory | Claims (ADR-0123) | Standing instructions move out (triage slice 4) |
+| `sender_priors` | — | Dropped (principle 5) | Triage slice 1 stops the write and the read |
+| `email_triage` | Alfred's output | The triage record | The second copy of the category in `observations` |
+
+## 5. The people store
+
+Owner decision, 2026-11-16 ([ADR-0127](../decisions/ADR-0127-the-people-store-is-mail-history-read-from-the-activity-record.md)). This replaces the decision of 2026-11-15 that the new graph supersedes the old one: a production read showed that neither graph is worth keeping.
+
+**What production showed (2026-11-15).** The user-model projection was active, not empty. It made a new run for each new mail and kept every run: 434 runs, 133,175 `entity_profiles` rows, about 140 MB. It held only a kind for each of 344 addresses, with 0 edges. The old graph had 76 rows. Moving "known contact" to the projection would mark a cold sender as known after their first mail.
+
+**The job.** The store answers one question for the model: what is Alfred's history with this address? It answers with facts in the source's terms, from mail:
+
+- the name shown, first seen, and last seen;
+- the mails from the address, and the last one;
+- the mails that the user sent to it (To or Cc), and the last one.
+
+There is no kind and no score. The model judges the sender from the mail (principle 4). The user's sent mail is the user's own act (principle 5).
+
+**Where it lives.** One reader, `readCorrespondents(userId, addresses)`, groups the Gmail activity rows in `observations`. No table keeps counts. Each fact gives the start of the window, because Alfred has mail only since the connect. For older history, the model searches Gmail live (Code Mode).
+
+**Things and names.** `entity_nodes` and `entity_identities` stay as the record of a thing and its keys. A writer makes a node only when something must point at it, for example a name link or a claim. Name resolution is memory's name links. An identity join across sources is a user claim.
+
+**The readers and where each one goes:**
+
+| Reader | Goes to |
+| --- | --- |
+| `knowledge/user-context.ts` (`system.read_user_context`, reply drafting) | One `people` section from `readCorrespondents` |
+| The mail-facts `knownContact` mark and the triage `Known contact:` line | One history line for each address |
+| The triage sender-kind line and floor | Deleted: the model judges the sender |
+| `knowledge/significance.ts` (the briefing `attentionBand`, the triage `sender_significance_band`) | The history line. `attentionBand` keeps only recurrence |
+| `tool-runtime/internal/tools/gmail-recipient-policy.ts` (the send check) | Deleted with `gmail.send_draft`: Alfred makes drafts only (owner, 2026-11-15) |
+
+## 6. What this page changes in other pages
+
+- **ADR-0038.** Its item 3 ("do not persist raw payloads") is reversed: `documents.raw` is kept as the one copy for every source (amendment of 2026-11-15). The retention of bodies is a security question, held with the other security work.
+- **ADR-0126.** It keeps `gmail.send_draft`, because no Google MCP server sends mail. The owner reversed this on 2026-11-15: Alfred makes drafts only.
+- **ADR-0122.** It puts three new kinds on `observations`: facts, pointers, and loop checks. This page proposes another placement, for the loops session to decide:
+  - A fact is a received item, and `integration_objects` is its projection. This keeps ADR-0122's rejection (d): one record of a state, not two.
+  - A pointer ("this evidence touches the user") is Alfred's judgment, so it is an output, not an activity row.
+  - A loop check is a run record.
+- **evidence-map.md.** Each store entry adds its two times (section 3). The `event_receipts` row changes: it holds no body.
+- **context-graph.md.** "Where Alfred is confused today" item 1 closes when the old graph is dropped.
+
+## 7. Theory state and code state
+
+| Part | Theory | Code | The gap today |
+| --- | --- | --- | --- |
+| Three layers, every source | Settled (owner, 2026-11-15) | Partly | Only GitHub has an activity fold. |
+| One copy of each body in `documents.raw` | Settled (owner, 2026-11-15) | Built | — (webhooks: #1763 and migration 0172) |
+| One reader for each source | Settled for mail (slice 0b) | Not built | Three header parsers for mail; three GitHub parses |
+| Two times with one meaning each | Proposed; GitHub arrival time and the briefing pass settled (owner, 2026-11-15) | Partly | The evidence map does not name the two times of each store yet (step 6) |
+| The people store: mail history from the activity record | Settled (owner, 2026-11-16, ADR-0127) | Not built | Two graphs with six readers; the projection keeps every run (140 MB) |
+| Outputs are never evidence | Settled (principle 5) | Partly | `sender_priors` (slice 1); the category copy in `observations` |
+
+## 8. Order of work
+
+Each step deletes what it replaces. None of them waits for Code Mode.
+
+1. **This page, and the ADR-0038 amendment.**
+2. **The mail-facts reader** (triage slice 0b). The activity fold for mail reads through it. The `email_message` header copy ends. The slim activity row keeps the participant addresses and the sent time, because the people store reads them (section 5).
+3. **One GitHub body.** Done (2026-11-15). The object-state fold reads `documents.raw`, and `event_receipts` stores no body (#1763). The production report showed no old body without a document, so migration 0172 dropped `payload`, its reaper, its index, and the write-once trigger clause. GitHub `authored_at` stays the arrival time (owner).
+4. **The briefing times.** Settled with triage slice 2a: the briefing picks mail by the received time and orders it by the sent time (section 3). Slice 2a changed only the order of the composer's mail list (`list_emails_since`), which was by the received time.
+5. **The people store** (ADR-0127). First, add `readCorrespondents` and move every reader to it, with the triage deck and the briefing eval as the gates. Then delete the projection, the old graph, and their code, and drop the eight tables in one migration. `gmail.send_draft` and its send check went on 2026-11-15 (drafts only; the reply-drafting PR deleted them).
+6. **The evidence map** carries the two times of each store, when Code Mode lands (#535).
+7. **Activity folds for the other sources** (Linear, Calendar, Vercel, Railway), in the ADR-0118 slices.
+
+## 9. Not settled
+
+- **A live read that Alfred keeps.** A verified pull or a loop read gives a fact with no received item. Is its result a received item in `documents`?
+- **Body retention.** How long `documents.raw` keeps a body. Held with the security work. Since webhook bodies moved to `documents.raw` (#1763), nothing expires them; the old 90-day job cleared only `event_receipts.payload`. A production read of 2026-11-15: the database is 1.2 GB; `chunks` is 551 MB and `documents` is 394 MB; bodies grow about 2 MB a day. The owner decided to add no expiry for now, and no second store such as R2. Open questions from the read: should GitHub events be in the search index (`chunks`), and why GitHub `content` is about as large as `raw`.
+- **`memory_chunks`.** One row in production. [memory.md](./memory.md) decides its future.

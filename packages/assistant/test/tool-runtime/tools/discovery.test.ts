@@ -19,7 +19,6 @@ import {
 } from "@alfred/assistant/tool-runtime/discovery";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
-  availableToolNames,
   evaluateToolAvailability,
   registerTool,
 } from "../../../src/tool-runtime/internal/registry";
@@ -94,13 +93,13 @@ const contactsGet = liveTool({
   execute: async () => ({ ok: true }),
 });
 
-const greleaseRedeploy = liveTool({
-  integration: "gmail",
-  action: "send_draft",
+const sheetsAppend = liveTool({
+  integration: "sheets",
+  action: "append_values",
   riskTier: "high",
   replay: "safe",
-  description: "Send mail messages.",
-  discovery: { aliases: ["mail task", "common task"], entities: ["mail"], verbs: ["handle"] },
+  description: "Append spreadsheet rows.",
+  discovery: { aliases: ["sheet task", "common task"], entities: ["sheet"], verbs: ["handle"] },
   inputSchema: z.object({}).strict(),
   execute: async () => ({ ok: true }),
 });
@@ -141,7 +140,7 @@ function access(
   const allowed = new Set(allowedIntegrations);
   const availability = new Map<ToolName, ToolAvailabilityResult>();
 
-  for (const tool of [contactsSearch, contactsGet, greleaseRedeploy, vercelRedeploy, vercelList]) {
+  for (const tool of [contactsSearch, contactsGet, sheetsAppend, vercelRedeploy, vercelList]) {
     // Like evaluateToolCatalog, the allowlist is decided first as `not_allowed`.
     availability.set(
       tool.name,
@@ -334,7 +333,7 @@ describe("tool discovery", () => {
   });
 
   test("applies the preload limit after removing already-active candidates", () => {
-    const ranked = [vercelRedeploy, vercelList, contactsGet, contactsSearch, greleaseRedeploy];
+    const ranked = [vercelRedeploy, vercelList, contactsGet, contactsSearch, sheetsAppend];
     const activeTools = ranked.slice(0, 4).map((tool) => tool.name);
     assert.deepEqual(
       preloadToolCatalog({
@@ -349,65 +348,9 @@ describe("tool discovery", () => {
           ),
         },
       }),
-      ["gmail.send_draft"],
+      ["sheets.append_values"],
     );
   });
-});
-
-test("exact availability respects tool scopes and caller context", () => {
-  const readonlyScope = "contacts.readonly";
-
-  const read = liveTool({
-    integration: "contacts",
-    action: "search",
-    riskTier: "no_risk",
-    replay: "safe",
-    description: "Search contacts.",
-    availability: { credential: { provider: "google", anyOfScopes: [readonlyScope] } },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const send = liveTool({
-    integration: "gmail",
-    action: "send_draft",
-    riskTier: "high",
-    replay: "safe",
-    description: "Send mail.",
-    availability: { credential: { provider: "google", anyOfScopes: ["gmail.send"] } },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const spawn = liveTool({
-    integration: "system",
-    action: "spawn_sub_agent",
-    riskTier: "no_risk",
-    replay: "safe",
-    description: "Spawn child.",
-    availability: { callers: ["boss"] },
-    inputSchema: z.object({}).strict(),
-    execute: async () => ({}),
-  });
-
-  const snapshot: IntegrationAvailabilitySnapshot = {
-    integrations: new Map([
-      ["contacts", { health: "active", accountLabel: null }],
-      ["gmail", { health: "active", accountLabel: null }],
-    ]),
-    providers: new Map([["google", [provider("active", [readonlyScope])]]]),
-    passthroughEnabled: new Map(),
-  };
-
-  assert.deepEqual(
-    [
-      ...availableToolNames(snapshot, [read, send, spawn], [], {
-        caller: "sub_agent",
-        interaction: "background",
-      }),
-    ],
-    ["contacts.search"],
-  );
 });
 
 describe("evaluateToolAvailability reason codes (#413)", () => {
@@ -419,7 +362,6 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
     riskTier: "no_risk",
     replay: "safe",
     description: "Search contacts.",
-    availability: { credential: { provider: "google", anyOfScopes: [scoped] } },
     inputSchema: z.object({}).strict(),
     execute: async () => ({}),
   });
@@ -481,11 +423,6 @@ describe("evaluateToolAvailability reason codes (#413)", () => {
 
     const result = evaluateToolAvailability(snapshot, search, new Set(), ctx);
     assert.equal(result.available === false && result.code, "needs_reauth");
-  });
-
-  test("missing_scope when active but the required scope is absent", () => {
-    const result = evaluateToolAvailability(active(["contacts.other"]), search, new Set(), ctx);
-    assert.equal(result.available === false && result.code, "missing_scope");
   });
 
   test("not_allowed when outside the workflow integration allowlist", () => {

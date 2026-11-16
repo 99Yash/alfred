@@ -45,12 +45,12 @@
         {
           "type": "tool-result",
           "toolCallId": "call_b",
-          "toolName": "gmail.send_draft",
+          "toolName": "vercel.redeploy",
           "output": {
             "type": "json",
             "value": {
               "status": "rejected_by_user",
-              "toolName": "gmail.send_draft",
+              "toolName": "vercel.redeploy",
               "reason": "I already replied to this thread yesterday — don't double-send"
             }
           }
@@ -91,7 +91,7 @@
   ],
   "assertions": [
     { "section": "actions_completed", "contains": "mcp.call" },
-    { "section": "actions_rejected", "contains": "gmail.send_draft" },
+    { "section": "actions_rejected", "contains": "vercel.redeploy" },
     { "section": "actions_failed", "contains": "mcp.call" },
     { "section": "key_entities", "contains": "thread_carol_vendor" }
   ]

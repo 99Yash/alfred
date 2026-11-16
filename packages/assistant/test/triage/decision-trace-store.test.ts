@@ -47,8 +47,6 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderKindDemotionReason: null,
     meetingDemotedCategory: false,
     meetingDemotionReason: null,
-    spamDemotedCategory: false,
-    spamFloorOutcome: null,
     standingDemotedCategory: false,
     standingFloorOutcome: null,
     standingEffects: [],

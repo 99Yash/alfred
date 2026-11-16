@@ -4,7 +4,7 @@ This page states what email triage is for and the rules that follow from that. I
 
 Each triage ADR, plan, and prompt change must agree with this page. If a change does not agree, update this page first, or do not make the change.
 
-Last verified: 2026-11-14 (owner decisions on echoes, the profile, the mail facts, and the gather; previous: 2026-11-06 at `7c62f224a`).
+Last verified: 2026-11-15 (owner decisions on what triage tags, no relabel after a matter ends, and patterns in words; previous: 2026-11-14).
 
 ---
 
@@ -13,6 +13,24 @@ Last verified: 2026-11-14 (owner decisions on echoes, the profile, the mail fact
 For each thread, triage decides **what it costs Yash to ignore it**. It shows that answer as one label in the Gmail inbox. Triage does nothing else.
 
 Yash reads the labels in the inbox list. He does not filter by them. Thus a loud label must be correct, and a quiet label must not attract the eye.
+
+## What triage tags
+
+Owner decisions, 2026-11-15:
+
+- **Triage is for mail only.** It labels inbox mail in the Primary and Updates categories. When the inbox has no category tabs, all inbox mail is in scope.
+- **Triage does not label:**
+  - mail in Social, Promotions, or Forums;
+  - spam;
+  - mail that a Gmail filter kept out of the inbox;
+  - mail that Yash sent to himself.
+- **The briefing covers every source and all mail.** A mail that triage does not label, but that is important, odd, or suspicious, goes in the briefing.
+- **A real matter in spam.** The briefing says that the mail is in spam, because a Gmail inbox search does not show spam. Alfred does not move the mail.
+- **A mail that Yash moves into Primary himself** can get a label. This needs the Gmail change signal ([build plan](../plans/triage-theory-v1.md), slice 5).
+
+## When triage judges a thread
+
+Triage judges a thread when a mail arrives, when a new mail arrives in the thread, and when Yash corrects the label. It does not judge a thread again when the matter ends somewhere else. A matter can end at any time, and a relabel of old mail costs money and gives little (owner decision, 2026-11-15). The briefing reports what ended.
 
 ## The labels
 
@@ -45,7 +63,7 @@ A sign-in confirmation, a new-device notice, an OTP mail, and a backup-code mail
 - **A mail is an echo only while the facts fit Yash's own act.** The model weighs these facts together:
   - the service, and the device, place, and app that the mail names;
   - the account that got the mail: a work account or a personal account;
-  - the arrival time in Yash's zone, against his usual hours from the profile. Workdays and weekends can differ;
+  - the arrival time in Yash's zone, against his usual hours from the profile, in the shape that his week has;
   - Yash's own acts near that time, from every integration. The gather reads them ([Cost](#cost)).
 - **When the facts point to another person, the mail is a security notice, not an echo.** The loud question then applies, as for any other mail.
 - No rule turns one fact into a label. An odd hour alone does not make a mail loud. The reason names the facts that decided it.
@@ -70,7 +88,7 @@ The model weighs these:
 - Yash's standing instructions.
 - Yash's corrections.
 - The **triage profile** (see [The profile](#the-profile)): who Yash is, who matters to him, what is noise to him, and what is live in his life right now. Triage only reads it.
-- Facts about the sender, when Alfred has them.
+- Claims about the sender, when Alfred has them. They are global claims in memory ([memory.md](./memory.md)), not a triage store. A sender claim is one part of what Alfred can infer from mail.
 - What Yash did, for example a reply to this sender.
 - The mail itself.
 
@@ -87,7 +105,7 @@ The reason on each label names the evidence that decided it.
 
 Two bounded parts (owner decision, 2026-11-14):
 
-- **Durable.** Who Yash is, who matters to him, what is noise to him, his accounts (work and personal), and his standing patterns. A pattern is, for example, his usual active hours on workdays and at weekends. Only Yash's own acts are evidence for a pattern (principle 5). This part changes slowly.
+- **Durable.** Who Yash is, who matters to him, what is noise to him, his accounts (work and personal), and his standing patterns. A pattern is, for example, when he is usually active. The profile states a pattern in words, in the shape that his week has: three night shifts, two day shifts, and a free weekend is a valid pattern. No fixed field limits the shape (owner decision, 2026-11-15). Only Yash's own acts are evidence for a pattern (principle 5). This part changes slowly.
 - **Now.** The matters that are live in his life now. Each is one line with a decay date. The memory system refreshes this part from the journal's matters. A new mention renews the date, and an ended matter leaves the list. The list holds at most 10 lines. When it is full, the stalest line falls off.
 
 The cap and the decay dates make bloat impossible, not only unlikely, so the profile stays a short text. The profile is what the cheap first call knows. A search at label time is the job of the gather ([Cost](#cost)). If an eval shows that the profile is not sufficient for the first call, the escape hatch of ADR-0121 decision 6 applies. Yash sees and edits both parts.
@@ -97,13 +115,15 @@ The cap and the decay dates make bloat impossible, not only unlikely, so the pro
 One reader of the stored mail builds the facts that the model reads, and triage, the loop joins, the briefing, and the user model all read from it ([foundations](./README.md#4-what-to-work-on-next-foundations-first)). The required set (owner decision, 2026-11-14):
 
 - The message and thread identity, and the arrival time in Yash's zone.
-- The sender: the address, the display name, and the effective author that the sender context gives.
+- The sender: the address, the display name, the effective author that the sender context gives, and the sender's `Reply-To`.
 - The recipients, which of Yash's accounts got the mail, and whether each recipient is a known contact.
 - The subject, and the plain body text.
 - Yash's own words in the thread: his replies.
-- The device, place, and app names that the mail states.
+- The device, place, and app names that the mail states. Code copies them only from labelled lines (`Device: …`, `Location: …`, `App: …`), in the mail's own words. A name stated only in a sentence stays in the body (owner decision, 2026-11-15).
 - The Gmail-native signals: the labels and the spam state.
 - Whether attachments are present.
+
+The reader also keeps the `Authentication-Results` header, because ADR-0122 decision 1a needs the DMARC result. The triage prompt does not show it until an eval case shows a spoofed mail in scope with a wrong label (owner decision, 2026-11-15).
 
 The build plan owns the exact wire shape and the trimming (principle 7). No fact is a verdict: each fact is a source's words, and the model judges them.
 
@@ -138,7 +158,7 @@ The limit is a daily amount of money, not a model tier. A decision has the shape
 - When the first decision hits a trigger, code starts the **gather**. The gather is a read-only Code Mode program (ADR-0124). It reads the stores below, and then the model decides again. The sources:
   - Yash's own acts near the arrival time, from every integration, in time order (the activity record, ADR-0118). This gives the chronology at almost no cost.
   - The thread, and Yash's own words in it.
-  - The sender facts.
+  - The claims about the sender.
   - The searchable chats, the claims, and the journal notes with their sources.
 - The gather reads only the stores that are built. Each store joins the gather when it is built. Thus the gather does not wait for the journal or for memory.
 - The triggers. Code starts the gather. The cheap model's confidence never starts it.

@@ -32,12 +32,6 @@ export {
 } from "./gmail-projection-run";
 
 export {
-  type ReferentEvidence,
-  type ReferentKeyInput,
-  type ReferentThreadingHeaders,
-} from "./referent-identity";
-
-export {
   buildOrgAffiliationObservationInput,
   recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
@@ -133,6 +127,28 @@ export {
 } from "./significance";
 
 export { type Significance } from "@alfred/contracts";
+
+// The mail facts of one stored Gmail message (`docs/theory/triage.md` § The mail facts).
+export {
+  loadMailFacts,
+  MAIL_FACTS_BODY_MAX_CHARS,
+  readMailFacts,
+  type MailFacts,
+  type MailFactsContext,
+  type MailFactsRow,
+  type MailOwnReply,
+  type MailRecipient,
+} from "./mail-facts";
+
+// The deterministic sender parse (ADR-0042). Triage and the mail-facts reader share it.
+export {
+  canonicalizeEmailForMatch,
+  extractSenderContext,
+  isHumanLikeSender,
+  recipientAddresses,
+  type ExtractSenderContextArgs,
+  type SenderContextResult,
+} from "./sender-context";
 
 export {
   editStandingInstruction,

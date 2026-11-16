@@ -67,9 +67,9 @@ export { triageWorkflowInputSchema } from "./workflow-input";
 
 export type { TriageWorkflowInput } from "./workflow-input";
 
-export { extractSenderContext, recipientAddresses } from "./sender-context";
+export { extractSenderContext, recipientAddresses } from "../knowledge";
 
-export type { ExtractSenderContextArgs, SenderContextResult } from "./sender-context";
+export type { ExtractSenderContextArgs, SenderContextResult } from "../knowledge";
 
 export { getThreadState, readGmailThreadClosure } from "./thread-state";
 
@@ -86,6 +86,8 @@ export {
 export type { TriageSenderKindSignal } from "./sender-kind";
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
+
+export { TRIAGE_OUT_OF_SCOPE_MEANING, triageOutOfScope, type TriageOutOfScope } from "./scope";
 
 // The parser port knowledge depends on (ADR-0089).
 export { gmailSenderAdapter } from "./gmail-sender-adapter";

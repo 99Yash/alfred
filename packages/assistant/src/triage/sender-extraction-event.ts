@@ -15,7 +15,7 @@ import {
   type StandingFloorOutcome,
 } from "./floors";
 import type { Observations } from "./observations";
-import type { SenderContextResult } from "./sender-context";
+import type { SenderContextResult } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
 import type { TriageTodoStandingRead } from "./todo-decision";
 
@@ -44,18 +44,6 @@ export const FLOOR_TRACE_PROJECTIONS = {
     meetingDemotedCategory: audit?.verdict.kind === "demote",
     meetingDemotionReason: audit?.reason ?? null,
   }),
-  spam: (audit) => ({
-    /** A reply lane went to `fyi` (rule 20). */
-    spamDemotedCategory: audit?.verdict.kind === "demote",
-    /**
-     * `demoted_reply_lane`, `held_demand_lane` (spam stayed urgent, #1098), or null.
-     * Not named `spamDemotionReason`: a query on that key silently reads NULL.
-     * Count demotions with `= 'demoted_reply_lane'`; `IS NOT NULL` over-counts.
-     * Who held the lane: `floorForced = true` means the override floor; before #1188
-     * see `floors/spam.ts`.
-     */
-    spamFloorOutcome: audit?.outcome ?? null,
-  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
@@ -79,7 +67,6 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
     ...project.override(floors?.override ?? null),
     ...project.senderKind(floors?.senderKind ?? null),
     ...project.meeting(floors?.meeting ?? null),
-    ...project.spam(floors?.spam ?? null),
   };
 }
 

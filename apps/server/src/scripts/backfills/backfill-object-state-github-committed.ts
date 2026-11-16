@@ -1,7 +1,8 @@
 /**
- * Replay stored GitHub deliveries in `event_receipts` through the GitHub reducer,
- * so `integration_objects` includes history from before the live fold (#212, ADR-0062).
- * Without it, old merges never close their briefing loops.
+ * Replay stored GitHub deliveries through the GitHub reducer, so `integration_objects` includes
+ * history from before the live fold (#212, ADR-0062). Without this replay, old merges never close
+ * their briefing loops. The body comes from `documents.raw`, the one stored copy. The replay skips
+ * a receipt with no document.
  *
  * Replays in `delivered_at` order for the reducer's monotonic guard. The reducer is
  * idempotent. Bundled for prod. Dry by default; `--commit` writes (additive only).
@@ -15,11 +16,12 @@ import {
   objectStateStore,
   parseReceiptEvent,
   receiptDeliveryInstant,
+  receiptDocumentJoin,
 } from "@alfred/assistant/connections";
 import { warmPool } from "@alfred/db";
 import { closeScriptResources } from "../script-runtime";
 import { db } from "@alfred/db";
-import { typedEventReceipts, integrationObjects } from "@alfred/db/schemas";
+import { documents, typedEventReceipts, integrationObjects } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
 import { eventTypeName, toMessage } from "@alfred/contracts";
 
@@ -29,15 +31,17 @@ async function main() {
   await warmPool();
   console.log(`# Object-state github backfill — mode=${COMMIT ? "COMMIT" : "DRY"}`);
 
-  // The reducer folds only `pull_request`. Receipts carry their user (ADR-0097).
+  // The reducer folds only `pull_request`. Receipts carry their user (ADR-0097). The body is in
+  // the receipt's document, the one copy (stores.md), as the live fold reads it.
   const rows = await db()
     .select({
       userId: typedEventReceipts.userId,
-      payload: typedEventReceipts.payload,
+      body: documents.raw,
       // Microseconds, not a JS `Date`, so the order matches the live fold (#1200).
       deliveredAt: receiptDeliveryInstant(),
     })
     .from(typedEventReceipts)
+    .innerJoin(documents, receiptDocumentJoin(typedEventReceipts))
     .where(
       and(
         eq(typedEventReceipts.provider, "github"),
@@ -48,7 +52,7 @@ async function main() {
 
   // A body that is not a JSON object cannot be folded or counted.
   const deliveries = rows.flatMap((row) => {
-    const event = parseReceiptEvent("github", "pull_request", row.payload);
+    const event = parseReceiptEvent("github", "pull_request", row.body);
 
     if (event?.eventType !== "pull_request") return [];
 

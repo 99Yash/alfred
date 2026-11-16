@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { parseIanaTimezone } from "@alfred/contracts";
+import { parseIanaTimezone, type SenderContext } from "@alfred/contracts";
+import { readMailFacts, type MailFacts } from "@alfred/assistant/knowledge/mail-facts";
 
 import {
   classifyCallOptions,
@@ -95,11 +96,41 @@ function classification(over: Partial<TriageClassification> = {}): TriageClassif
   return { category: "fyi", confidence: 0.8, rationale: "because", todoSuggestion: null, ...over };
 }
 
+/** The sender context these tests were written against. */
+const TEST_SENDER: SenderContext = { fromKind: "service", effectiveAuthor: "service" };
+
+/** The reader over the test document (no stored message, so it reads the metadata). */
+function factsFor(document: ClassifyEmailArgs["document"]): MailFacts {
+  const facts = readMailFacts(
+    { ...document, sourceId: document.id, sourceThreadId: null, accountId: null, raw: null },
+    {
+      timezone: parseIanaTimezone("UTC"),
+      mailboxByAccountId: new Map(),
+      userAddresses: new Set(),
+      knownContacts: new Set(),
+      ownReplies: [],
+    },
+  );
+
+  return {
+    ...facts,
+    sender: { ...facts.sender, parse: { ...facts.sender.parse, context: TEST_SENDER } },
+  };
+}
+
 function args(over: Partial<ClassifyEmailArgs> = {}): ClassifyEmailArgs {
+  const document = over.document ?? {
+    id: "doc_1",
+    title: "Subject",
+    content: "Body",
+    authoredAt: null,
+    metadata: {},
+  };
+
   return {
     proposeTodo: true,
-    document: { id: "doc_1", title: "Subject", content: "Body", authoredAt: null, metadata: {} },
-    senderContext: { fromKind: "service", effectiveAuthor: "service" },
+    document,
+    mailFacts: factsFor(document),
     observations: observations(),
     ...over,
   };

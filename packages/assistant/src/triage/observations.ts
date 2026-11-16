@@ -21,8 +21,9 @@ export interface GmailSignals {
   starred: boolean;
   inInbox: boolean;
   /**
-   * Gmail's spam verdict (#1098). The spam floor always demotes the reply lanes.
-   * For `urgent`/`action_needed` it is only a prior (rule 20), so spam can stay urgent.
+   * Gmail's spam verdict. The classify step skips spam before the model (`triageOutOfScope`);
+   * only a dry-run replay of an old row can send it `true`. Slice 3 removes the prompt rule
+   * that reads it.
    */
   spam: boolean;
   /** User-deleted. A hint only; no floor reads it. */

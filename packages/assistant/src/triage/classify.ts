@@ -11,7 +11,6 @@ import {
   collapseWhitespace,
   confidenceSchema,
   documentAskProposalSchema,
-  extractGmailDocumentBody,
   sanitizeErrorMessage,
   sanitizeToolResult,
   triageTodoDecisionSchema,
@@ -19,7 +18,6 @@ import {
   type CollabActivityKind,
   type GmailDocumentMetadata,
   type IanaTimezone,
-  type SenderContext,
   type TodoDecisionOutcome,
   type TriageInstructionEvaluation,
   type TriageModelVerdict,
@@ -31,8 +29,8 @@ import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import { addDays, formatDay, inZone } from "@alfred/assistant/time";
+import type { MailFacts, MailRecipient } from "../knowledge";
 import {
-  TRIAGE_BODY_MAX_CHARS,
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_MAX_OUTPUT_TOKENS,
   TRIAGE_REQUEST_TIMEOUT_MS,
@@ -155,6 +153,7 @@ export interface ClassifyEmailArgs {
    * schema has no todo fields, so the result carries no todo proposal.
    */
   proposeTodo: boolean;
+  /** The stored row. The floors read it; the prompt does not (slice 3 deletes the floors). */
   document: {
     id: string;
     title: string | null;
@@ -162,7 +161,8 @@ export interface ClassifyEmailArgs {
     authoredAt: Date | null;
     metadata: GmailDocumentMetadata;
   };
-  senderContext: SenderContext;
+  /** The prompt's mail input, from the mail-facts reader only. The sender context lives in it. */
+  mailFacts: MailFacts;
   /** Deterministic pre-model hints, never verdicts (ADR-0051 §4a). */
   observations: Observations;
   runId?: string;
@@ -455,42 +455,56 @@ function renderObservations(obs: Observations): string {
   return lines.join("\n");
 }
 
-/** The email fields that a triage prompt shows. The classify call and the re-match job share them. */
-export type TriageEmailDocument = Omit<ClassifyEmailArgs["document"], "id">;
-
-/** The From, To, Cc, and Date lines, each only when it is present. */
-export function triageEmailHeaderLines(document: TriageEmailDocument): string[] {
-  const { from, to, cc } = document.metadata;
-
-  return [
-    ...(from ? [`From: ${from}`] : []),
-    ...(to ? [`To: ${to}`] : []),
-    ...(cc ? [`Cc: ${cc}`] : []),
-    ...(document.authoredAt ? [`Date: ${document.authoredAt.toISOString()}`] : []),
-  ];
+/** `Name <addr>`, or the bare address. The From, To, and Cc lines share it. */
+function mailboxText(address: string, displayName: string | null): string {
+  return displayName ? `${displayName} <${address}>` : address;
 }
 
-/** The body text, cut at `TRIAGE_BODY_MAX_CHARS`. */
-export function triageEmailBody(document: TriageEmailDocument): string {
-  const { from, to, cc } = document.metadata;
+function recipientLine(label: string, list: readonly MailRecipient[] | null): string[] {
+  if (list === null) return [];
 
-  const body = extractGmailDocumentBody(document.content, {
-    from,
-    to,
-    cc,
-    subject: document.title,
+  if (list.length === 0) return [`${label}: (empty)`];
+
+  const entries = list.map((r) => {
+    const mailbox = mailboxText(r.address, r.displayName);
+
+    if (r.isUser) return `${mailbox} (you)`;
+
+    return r.knownContact ? `${mailbox} (known contact)` : mailbox;
   });
 
-  return body.length > TRIAGE_BODY_MAX_CHARS
-    ? body.slice(0, TRIAGE_BODY_MAX_CHARS) + "\n[…truncated]"
-    : body;
+  return [`${label}: ${entries.join(", ")}`];
+}
+
+/**
+ * The mail-facts lines a triage prompt shows, each only when present. It shows neither the
+ * authentication results nor the user's own replies (slice 3 decides those).
+ */
+export function triageEmailHeaderLines(facts: MailFacts): string[] {
+  const { sender, stated } = facts;
+
+  return [
+    ...(sender.address ? [`From: ${mailboxText(sender.address, sender.displayName)}`] : []),
+    ...(facts.replyTo ? [`Reply-To: ${facts.replyTo}`] : []),
+    ...recipientLine("To", facts.to),
+    ...recipientLine("Cc", facts.cc),
+    ...(facts.receivedBy ? [`Received by: your account ${facts.receivedBy}`] : []),
+    // `Date`, because the prompt rules name "the email's Date". It carries the year.
+    ...(facts.arrivedAt
+      ? [`Date: ${facts.arrivedAt.local} (${facts.arrivedAt.weekday}, ${facts.arrivedAt.timezone})`]
+      : []),
+    ...(stated.devices.length ? [`Device named in the mail: ${stated.devices.join("; ")}`] : []),
+    ...(stated.places.length ? [`Place named in the mail: ${stated.places.join("; ")}`] : []),
+    ...(stated.apps.length ? [`App named in the mail: ${stated.apps.join("; ")}`] : []),
+    ...(facts.hasAttachments ? ["Attachments: yes"] : []),
+  ];
 }
 
 function userPrompt(args: ClassifyEmailArgs, instructionSection: string | null): string {
   const lines: string[] = [];
 
   lines.push("=== SenderContext ===");
-  lines.push(JSON.stringify(args.senderContext));
+  lines.push(JSON.stringify(args.mailFacts.sender.parse.context));
   lines.push("");
 
   // For the ownership gate (rule 16a). Absent, the model guesses.
@@ -512,14 +526,14 @@ function userPrompt(args: ClassifyEmailArgs, instructionSection: string | null):
     lines.push("");
   }
 
-  lines.push(...triageEmailHeaderLines(args.document));
+  lines.push(...triageEmailHeaderLines(args.mailFacts));
   lines.push("");
 
   lines.push("=== Subject — context, not proof of user ownership ===");
-  lines.push(args.document.title?.trim() || "(no subject)");
+  lines.push(args.mailFacts.subject?.trim() || "(no subject)");
   lines.push("");
   lines.push("=== Body ===");
-  lines.push(triageEmailBody(args.document));
+  lines.push(args.mailFacts.body);
 
   lines.push("");
   lines.push("=== Earlier thread context — use this to decide loop state and ownership ===");
@@ -855,14 +869,13 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     signalText,
     collabVetoText,
     senderKind: args.observations.senderKind,
-    effectiveAuthor: args.senderContext.effectiveAuthor,
+    effectiveAuthor: args.mailFacts.sender.parse.context.effectiveAuthor,
     sender: from ?? null,
     subject: args.document.title,
     to: to ?? null,
     cc: cc ?? null,
     accountEmail: args.identity?.email ?? null,
     contentFlags: args.observations.content,
-    isSpam: args.observations.gmail.spam,
   });
 
   // The stored model verdict: the system floors' output, before any instruction effect.

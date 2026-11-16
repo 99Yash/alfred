@@ -34,8 +34,6 @@ import type { ToolCallRoundAdapter } from "./internal/adapter";
 import type { ChatTurnAddress, ToolEffects } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
 
-export { withdrawToolCallApproval } from "./approval-lifecycle";
-
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 
 // The registry map stays private to `internal/registry.ts`. `builtin-tools.ts`

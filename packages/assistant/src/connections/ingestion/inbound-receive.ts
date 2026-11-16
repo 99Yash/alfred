@@ -217,7 +217,7 @@ async function insertReceipt(
     userId: owner.userId,
     verificationResult: INBOUND_VERIFICATION_RESULT,
     payloadHash: args.payloadHash,
-    payload: args.payload,
+    // No `payload`: the body is stored one time, in the document below (stores.md).
     processingStatus: "pending",
     ...(tier.kind === "raw"
       ? {
@@ -248,7 +248,7 @@ async function insertReceipt(
     if (!inserted) return null;
     await writeReceiptDocument(tx, projection, {
       id: inserted.id,
-      payload: args.payload,
+      body: args.payload,
       deliveredAt: inserted.deliveredAt,
       accountId: owner.accountRef,
     });

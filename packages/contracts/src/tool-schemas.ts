@@ -38,10 +38,6 @@ import type { ToolName } from "./tools";
 const MODEL_TOOL_EMAIL_PATTERN =
   /^[A-Za-z0-9_'+-]+(?:\.[A-Za-z0-9_'+-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/;
 
-function modelToolEmail() {
-  return z.string().regex(MODEL_TOOL_EMAIL_PATTERN, "Invalid email address");
-}
-
 /**
  * Input tolerance runs in two layers before strict validation:
  * 1. Dispatch `normalizeToolInputKeys`: lossless case and `_`/`-` key fixes for all tools.
@@ -70,39 +66,6 @@ function withQueryAlias<S extends z.ZodType>(canonical: "q" | "query", schema: S
     }
 
     return value;
-  }, schema);
-}
-
-/**
- * Rename curated 1:1 synonyms (`body` to `bodyText`, `limit` to `perPage`). The
- * alias is always removed; if the canonical key is also set, the canonical wins.
- * Matches the alias case-insensitively: dispatch only normalizes toward accepted
- * keys, so `Limit` would get through. Targets must be the object's own keys.
- */
-function withKeyAliases<S extends z.ZodObject>(
-  aliases: Record<string, keyof S["shape"] & string>,
-  schema: S,
-) {
-  return z.preprocess((value) => {
-    if (!isRecord(value)) return value;
-    let next = value;
-
-    for (const [alias, canonical] of Object.entries(aliases)) {
-      const key =
-        alias in next
-          ? alias
-          : Object.keys(next).find((k) => canonicalParamKey(k) === canonicalParamKey(alias));
-
-      if (key === undefined) continue;
-
-      if (next === value) next = { ...value };
-
-      // Fold into the canonical field when absent; else the canonical wins.
-      if (!(canonical in next)) next[canonical] = next[key];
-      delete next[key];
-    }
-
-    return next;
   }, schema);
 }
 
@@ -172,64 +135,6 @@ export function calendarCreateEventSendsInvitations(input: {
 }): boolean {
   return (input.attendees?.length ?? 0) > 0;
 }
-
-/* ── gmail ────────────────────────────────────────────────────────────── */
-
-/**
- * Wrap a bare recipient string (`to: "a@b.com"`) in an array. Runs after
- * `coerceJsonArrayFields`, so a `[`-prefixed string is a bad JSON array and is
- * left to fail. No trim: this fixes shape, not content. Recipients only.
- */
-const GMAIL_RECIPIENT_FIELDS = ["to", "cc", "bcc"] as const;
-
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- a `z.preprocess` callback takes and returns raw model input; the owning schema parses the result.
-function wrapScalarRecipients(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  let next = value;
-
-  for (const field of GMAIL_RECIPIENT_FIELDS) {
-    const raw = next[field];
-
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a `z.preprocess` callback on raw model input; a non-string field goes to strict validation unchanged.
-    if (typeof raw !== "string") continue;
-
-    if (raw.trim().startsWith("[")) continue;
-
-    if (next === value) next = { ...value };
-    next[field] = [raw];
-  }
-
-  return next;
-}
-
-export const gmailSendDraftInput = coerceJsonArrayFields(
-  GMAIL_RECIPIENT_FIELDS,
-  z.preprocess(
-    wrapScalarRecipients,
-    withKeyAliases(
-      { body: "bodyText" },
-      z
-        .object({
-          to: z.array(modelToolEmail()).min(1).max(25),
-          cc: z.array(modelToolEmail()).max(25).optional(),
-          bcc: z.array(modelToolEmail()).max(25).optional(),
-          subject: z
-            .string()
-            .min(1)
-            .max(1000)
-            .refine((s) => !/[\r\n]/.test(s), {
-              message: "subject must not contain line breaks",
-            }),
-          bodyText: z.string().min(1).max(50_000),
-          /** Shown on the approval card so the user can confirm the thread. */
-          threadId: z.string().optional(),
-        })
-        .strict(),
-    ),
-  ),
-);
-
-export type GmailSendDraftInput = z.infer<typeof gmailSendDraftInput>;
 
 /* ── sheets ───────────────────────────────────────────────────────────── */
 
@@ -1288,7 +1193,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "vercel.list_deployments": vercelListDeploymentsInput,
   "vercel.redeploy": vercelRedeployInput,
   "vercel.request": restPassthroughInput,
-  "gmail.send_draft": gmailSendDraftInput,
   "sheets.append_values": sheetsAppendValuesInput,
   "contacts.search": contactsSearchInput,
   "contacts.list": contactsListInput,

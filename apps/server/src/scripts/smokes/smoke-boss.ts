@@ -1,17 +1,18 @@
 /**
  * End-to-end boss smoke with the model in the loop: search, spawn a sub-agent,
- * promote its findings, and send a gated draft.
+ * and promote its findings. (The gated draft-send leg went with `gmail.send_draft`,
+ * which the owner deleted on 2026-11-15; the gated path is smoke-dispatch and smoke-expiry.)
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-boss.ts
  *
  * Pre-reqs:
  *   - A server process running (`pnpm dev`), so the worker runs the run and its child.
- *     This script auto-approves pending stagings.
- *   - One user with Google connected (gmail.send and contacts scopes), so the Gmail MCP
+ *     This script auto-approves any pending stagings.
+ *   - One user with Google connected (gmail.modify and contacts scopes), so the Gmail MCP
  *     server is reachable (ADR-0126).
  *
- * Gmail and Contacts run on autonomy with `gmail.send_draft` gated, so one run covers both
- * dispatch paths. The user's real policy row is restored in `finally`.
+ * Gmail and Contacts run on autonomy, so one run covers the autonomy dispatch path and the
+ * delegation path. The user's real policy row is restored in `finally`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -57,7 +58,7 @@ async function pickGoogleConnectedUser(): Promise<{
       and(
         eq(integrationCredentials.provider, "google"),
         eq(integrationCredentials.status, "active"),
-        sql`${integrationCredentials.scopes} ? ${GOOGLE_SCOPE.gmail.send}`,
+        sql`${integrationCredentials.scopes} ? ${GOOGLE_SCOPE.gmail.modify}`,
       ),
     )
     .limit(1);
@@ -78,10 +79,7 @@ async function installSmokePolicy(userId: string): Promise<PolicyRow | null> {
 
   const smokeRules = {
     system: { mode: "autonomy" as const },
-    gmail: {
-      mode: "autonomy" as const,
-      toolOverrides: { "gmail.send_draft": "gated" as const },
-    },
+    gmail: { mode: "autonomy" as const },
     contacts: { mode: "autonomy" as const },
   };
 
@@ -155,9 +153,7 @@ async function createSmokeWorkflow(userId: string, selfEmail: string): Promise<v
     "3. Then call system.read_scratch for 'scratch.inbox.summary'. If it is empty, the sub-agent",
     "   has not finished yet — call system.read_scratch again on your next turn until it returns content.",
     "4. Once you have the finding, call system.promote to copy 'scratch.inbox.summary' to 'shared.summary'.",
-    `5. Call gmail.send_draft to ${selfEmail} with subject 'Alfred boss smoke' and the promoted`,
-    "   summary as the body. This needs approval — proceed and wait for it.",
-    "6. Finish with one sentence confirming you delegated to a sub-agent, promoted its finding, and sent the email.",
+    "5. Finish with one sentence confirming you delegated to a sub-agent and promoted its finding.",
   ].join("\n");
 
   await db()
@@ -288,7 +284,7 @@ async function main(): Promise<void> {
 
   if (!target) {
     console.log(
-      "[smoke-boss] no user with an active google credential carrying gmail.send — reconnect Gmail with reply_draft first.",
+      "[smoke-boss] no user with an active google credential carrying gmail.modify — reconnect Gmail first.",
     );
 
     return;
@@ -367,19 +363,7 @@ async function main(): Promise<void> {
       "expected ≥1 shared.* key in agent_run_context (boss promote)",
     );
 
-    // 4. gmail.send_draft gated → approved → real send executed.
-    const sendDraft = stagings.find((s) => s.toolName === "gmail.send_draft");
-    assert(sendDraft !== undefined, "expected a gmail.send_draft staging");
-    assert(
-      sendDraft.requiresApproval === true,
-      "expected gmail.send_draft to be gated (requiresApproval=true)",
-    );
-    assert(
-      sendDraft.status === "executed",
-      `expected gmail.send_draft to execute after approval, got status=${sendDraft.status}`,
-    );
-
-    // 5. No compactor_failed runs for this user.
+    // 4. No compactor_failed runs for this user.
     const compactorFailed = await db()
       .select({ count: sql<number>`count(*)::int` })
       .from(agentRuns)

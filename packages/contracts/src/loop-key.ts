@@ -4,9 +4,9 @@
  * so a thread-id key misses them. Keys: `gh:owner/repo#786`, `issue:eng-123`,
  * or a tracker-scoped normalized subject (ClickUp subjects are the task title).
  *
- * Interim (ADR-0092). Do not add vendors here: mint referent identities in
- * `packages/assistant/src/knowledge/referent-identity.ts`. Each vendor branch is
- * deleted once the shadow-projection probe shows coverage (ADR-0092 D5).
+ * Interim (ADR-0092). Do not add vendors here. ADR-0122 decision 3c (2026-11-11)
+ * keys a thing from the evidence, with no templates, and deletes the referent
+ * identity module this comment once pointed at (`referent-identity.ts`).
  */
 
 import { parseMailbox } from "./domain";
