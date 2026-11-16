@@ -330,7 +330,7 @@ export async function listEmailsSinceWatermark(
         ? (attention[i]?.band ?? "normal")
         : "normal",
       correspondentHistory:
-        history && facts?.arrivedAt
+        history && facts.arrivedAt
           ? describeCorrespondentHistory(history, facts.arrivedAt.timezone)
           : null,
       contentLength: Number(r.contentLength),

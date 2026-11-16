@@ -181,7 +181,7 @@ export async function readMailCorrespondents(
 
   for (const { documentId, ...history } of rows) {
     if (documentId === null) continue;
-    const byAddress = byDocument.get(documentId) ?? new Map();
+    const byAddress = byDocument.get(documentId) ?? new Map<string, CorrespondentHistory>();
     byAddress.set(history.address, history);
     byDocument.set(documentId, byAddress);
   }
