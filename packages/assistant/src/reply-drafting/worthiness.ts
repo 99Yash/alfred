@@ -22,7 +22,7 @@ import type { GmailMessageEventReason } from "@alfred/assistant/triggers";
 
 /**
  * Reply-worthiness gate (ADR-0098). Pure: no DB, no LLM.
- * Not just `category === "awaiting_reply"`: a wrong outbound draft costs more than a wrong
+ * Not just `category === "reply"`: a wrong outbound draft costs more than a wrong
  * tag, so the bar is higher. One ordered rubric over facts triage already resolved.
  * The first failing test names the `no_draft` reason.
  * `post_triage` runs every test. `manual` skips the flag and the rubric, but still

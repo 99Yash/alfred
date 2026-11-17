@@ -34,12 +34,6 @@ import {
 import { senderExtractionEvent } from "./sender-extraction-event";
 import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
 import { resolveSenderRelationship } from "./sender-relationship";
-import {
-  getSenderPrior,
-  incrementSenderPrior,
-  senderKeyFor,
-  senderPriorWriteKeyFor,
-} from "./sender-priors";
 import { mayBeUnflaggedSentMail } from "./sent-mail";
 import { triageOutOfScope, type TriageOutOfScope } from "./scope";
 import {
@@ -347,8 +341,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         mailFacts,
         observations,
         identity: ctxData.identity,
-        // Action items off: the model gets no todo rubric and returns no todo fields.
-        proposeTodo: flags.actionItems,
         runId: ctx.runId,
         stepId: "classify",
         idempotencyKey: ctx.idempotencyKey,
@@ -361,7 +353,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       instructionEvaluation = result.instructionEvaluation;
     } catch (err) {
       // A low-confidence label beats none. The error goes in `rationale` so the row
-      // says why. `senderPriorWriteKeyFor` never learns from `model="fallback"`.
+      // says why. The row never teaches a prior: triage does not learn from its own
+      // labels (theory principle 5).
       const errMsg = toMessage(err);
       await ctx.log(`classify failed; falling through to default: ${errMsg}`);
       classification = {
@@ -550,51 +543,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     );
   }
 
-  // Sender-prior bump (ADR-0051 #2). It only adds, so each document teaches once:
-  // not on reuse, not on a reply re-eval, and not on a `force` re-run of a document
-  // an earlier run already stored. A missed vote is cheap; a duplicate is permanent.
-  const documentAlreadyTaughtPrior = Boolean(
-    existing && existing.runId !== ctx.runId && existing.documentId === ctx.state.documentId,
-  );
-
-  if (
-    !reusedExistingRow &&
-    written &&
-    ctx.state.reason !== "reply" &&
-    !documentAlreadyTaughtPrior
-  ) {
-    const docIsSent = isSentGmailMetadata(ctxData.document.metadata);
-
-    const baseSenderKey = senderPriorWriteKeyFor({
-      senderContext,
-      senderAddress: senderContextResult.senderAddress,
-      isSent: docIsSent,
-      model,
-    });
-
-    const senderKey =
-      baseSenderKey ??
-      (!docIsSent &&
-      model !== "fallback" &&
-      observations?.senderKind &&
-      senderContextResult.senderAddress
-        ? senderContextResult.senderAddress.toLowerCase()
-        : null);
-
-    if (senderKey) {
-      try {
-        await incrementSenderPrior({
-          userId: ctx.userId,
-          senderKey,
-          category: classification.category,
-          displayName: ctxData.document.metadata.from ?? null,
-        });
-      } catch (err) {
-        await ctx.log(`sender_prior write failed (non-fatal): ${toMessage(err)}`);
-      }
-    }
-  }
-
   // Rail todo (ADR-0050). `suggest_todo` merges on source overlap, so a re-run
   // does not duplicate. A failure is non-fatal: the label and row are the contract.
   if (written && todo.outcome.kind === "suppressed") {
@@ -752,11 +700,11 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     summary: summarize(summaryTail),
   });
 
-  // Two closers: a user reply, and a payment receipt. A receipt often lands on a
+  // Two closers: a user reply, and a receipt. A receipt often lands on a
   // new thread, so it cannot sit behind the reply gate.
-  const isPaymentTriage = ctx.state.category === "payment";
+  const isReceiptTriage = ctx.state.category === "receipt";
 
-  if (ctx.state.reason !== "reply" && !isPaymentTriage) return done();
+  if (ctx.state.reason !== "reply" && !isReceiptTriage) return done();
 
   // Best-effort from here, flag read included. The label already landed (#1168).
   try {
@@ -806,7 +754,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       }
     }
 
-    if (isPaymentTriage) {
+    if (isReceiptTriage) {
       const payment = await resolvePaymentTodoFromReceipt({
         userId: ctx.userId,
         receiptDocumentId: ctx.state.documentId,
@@ -1072,10 +1020,7 @@ function todoObjectOf(
 
 /** The classify input of one stored mail, and the mailbox it came from. */
 export interface StoredTriageClassifyInput {
-  input: Pick<
-    ClassifyEmailArgs,
-    "userId" | "identity" | "proposeTodo" | "document" | "mailFacts" | "observations"
-  >;
+  input: Pick<ClassifyEmailArgs, "userId" | "identity" | "document" | "mailFacts" | "observations">;
   accountId: string | null;
 }
 
@@ -1099,9 +1044,8 @@ export async function loadStoredTriageClassifyInput(args: {
 
   if (!mailFacts) return null;
 
-  // One bind: the action-items flag and the observation gather share its load.
+  // One bind: the observation gather shares its settings load.
   const userSettings = settings({ userId: args.userId });
-  const flags = await userSettings.flags();
 
   const { observations } = await gatherObservations({
     userId: args.userId,
@@ -1118,7 +1062,6 @@ export async function loadStoredTriageClassifyInput(args: {
     input: {
       userId: args.userId,
       identity: ctxData.identity,
-      proposeTodo: flags.actionItems,
       document: {
         id: document.id,
         title: document.title,
@@ -1202,19 +1145,6 @@ export async function gatherObservations(args: {
   const senderKind =
     senderKindEnabled && senderAddress ? await resolveSenderKind(args.userId, senderAddress) : null;
 
-  const baseSenderKey = senderKeyFor(senderContext, senderAddress);
-
-  const senderKey =
-    baseSenderKey ?? (senderKind && senderAddress ? senderAddress.toLowerCase() : null);
-
-  const senderPrior = senderKey
-    ? await getSenderPrior(args.userId, senderKey).catch((err: unknown) => {
-        logger.warn({ err, userId: args.userId }, "[triage] sender prior read failed");
-
-        return null;
-      })
-    : null;
-
   const usePersonTreatment = isHumanSender && senderKind == null;
 
   // Best-effort hint: a failed read is not a known contact.
@@ -1239,8 +1169,6 @@ export async function gatherObservations(args: {
     .join("\n");
 
   const observations = assembleObservations({
-    senderKey,
-    senderPrior,
     persona: args.persona,
     thread,
     knownContact,

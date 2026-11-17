@@ -3,7 +3,6 @@ import type { AccountPersona } from "@alfred/contracts";
 // and loads the whole knowledge barrel at runtime.
 import type { MailStandingInstructions, UserContextLine } from "../knowledge";
 import type { TriageSenderKindSignal } from "./sender-kind";
-import type { SenderPrior } from "./sender-priors";
 import type { ThreadState } from "./thread-state";
 
 /**
@@ -66,7 +65,7 @@ export interface ContentFlags {
   hasCurrencyAmount: boolean;
   /**
    * Broad security vocabulary; every vendor auth echo sets it. A hint only:
-   * no deterministic path may turn it into `urgent` or `action_needed`.
+   * no deterministic path may turn it into `urgent` or `action`.
    */
   hasSecurityKeyword: boolean;
   hasCalendarInvite: boolean;
@@ -116,12 +115,6 @@ export function extractContentFlags(text: string): ContentFlags {
 // ---------------------------------------------------------------------------
 
 export interface Observations {
-  senderPrior: {
-    key: string | null;
-    /** Empty when the sender has no prior. */
-    categoryCounts: Record<string, number>;
-    lastCategory: string | null;
-  };
   /** Null until detected on the credential. */
   persona: AccountPersona | null;
   thread: ThreadState;
@@ -148,9 +141,6 @@ export interface Observations {
 }
 
 export interface AssembleObservationsArgs {
-  /** From `senderKeyFor`; null for humans. */
-  senderKey: string | null;
-  senderPrior: SenderPrior | null;
   persona: AccountPersona | null;
   thread: ThreadState;
   knownContact: boolean;
@@ -171,11 +161,6 @@ export interface AssembleObservationsArgs {
 /** Pure and order-stable, so traces diff cleanly. */
 export function assembleObservations(args: AssembleObservationsArgs): Observations {
   return {
-    senderPrior: {
-      key: args.senderKey,
-      categoryCounts: args.senderPrior?.categoryCounts ?? {},
-      lastCategory: args.senderPrior?.lastCategory ?? null,
-    },
     persona: args.persona,
     thread: args.thread,
     knownContact: args.knownContact,

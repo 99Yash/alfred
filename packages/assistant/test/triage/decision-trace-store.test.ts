@@ -37,18 +37,12 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderAddress: null,
     senderDomain: null,
     persona: null,
-    senderPriorKey: null,
-    senderPriorCounts: {},
     knownContact: false,
     senderRelationship,
     senderKind: null,
     senderKindConfidence: null,
     senderKindEvidenceCodes: [],
     senderKindDemotedPersonTreatment: false,
-    senderKindDemotedCategory: false,
-    senderKindDemotionReason: null,
-    meetingDemotedCategory: false,
-    meetingDemotionReason: null,
     standingDemotedCategory: false,
     standingFloorOutcome: null,
     standingEffects: [],
@@ -325,7 +319,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
         userId,
         sourceThreadId,
         documentId: newerDocId,
-        category: "action_needed",
+        category: "action",
         confidence: 0.9,
         rationale: "newer message owns the row",
         model: "test-model",
@@ -358,7 +352,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
 
     assert.equal(result.written, false, "older message must not become the canonical row");
     assert.equal(result.row.documentId, newerDocId);
-    assert.equal(result.row.category, "action_needed");
+    assert.equal(result.row.category, "action");
     assert.equal((await traceRows(runId)).length, 0, "recency loser writes no stale trace");
   });
 

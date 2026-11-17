@@ -392,8 +392,8 @@ export type StandingInstructionValue = z.infer<typeof standingInstructionValueSc
 /**
  * The v2 effect registry (ADR-0113). Capture stores only the effects the words ask for,
  * and readers branch on the stored list. An effect enters only with a consumer that enforces it.
- * - `demote_urgent`: `urgent` becomes `action_needed`.
- * - `demote_demand`: `urgent` and `action_needed` become `fyi` (the ADR-0110 floor).
+ * - `demote_urgent`: `urgent` becomes `action`.
+ * - `demote_demand`: `urgent` and `action` become `fyi` (the ADR-0110 floor).
  * - `demote_meeting`: `meeting` becomes `fyi`.
  * - `force_category`: the user's own category for the mail.
  * - `block_todo_suggestion`, `exclude_briefing_priority`, `include_briefing_priority`,
@@ -451,17 +451,16 @@ export const standingInstructionCoverageSchema = z
   .enum(STANDING_INSTRUCTION_COVERAGES)
   .catch("part");
 
-/** The demand order of E2: `urgent`, then `action_needed`, then every other category. */
+/** The demand order of E2: `urgent`, then `action`, then every other category. */
 const DEMAND_RANK = {
   urgent: 2,
-  action_needed: 1,
-  awaiting_reply: 0,
-  follow_up: 0,
+  action: 1,
+  reply: 0,
   meeting: 0,
-  payment: 0,
+  receipt: 0,
   done: 0,
-  newsletter: 0,
-  marketing: 0,
+  news: 0,
+  promo: 0,
   fyi: 0,
 } satisfies Record<TriageCategory, number>;
 
@@ -469,7 +468,7 @@ function demandRank(category: TriageCategory): number {
   return DEMAND_RANK[category];
 }
 
-/** `urgent` or `action_needed`: the demand lanes that a lowering effect can leave. */
+/** `urgent` or `action`: the demand lanes that a lowering effect can leave. */
 export function isDemandCategory(category: TriageCategory): boolean {
   return demandRank(category) > 0;
 }

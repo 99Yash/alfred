@@ -1,13 +1,6 @@
 /** Email triage (ADR-0025 #1). Terms: `docs/reference/glossary.md`. */
 
-export {
-  classifyEmail,
-  detectConflict,
-  resolveTodoSuggestion,
-  todoSuppressionReason,
-  triageClassificationSchema,
-  DEFAULT_TRIAGE_CATEGORY,
-} from "./classify";
+export { classifyEmail, triageClassificationSchema, DEFAULT_TRIAGE_CATEGORY } from "./classify";
 
 export { applyFloors, standingInstructionEvidence } from "./floors";
 
@@ -18,13 +11,10 @@ export type { EffectiveTriage, EffectiveTriageRow, StandingBlockEffectKind } fro
 export type { StandingEffectVerdict, StandingInstructionMatch } from "./floors";
 
 export type {
-  AssistDateAnchor,
   TriageClassification,
   ClassifyEmailArgs,
   TriageConflict,
   ClassifyAudit,
-  ResolvedTodoSuggestion,
-  TodoSuppressionReason,
   RunPass,
 } from "./classify";
 
@@ -85,19 +75,6 @@ export {
 } from "./sender-kind";
 
 export type { TriageSenderKindSignal } from "./sender-kind";
-
-export {
-  getSenderPrior,
-  incrementSenderPrior,
-  senderPriorWriteKeyFor,
-  senderKeyFor,
-} from "./sender-priors";
-
-export type {
-  SenderPrior,
-  IncrementSenderPriorArgs,
-  SenderPriorWriteKeyArgs,
-} from "./sender-priors";
 
 export { gmailSentSql, notSentGmailDocumentWhere } from "./sent-mail";
 

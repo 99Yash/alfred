@@ -32,7 +32,6 @@ const clickUpSenderKind = {
 };
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "notifications@tasks.clickup.com", categoryCounts: {}, lastCategory: null },
   persona: "work",
   thread: {
     lastUserReplyAt: null,
@@ -74,8 +73,6 @@ interface Case {
   expectCategory: string[];
   expectTodo: boolean;
   expectCollabActivity?: CollabActivityKind | null;
-  /** A heavy action_needed prior, to show the prompt beats it. */
-  prior?: Record<string, number>;
   /** Earlier thread messages, newest first (ADR-0051 #8). */
   recentMessages?: { direction: "sent" | "received"; snippet: string }[];
 }
@@ -90,27 +87,24 @@ const CASES: Case[] = [
     expectCategory: ["fyi", "done"],
     expectTodo: false,
     expectCollabActivity: "other_activity",
-    prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
-    name: "COUNTER — task assigned to the user (must stay action_needed + todo)",
+    name: "COUNTER — task assigned to the user (must stay action)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix login redirect loop on SSO",
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
-    expectCategory: ["action_needed"],
+    expectCategory: ["action"],
     expectTodo: true,
     expectCollabActivity: "assigned_to_user",
-    prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
     name: "COUNTER — direct @mention question (reply owed by user)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Deal Merge Flow",
     body: "Akshay Jyothis mentioned you in a comment\n@yash.k can you confirm whether the merge dedupes by external id before we ship? Need your call today.",
-    expectCategory: ["action_needed", "awaiting_reply"],
+    expectCategory: ["action", "reply"],
     expectTodo: true,
     expectCollabActivity: "mentioned_user",
-    prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
     // A bot's trailing "Done. Created" hid an earlier assignment. The thread context must win.
@@ -118,10 +112,9 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "dvd",
     body: "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list.\nView comment or reply to add a comment",
-    expectCategory: ["action_needed", "awaiting_reply"],
+    expectCategory: ["action", "reply"],
     // A real assigned bug (rule 16). It dedupes against the earlier todo by thread.
     expectTodo: true,
-    prior: { action_needed: 20, done: 6, fyi: 2 },
     recentMessages: [
       { direction: "received", snippet: "dvd: @Brain create a task from above in backlog" },
       {
@@ -140,11 +133,9 @@ const CASES: Case[] = [
     expectCategory: ["fyi"],
     expectTodo: false,
     expectCollabActivity: "other_activity",
-    prior: { action_needed: 20, done: 6, fyi: 2 },
   },
   {
-    // #351: a status change with no assignment. The over-classification second
-    // pass should settle on fyi, so expect `+2pass` in the model id.
+    // #351: a status change with no assignment settles on fyi in one pass.
     name: "STATUS-CHANGE — 'set status to' with no assignment → fyi (rule 12e, #351)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Functionality to change default behaviour of deal driver messages",
@@ -152,7 +143,6 @@ const CASES: Case[] = [
     expectCategory: ["fyi"],
     expectTodo: false,
     expectCollabActivity: "state_change",
-    prior: { action_needed: 20, done: 6, fyi: 2 },
   },
 ];
 
@@ -243,16 +233,10 @@ async function main() {
       result = await classifyWithRetry({
         identity: { name: "Yash", email: "yash.k@oliv.ai" },
         // The smoke checks the todo rubric too, so it runs with action items on.
-        proposeTodo: true,
         document,
         mailFacts,
         runPass: runLivePass,
         observations: baseObs({
-          senderPrior: {
-            key: "notifications@tasks.clickup.com",
-            categoryCounts: c.prior ?? {},
-            lastCategory: "action_needed",
-          },
           thread: {
             lastUserReplyAt: null,
             newestDirection: "received",

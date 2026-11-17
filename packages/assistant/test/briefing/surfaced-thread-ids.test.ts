@@ -38,12 +38,12 @@ function emailItemWithSubject(documentId: string, threadId: string, subject: str
 describe("collectSurfacedThreadIds", () => {
   test("collects thread ids across categories and briefings", () => {
     const morning = gatherWith({
-      action_needed: [emailItem("d1", "thr_a"), emailItem("d2", "thr_b")],
+      action: [emailItem("d1", "thr_a"), emailItem("d2", "thr_b")],
       urgent: [emailItem("d3", "thr_c")],
     });
 
     const lastNight = gatherWith({
-      awaiting_reply: [emailItem("d4", "thr_d")],
+      reply: [emailItem("d4", "thr_d")],
     });
 
     const ids = collectSurfacedThreadIds([morning, lastNight]);
@@ -52,9 +52,9 @@ describe("collectSurfacedThreadIds", () => {
   });
 
   test("dedupes the same thread surfaced in two briefings", () => {
-    // A morning action_needed thread reappears in the evening as awaiting_reply.
-    const morning = gatherWith({ action_needed: [emailItem("d1", "thr_x")] });
-    const evening = gatherWith({ awaiting_reply: [emailItem("d2", "thr_x")] });
+    // A morning action thread reappears in the evening as reply.
+    const morning = gatherWith({ action: [emailItem("d1", "thr_x")] });
+    const evening = gatherWith({ reply: [emailItem("d2", "thr_x")] });
 
     const ids = collectSurfacedThreadIds([morning, evening]);
 
@@ -101,7 +101,7 @@ describe("collectSurfacedLoopKeys", () => {
   test("lines up with the current-window derivation", () => {
     // previouslySurfaced compares the persisted key with the live key.
     const subject = "Re: [OlivAIRepo/baserow-middleware] Harden detection (PR #786)";
-    const gather = gatherWith({ action_needed: [emailItemWithSubject("d1", "thr", subject)] });
+    const gather = gatherWith({ action: [emailItemWithSubject("d1", "thr", subject)] });
     const [surfaced] = [...collectSurfacedLoopKeys([gather])];
     assert.equal(surfaced, deriveLoopKey(subject));
     assert.equal(surfaced, "gh:olivairepo/baserow-middleware#786");

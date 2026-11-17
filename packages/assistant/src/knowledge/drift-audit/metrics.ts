@@ -16,10 +16,7 @@ import { logger } from "@alfred/logging";
  */
 
 /** The two demanding lanes whose over-tagging was #210. */
-const ATTENTION_CATEGORIES = [
-  "urgent",
-  "action_needed",
-] as const satisfies readonly TriageCategory[];
+const ATTENTION_CATEGORIES = ["urgent", "action"] as const satisfies readonly TriageCategory[];
 
 /** The ingestor drops self-mail (#211), so any self doc means a regression. */
 const SELF_INGESTION_THRESHOLD = 0;
@@ -125,7 +122,7 @@ export async function attentionShare7d(userId: string): Promise<MetricResult> {
       categories: ATTENTION_CATEGORIES,
       sharePct: Math.round(share * 1000) / 10,
     },
-    summary: `${Math.round(share * 1000) / 10}% of the last 7d's classified threads are urgent/action_needed (>${ATTENTION_SHARE_THRESHOLD * 100}%, #210).`,
+    summary: `${Math.round(share * 1000) / 10}% of the last 7d's classified threads are urgent/action (>${ATTENTION_SHARE_THRESHOLD * 100}%, #210).`,
   };
 }
 

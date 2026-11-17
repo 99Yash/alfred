@@ -11,7 +11,6 @@ import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
 import type { Observations } from "@alfred/assistant/triage/observations";
 
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
-  senderPrior: { key: "service:github.com", categoryCounts: {}, lastCategory: null },
   persona: "personal",
   thread: {
     lastUserReplyAt: null,
@@ -55,8 +54,6 @@ interface Case {
   labelIds: string[];
   expectCategory: string[];
   expectTodo: boolean;
-  priorKey: string;
-  prior?: Record<string, number>;
   hasCurrencyAmount?: boolean;
 }
 
@@ -69,11 +66,8 @@ const CASES: Case[] = [
     subject: "[99Yash/alfred] greptile-apps[bot] commented on pull request #113",
     body: "99Yash has reached the 50-review limit for trial accounts. To continue receiving code reviews, upgrade your plan: https://app.greptile.com/review/github",
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
-    expectCategory: ["marketing", "fyi"],
+    expectCategory: ["promo", "fyi"],
     expectTodo: false,
-    priorKey: "service:github.com",
-    // The self-reinforcing prior from earlier PR comments.
-    prior: { action_needed: 4, fyi: 2 },
   },
   {
     name: "COUNTER — real failed payment on a paid plan (must stay payment)",
@@ -83,9 +77,8 @@ const CASES: Case[] = [
     subject: "Your payment to Vercel failed",
     body: "We were unable to charge your card for your Vercel Pro subscription ($20.00). Update your payment method to avoid service interruption.",
     labelIds: ["UNREAD", "INBOX"],
-    expectCategory: ["payment", "urgent", "action_needed"],
+    expectCategory: ["receipt", "urgent", "action"],
     expectTodo: true,
-    priorKey: "service:stripe.com",
     hasCurrencyAmount: true,
   },
   {
@@ -96,9 +89,8 @@ const CASES: Case[] = [
     subject: "Invoice #4821 is past due",
     body: "Your invoice of $96.00 for the Linear Standard plan is past due. Please pay by Jun 18 to keep your workspace active.",
     labelIds: ["UNREAD", "INBOX"],
-    expectCategory: ["payment", "action_needed"],
+    expectCategory: ["receipt", "action"],
     expectTodo: true,
-    priorKey: "service:linear.app",
     hasCurrencyAmount: true,
   },
   {
@@ -109,11 +101,8 @@ const CASES: Case[] = [
     subject: "Greptile trial capped and tracking ends tomorrow",
     body: "Your free trial has hit its review cap. Code-review tracking ends tomorrow — upgrade your plan now to keep receiving reviews.",
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
-    expectCategory: ["marketing", "fyi"],
+    expectCategory: ["promo", "fyi"],
     expectTodo: false,
-    priorKey: "service:greptile.com",
-    // The prod prior that pushed it to urgent.
-    prior: { action_needed: 3, urgent: 1, fyi: 1 },
   },
   {
     name: "COUNTER — vendor upgrade pitch direct from vendor (must be marketing/fyi)",
@@ -123,9 +112,8 @@ const CASES: Case[] = [
     subject: "You're running low on your free Vercel build minutes",
     body: "You've used 80% of your free build minutes this month. Upgrade to Pro to unlock unlimited builds and avoid hitting your limit.",
     labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
-    expectCategory: ["marketing", "fyi"],
+    expectCategory: ["promo", "fyi"],
     expectTodo: false,
-    priorKey: "service:vercel.com",
   },
 ];
 
@@ -156,12 +144,10 @@ async function main() {
     const { classification, model } = await classifyEmail({
       identity: { name: "Yash", email: c.to },
       // Keep the prompt the smoke was written against: action items on.
-      proposeTodo: true,
       document,
       mailFacts,
       observations: baseObs({
         persona: c.persona,
-        senderPrior: { key: c.priorKey, categoryCounts: c.prior ?? {}, lastCategory: null },
         content: {
           hasUnsubscribe: false,
           hasCurrencyAmount: c.hasCurrencyAmount ?? false,

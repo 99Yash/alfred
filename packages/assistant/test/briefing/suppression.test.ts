@@ -84,25 +84,25 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         sender: "billing@railway.app",
         subject: "Payment receipt",
         snippet: "Your receipt for $6.79",
-        category: "payment",
+        category: "receipt",
         occurredAtMs: 3,
-      },
-      {
-        sender: "someone@acme.com",
-        subject: "Following up",
-        category: "follow_up",
-        occurredAtMs: 2,
       },
       {
         sender: "digest@substack.com",
         subject: "This week in X",
+        category: "news",
+        occurredAtMs: 2,
+      },
+      {
+        sender: "digest@substack.com",
+        subject: "An older edition",
         category: "fyi",
         occurredAtMs: 1,
       },
     ]);
 
     assert.equal(demand.demandingCount, 0);
-    assert.equal(demand.topBand, "normal"); // payment/follow_up sit at normal, fyi muted
+    assert.equal(demand.topBand, "normal"); // receipt sits at normal; news and fyi sit below it
   });
 
   test("an actionable payment failure counts as demanding ⇒ send", async () => {
@@ -111,7 +111,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         sender: "billing@railway.app",
         subject: "Payment failed - update your card",
         snippet: "We were unable to process your payment. Please update your billing card.",
-        category: "payment",
+        category: "receipt",
         occurredAtMs: 1,
       },
     ]);
@@ -120,12 +120,12 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
     assert.equal(demand.topBand, "demanding");
   });
 
-  test("an unscored action_needed counts as demanding ⇒ send (errs toward sending)", async () => {
+  test("an unscored action counts as demanding ⇒ send (errs toward sending)", async () => {
     const demand = await scorePriorityEmailDemand(userId, [
       {
         sender: "colleague@acme.com",
         subject: "Please review",
-        category: "action_needed",
+        category: "action",
         occurredAtMs: 1,
       },
     ]);

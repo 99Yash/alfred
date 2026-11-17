@@ -573,28 +573,26 @@ function CategoryChip({
 
 const CATEGORY_CHIP = {
   urgent: "bg-app-red-1 text-app-red-4",
-  action_needed: "bg-app-amber-1 text-app-amber-4",
-  awaiting_reply: "bg-app-amber-1 text-app-amber-4",
-  payment: "bg-app-amber-1 text-app-amber-4",
-  follow_up: "bg-app-sky-1 text-app-sky-4",
+  action: "bg-app-amber-1 text-app-amber-4",
+  reply: "bg-app-sky-1 text-app-sky-4",
   meeting: "bg-app-sky-1 text-app-sky-4",
+  receipt: "bg-app-amber-1 text-app-amber-4",
   fyi: "bg-app-bg-a3 text-app-fg-a3",
   done: "bg-app-green-1 text-app-green-4",
-  newsletter: "bg-app-bg-a3 text-app-fg-a3",
-  marketing: "bg-app-bg-a3 text-app-fg-a3",
+  news: "bg-app-bg-a3 text-app-fg-a3",
+  promo: "bg-app-bg-a3 text-app-fg-a3",
 } satisfies Record<TriageCategory, string>;
 
 const CATEGORY_SWATCH = {
   urgent: "bg-app-red-4",
-  action_needed: "bg-app-amber-4",
-  awaiting_reply: "bg-app-amber-4",
-  payment: "bg-app-amber-4",
-  follow_up: "bg-app-sky-4",
+  action: "bg-app-amber-4",
+  reply: "bg-app-sky-4",
   meeting: "bg-app-sky-4",
+  receipt: "bg-app-amber-4",
   fyi: "bg-app-fg-2",
   done: "bg-app-green-4",
-  newsletter: "bg-app-fg-2",
-  marketing: "bg-app-fg-2",
+  news: "bg-app-fg-2",
+  promo: "bg-app-fg-2",
 } satisfies Record<TriageCategory, string>;
 
 /**

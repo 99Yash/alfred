@@ -487,7 +487,7 @@ const ACTIONABLE_PAYMENT_RE =
   /\b(?:payment|card|invoice|bill|billing|subscription|charge)\b[\s\S]{0,120}\b(?:fail(?:ed|ure)?|declin(?:ed|e)|past due|overdue|unpaid|due now|due today|unable to process|could(?: not|n't) process|update|action required|required action|requires? attention|needs? attention)\b|\b(?:fail(?:ed|ure)?|declin(?:ed|e)|past due|overdue|unpaid|action required|required action|requires? attention|needs? attention|unable to process|could(?: not|n't) process)\b[\s\S]{0,120}\b(?:payment|card|invoice|bill|billing|subscription|charge)\b/i;
 
 function isDemandingPayment(item: PriorityEmailDemandItem): boolean {
-  if (item.category !== "payment") return false;
+  if (item.category !== "receipt") return false;
   const text = [item.subject, item.snippet].filter(Boolean).join("\n");
 
   return ACTIONABLE_PAYMENT_RE.test(text);

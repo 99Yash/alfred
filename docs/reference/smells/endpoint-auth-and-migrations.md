@@ -14,8 +14,10 @@ Why: an uncovered route is open. See [elysia.md](../elysia.md) and [database.md]
 ## Bad
 
 ```ts
-export const notesRoutes = new Elysia({ prefix: "/api" })
-  .get("/notes", async ({ query }) => await listNotes({ userId: query.userId }));
+export const notesRoutes = new Elysia({ prefix: "/api" }).get(
+  "/notes",
+  async ({ query }) => await listNotes({ userId: query.userId }),
+);
 
 // Then: pnpm --filter @alfred/db db:push
 ```

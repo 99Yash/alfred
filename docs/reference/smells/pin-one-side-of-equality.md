@@ -22,18 +22,21 @@ assert.equal(sanitizeVoice(input), sanitizeVoice(input.trim()));
 ## Good
 
 ```ts
-assert.equal(
-  sanitizeVoice("the real thing — not the commit"),
-  "the real thing; not the commit",
-);
+assert.equal(sanitizeVoice("the real thing — not the commit"), "the real thing; not the commit");
 ```
 
 A cross-check keeps the marker and a literal anchor, as in `packages/assistant/test/context-search/rank.test.ts`:
 
 ```ts
-assert.deepEqual(result.ranking.map((e) => e.cardId), result.evidence.map((e) => e.id));
+assert.deepEqual(
+  result.ranking.map((e) => e.cardId),
+  result.evidence.map((e) => e.id),
+);
 // tautology-ok: cross-check that the parallel array tracks evidence order, anchored at rank.test.ts:453-456
-assert.deepEqual(result.evidence.map((e) => e.id), ["rank-test:pair:2", "rank-test:pair:1"]);
+assert.deepEqual(
+  result.evidence.map((e) => e.id),
+  ["rank-test:pair:2", "rank-test:pair:1"],
+);
 ```
 
 ## Mechanism

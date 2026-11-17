@@ -78,7 +78,7 @@ export interface StandingEffectAudit {
 /**
  * The ADR-0110 trace value, kept so that old queries still count the same thing. Null means
  * neither. Count demotions with `= 'demoted_demand_lane'`; `IS NOT NULL` over-counts.
- *  - `demoted_demand_lane`: the model verdict was `urgent` or `action_needed`, and the
+ *  - `demoted_demand_lane`: the model verdict was `urgent` or `action`, and the
  *    effective category is neither.
  *  - `held_secret_lane`: the exposed-secret signal held a lowering category effect.
  */
@@ -105,7 +105,7 @@ function categoryAfter(
 ): TriageCategory | null {
   switch (effect.kind) {
     case "demote_urgent":
-      return current === "urgent" ? "action_needed" : current;
+      return current === "urgent" ? "action" : current;
     case "demote_demand":
       return isDemandCategory(current) ? "fyi" : current;
     case "demote_meeting":

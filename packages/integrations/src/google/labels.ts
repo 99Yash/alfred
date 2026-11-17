@@ -16,37 +16,64 @@ import {
 import { gmailMailbox, type GmailMailbox } from "./mailbox";
 
 /**
- * Triage labels (ADR-0025 #1). Reuses the user's numbered labels ("2: action needed")
- * so they sort in the Gmail sidebar.
+ * Triage labels (ADR-0025 #1, renamed by triage-theory-v1 slice 2). No number prefix, and
+ * each label carries the color the theory page gives it. The rename runs in place: a label
+ * that still carries its old numbered name is patched to the new name and color, so its id
+ * and every message it sits on stay. `3: follow up` is not written again and stays on old
+ * threads; no category maps to it.
  */
 
 export { TRIAGE_CATEGORIES, type TriageCategory };
 
 const LABEL_NAMES = {
-  urgent: "1: urgent",
-  action_needed: "2: action needed",
-  follow_up: "3: follow up",
-  awaiting_reply: "4: awaiting reply",
-  meeting: "5: meeting",
-  fyi: "6: fyi",
-  done: "7: done",
-  payment: "8: payment",
-  newsletter: "9: newsletter",
-  marketing: "10: marketing",
+  urgent: "Urgent",
+  action: "Action",
+  reply: "Reply",
+  meeting: "Meeting",
+  receipt: "Receipt",
+  fyi: "FYI",
+  done: "Done",
+  news: "News",
+  promo: "Promo",
 } satisfies Record<TriageCategory, string>;
+
+/** Colors from Gmail's fixed palette. The loud labels are strong; the quiet ones are pale. */
+const LABEL_COLORS = {
+  urgent: { backgroundColor: "#cc3a21", textColor: "#ffffff" },
+  action: { backgroundColor: "#ff7537", textColor: "#ffffff" },
+  reply: { backgroundColor: "#4986e7", textColor: "#ffffff" },
+  meeting: { backgroundColor: "#e4d7f5", textColor: "#41236d" },
+  receipt: { backgroundColor: "#b9e4d0", textColor: "#076239" },
+  fyi: { backgroundColor: "#c9daf8", textColor: "#0d3472" },
+  done: { backgroundColor: "#fdedc1", textColor: "#594c05" },
+  news: { backgroundColor: "#cccccc", textColor: "#434343" },
+  promo: { backgroundColor: "#ebdbde", textColor: "#662e37" },
+} satisfies Record<TriageCategory, { backgroundColor: string; textColor: string }>;
+
+/**
+ * The numbered names before the rename, each with the category it now maps to. A reader
+ * (`categoryFromLabelName`, the slice-5 correction signal) still reads them off old rows.
+ */
+const LEGACY_LABEL_NAME_TO_CATEGORY = {
+  "1: urgent": "urgent",
+  "2: action needed": "action",
+  "4: awaiting reply": "reply",
+  "5: meeting": "meeting",
+  "6: fyi": "fyi",
+  "7: done": "done",
+  "8: payment": "receipt",
+  "9: newsletter": "news",
+  "10: marketing": "promo",
+} as const satisfies Record<string, TriageCategory>;
 
 export function labelNameFor(category: TriageCategory): string {
   return LABEL_NAMES[category];
 }
 
-const NAME_TO_CATEGORY = typedEntries(LABEL_NAMES).reduce<Record<string, TriageCategory>>(
-  (acc, [cat, name]) => {
-    acc[name] = cat;
-
-    return acc;
-  },
-  {},
-);
+const NAME_TO_CATEGORY = new Map<string, TriageCategory>([
+  ...typedEntries(LABEL_NAMES).map(([cat, name]) => [name, cat] as const),
+  ...Object.entries(LEGACY_LABEL_NAME_TO_CATEGORY).map(([name, cat]) => [name, cat] as const),
+]);
 
 export interface AlfredLabelMap {
   byCategory: Record<TriageCategory, string>;
@@ -75,12 +102,19 @@ export async function ensureAlfredLabels(
 
   for (const cat of TRIAGE_CATEGORIES) {
     const name = LABEL_NAMES[cat];
-    let id = existingByName.get(name);
+    // First under the new name; then under the old numbered name, which is renamed in place.
+    const legacyName = legacyNameFor(cat);
+    let id = existingByName.get(name) ?? (legacyName ? existingByName.get(legacyName) : undefined);
 
-    if (!id) {
+    if (id) {
+      // The rename keeps the id, so it runs once: after it, the label answers to the new name.
+      if (existingByName.get(name) === undefined && legacyName) {
+        await mailbox.updateLabel({ labelId: id, name, color: LABEL_COLORS[cat] });
+      }
+    } else {
       // A parallel create returns 409; re-list to recover the id.
       try {
-        const created = await mailbox.createLabel({ name });
+        const created = await mailbox.createLabel({ name, color: LABEL_COLORS[cat] });
         id = created.id;
       } catch (err) {
         const recovered = await findLabelByName(mailbox, name);
@@ -118,6 +152,11 @@ async function findLabelByName(
   const all = await mailbox.listLabels();
 
   return all.find((l) => l.name === name)?.id;
+}
+
+/** The numbered name a category carried before the rename, when it had one. */
+function legacyNameFor(category: TriageCategory): string | undefined {
+  return Object.entries(LEGACY_LABEL_NAME_TO_CATEGORY).find(([, cat]) => cat === category)?.[0];
 }
 
 async function loadCachedLabels(credentialId: string): Promise<AlfredLabelMap | null> {
@@ -265,7 +304,7 @@ export async function applyTriageLabel(
 }
 
 export function categoryFromLabelName(name: string): TriageCategory | undefined {
-  return NAME_TO_CATEGORY[name];
+  return NAME_TO_CATEGORY.get(name);
 }
 
 // Self-mail label

@@ -36,14 +36,6 @@ export const FLOOR_TRACE_PROJECTIONS = {
     /** It also forced `urgent`. */
     floorForced: audit?.verdict.kind === "escalate",
   }),
-  senderKind: (audit) => ({
-    senderKindDemotedCategory: audit?.verdict.kind === "demote",
-    senderKindDemotionReason: audit?.reason ?? null,
-  }),
-  meeting: (audit) => ({
-    meetingDemotedCategory: audit?.verdict.kind === "demote",
-    meetingDemotionReason: audit?.reason ?? null,
-  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
@@ -65,8 +57,6 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
 
   return {
     ...project.override(floors?.override ?? null),
-    ...project.senderKind(floors?.senderKind ?? null),
-    ...project.meeting(floors?.meeting ?? null),
   };
 }
 
@@ -76,7 +66,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
  * queries still count the same thing.
  */
 interface StandingTraceFields {
-  /** The model verdict was `urgent` or `action_needed`, and the effective category is neither. */
+  /** The model verdict was `urgent` or `action`, and the effective category is neither. */
   standingDemotedCategory: boolean;
   /**
    * `demoted_demand_lane`, `held_secret_lane` (the exposed-secret signal held a lowering
@@ -134,8 +124,6 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   senderAddress: SenderContextResult["senderAddress"];
   senderDomain: SenderContextResult["senderDomain"];
   persona: AccountPersona | null;
-  senderPriorKey: string | null;
-  senderPriorCounts: Record<string, number>;
   knownContact: boolean;
   senderRelationship: string | null;
   senderKind: TriageSenderKindSignal["kind"] | null;
@@ -151,6 +139,7 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   firstPassCategory: TriageCategory | null;
   firstPassConfidence: number | null;
   firstPassCollabActivity: CollabActivityKind | null;
+  /** Always null: the conflict re-ask is removed (slice 1). Keys stay for old rows. */
   conflict: NonNullable<ClassifyAudit["conflict"]>["kind"] | null;
   secondPassCategory: TriageCategory | null;
   secondPassCollabActivity: CollabActivityKind | null;
@@ -217,8 +206,6 @@ export function senderExtractionEvent(args: {
     senderDomain: args.senderContextResult.senderDomain,
     // observations
     persona: obs.persona,
-    senderPriorKey: obs.senderPrior.key,
-    senderPriorCounts: obs.senderPrior.categoryCounts,
     knownContact: obs.knownContact,
     senderRelationship: obs.senderRelationship,
     senderKind: obs.senderKind?.kind ?? null,

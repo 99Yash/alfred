@@ -217,8 +217,8 @@ from Step 2; never re-run a completed version.
   checksum): `packages/assistant/src/knowledge/gmail-projection-run.ts`.
 - Lifecycle writers (start/complete/activate + guards): `packages/assistant/src/knowledge/projection.ts`.
 - Consumer: `packages/assistant/src/triage/sender-kind.ts` — the reader call site.
-  Do not confuse it with `packages/assistant/src/triage/floors/sender-kind.ts`, a
-  downstream floor that only demotes an already-resolved sender kind.
+  Its former demotion floor left with the theory prompt (triage-theory-v1 slice 3); the
+  judgment is prompt evidence now.
 - Scheduled re-fold + frozen-logic gate (PR J): `packages/assistant/src/knowledge/refold.ts`
   (sweep registered in `packages/assistant/src/connections/ingestion/worker.ts`,
   not in `packages/assistant/src/knowledge/worker.ts`).

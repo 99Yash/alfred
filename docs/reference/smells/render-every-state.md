@@ -20,15 +20,17 @@ return rows.map((row) => <ApprovalRow key={row.id} row={row} />);
 ## Good
 
 ```tsx
-{loading ? (
-  <AppCard>Loading approvals…</AppCard>
-) : error && rows.length === 0 ? (
-  <EmptyState title="Approvals sync did not load" body={error} action={retryButton} />
-) : rows.length === 0 ? (
-  <EmptyState title="No pending approvals" body="Alfred will pause here…" />
-) : (
-  rows.map((row) => <ApprovalRow key={row.id} row={row} />)
-)}
+{
+  loading ? (
+    <AppCard>Loading approvals…</AppCard>
+  ) : error && rows.length === 0 ? (
+    <EmptyState title="Approvals sync did not load" body={error} action={retryButton} />
+  ) : rows.length === 0 ? (
+    <EmptyState title="No pending approvals" body="Alfred will pause here…" />
+  ) : (
+    rows.map((row) => <ApprovalRow key={row.id} row={row} />)
+  );
+}
 ```
 
 ## Mechanism

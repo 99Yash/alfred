@@ -1,40 +1,78 @@
-/** Triage categories. Here, not in `@alfred/integrations`, so the web bundle can import them. */
+/**
+ * Triage categories (ADR-0121, the nine labels). Here, not in `@alfred/integrations`, so the
+ * web bundle can import them. The loud question comes first: `urgent`, `action`, and `reply`
+ * say the mail needs Yash. Every other label is quiet.
+ */
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
 
 export const TRIAGE_CATEGORIES = [
   "urgent",
-  "action_needed",
-  "follow_up",
-  "awaiting_reply",
+  "action",
+  "reply",
   "meeting",
+  "receipt",
   "fyi",
   "done",
-  "payment",
-  "newsletter",
-  "marketing",
+  "news",
+  "promo",
 ] as const;
+
+/**
+ * The stored category ids before the rename (triage-theory-v1 slice 2). One migration maps
+ * `email_triage.category`; these are for readers of rows and JSON that a migration missed or
+ * that must still parse: `model_verdict`, `email_triage_changes`, stored snapshots.
+ */
+export type LegacyTriageCategory =
+  | "action_needed"
+  | "follow_up"
+  | "awaiting_reply"
+  | "payment"
+  | "newsletter"
+  | "marketing";
+
+/** Old id → new id. `follow_up` and `awaiting_reply` share `reply`; the split is gone. */
+export const LEGACY_TRIAGE_CATEGORY_MAP = {
+  action_needed: "action",
+  follow_up: "reply",
+  awaiting_reply: "reply",
+  payment: "receipt",
+  newsletter: "news",
+  marketing: "promo",
+} as const satisfies Record<LegacyTriageCategory, TriageCategory>;
+
+const CATEGORY_BY_ANY_ID = new Map<string, TriageCategory>([
+  ...TRIAGE_CATEGORIES.map((id) => [id, id] as const),
+  ...Object.entries(LEGACY_TRIAGE_CATEGORY_MAP),
+]);
+
+/**
+ * A category id that may still carry a pre-rename value: a new id passes, a legacy id maps.
+ * Anything else is `null`, so a caller decides its own fallback.
+ */
+export function migrateTriageCategory(value: string): TriageCategory | null {
+  return CATEGORY_BY_ANY_ID.get(value) ?? null;
+}
 
 export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
 
 export const TRIAGE_RAIL_SUPPRESSED_CATEGORIES = [
-  "newsletter",
-  "marketing",
+  "news",
+  "promo",
 ] as const satisfies readonly TriageCategory[];
 
 /** Short display label for the rail chip. */
 export const TRIAGE_DISPLAY = {
   urgent: "Urgent",
-  action_needed: "Action",
-  follow_up: "Follow-up",
-  awaiting_reply: "Awaiting",
+  action: "Action",
+  reply: "Reply",
   meeting: "Meeting",
+  receipt: "Receipt",
   fyi: "FYI",
   done: "Done",
-  payment: "Payment",
-  newsletter: "Newsletter",
-  marketing: "Marketing",
+  news: "News",
+  promo: "Promo",
 } satisfies Record<TriageCategory, string>;
 
 export const isTriageCategory = enumGuard(TRIAGE_CATEGORIES);
@@ -74,8 +112,8 @@ export type TriageTodoSuggestion = z.infer<typeof triageTodoSuggestionSchema>;
 
 /**
  * Which rubric test decided the todo. `outcome === 'proposed'` iff a suggestion exists.
- * `resolveTodoSuggestion` suppresses a `proposed` whose note starts
- * `cold_sender:`, `manufactured:`, or `advisory:`.
+ * Stored rows from before the rubric left still parse; the code-side suppressions read a
+ * `proposed` whose note starts `cold_sender:`, `manufactured:`, or `advisory:` as failed.
  */
 /** The `todoDecision.note` cap. A floor that writes a note cuts it here. */
 export const TRIAGE_TODO_DECISION_NOTE_MAX_CHARS = 200;

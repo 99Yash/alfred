@@ -4,7 +4,7 @@ This page states what email triage is for and the rules that follow from that. I
 
 Each triage ADR, plan, and prompt change must agree with this page. If a change does not agree, update this page first, or do not make the change.
 
-Last verified: 2026-11-15 (owner decisions on what triage tags, no relabel after a matter ends, and patterns in words; previous: 2026-11-14).
+Last verified: 2026-11-17 (the engagement-nudge decided case from the slice-3 deck gate; previous: 2026-11-15).
 
 ---
 
@@ -49,6 +49,7 @@ Triage judges a thread when a mail arrives, when a new mail arrives in the threa
 **Precedence.** Triage asks the loud question first. If the mail needs Yash, it gets a loud label, whatever kind of mail it is. Only a mail that needs nothing gets a quiet label. This is a hard rule, not a case-by-case judgment.
 
 - A failed payment, a card that expired, or a service that will stop is **Action**, or **Urgent** when access stops today. It is never Receipt.
+- An engagement nudge — a game streak, an unread count, a profile-view count — sells engagement. Nothing stops and nobody waits, so it is **Promo** or **FYI**, never Action, however near its deadline sits. A service that will stop is different: that is Action. (Owner decision, 2026-11-07, the chess.com streak cases.)
 - Meeting is a meeting with you that specific people arranged — confirmed, proposed, or arranged by a scheduling service for you and one person. An event with an open audience — a webinar, a seminar, a cohort session, a conference — is never Meeting, even when you registered for it and the invite sits on your calendar. The other attendees decide, not the calendar object.
 - Webinars, AGMs, e-voting notices, investor calls, and earnings calls are never Meeting.
 - When triage is not sure, the label is **FYI**. FYI never hides a mail and never raises a false alarm.

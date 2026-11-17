@@ -142,8 +142,6 @@ describe("assembleObservations", () => {
 
   test("produces a stable, fully-populated observation object", () => {
     const obs = assembleObservations({
-      senderKey: "alerts@stripe.com",
-      senderPrior: { categoryCounts: { payment: 4, fyi: 1 }, lastCategory: "payment" },
       persona: "work",
       thread,
       knownContact: false,
@@ -161,11 +159,6 @@ describe("assembleObservations", () => {
     });
 
     assert.deepEqual(obs, {
-      senderPrior: {
-        key: "alerts@stripe.com",
-        categoryCounts: { payment: 4, fyi: 1 },
-        lastCategory: "payment",
-      },
       persona: "work",
       thread,
       knownContact: false,
@@ -200,10 +193,8 @@ describe("assembleObservations", () => {
     });
   });
 
-  test("falls back to empty histogram + null fields when there is no prior", () => {
+  test("falls back to null fields when nothing is known", () => {
     const obs = assembleObservations({
-      senderKey: null,
-      senderPrior: null,
       persona: null,
       thread,
       knownContact: true,
@@ -213,7 +204,6 @@ describe("assembleObservations", () => {
       signalText: "hey, quick question",
     });
 
-    assert.deepEqual(obs.senderPrior, { key: null, categoryCounts: {}, lastCategory: null });
     assert.equal(obs.persona, null);
     assert.equal(obs.knownContact, true);
     assert.equal(obs.senderRelationship, null);

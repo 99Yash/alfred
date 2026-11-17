@@ -29,7 +29,7 @@ const OLD_AUTHORED_AT = new Date("2026-06-27T10:00:00.000Z");
 const NEW_AUTHORED_AT = new Date("2026-06-27T11:00:00.000Z");
 
 const NEW_VERDICT: TriageModelVerdict = {
-  category: "action_needed",
+  category: "action",
   documentAsk: null,
   todoSuggestion: { name: "Send the signed contract" },
   todoDecision: null,
@@ -105,7 +105,7 @@ function classifyArgs(
     userId,
     sourceThreadId,
     documentId,
-    category: "action_needed",
+    category: "action",
     confidence: 0.8,
     rationale: "the new message asks for the contract",
     model: "test-model",

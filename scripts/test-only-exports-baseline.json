@@ -257,13 +257,8 @@
   "packages/assistant/src/triage/classify.ts": [
     "SYSTEM_PROMPT",
     "TriageClassifierOutput",
-    "TriageConflict",
     "classifyCallOptions",
-    "detectConflict",
-    "normalizeClassifierOutput",
-    "noteMarksFailingOutcome",
-    "sanitizeAssist",
-    "sanitizeTodoName"
+    "normalizeClassifierOutput"
   ],
   "packages/assistant/src/triage/email-html.ts": ["EMAIL_CSP_META"],
   "packages/assistant/src/triage/hedge.ts": ["HedgeAttempt"],

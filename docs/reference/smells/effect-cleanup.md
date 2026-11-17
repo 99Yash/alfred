@@ -35,7 +35,6 @@ useEffect(() => {
 }, [scope, enabled]);
 ```
 
-
 ## Mechanism
 
 `react/exhaustive-deps` checks the dependency array. Whether an effect owns a resource to release is behavior.

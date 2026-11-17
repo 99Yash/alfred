@@ -94,7 +94,7 @@ async function seedBreachingAttentionShare(userId: string): Promise<void> {
   // 3 attention of 12 = 25% > 20%, with enough denominator to alert.
   await Promise.all([
     seedTriage(userId, "urgent"),
-    seedTriage(userId, "action_needed"),
+    seedTriage(userId, "action"),
     seedTriage(userId, "urgent"),
     ...Array.from({ length: 9 }, () => seedTriage(userId, "fyi")),
   ]);

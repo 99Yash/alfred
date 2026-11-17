@@ -2,8 +2,10 @@ import { assertNever } from "@alfred/contracts";
 import type { TriageClassification } from "../classify";
 import { truncateRationale } from "../rationale";
 
-/** Persisted as the `todoDecision.note` prefix that audits group on, so keep the set closed. */
-export type FloorDemotionKey = "sender_kind_floor" | "meeting_floor" | "standing_floor";
+/** Persisted as the `todoDecision.note` prefix that audits group on, so keep the set closed.
+ *  The `sender_kind_floor` and `meeting_floor` keys of ADR-0051 stay out of the type; old
+ *  stored notes still carry them as plain strings. */
+export type FloorDemotionKey = "standing_floor";
 
 /**
  * A floor returns a verdict, not a classification, so it cannot get the rules wrong.
@@ -33,8 +35,8 @@ export interface FloorResult {
 
 /**
  * The only writer of the system floors' demotion rules. Every demotion lands on `fyi`. The
- * instruction floor (`standing.ts`) writes its own, because `demote_urgent` lands on
- * `action_needed` and keeps the todo. Its `fyi` demotions follow the same rules.
+ * instruction floor (`standing.ts`) writes its own, because `demote_urgent` lands on `action`
+ * and keeps the todo. Its `fyi` demotions follow the same rules.
  */
 export function applyFloorVerdict(
   classification: TriageClassification,
