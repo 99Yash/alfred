@@ -11,7 +11,8 @@ import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
 import { settings } from "@alfred/assistant/settings";
 import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
-import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
+// The v1 writer is not in the `knowledge` barrel.
+import { rememberSenderSuppression } from "../../src/knowledge/sender-suppression";
 import { parseLocalDateKey } from "@alfred/assistant/time";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";

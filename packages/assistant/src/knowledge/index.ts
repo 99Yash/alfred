@@ -32,15 +32,11 @@ export {
 } from "./gmail-projection-run";
 
 export {
-  buildOrgAffiliationObservationInput,
-  recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
   retryOnObservationChainConflict,
-  type BuildOrgAffiliationResult,
   type BuildOrgAffiliationSkipReason,
   type CredentialForAffiliation,
-  type OrgAffiliationStatus,
   type RecordOrgAffiliationOnCredentialUpsertResult,
   type RecordOrgAffiliationResult,
 } from "./affiliation";
@@ -117,7 +113,7 @@ export {
 // Cross-module helpers for replicache, triage, briefing, tools, and todos.
 export { valueSignature } from "./signature";
 
-export { isSingleValuedKey, isUninformativeRelationshipFact } from "./fact-policy";
+export { isUninformativeRelationshipFact } from "./fact-policy";
 
 export {
   getSenderSignificanceBatch,
@@ -156,17 +152,14 @@ export {
   listStandingInstructions,
   standingInstructions,
   standingInstructionsOf,
-  // Chat capture uses `saveStandingInstruction` (ADR-0113). The v1 writer stays for the
-  // backfill script and its tests until the v1 rows migrate (plan PR 5).
-  rememberSenderSuppression,
+  // Chat capture uses `saveStandingInstruction` (ADR-0113). The v1 writer stays in the inner
+  // module for its tests until the v1 rows migrate (plan PR 5).
   saveStandingInstruction,
   checkStandingInstructionCapture,
   previewStandingInstructionValue,
   type SaveStandingInstructionInput,
   type SaveStandingInstructionResult,
   type StandingInstructionCaptureRefusal,
-  type RememberSenderSuppressionArgs,
-  type RememberSenderSuppressionResult,
   type ReportedStandingInstructionSet,
   type ActiveStandingInstruction,
   type MailStandingInstructions,

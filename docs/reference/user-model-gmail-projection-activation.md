@@ -111,9 +111,11 @@ node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committe
 Inspect the output:
 
 - `active gmail observations=N` — non-trivial (precondition 2).
-- `DRY validated — profiles=… checksum=sha256:… high_watermark=…` — a stable
-  checksum means the two internal replays agreed (gate 1). If the determinism
-  check fails, the run aborts — **stop and investigate**, do not commit.
+- `DRY validated — profiles=… checksum=sha256:…` — a stable checksum means the
+  two internal replays agreed (gate 1); a high-water marker rode the same line.
+  If the determinism check fails, the run aborts — **stop and investigate**, do
+  not commit. (The script left the tracked tree on 2026-11-17, superseded-code
+  ledger.)
 
 ## Step 3 — Prod commit (persist, do not activate)
 
@@ -205,9 +207,10 @@ from Step 2; never re-run a completed version.
 
 ## Reference
 
-- Projection/activation script: `apps/server/src/scripts/backfills/project-user-model-gmail-shadow-committed.ts`
-  (prod bundle from repo root: `apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js`).
-- Observation backfill (prereq): `apps/server/src/scripts/backfills/backfill-gmail-observations-committed.ts`.
+- Projection/activation script: `project-user-model-gmail-shadow-committed` — the
+  backfill scripts left the tracked tree on 2026-11-17 (superseded-code ledger) and
+  live under gitignored `archive/scripts/`.
+- Observation backfill (prereq): `backfill-gmail-observations-committed`, same home.
 - Classifier: `packages/assistant/src/knowledge/entity-kind-classifier.ts`.
 - Fold: `packages/assistant/src/knowledge/gmail-kind-fold.ts`.
 - Run writer shared by the script and the re-fold (kinds + `works_at` edges, kind-only

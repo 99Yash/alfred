@@ -1,5 +1,4 @@
 # ADR-0017 — Skills + workflows: skills are markdown, workflows are trigger + brief + optional step DAG
-
 **Decision.**
 
 **Skills are markdown documents** with optional frontmatter for structured metadata (tools, default model, examples, activation hints). The body is the skill content; the frontmatter is parsed for runtime use. Skills are activated explicitly via `@skill:slug` references in workflow briefs or chat messages — the runtime resolves the slug, injects `content_md` into the system prompt, and applies frontmatter constraints.
@@ -54,3 +53,7 @@ workflow_runs
 - (β) Skills as templates, workflows as agent runs (rejected — loses determinism for known-structure workflows like morning briefing).
 - (γ) Both agent-shaped (rejected — same; loses user-trust primitive of "I can read my Tuesday workflow as a list of steps").
 - (δ) Both graph-shaped (rejected — graph editor authoring surface is too heavy for a one-person tool; brief-based is simpler with same expressive power).
+
+**Amendment (2026-11-17, owner) — the optional step DAG is retired before it was ever used.**
+
+Every workflow of Alfred is `trigger + brief`. The optional explicit-DAG authoring surface is deleted: the `workflows.steps` column and the `workflowStepsSchema` node kinds (`run_skill`, `tool_call`, `llm_call`, `agent_run`, `condition`, `parallel`, `loop`, `hil_approve`), the `workflows.hil_gates` column (approval is `user_action_policies` + the `wakeCondition.kind='hil'` interrupt since ADR-0034 — a per-workflow gate column is a second door), and the `on_signal` trigger kind (no producer ever shipped; ADR-0047 deferred the subscriber and the editor schema already refuses the kind). No runtime code ever read the column; the API already rejects writes to it. The one workflow class ([docs/theory/workflows.md](../theory/workflows.md)) holds the replacement vocabulary: a definition artifact is either a brief or a code-referenced step spine (`Workflow<S>` named steps — what the built-ins already are), never a stored DAG. The migration drops the columns and schema arms in a maintenance slice; the superseded-code ledger tracks it.

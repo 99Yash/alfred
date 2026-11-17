@@ -268,7 +268,7 @@ export async function upsertContactByAlias(
   return tx === "own" ? db().transaction(run) : run(tx);
 }
 
-export interface ReKindCollisionArgs {
+interface ReKindCollisionArgs {
   readonly userId: string;
   /** The row's current kind. Required, so the same-kind case answers itself. */
   readonly from: EntityKind;

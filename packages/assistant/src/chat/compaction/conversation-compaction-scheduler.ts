@@ -1,5 +1,5 @@
 import { route, resolveEffectiveInputWindowTokens, type ChatModelTier } from "@alfred/ai";
-import { COMPACTION_THRESHOLD_PCT, type AgentTranscriptMessage } from "@alfred/contracts";
+import type { AgentTranscriptMessage } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
@@ -12,6 +12,7 @@ import {
 } from "../attachments";
 import { enqueueChatAttachmentEnrichment } from "@alfred/assistant/triggers";
 import { enqueueConversationCompaction } from "./conversation-compaction-queue";
+import { backgroundCompactionThresholdTokens } from "./background-compaction-threshold";
 import {
   afterChatMessageWatermark,
   chatMessageWatermark,
@@ -21,19 +22,6 @@ import {
 import { loadChatThreadContext, persistConversationReplayEstimate } from "./chat-context-store";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
-
-export const BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS = 200_000;
-
-export function backgroundCompactionThresholdTokens(effectiveInputWindowTokens: number): number {
-  if (!Number.isFinite(effectiveInputWindowTokens) || effectiveInputWindowTokens < 0) {
-    throw new Error("effectiveInputWindowTokens must be non-negative");
-  }
-
-  return Math.min(
-    Math.floor(effectiveInputWindowTokens * COMPACTION_THRESHOLD_PCT),
-    BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS,
-  );
-}
 
 /** Best-effort post-turn pressure check; never delay or fail a completed chat. */
 export async function scheduleConversationCompactionIfNeeded(args: {

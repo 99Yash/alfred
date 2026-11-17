@@ -8,7 +8,8 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherDayShape } from "@alfred/assistant/briefings/gather";
-import { objectStateStore, parseReceiptEvent } from "@alfred/assistant/connections";
+// `parseReceiptEvent` is not in the `connections` barrel; read both from the module.
+import { objectStateStore, parseReceiptEvent } from "../../src/connections/object-state";
 import { deliveryInstantFromDate } from "@alfred/assistant/connections/object-state/test-support";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";

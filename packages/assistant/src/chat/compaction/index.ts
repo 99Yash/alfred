@@ -14,9 +14,6 @@ export { CHAT_MAX_OUTPUT_TOKENS, CHAT_SYNC_COMPACTION_RATIO } from "./constants"
 
 export { conversationCompactionWorker } from "./conversation-compaction-worker";
 
-export {
-  backgroundCompactionThresholdTokens,
-  scheduleConversationCompactionIfNeeded,
-} from "./conversation-compaction-scheduler";
+export { scheduleConversationCompactionIfNeeded } from "./conversation-compaction-scheduler";
 
 export { guardTurnContext, withEphemeralReference } from "./turn-context-guard";
