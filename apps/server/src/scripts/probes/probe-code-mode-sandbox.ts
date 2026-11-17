@@ -98,8 +98,9 @@ const probes: Probe[] = [
 
       assert(result.status === "completed", "run did not complete");
       assert(result.value === "echo:first/echo:second", `wrong value: ${result.value}`);
+      const [firstCall, secondCall] = seen;
       assert(
-        seen.length === 2 && seen[0].name === "store.read" && seen[1].index === 2,
+        seen.length === 2 && firstCall?.name === "store.read" && secondCall?.index === 2,
         `bad ledger: ${JSON.stringify(seen)}`,
       );
 
