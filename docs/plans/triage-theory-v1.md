@@ -92,20 +92,16 @@ Built: https://github.com/99Yash/alfred/pull/1758.
 
 Held (owner, 2026-11-16): the gate fails without the prior. On the branch merged to today's main (#1767, #1768), three trials each: `chess-streak-mail-keeps-one-label` 0.50 → 0.25, and `voyage-review-payment-method-by-date` 1 → 0, both deterministic across trials. The removed second pass was also the echo amplifier: it re-asked when the label disagreed with the self-taught prior, and it re-escalated its own `fyi` echoes back to `urgent` (the echo case improves 0 → 0.22 with it gone). The owner chose to hold slice 1 until the slice 3 prompt rewrite makes the deck hold without the prior. The self-confirmation write keeps running in prod until then, and that cost is accepted. The resolved merge sits on the branch, unpushed. Slice 3 takes this deck state as its before-run.
 
+Unheld (2026-11-17): slices 2 and 3 landed on this branch (the nine labels, the theory prompt, the floors fold), and the deck holds without the prior. Three trials each: `voyage-review-payment-method-by-date` 0 → 1, and the other five payment-failure cases 0 → 1; `chess-streak-mail-keeps-one-label` 0.25 → 1; the echo case 0.22 → 0.89. No case is worse than the held before-run. Slice 1 rides this branch to the same PR.
+
 ## Slice 2 — The nine labels
 
-- New category ids: `urgent`, `action`, `reply`, `meeting`, `receipt`, `fyi`, `done`, `news`, `promo`, in `@alfred/contracts`.
-- One migration maps the stored rows: `action_needed` → `action`, `awaiting_reply` and `follow_up` → `reply`, `payment` → `receipt`, `newsletter` → `news`, `marketing` → `promo`. The `email_triage_category_valid` check follows. This is a rename of stored values, not a new triage run.
-- Gmail labels are renamed in place, with no number prefix, and with the colors from the theory page. `4: awaiting reply` becomes `Reply`. `3: follow up` is not written again and stays on old threads.
-- The readers follow:
-  - attention scores (`contracts/src/attention.ts`);
-  - rail suppression;
-  - reply-drafting eligibility (`reply` only);
-  - briefing buckets and the "Also seen" line;
-  - the drift audit.
+### Built (2026-11-17, with slice 3 and slice 1 in one PR)
 
-**Removes:** `follow_up` and the follow-up/awaiting split in the prompt and in reply drafting, plus the numbered `LABEL_NAMES`.
-*Gate:* the compiler finds every reader. Each Gmail label is renamed, not created again.
+- New category ids in `@alfred/contracts` (`urgent`, `action`, `reply`, `meeting`, `receipt`, `fyi`, `done`, `news`, `promo`), with `migrateTriageCategory` and `LEGACY_TRIAGE_CATEGORY_MAP` for readers of stored values. `follow_up` and `awaiting_reply` share `reply`; the split is gone.
+- Migration `0173_triage_nine_labels`: one rename of stored values — `email_triage.category`, `email_triage.model_verdict`'s category, the `force_category` effect on standing instructions, and `sender_priors.last_category` — then the two CHECK constraints. The history tables (`email_triage_changes`, `agent_decision_traces`, run states) keep their old values: history is never rewritten. Not a new triage run.
+- Gmail labels renamed in place (`ensureAlfredLabels` patches a label that still carries its numbered name to the new name and the theory's color, so the id and every message stay); `3: follow up` is not written again and stays on old threads. New labels carry colors from the theory page.
+- The readers followed: attention scores (`reply` 0.7, `receipt` 0.55, `news` 0.1, `promo` 0.05), rail suppression, reply-drafting eligibility (`reply` only), briefing buckets, the drift audit, loop categories, and the web rail chip colors.
 
 ## Slice 2a — What triage tags
 
@@ -131,13 +127,13 @@ Held (owner, 2026-11-16): the gate fails without the prior. On the branch merged
 
 ## Slice 3 — The prompt is the theory
 
-- The system prompt is rewritten from the theory page. It holds the job, the labels, precedence, the evidence principles, the profile slot, and the instructions slot.
-- The 38 numbered rules and the todo rubric go.
-- The sender-kind and meeting floors become evidence lines for the model.
-- `applyFloors` keeps only the security floor (`floors/override.ts`) and the named-person instruction rule. Any step after the model that changes the label writes its cause to the trace.
+### Built (2026-11-17, with slices 2 and 1 in one PR)
 
-**Removes:** `floors/sender-kind.ts`, `floors/meeting.ts`, the rule text and `TODO_RULE`/`TODO_EXEMPLARS` in `classify.ts`, and the todo suppression code in `classify.ts` (`todoSuppressionReason`, `resolveTodoSuggestion`).
-*Gate:* the eval deck is better on the payment, webinar, and investor cases, and no case is worse. Todos stay off until slice 7.
+- `SYSTEM_PROMPT` is the theory page in prompt form: the job, the nine labels, precedence, the echoes, the evidence principles, and the instruction line. One prompt, no todo variant, no `proposeTodo`. The 38 numbered rules and the todo rubric are gone; the todo lane mints nothing until slice 7.
+- The sender-kind and meeting floors are deleted; `applyFloors` holds only the override (security) floor, and `FLOOR_TRACE_PROJECTIONS` carries only it. Their judgments are evidence lines in the prompt now.
+- `resolveTodoSuggestion`, `todoSuppressionReason`, and their helpers are deleted; `decideTriageTodo` keeps its signature and mints nothing. `triage-classify.eval.ts` lost the todo scorers and keeps the category, collab, and judge scorers.
+- The paired prod replay (40 real mails, before-run snapshotted from the held slice-1 state) shows only theory-consistent movement: the own-project build failures lose their false `urgent` (→ `action`, the own-CI residual the gather takes in slice 6), the renames, and quiet-to-quiet moves. No mail got louder.
+- The deck (three trials, before-run from the held branch): no case is worse, twelve cases improve. All six payment-failure cases 0 → 1 (`receipt` → `action` fixed); the echo case 0.22 → 0.89; `chess-streak` 0.25 → 1; evoting/TDS 0.67 → 1; cold outreach 0.5 → 0.75; `sign-in-by-another-person-is-loud` holds 1 after the echo test sharpened to the page's "only while the facts fit" line. The theory page gained one decided case from this gate: an engagement nudge is Promo or FYI, never Action (owner decision of 2026-11-07, recorded where the page's other decided cases sit). Two misses are equal on both sides and wait for later slices: `a-person-answered-his-question` (0 on both) and two of five own-CI mails (0.4 on both — the gather's job, slice 6).
 
 ## Slice 4 — The triage profile and instructions in words
 
