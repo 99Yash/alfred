@@ -27,7 +27,15 @@ export type ToolName = {
 export interface ToolRunContext {
   caller: "boss" | "sub_agent";
   interaction: "live_chat" | "background";
+  /**
+   * How this run reads (ADR-0124). Absent: each read tool is a direct tool. `code_run`: a chat run
+   * with the flag on, so a read runs only inside `system.code_run`. `code_run_host`: one read of a
+   * `system.code_run` script, set only by its nested dispatch.
+   */
+  readPath?: ToolReadPath;
 }
+
+export type ToolReadPath = "code_run" | "code_run_host";
 
 /**
  * Stops new effects after a cancel (#559b). `cancelRunInTx` bumps `generation`.
@@ -53,6 +61,9 @@ export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
 
 export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
+
+/** The one read tool of a `code_run` run (ADR-0124). */
+export const CODE_RUN_TOOL = "system.code_run" satisfies ToolName;
 
 /**
  * Parks a chat turn on a `question` approval (ADR-0099). Readers without the

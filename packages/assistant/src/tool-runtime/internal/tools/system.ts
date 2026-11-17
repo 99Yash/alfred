@@ -152,12 +152,13 @@ export const systemTools: readonly RegisteredTool[] = [
         throw error;
       }
     },
-    // The round folds the best hit the run may call. Test `name`, not `ref`: the curated
-    // `mcp.call` entry has no ref. Search also ranks unavailable matches, so skip them.
+    // The round folds the best hit the run may call. Test `name` and `ref`: the curated
+    // `mcp.call` entry has no ref, and an `mcp.read` hit names `system.code_run`, which a
+    // `code_run` run always has. Search also ranks unavailable matches, so skip them.
     // An empty fold stores NULL, the same as a row from before the effects column.
     effects: (output) => {
       const names = output.candidates.flatMap((candidate) =>
-        candidate.availability === "available" && candidate.name !== "mcp.call"
+        candidate.availability === "available" && candidate.name !== "mcp.call" && !candidate.ref
           ? [candidate.name]
           : [],
       );

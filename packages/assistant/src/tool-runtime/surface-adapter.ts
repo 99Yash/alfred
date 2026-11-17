@@ -1,5 +1,11 @@
 import { tool, type Tool } from "@alfred/ai";
-import { assertNever, isIntegrationSlug, isToolName, type ToolName } from "@alfred/contracts";
+import {
+  assertNever,
+  isIntegrationSlug,
+  isToolName,
+  type ToolName,
+  type ToolRunContext,
+} from "@alfred/contracts";
 
 import {
   registerToolRuntimeAdapter,
@@ -43,11 +49,21 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
     }
   },
 
-  /** Memoized per caller, interaction, and active-name set. Safe because the registry is write-once. */
+  /**
+   * Memoized per run context and active-name set. Safe because the registry is write-once.
+   */
   resolve(input) {
     const activeNames = uniqueToolNames(input.activeNames);
+
+    // `satisfies`: a new `ToolRunContext` field fails to compile until the key holds it.
+    const context = {
+      caller: input.context.caller,
+      interaction: input.context.interaction,
+      readPath: input.context.readPath ?? "direct",
+    } satisfies Record<keyof ToolRunContext, string>;
+
     // A ToolName cannot contain a comma, so the join cannot collide.
-    const key = `${input.context.caller}:${input.context.interaction}:${activeNames.join(",")}`;
+    const key = `${context.caller}:${context.interaction}:${context.readPath}:${activeNames.join(",")}`;
     const cached = sdkSurfaceCache.get(key);
 
     if (cached) return cached;

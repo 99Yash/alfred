@@ -8,7 +8,7 @@ pnpm --filter @alfred/assistant eval        # run once
 pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-A bare `evalite run` globs **all seven** suites in this directory, `boss-judgment`
+A bare `evalite run` globs **all eight** suites in this directory, `boss-judgment`
 and `triage-classify` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
@@ -21,10 +21,10 @@ Every model call goes through the gateway, so there are no provider keys to set.
   DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
   `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
   cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — five suites GENERATE on that route, because
+- `route("standard")` (`gpt-6-luna`) — six suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
-  `date-grounding`, `sender-suppression-grounding`, `tool-selection-bloat` and
-  `voice-ai-tells`. No suite JUDGES on that route now.
+  `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
+  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
 
@@ -52,6 +52,10 @@ it.
 - `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
   `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
   no case gets worse. Deterministic only.
+- `code-mode-read.eval.ts` — the ADR-0124 driver run `run_s7yi1ymxakcj` in a `code_run`
+  chat: every read must run in `system.code_run`, in few steps and a small context. The
+  scripts run in the real sandbox against fake host functions (#898), so the trajectory is
+  graded offline. Deterministic only.
 - `tool-selection-bloat.eval.ts` — the context-purity experiment: does a bloated
   tool menu degrade tool selection? Runs the same tasks under a lean menu and a
   full one.

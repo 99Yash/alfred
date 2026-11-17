@@ -39,7 +39,7 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
     indexLine(
       MCP_READ_PATH,
       "Call one read-only tool of a connected MCP server (Gmail, Calendar, GitHub, and others).",
-      "ref: <the ref from mcp.list_tools>, args?: { [key: string]: JsonValue }",
+      "ref: <the ref from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }",
       outputType(MCP_READ_PATH),
     ),
   );

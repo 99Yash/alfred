@@ -1,5 +1,6 @@
 import type { TranscriptMessage } from "@alfred/ai";
 import {
+  CODE_RUN_TOOL,
   type IntegrationSlug,
   isToolName,
   isWriteRiskTier,
@@ -21,7 +22,11 @@ import {
   mcpServerIdsAdmittedBy,
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
-import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
+import {
+  isSelectedMcpToolReadOnly,
+  resolveMcpCallRiskTier,
+} from "@alfred/assistant/tool-runtime/mcp";
+import { MCP_READ_PATH } from "./code-mode/host-bindings";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -52,6 +57,12 @@ export type ToolSearchCandidate =
   | (ToolCandidateBase & {
       name: "mcp.call";
       /** A connected catalog hit; pass this ref's fields to mcp.call. */
+      ref: ExternalToolRef;
+    } & AvailabilityTag)
+  | (ToolCandidateBase & {
+      name: "system.code_run";
+      /** A read-only connected hit in a `code_run` run (ADR-0124): `mcp.read(ref, args)` in a script. */
+      hostFunction: typeof MCP_READ_PATH;
       ref: ExternalToolRef;
     } & AvailabilityTag);
 
@@ -155,14 +166,34 @@ export async function searchAvailableTools(args: {
 
   return Promise.all(
     selected.map(async ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => {
-      if (!candidate.ref) return candidate;
+      // Only the remote branch below builds a `system.code_run` hit, so a ranked one cannot exist.
+      if (!candidate.ref || candidate.name === CODE_RUN_TOOL) return candidate;
 
-      const risk = await resolveMcpCallRiskTier({
+      const selector = {
         userId: args.userId,
         connectionId: candidate.ref.connectionId,
         remoteName: candidate.ref.remoteName,
         catalogRevision: candidate.ref.catalogRevision,
-      });
+      };
+
+      const risk = await resolveMcpCallRiskTier(selector);
+
+      // ADR-0124: in a `code_run` run, `mcp.call` refuses a read, so the hit names the script path.
+      if (args.context.readPath === "code_run" && (await isSelectedMcpToolReadOnly(selector))) {
+        // A remote hit is always available: search builds it only when `mcp.call` is.
+        const hit: ToolSearchCandidate = {
+          name: CODE_RUN_TOOL,
+          hostFunction: MCP_READ_PATH,
+          ref: candidate.ref,
+          title: candidate.title,
+          summary: candidate.summary,
+          reason: candidate.reason,
+          risk,
+          availability: "available",
+        };
+
+        return hit;
+      }
 
       return { ...candidate, risk };
     }),

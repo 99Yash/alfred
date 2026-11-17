@@ -26,7 +26,11 @@ import {
   type ExternalToolRef,
   type McpCallEnvelope,
 } from "@alfred/assistant/connections/mcp";
-import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import {
+  liveTool,
+  type RegisteredTool,
+  type ToolExecuteContext,
+} from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
   isSelectedMcpToolReadOnly,
@@ -113,6 +117,28 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
+/**
+ * ADR-0124 decision 1: in a `code_run` run, a read-only MCP tool runs only inside
+ * `system.code_run`, through `mcp.read`. A script read dispatches as `code_run_host`, so it passes.
+ */
+async function refuseDirectMcpRead(
+  input: { connectionId: string; remoteName: string; catalogRevision: string },
+  ctx: ToolExecuteContext,
+): Promise<string | null> {
+  if (ctx.runContext.readPath !== "code_run") return null;
+
+  const read = await isSelectedMcpToolReadOnly({
+    userId: ctx.userId,
+    connectionId: input.connectionId,
+    remoteName: input.remoteName,
+    catalogRevision: input.catalogRevision,
+  });
+
+  return read
+    ? `In this chat, ${input.remoteName} is a read, so it runs only inside system.code_run. Call it there as mcp.read(ref, args), with this ref.`
+    : null;
+}
+
 function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
   return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
 }
@@ -162,7 +188,10 @@ export const mcpTools: readonly RegisteredTool[] = [
         return publicAppError("mcp_connection_outside_scope").message;
       }
 
-      return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
+      return (
+        (await refuseDirectMcpRead(input, ctx)) ??
+        refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl)
+      );
     },
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); a code-owned built-in entry binds the exact descriptor the same way (ADR-0096 amendment 2026-11-13); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",

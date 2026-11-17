@@ -64,6 +64,7 @@ import {
   questionToolInput,
   registerToolCallRoundAdapter,
   type DispatchStepLease,
+  type ToolCallActor,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import {
@@ -637,6 +638,7 @@ async function dispatchHostRead(
   const result = await runDispatchStages(
     {
       ...parent,
+      ...hostReadActor(parent),
       toolCallId: `${parent.toolCallId}#${request.requestIndex}`,
       toolName: request.toolName,
       input: request.input,
@@ -648,6 +650,17 @@ async function dispatchHostRead(
   );
 
   return hostReadOutcome(result);
+}
+
+/**
+ * The parent's actor, with the `code_run_host` read path. In a `code_run` run the gate refuses a
+ * direct read; this context lets the script's read through the same gate (ADR-0124).
+ */
+function hostReadActor(parent: ToolCallActor): ToolCallActor {
+  // The two arms are the same. Each arm narrows the union, so the spread keeps its `caller` pair.
+  return parent.caller === "boss"
+    ? { caller: parent.caller, runContext: { ...parent.runContext, readPath: "code_run_host" } }
+    : { caller: parent.caller, runContext: { ...parent.runContext, readPath: "code_run_host" } };
 }
 
 function hostReadOutcome(result: DispatchResult | DeferredDispatch): HostReadOutcome {

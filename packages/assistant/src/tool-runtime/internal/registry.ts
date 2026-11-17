@@ -21,6 +21,7 @@ import type {
 import {
   ASK_USER_TOOL,
   buildToolName,
+  CODE_RUN_TOOL,
   builtInMCPProvidersAdmittedBy,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
@@ -68,8 +69,9 @@ interface ToolAvailabilityMetadata {
    */
   passthrough?: true;
   /**
-   * Available only when the user's ADR-0124 flag (`codeModeReadPath`) is on. Only
-   * `system.code_run` declares it. Off reads as `feature_disabled`, which the model never sees.
+   * Available only in a `code_run` run (`ToolRunContext.readPath`), and only while the user's
+   * ADR-0124 flag (`codeModeReadPath`) is still on. Only `system.code_run` declares it. A flag
+   * that is off reads as `feature_disabled`, which the model never sees.
    */
   codeModeReadPath?: true;
 }
@@ -485,6 +487,32 @@ export function evaluateToolRunContext(
     };
   }
 
+  return evaluateReadPath(tool, context);
+}
+
+/**
+ * ADR-0124 decision 1: a run has one read path. In a `code_run` run, a read tool is a host
+ * function of `system.code_run` only. In every other run, `system.code_run` is absent. The
+ * nested dispatch of a script read runs as `code_run_host`, so the read passes.
+ */
+function evaluateReadPath(tool: RegisteredTool, context: ToolRunContext): ToolAvailabilityResult {
+  if (tool.codeModeRead && context.readPath === "code_run") {
+    return {
+      available: false,
+      code: "wrong_caller",
+      reason: `In this chat, ${tool.name} runs only inside system.code_run. Call it there as ${tool.name}(input).`,
+    };
+  }
+
+  // `not_allowed`, so search never offers it: this run reads through its direct tools.
+  if (tool.availability?.codeModeReadPath && context.readPath !== "code_run") {
+    return {
+      available: false,
+      code: "not_allowed",
+      reason: "Only a chat that reads through scripts can use this tool.",
+    };
+  }
+
   return { available: true };
 }
 
@@ -889,7 +917,7 @@ export function registerTool(tool: RegisteredTool): void {
     }
   }
 
-  if (tool.availability?.codeModeReadPath && tool.name !== "system.code_run") {
+  if (tool.availability?.codeModeReadPath && tool.name !== CODE_RUN_TOOL) {
     throw new Error(`[tools] only 'system.code_run' may declare availability.codeModeReadPath`);
   }
 

@@ -5,6 +5,7 @@ import {
   chatConnectNudgeSchema,
   chatModelTierSchema,
   ianaTimezoneSchema,
+  type ToolReadPath,
 } from "@alfred/contracts";
 import { sha256Hex } from "@alfred/db/hash";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
@@ -58,6 +59,11 @@ const narrationSegmentSchema = z.object({
   text: z.string(),
 });
 
+/** `direct`: the read tools are on the surface. `code_run`: reads run only in `system.code_run`. */
+const chatReadPathSchema = z.enum(["direct", "code_run" satisfies ToolReadPath]);
+
+export type ChatReadPath = z.infer<typeof chatReadPathSchema>;
+
 // Defaults and optionals let older checkpoints still parse.
 export const chatRunStateSchema = z
   .object({
@@ -73,6 +79,9 @@ export const chatRunStateSchema = z
     connectedSummary: z.string().optional(),
     // `selfIdentityGrounding`, snapshotted for the same reason. Empty on older pinned runs.
     selfIdentity: z.string().optional(),
+    // ADR-0124: how the run reads, from the user's flag on the first turn. The tool gate and the
+    // prompt both follow it, so it is pinned with the prompt. Older runs read as `direct`.
+    readPath: chatReadPathSchema.optional(),
     // Pins the system prompt for the whole run. Never cleared once set.
     systemPromptHash: z
       .string()
