@@ -139,6 +139,7 @@ export const INTEGRATIONS = {
       "append_artifact_section",
       "update_artifact",
       "ask_user",
+      "code_run",
     ],
   },
   // All MCP connections behind fixed actions (ADR-0018). The remote tool goes in

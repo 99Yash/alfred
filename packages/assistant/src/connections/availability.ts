@@ -5,6 +5,7 @@ import {
   credentialSatisfies,
   INTEGRATIONS,
   isCredentialProvider,
+  CODE_MODE_READ_PATH_FEATURE_KEY,
   isPassthroughPreferenceOn,
   LIVE_PROVIDER_SLUGS,
   LIVE_PROVIDERS,
@@ -286,5 +287,11 @@ async function loadIntegrationAvailability(
     );
   }
 
-  return { integrations: availability, providers: byProvider, passthroughEnabled };
+  return {
+    integrations: availability,
+    providers: byProvider,
+    passthroughEnabled,
+    // The same explicit-on rule as passthrough: a missing row is off (ADR-0124 flag).
+    codeModeReadPath: isPassthroughPreferenceOn(prefByKey.get(CODE_MODE_READ_PATH_FEATURE_KEY)),
+  };
 }

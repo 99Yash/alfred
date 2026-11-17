@@ -123,6 +123,7 @@
     "isomorphic-dompurify": "^2.36.0",
     "pg": "^8.16.3",
     "resend": "catalog:",
+    "run": "catalog:",
     "sharp": "^0.35.2",
     "tldts": "7.4.11",
     "undici": "catalog:",

@@ -13,9 +13,23 @@ import {
   toPublicAppError,
   type PublicAppError,
 } from "@alfred/contracts/app-errors";
+import type { Integrations } from "@alfred/integrations";
 import type { ContactSummary } from "@alfred/integrations/google";
 import { logger } from "@alfred/logging";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+
+type ContactsClient = Integrations["google"]["contacts"];
+
+/** The Contacts read results, named so the Code Mode index reads their types (ADR-0124). */
+export interface ContactsSearchResult {
+  contacts: ContactSummary[];
+  /** Set only when one source failed and the other answered. */
+  failures?: Array<{ source: ContactSource } & PublicAppError>;
+}
+
+export type ContactsListResult = Awaited<ReturnType<ContactsClient["listContacts"]>>;
+
+export type ContactsGetResult = Awaited<ReturnType<ContactsClient["getContact"]>>;
 
 export const contactsTools: readonly RegisteredTool[] = [
   liveTool({
@@ -23,6 +37,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Find a person in the user's Google Contacts by name, email, or phone (saved contacts also match on organization). Searches saved contacts and 'Other contacts' (people the user emailed but never saved); each result names its `source`. Use it to resolve a name to an email address before you write to someone.",
     discovery: {
@@ -33,7 +48,7 @@ export const contactsTools: readonly RegisteredTool[] = [
       relatedTools: ["contacts.get"],
     },
     inputSchema: contactsSearchInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ContactsSearchResult> => {
       const credentialId = (await ctx.integrations.google.contacts.credential()).id;
       const sources = input.source === "all" ? CONTACT_SOURCES : [input.source];
 
@@ -79,10 +94,11 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "list",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Page through the user's saved Google Contacts (newest edits first) or their 'Other contacts'. Prefer contacts.search to find one person.",
     inputSchema: contactsListInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ContactsListResult> => {
       const credentialId = (await ctx.integrations.google.contacts.credential()).id;
 
       return ctx.integrations.google.contacts.listContacts({
@@ -98,10 +114,11 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "get",
     riskTier: "low",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Read one saved contact in full: nicknames, all emails and phones, organization, addresses, birthday, notes, links, relations, and dates. Takes a `people/…` resourceName from contacts.search or contacts.list.",
     inputSchema: contactsGetInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ContactsGetResult> => {
       const credentialId = (await ctx.integrations.google.contacts.credential()).id;
 
       return ctx.integrations.google.contacts.getContact({

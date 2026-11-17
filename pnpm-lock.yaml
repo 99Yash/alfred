@@ -632,6 +632,9 @@ importers:
       resend:
         specifier: 'catalog:'
         version: 6.28.0(@react-email/render@1.4.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0))
+      run:
+        specifier: 'catalog:'
+        version: 2.1.13(typescript@7.0.2)
       sharp:
         specifier: ^0.35.2
         version: 0.35.3(@types/node@26.6.6)

@@ -4,10 +4,12 @@ import { registerToolsRuntimeAdapter } from "./surface-adapter";
 import {
   assertKernelToolsRegistered,
   getTool,
+  listRegisteredTools,
   listToolsForIntegration,
   registerTools,
   type RegisteredTool,
 } from "./internal/registry";
+import { codeRunTool } from "./internal/tools/code-run";
 import { contactsTools } from "./internal/tools/contacts";
 import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
@@ -28,6 +30,8 @@ const builtinToolRegistry: BuiltinToolRegistry = {
   listForIntegration: listToolsForIntegration,
 };
 
+let codeRun: RegisteredTool | undefined;
+
 export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(systemTools);
   registerTools(contextSearchTools);
@@ -36,6 +40,10 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(contactsTools);
   registerTools(vercelTools);
   registerTools(mcpTools);
+  // Last: its index lists the read tools registered above (ADR-0124). Built one time, so a second
+  // call registers the same object again, as it does for every other tool.
+  codeRun ??= codeRunTool(listRegisteredTools().filter((tool) => tool.codeModeRead));
+  registerTools([codeRun]);
   assertKernelToolsRegistered([...systemTools, ...contextSearchTools]);
   registerToolsRuntimeAdapter();
   registerWorkflowToolCatalog();

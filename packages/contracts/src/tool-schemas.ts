@@ -364,6 +364,14 @@ const scratchKey = z.string().min(1).max(240);
 
 export const readScratchInput = z.object({ key: scratchKey }).strict();
 
+/** `run`'s own source cap (`limits.maxSourceBytes`, 256 KiB). A longer script fails there anyway. */
+export const CODE_RUN_MAX_SOURCE_CHARS = 256 * 1024;
+
+/** ADR-0124: one read-only script. Its host functions are the read tools. */
+export const codeRunInput = z
+  .object({ source: z.string().min(1).max(CODE_RUN_MAX_SOURCE_CHARS) })
+  .strict();
+
 export const writeScratchInput = z
   .object({
     key: scratchKey,
@@ -1206,6 +1214,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,
+  "system.code_run": codeRunInput,
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,
   "system.remember": rememberInput,

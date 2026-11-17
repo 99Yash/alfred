@@ -9,6 +9,7 @@ import type {
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
+  JsonValue,
   PassthroughResult,
   PassthroughTruncation,
   RiskTierCounts,
@@ -66,6 +67,11 @@ interface ToolAvailabilityMetadata {
    * `feature.passthrough.<slug>` preference. Dispatch re-checks it so a stale surface cannot bypass it.
    */
   passthrough?: true;
+  /**
+   * Available only when the user's ADR-0124 flag (`codeModeReadPath`) is on. Only
+   * `system.code_run` declares it. Off reads as `feature_disabled`, which the model never sees.
+   */
+  codeModeReadPath?: true;
 }
 
 /**
@@ -132,8 +138,44 @@ export interface ToolExecuteContext {
   chat?: ChatTurnAddress | undefined;
   /** Empty or undefined means unrestricted. */
   allowedIntegrations?: readonly IntegrationSlug[] | undefined;
+  /**
+   * Set only by dispatch. Runs one read for a `system.code_run` script as a nested dispatch of
+   * this call (ADR-0124). Every other tool ignores it.
+   */
+  hostRead?: HostReadDispatcher | undefined;
   // TODO(#286): no abort signal yet, so a network tool outlives a stopped turn until its own timeout.
 }
+
+/** One read that a `system.code_run` script asks for (ADR-0124). */
+export interface HostReadRequest {
+  toolName: ToolName;
+  input: unknown;
+  /** `run`'s one-based request order. The nested call's id is `<toolCallId>#<requestIndex>`. */
+  requestIndex: number;
+}
+
+/**
+ * Why a host read did not execute. `needs_approval`: the gate would show a card, and a script
+ * cannot show one (owner, 2026-11-17). `not_a_read`: the tool is not a Code Mode read. The rest
+ * are the dispatch result kinds.
+ */
+export type HostReadRefusal =
+  | "needs_approval"
+  | "not_a_read"
+  | "failed"
+  | "rejected"
+  | "blocked"
+  | "fenced"
+  | "invalid_input"
+  | "unknown_tool"
+  | "not_allowed"
+  | "feature_disabled";
+
+export type HostReadOutcome =
+  | { kind: "executed"; value: JsonValue }
+  | { kind: "refused"; refusal: HostReadRefusal; message: string };
+
+export type HostReadDispatcher = (request: HostReadRequest) => Promise<HostReadOutcome>;
 
 /** The call's `action_stagings.provider_ref`. It outlives a crash, so a rerun reads it. */
 export interface ProviderRefSlot {
@@ -174,6 +216,8 @@ export const NO_TOOL_EFFECTS: ToolEffects = Object.freeze({});
 /** Live-only facts for the call's span. Never persisted, never replayed. */
 export interface ToolSpanFacts {
   passthroughTruncation?: { truncation: PassthroughTruncation; succeeded: boolean };
+  /** Primitive, PII-free metadata for the span. `system.code_run` sets it (ADR-0124 rows). */
+  metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 
 /** What a bound call returns. `output` is free-form; dispatch sanitizes it into a `JsonValue`. */
@@ -222,6 +266,11 @@ export interface ToolArgsCommon<
   staging?: ToolStagingPolicy;
   /** No default: every tool states it. `fast_path`, `join`, and `question` must be `"safe"`. */
   replay: ToolReplay;
+  /**
+   * A host function of `system.code_run` (ADR-0124): the tool only reads. `riskTier: "no_risk"`
+   * does not say this, because some `no_risk` tools write. `registerTool` checks the arms.
+   */
+  codeModeRead?: true;
   /** Calls in the same live-chat lane execute in model order. */
   executionLane?: "artifact_mutation";
   /**
@@ -288,6 +337,8 @@ export interface LiveToolArgs<
    * output; a replay reads the persisted copy.
    */
   effects?: (output: O) => ToolEffects;
+  /** Live-only span metadata from the typed output. Pure. Never persisted or replayed. */
+  spanFacts?: (output: O) => ToolSpanFacts;
 }
 
 /**
@@ -367,6 +418,8 @@ export interface RegisteredTool {
   staging: ToolStagingPolicy;
   /** See {@link ToolReplay}. */
   replay: ToolReplay;
+  /** See {@link ToolArgsCommon.codeModeRead}. */
+  codeModeRead: boolean;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
   executionLane?: "artifact_mutation" | undefined;
   /** See {@link LiveToolArgs.artifactStream}. */
@@ -437,7 +490,11 @@ export function evaluateToolRunContext(
 
 /** Whether connection state can change this tool's availability result. */
 export function readsAvailabilitySnapshot(tool: RegisteredTool): boolean {
-  return tool.availability?.passthrough === true || isLoadableIntegrationSlug(tool.integration);
+  return (
+    tool.availability?.passthrough === true ||
+    tool.availability?.codeModeReadPath === true ||
+    isLoadableIntegrationSlug(tool.integration)
+  );
 }
 
 function evaluateSnapshotGates(
@@ -458,6 +515,14 @@ function evaluateSnapshotGates(
         reason: `${name} raw API access is turned off. Enable it under Settings → Features to use this tool.`,
       };
     }
+  }
+
+  if (tool.availability?.codeModeReadPath && snapshot.codeModeReadPath !== true) {
+    return {
+      available: false,
+      code: "feature_disabled",
+      reason: "Code Mode reads are turned off for this user.",
+    };
   }
 
   if (isLoadableIntegrationSlug(tool.integration)) {
@@ -675,6 +740,7 @@ export function liveTool<
     resolvesPolicyIntegration: resolvePolicyIntegration !== undefined,
     staging: args.staging ?? "staged",
     replay: args.replay,
+    codeModeRead: args.codeModeRead === true,
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,
@@ -717,7 +783,7 @@ export function liveTool<
         return {
           output,
           effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
-          spanFacts: {},
+          spanFacts: args.spanFacts?.(output) ?? {},
         };
       };
 
@@ -806,6 +872,25 @@ export function registerTool(tool: RegisteredTool): void {
       `[tools] '${tool.name}' declares staging='${tool.staging}' with replay='${tool.replay}' — ` +
         "only a staged or confirm call has a row to claim, so every other arm must be replay-safe",
     );
+  }
+
+  // ADR-0124: a script runs a host read with no card, so the read must have no effect to repeat
+  // and must not be an arm that parks or forces a card.
+  if (tool.codeModeRead) {
+    const parks =
+      tool.staging === "join" || tool.staging === "question" || tool.staging === "confirm";
+
+    if (tool.replay !== "safe" || tool.riskTier === "high" || parks || tool.executionLane) {
+      throw new Error(
+        `[tools] '${tool.name}' declares codeModeRead but is not a plain read ` +
+          `(replay='${tool.replay}', riskTier='${tool.riskTier}', staging='${tool.staging}'` +
+          `${tool.executionLane ? `, executionLane='${tool.executionLane}'` : ""})`,
+      );
+    }
+  }
+
+  if (tool.availability?.codeModeReadPath && tool.name !== "system.code_run") {
+    throw new Error(`[tools] only 'system.code_run' may declare availability.codeModeReadPath`);
   }
 
   // `fast_path` skips the approval gate, so refuse both halves of
