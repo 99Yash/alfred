@@ -116,6 +116,7 @@ jobs:
         run: |
           corepack pnpm check:knip
           corepack pnpm check:test-only-exports
+          corepack pnpm check:code-mode-index
           corepack pnpm lint
           corepack pnpm format:check
 
