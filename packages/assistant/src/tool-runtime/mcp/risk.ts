@@ -7,6 +7,7 @@
 
 import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
 import {
+  isReadOnlyMcpToolIdentity,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
   type ResolveMcpToolIdentityInput,
@@ -20,6 +21,21 @@ export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
  * Not `no_risk`: the server, not Alfred, wrote the schema the model fills.
  */
 export const MCP_READ_ONLY_STRUCTURAL_TIER: ToolRiskTier = "low";
+
+/**
+ * The tier and the read claim of one selected tool, from one identity read. Discovery routes a
+ * hit by both (ADR-0124), so the two cannot come from different policy states.
+ */
+export async function resolveMcpCallRiskAndRead(
+  input: ResolveMcpToolIdentityInput,
+): Promise<{ riskTier: ToolRiskTier; read: boolean }> {
+  const identity = await resolveMcpToolIdentity(input);
+
+  return {
+    riskTier: effectiveMcpRiskTier(identity),
+    read: identity.status === "resolved" && isReadOnlyMcpToolIdentity(identity),
+  };
+}
 
 /** Resolve the risk tier for one `mcp.call` against the current catalog. */
 export async function resolveMcpCallRiskTier(

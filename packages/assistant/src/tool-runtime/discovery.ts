@@ -19,14 +19,15 @@ import { singularizePhrase } from "@alfred/assistant/search-words";
 import {
   catalogWords,
   connectionNameWords,
+  integrationOfMcpConnection,
   mcpServerIdsAdmittedBy,
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
-import {
-  isSelectedMcpToolReadOnly,
-  resolveMcpCallRiskTier,
-} from "@alfred/assistant/tool-runtime/mcp";
+import { resolvePolicyMode } from "@alfred/assistant/action-policies";
+import { resolveMcpCallRiskAndRead } from "@alfred/assistant/tool-runtime/mcp";
+import { toolRequiresApproval } from "./approval-rule";
 import { MCP_READ_PATH } from "./code-mode/host-bindings";
+import { stagingStore } from "./internal/dispatch/staging-store";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -51,22 +52,33 @@ type AvailabilityTag =
   | { availability: "available" }
   | { availability: "unavailable"; unavailableReason: string };
 
-export type ToolSearchCandidate =
+/** What ranking builds: a curated hit, or a connected catalog hit for `mcp.call`. */
+type RankedHit =
   /** A curated catalog hit, including `mcp.call` itself. No ref: only a connected hit carries one. */
-  | (ToolCandidateBase & { ref?: never } & AvailabilityTag)
+  | (ToolCandidateBase & { ref?: never; hostFunction?: never } & AvailabilityTag)
   | (ToolCandidateBase & {
       name: "mcp.call";
       /** A connected catalog hit; pass this ref's fields to mcp.call. */
       ref: ExternalToolRef;
-    } & AvailabilityTag)
-  | (ToolCandidateBase & {
-      name: "system.code_run";
-      /** A read-only connected hit in a `code_run` run (ADR-0124): `mcp.read(ref, args)` in a script. */
-      hostFunction: typeof MCP_READ_PATH;
-      ref: ExternalToolRef;
+      hostFunction?: never;
     } & AvailabilityTag);
 
-type RankedCandidate = ToolSearchCandidate & {
+/**
+ * A read hit in a `code_run` run that runs with no card (ADR-0124): call `hostFunction` inside
+ * `system.code_run`. A connected read is `mcp.read(ref, args)`; a curated read has no ref.
+ * Search builds it after ranking, only from an available hit.
+ */
+type ScriptReadHit = ToolCandidateBase & {
+  name: typeof CODE_RUN_TOOL;
+  availability: "available";
+} & (
+    | { hostFunction: typeof MCP_READ_PATH; ref: ExternalToolRef }
+    | { hostFunction: ToolName; ref?: never }
+  );
+
+export type ToolSearchCandidate = RankedHit | ScriptReadHit;
+
+type RankedCandidate = RankedHit & {
   score: number;
   preloadEligible: boolean;
 };
@@ -98,11 +110,23 @@ export async function searchAvailableTools(args: {
   limit?: number | undefined;
   allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
+  /** The chat thread, for its full-autonomy flag. Read only in a `code_run` run. */
+  approvalThreadId?: string | undefined;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
   const tools = listRegisteredTools();
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
-  const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
+  const scriptReads = args.context.readPath === "code_run";
+  // A `code_run` run hides some reads, but a script still calls them. So rank with the direct
+  // view of the run, and route each read hit after ranking (the connected summary does the same).
+  const { readPath: _readPath, ...directView } = args.context;
+
+  const availability = evaluateToolCatalog(
+    snapshot,
+    tools,
+    args.allowedIntegrations,
+    scriptReads ? directView : args.context,
+  );
 
   const curated = rankToolCatalog({
     query: args.query,
@@ -164,40 +188,97 @@ export async function searchAvailableTools(args: {
 
   const selected = ranked.slice(0, boundedLimit(args.limit, 5));
 
+  // Full autonomy waives a card, so it sends a gated read to the script too. Read it one time.
+  const fullAutonomy =
+    scriptReads && args.approvalThreadId !== undefined
+      ? await stagingStore().readThreadFullAutonomy({
+          userId: args.userId,
+          threadId: args.approvalThreadId,
+        })
+      : false;
+
+  const route = { userId: args.userId, scriptReads, fullAutonomy };
+
   return Promise.all(
-    selected.map(async ({ score: _score, preloadEligible: _preloadEligible, ...candidate }) => {
-      // Only the remote branch below builds a `system.code_run` hit, so a ranked one cannot exist.
-      if (!candidate.ref || candidate.name === CODE_RUN_TOOL) return candidate;
-
-      const selector = {
-        userId: args.userId,
-        connectionId: candidate.ref.connectionId,
-        remoteName: candidate.ref.remoteName,
-        catalogRevision: candidate.ref.catalogRevision,
-      };
-
-      const risk = await resolveMcpCallRiskTier(selector);
-
-      // ADR-0124: in a `code_run` run, `mcp.call` refuses a read, so the hit names the script path.
-      if (args.context.readPath === "code_run" && (await isSelectedMcpToolReadOnly(selector))) {
-        // A remote hit is always available: search builds it only when `mcp.call` is.
-        const hit: ToolSearchCandidate = {
-          name: CODE_RUN_TOOL,
-          hostFunction: MCP_READ_PATH,
-          ref: candidate.ref,
-          title: candidate.title,
-          summary: candidate.summary,
-          reason: candidate.reason,
-          risk,
-          availability: "available",
-        };
-
-        return hit;
-      }
-
-      return { ...candidate, risk };
-    }),
+    selected.map(({ score: _score, preloadEligible: _preloadEligible, ...candidate }) =>
+      candidate.ref ? routeConnectedHit(candidate, route) : routeCuratedHit(candidate, route),
+    ),
   );
+}
+
+interface HitRoute {
+  userId: string;
+  /** The run is a `code_run` run (ADR-0124). */
+  scriptReads: boolean;
+  fullAutonomy: boolean;
+}
+
+/**
+ * The tier and the route of a connected hit, from one identity read. In a `code_run` run, a read
+ * with no card runs as `mcp.read` in a script. A read that waits for a card stays an `mcp.call`
+ * hit, because a script cannot show a card. Dispatch makes the same decision for the call.
+ */
+async function routeConnectedHit(
+  candidate: Extract<RankedHit, { name: "mcp.call" }>,
+  route: HitRoute,
+): Promise<ToolSearchCandidate> {
+  const selector = {
+    userId: route.userId,
+    connectionId: candidate.ref.connectionId,
+    remoteName: candidate.ref.remoteName,
+    catalogRevision: candidate.ref.catalogRevision,
+  };
+
+  const { riskTier, read } = await resolveMcpCallRiskAndRead(selector);
+
+  if (!route.scriptReads || !read) return { ...candidate, risk: riskTier };
+
+  // A built-in follows its provider's rule, the same as `mcp.call`'s `resolvePolicyIntegration`.
+  const policyIntegration =
+    (await integrationOfMcpConnection(route.userId, selector.connectionId)) ?? "mcp";
+
+  const policyMode = await resolvePolicyMode(route.userId, "mcp.call", policyIntegration);
+
+  if (toolRequiresApproval(policyMode, riskTier) && !route.fullAutonomy) {
+    return { ...candidate, risk: riskTier };
+  }
+
+  return {
+    name: CODE_RUN_TOOL,
+    hostFunction: MCP_READ_PATH,
+    ref: candidate.ref,
+    title: candidate.title,
+    summary: candidate.summary,
+    reason: candidate.reason,
+    risk: riskTier,
+    availability: "available",
+  };
+}
+
+/** A curated read in a `code_run` run takes the same route rule as a connected read. */
+async function routeCuratedHit(
+  candidate: Extract<RankedHit, { ref?: never }>,
+  route: HitRoute,
+): Promise<ToolSearchCandidate> {
+  const tool = getTool(candidate.name);
+
+  if (!route.scriptReads || !tool?.codeModeRead || candidate.availability !== "available") {
+    return candidate;
+  }
+
+  const policyMode = await resolvePolicyMode(route.userId, candidate.name);
+
+  if (toolRequiresApproval(policyMode, tool.riskTier) && !route.fullAutonomy) return candidate;
+
+  return {
+    name: CODE_RUN_TOOL,
+    hostFunction: candidate.name,
+    title: candidate.title,
+    summary: candidate.summary,
+    reason: candidate.reason,
+    risk: candidate.risk,
+    availability: "available",
+  };
 }
 
 /** Above one name-word hit (55), so naming the connection ranks its tools over another server's. */
@@ -233,7 +314,12 @@ export async function preloadToolsForPrompt(args: {
   context: ToolRunContext;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolName[]> {
-  const tools = listRegisteredTools();
+  // In a `code_run` run, a read is in the `system.code_run` index. Preload one only to have the
+  // model call it directly, which dispatch refuses unless the read waits for a card (ADR-0124).
+  const tools = listRegisteredTools().filter(
+    (tool) => args.context.readPath !== "code_run" || !tool.codeModeRead,
+  );
+
   const snapshot = args.availability ?? (await readIntegrationAvailability(args.userId));
   const availability = evaluateToolCatalog(snapshot, tools, args.allowedIntegrations, args.context);
 

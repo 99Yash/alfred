@@ -4,7 +4,13 @@
  * its staging row, and its span. Available only when the user's flag is on.
  */
 
-import { codeRunInput, type JsonValue } from "@alfred/contracts";
+import {
+  codeRunInput,
+  getStringPath,
+  isJsonObject,
+  type JsonValue,
+  type ToolName,
+} from "@alfred/contracts";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { isSelectedMcpToolReadOnly } from "@alfred/assistant/tool-runtime/mcp";
 import { readHostBindings } from "../../code-mode/host-bindings";
@@ -16,10 +22,52 @@ import {
   type ReadProgramOutcome,
 } from "../../code-mode/run-read-program";
 
-/** What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results. */
+/**
+ * What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results.
+ * `citations` are the web pages that the script's reads returned, collected on the host side, so
+ * the chat sources strip shows them. The guest value cannot add to them or remove them.
+ */
 export type CodeRunResult =
-  | { status: "completed"; value: JsonValue; reads: ReadCounts }
-  | { status: ReadProgramFailure; message: string; reads: ReadCounts };
+  | { status: "completed"; value: JsonValue; reads: ReadCounts; citations?: ScriptCitation[] }
+  | {
+      status: ReadProgramFailure;
+      message: string;
+      reads: ReadCounts;
+      citations?: ScriptCitation[];
+    };
+
+/** One web page that a host read returned. The shape of a `system.web_search` citation. */
+interface ScriptCitation {
+  url: string;
+  title?: string;
+}
+
+const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
+
+const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
+
+/** The pages of one executed web read: a search's citations, or the page that a fetch read. */
+function citationsOf(toolName: ToolName, value: JsonValue): ScriptCitation[] {
+  if (!isJsonObject(value) || value.ok !== true) return [];
+
+  if (toolName === WEB_SEARCH_TOOL && Array.isArray(value.citations)) {
+    return value.citations.flatMap((citation) => {
+      const url = getStringPath(citation, "url");
+      const title = getStringPath(citation, "title");
+
+      return url ? [title ? { url, title } : { url }] : [];
+    });
+  }
+
+  if (toolName === FETCH_URL_TOOL) {
+    const url = getStringPath(value, "finalUrl") ?? getStringPath(value, "url");
+    const title = getStringPath(value, "title");
+
+    return url ? [title ? { url, title } : { url }] : [];
+  }
+
+  return [];
+}
 
 interface ReadCounts {
   total: number;
@@ -48,17 +96,28 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
       // Dispatch sets it on every call it runs. A direct `execute` has no gate to nest under.
       if (!hostRead) throw new Error("[code-mode] system.code_run ran outside dispatch");
 
+      const citations: ScriptCitation[] = [];
+
       const outcome = await runReadProgram({
         source: input.source,
         hosts: readHostBindings({
           readTools,
-          hostRead,
+          hostRead: async (request) => {
+            const read = await hostRead(request);
+
+            if (read.kind === "executed")
+              citations.push(...citationsOf(request.toolName, read.value));
+
+            return read;
+          },
           isReadOnlyMcpTool: (ref) => isSelectedMcpToolReadOnly({ userId: ctx.userId, ...ref }),
         }),
         runId: ctx.runId,
       });
 
-      return codeRunResult(outcome);
+      const result = codeRunResult(outcome);
+
+      return citations.length > 0 ? { ...result, citations } : result;
     },
     // ADR-0124 instrumentation: script success, and failed reads in scripts that returned.
     spanFacts: (output) => ({

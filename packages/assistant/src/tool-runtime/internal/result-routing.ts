@@ -2,6 +2,7 @@ import type { TranscriptMessage } from "@alfred/ai";
 import {
   assertNever,
   boundToolResult,
+  CODE_RUN_TOOL,
   getStringPath,
   isActionTool,
   isRecord,
@@ -116,6 +117,12 @@ export function executedResultOutcome(
 ): "succeeded" | "failed" | "unknown" {
   if (isUnknownEffectEnvelope(value)) return "unknown";
 
+  // A script that did not complete returned its failure as a value (ADR-0124). Read failures
+  // inside a completed script stay in its `reads` counts.
+  if (toolName === CODE_RUN_TOOL) {
+    return getStringPath(value, "status") === "completed" ? "succeeded" : "failed";
+  }
+
   return isActionTool(toolName) && executedResultIsIncomplete(value) ? "failed" : "succeeded";
 }
 
@@ -176,6 +183,7 @@ export function completedToolCall<Call extends ProposedToolCall>(
     executedInput:
       result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
     joinedChildRunId: result.kind === "executed" ? result.joinedChildRunId : undefined,
+    verifiedRead: result.kind === "invalid_input" ? result.verifiedRead : undefined,
     effects: result.kind === "executed" ? result.effects : NO_TOOL_EFFECTS,
   };
 }

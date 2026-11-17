@@ -95,6 +95,13 @@ export interface McpBrokerCallInput {
    * client: an approval edit or a resume can change the connection after the proposal check.
    */
   serverScope: McpServerScope;
+  /**
+   * A read of a `system.code_run` script (ADR-0124). The host checked the selected descriptor
+   * before dispatch, and the owner can change a review after that check. So the broker checks the
+   * live descriptor and review again, with the same rule, and refuses a call that is not a read.
+   * Separate from the approval tier: a read can still need a card.
+   */
+  requireRead?: true;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
   traceId?: string;
   signal?: AbortSignal;
@@ -1409,6 +1416,13 @@ export class McpExecutionBroker {
     // Use a policy only if the live descriptor hash matches; otherwise `unknown`.
     const liveIdentity =
       identity.status === "resolved" && hash === identity.descriptorHash ? identity : undefined;
+
+    if (input.requireRead && !(liveIdentity && isReadOnlyMcpToolIdentity(liveIdentity))) {
+      throw new McpClientError(
+        "write_tool",
+        `${ref.remoteName} is not a read now, so a script cannot call it. Its descriptor or its review changed.`,
+      );
+    }
 
     const policy = liveIdentity?.policy;
     const effectClass: McpEffectClass = liveIdentity ? mcpToolEffectClass(liveIdentity) : "unknown";

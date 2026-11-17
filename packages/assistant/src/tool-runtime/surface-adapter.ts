@@ -55,15 +55,15 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
   resolve(input) {
     const activeNames = uniqueToolNames(input.activeNames);
 
-    // `satisfies`: a new `ToolRunContext` field fails to compile until the key holds it.
+    // `satisfies`: a new `ToolRunContext` field fails to compile until this object holds it.
+    // The key serializes the object itself, so each field in the object is in the key.
     const context = {
       caller: input.context.caller,
       interaction: input.context.interaction,
       readPath: input.context.readPath ?? "direct",
     } satisfies Record<keyof ToolRunContext, string>;
 
-    // A ToolName cannot contain a comma, so the join cannot collide.
-    const key = `${context.caller}:${context.interaction}:${context.readPath}:${activeNames.join(",")}`;
+    const key = JSON.stringify([context, activeNames]);
     const cached = sdkSurfaceCache.get(key);
 
     if (cached) return cached;

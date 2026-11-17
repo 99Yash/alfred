@@ -137,8 +137,10 @@ ADR-0124 build. The owner made three decisions on 2026-11-17. The agent made the
 ### Owner decisions
 
 1. **The MCP reads are in this slice.** Gmail, Calendar, and GitHub have no curated actions. All their reads go through `mcp.call`, and so does the 41-call driver run. A slice with only the curated reads cannot reach them.
-2. **A read that the user's policy gates fails in the script, with a named error.** The script gets no card, and the read does not run. The host function throws `needs_approval`, and the script's `catch` gets the error. The interrupt and resume of build-order step 3 wait for their own trigger.
+2. **A read that the user's policy gates fails in the script, with a named error.** The script gets no card, and the read does not run. The host function throws `needs_approval`, and the script's `catch` gets the error. The interrupt and resume of build-order step 3 wait for their own trigger. **Amended 2026-11-17 (review of #1776):** the same read keeps its direct route with its card. See decision 5.
 3. **A default-off flag does the flip.** When the flag is on, `system.code_run` is on the boss surface, and the read tools are not on it. When the flag is off, the surface is the same as today. In each mode, the model has one read path (ADR-0124 decision 1).
+4. **The pin rules the run (2026-11-17, review of #1776).** The flag decides the read path only when a chat run starts. A pinned `code_run` run keeps `system.code_run` until it ends. No gate reads the live flag, so a flag that goes off cannot strand a parked run.
+5. **A read that waits for a card is a direct call (2026-11-17, review of #1776).** A script cannot show a card, so in a `code_run` run a read that the gate holds for a card runs as a direct call with its card. Each other read runs in a script, and dispatch refuses its direct call. Full autonomy of the thread reaches a script read, so under it every read runs in a script. Before this decision, a GitHub read under Gated could not run at all with the flag on (ADR-0125 decision 2, ADR-0069 amendment of 2026-10-24). The rule covers each gateable read, the curated `contacts.*` and `vercel.*` reads too, not only MCP.
 
 ### The seam: a host call is a nested dispatch, not the `fast_path` arm
 
@@ -180,10 +182,27 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 
 - The model surface (`resolveToolSurface`) checks only the run-context gates. Four read tools are on the kernel: `read_chat_history`, `read_user_context`, `web_search`, and `search_context`. A snapshot gate does not remove them from the surface.
 - ADR-0124 decision 1 is for chat. A background workflow and a sub-agent never get `system.code_run`. A snapshot gate removes their reads, so they have no read path. Only chat sets `readPath: "code_run"`. Each other run keeps its direct reads, and `system.code_run` is `not_allowed` there.
-- Chat pins the read path in run state on the first turn (`ChatRunState.readPath`), with the prompt. A run that pinned its prompt before this change stays direct. The dispatch of `system.code_run` still checks the snapshot flag.
-- The connected summary computes its tool lines through the same gate. In a `code_run` run it uses the direct view of the run, so the read tools stay on the list. Its header and the MCP lines then say where a read runs.
-- `dispatchHostRead` sets `readPath: "code_run_host"`. The `refuseProposal` of `mcp.call` refuses a read-only tool only for `code_run`, so `mcp.read` passes.
-- The surface memo key holds each `ToolRunContext` field. A `satisfies Record<keyof ToolRunContext, string>` makes a new field fail to compile until the key holds it.
+- Chat pins the read path in run state on the first turn (`ChatRunState.readPath`), with the prompt. A run that pinned its prompt before this change stays direct. No gate reads the live flag (owner decision 4).
+- The connected summary computes its tool lines through the same gate. In a `code_run` run it uses the direct view of the run, so the read tools stay on the list. Its header and the MCP lines then say where a read runs, and an MCP line says when each call of the server waits for approval.
+- `dispatchHostRead` sets `readPath: "code_run_host"`.
+- The surface memo key serializes the context object. A `satisfies Record<keyof ToolRunContext, string>` makes a new field fail to compile until the object holds it, and the key serializes the object, so the key holds each field of the object. The first version wrote the key by hand, and a probe showed that a new field could compile and still be absent from the key.
+
+**Changes from the review of #1776 (2026-11-17).** The flag stays off. Each change below closes one finding:
+
+- **The read route (owner decision 5).** The static gate (`evaluateReadPath`) hides only a read that can never wait for approval (`toolCanWaitForApproval`: a `fast_path` or `join` tool, or a `system` tool with no `high` or dynamic tier). Dispatch decides each other read: `refuseScriptableDirectRead` runs after the call's own `requiresApproval`, so the route and the gate cannot disagree. A bound call says whether it reads (`BoundToolCall.isRead`: `codeModeRead`, or the `selectsRead` hook, which only `mcp.call` declares). Discovery routes each read hit with the same rule, from one identity read for each MCP hit (`resolveMcpCallRiskAndRead`). Preload skips the Code Mode reads in a `code_run` run.
+- **Replay binds the exact request.** A nested read's id is `<toolCallId>#<hash of tool and input>.<occurrence>`, not `run`'s request order. A restart can give one position to a different read, so the order is not stable. A saved row of a script read must also hold the same input hash, or dispatch throws.
+- **The broker enforces the read.** A script read reaches the broker with `requireRead`. The broker refuses it unless the live descriptor and review still make it a read (`isReadOnlyMcpToolIdentity`), the same rule as the host check. The approval tier stays a separate decision.
+- **The finalize guard.** A refused direct read carries `verifiedRead` to the chat tool log, so the guard does not count it as a failed write.
+- **The chat trail.** A script that did not complete logs as `failed`. The host collects the citations of each `system.web_search` and `system.fetch_url` read into `CodeRunResult.citations`, so the sources strip shows them.
+- **Parallel reads.** `run` ends the whole script at its in-flight limit, and a guest `catch` cannot stop it. So `run`'s in-flight limit equals the total, and the host queues reads, 8 at a time. Each `RUN_BRIDGE_LIMIT` maps to the limit that its `details` names.
+
+**Before owner enablement (follow-up PR).** These findings of the review stay open, and the flag stays off until they close:
+
+- The eval must run the production surface resolution and dispatch with fake provider responses (ADR-0055 decision 2). Today it copies the summary and the envelope and supplies its own surface.
+- The benchmark must compare both modes on the same captured descriptor and representative results. GitHub's `list_issues` includes bodies by default, so the 41-read fixture is not fair. Score the substance of each gist, and measure end-to-end latency.
+- Budget the effective first-turn surface. The full read index ships on each flagged turn (about 3,149 to 5,096 schema tokens). The 3,300-token check measures only the static kernel.
+- The two checks of #535: the sandbox smoke on Railway's own container, and the fork-or-not decision.
+- A browsing card for each web read of a script. The trail shows one `system.code_run` card.
 
 ### The honest envelope and the ledger
 

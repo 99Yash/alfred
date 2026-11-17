@@ -6,6 +6,7 @@ import {
   askUserInput,
   askUserModelInput,
   authorWorkflowInput,
+  CODE_RUN_TOOL,
   createArtifactInput,
   editInstructionInput,
   forgetInstructionInput,
@@ -110,7 +111,7 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     availability: { surface: "kernel" },
     description:
-      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool.",
+      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with an exact ref (connectionId, remoteName, catalogRevision); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool. A hit named system.code_run is a read that runs inside a script: call its hostFunction there (mcp.read(ref, args) for a connected read).",
     discovery: {
       title: "Search tools",
       summary:
@@ -138,6 +139,7 @@ export const systemTools: readonly RegisteredTool[] = [
           limit: input.limit,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
+          approvalThreadId: ctx.chat?.threadId,
         });
 
         span.end({
@@ -152,13 +154,15 @@ export const systemTools: readonly RegisteredTool[] = [
         throw error;
       }
     },
-    // The round folds the best hit the run may call. Test `name` and `ref`: the curated
-    // `mcp.call` entry has no ref, and an `mcp.read` hit names `system.code_run`, which a
-    // `code_run` run always has. Search also ranks unavailable matches, so skip them.
+    // The round folds the best hit the run may call. Test `name`, not `ref`: the curated
+    // `mcp.call` entry has no ref. A script read hit names `system.code_run`, which a `code_run`
+    // run always has. Search also ranks unavailable matches, so skip them.
     // An empty fold stores NULL, the same as a row from before the effects column.
     effects: (output) => {
       const names = output.candidates.flatMap((candidate) =>
-        candidate.availability === "available" && candidate.name !== "mcp.call" && !candidate.ref
+        candidate.availability === "available" &&
+        candidate.name !== "mcp.call" &&
+        candidate.name !== CODE_RUN_TOOL
           ? [candidate.name]
           : [],
       );

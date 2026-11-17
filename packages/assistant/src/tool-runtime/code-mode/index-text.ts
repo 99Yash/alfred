@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { RegisteredTool } from "../internal/registry";
 import { GUEST_OUTPUT_TYPES } from "./guest-index.generated";
 import { MCP_READ_PATH } from "./host-bindings";
-import { READ_PROGRAM_LIMITS } from "./run-read-program";
+import { HOST_READS_IN_FLIGHT, READ_PROGRAM_LIMITS } from "./run-read-program";
 
 type GuestPath = keyof typeof GUEST_OUTPUT_TYPES;
 
@@ -53,10 +53,10 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
     "- Top-level `await` and `return` work. Return plain JSON data under " +
       `${READ_PROGRAM_LIMITS.maxResultBytes / 1024} KiB.`,
     "- Wrap each read in try/catch. A failed read throws an Error whose `code` says why: " +
-      "`needs_approval` (the user's rules gate this read; tell the user), `not_a_read`, " +
+      "`needs_approval` (the read waits for the user's approval: call it directly instead), `not_a_read`, " +
       "`invalid_input`, `not_allowed`, `failed`, and others. Return what succeeded, and the failures.",
-    "- Use Promise.all for reads that do not depend on each other (at most " +
-      `${READ_PROGRAM_LIMITS.maxInFlightBridgeRequests} run at once). Await every read.`,
+    "- Use Promise.all for reads that do not depend on each other. The host runs at most " +
+      `${HOST_READS_IN_FLIGHT} at once and queues the rest. Await every read.`,
     `- The script stops after ${READ_PROGRAM_LIMITS.timeoutMs / 1000} s and ` +
       `${READ_PROGRAM_LIMITS.maxBridgeRequests} reads. It has no network, no imports, and no ` +
       "timers. `Date.now()` and `Math.random()` are fixed for the run.",

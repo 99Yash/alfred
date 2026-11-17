@@ -7,6 +7,7 @@ import {
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
+  integrationOfMcpConnection,
   listOwnedConnections,
   mcpScopeAdmits,
   mcpServerIdsAdmittedBy,
@@ -25,8 +26,11 @@ const CONNECTED_LIST_RULES =
 
 const CONNECTED_HEADER = `You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. ${CONNECTED_LIST_RULES}`;
 
-/** ADR-0124: in a `code_run` run, a read is a host function of the script, not a direct call. */
-const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
+/**
+ * ADR-0124: in a `code_run` run, a read is a host function of the script, not a direct call. A
+ * read that waits for approval is the exception (owner, 2026-11-17): a script cannot show a card.
+ */
+const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. A read that waits for the user's approval is the exception: call it directly, because only a direct call shows the approval card. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
@@ -129,7 +133,7 @@ async function mcpConnectionLines(
   const lines: string[] = [];
 
   const howToCall = scriptReads
-    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId; read with mcp.read inside the script, and write through mcp.call"
+    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId. A search hit names its route: system.code_run with mcp.read for a read that runs at once, or mcp.call for a write or a read that waits for approval"
     : "find one with system.search_tools or mcp.list_tools scoped to this connectionId, then call it through mcp.call";
 
   for (const connection of await listOwnedConnections(userId)) {
@@ -146,7 +150,19 @@ async function mcpConnectionLines(
 
     if (!connection.toolCount) continue;
 
-    lines.push(`- ${name} — ${connection.toolCount} tools; ${howToCall}`);
+    // A built-in follows its provider's rule. Under Gated, each of its reads shows a card, so
+    // each read is a direct `mcp.call` (ADR-0125 decision 2, owner 2026-11-17).
+    const gatedReads =
+      scriptReads &&
+      (await resolvePolicyMode(
+        userId,
+        "mcp.call",
+        (await integrationOfMcpConnection(userId, connection.id)) ?? "mcp",
+      )) === "gated";
+
+    lines.push(
+      `- ${name} — ${connection.toolCount} tools; ${howToCall}${gatedReads ? ". Every call waits for the user's approval, reads too: call each through mcp.call" : ""}`,
+    );
   }
 
   return lines;

@@ -173,6 +173,8 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   execution: "completed" | "failed" | "not_reached";
   sanitized: boolean;
   nonExecution: boolean;
+  /** Set only when a `code_run` run refused a direct read (ADR-0124). The call only reads. */
+  verifiedRead?: true | undefined;
   /** Set only when the floor refused the call on connection health. */
   connectNudge?: ChatConnectNudge | undefined;
   /**
