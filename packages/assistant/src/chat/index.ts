@@ -7,11 +7,7 @@ export { cancelDeletedThreadRuns, startChatTurn, stopChatTurn } from "./turn-adm
 
 export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachment-ingest";
 
-export {
-  backgroundCompactionThresholdTokens,
-  conversationCompactionWorker,
-  scheduleConversationCompactionIfNeeded,
-} from "./compaction";
+export { conversationCompactionWorker, scheduleConversationCompactionIfNeeded } from "./compaction";
 
 export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 

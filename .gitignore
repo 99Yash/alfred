@@ -123,4 +123,4 @@ teaching/
 !.claude/skills/learn/
 !.claude/skills/recall/
 apps/web/.claude/skills/*
-!apps/web/.claude/skills/react-doctor/
+!apps/web/.claude/skills/react-doctor/scripts/spikes/code-mode-sandbox/node_modules/

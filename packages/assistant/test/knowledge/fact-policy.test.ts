@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { isSingleValuedKey, isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
+import { isUninformativeRelationshipFact } from "@alfred/assistant/knowledge";
 // Internal helpers, not in the `knowledge` barrel.
 import {
   authoredByUser,
   classifyDocumentFactKey,
   gateDocumentFact,
-  isServiceSender,
-  isUninformativeRelationshipValue,
+  isSingleValuedKey,
   SINGLE_VALUED_KEYS,
   validateFactValueForKey,
   type AuthorshipDocument,
@@ -92,7 +91,9 @@ describe("validateFactValueForKey", () => {
   });
 });
 
-describe("isServiceSender (#491 — shared service/no-reply classifier)", () => {
+// The service-sender side of {@link isUninformativeRelationshipFact} (#491): with an informative
+// value, the predicate's only input is the sender, so the junk verdict is the service-sender verdict.
+describe("isUninformativeRelationshipFact — service sender (#491 — shared classifier)", () => {
   test("no-reply / role / service mailboxes are service senders", () => {
     for (const email of [
       "noreply@acme.com",
@@ -104,7 +105,11 @@ describe("isServiceSender (#491 — shared service/no-reply classifier)", () => 
       "billing@vendor.com",
       "bounce@mailer.acme.com",
     ]) {
-      assert.equal(isServiceSender(email), true, `${email} should be a service sender`);
+      assert.equal(
+        isUninformativeRelationshipFact(`relationship:${email}`, { role: "engineer" }),
+        true,
+        `${email} should be a service sender`,
+      );
     }
   });
 
@@ -115,12 +120,18 @@ describe("isServiceSender (#491 — shared service/no-reply classifier)", () => 
       "sandro@maglione.dev",
       "paul.graham@ycombinator.com",
     ]) {
-      assert.equal(isServiceSender(email), false, `${email} should not be a service sender`);
+      assert.equal(
+        isUninformativeRelationshipFact(`relationship:${email}`, { role: "engineer" }),
+        false,
+        `${email} should not be a service sender`,
+      );
     }
   });
 });
 
-describe("isUninformativeRelationshipValue (#491/#492)", () => {
+// The value-shape side of {@link isUninformativeRelationshipFact} (#491/#492): with a real-person
+// key, the predicate's only input is the value, so the junk verdict is the value-shape verdict.
+describe("isUninformativeRelationshipFact — relationship value shape (#491/#492)", () => {
   test("empty / blank / wrong-shaped values are uninformative", () => {
     for (const v of [
       {},
@@ -134,7 +145,7 @@ describe("isUninformativeRelationshipValue (#491/#492)", () => {
       ["x"],
     ]) {
       assert.equal(
-        isUninformativeRelationshipValue(v),
+        isUninformativeRelationshipFact("relationship:alice@oliv.ai", v),
         true,
         `${JSON.stringify(v)} → uninformative`,
       );
@@ -144,7 +155,7 @@ describe("isUninformativeRelationshipValue (#491/#492)", () => {
   test("a concrete role string or object is informative", () => {
     for (const v of ["mentor", { role: "friend" }, { role: "colleague", since: 2021 }]) {
       assert.equal(
-        isUninformativeRelationshipValue(v),
+        isUninformativeRelationshipFact("relationship:alice@oliv.ai", v),
         false,
         `${JSON.stringify(v)} → informative`,
       );

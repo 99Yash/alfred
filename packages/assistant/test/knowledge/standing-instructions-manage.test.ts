@@ -20,8 +20,9 @@ import {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  rememberSenderSuppression,
 } from "@alfred/assistant/knowledge";
+// The v1 writer is not in the `knowledge` barrel.
+import { rememberSenderSuppression } from "../../src/knowledge/sender-suppression";
 // Internal constant, not in the `knowledge` barrel.
 import { STANDING_INSTRUCTION_LIST_LIMIT } from "@alfred/assistant/knowledge/standing-instructions";
 import { closeRedis } from "@alfred/db/redis";

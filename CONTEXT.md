@@ -98,6 +98,8 @@ These three bias every subsystem below. Read them first.
 
 **Builtin vs user-authored.** `workflows.is_builtin = true` for alfred-curated workflows seeded from the repo (immutable except `status`); `false` for user-authored (full CRUD). Same table, same toggle UX.
 
+**Workflow provenance.** Who a workflow answers to — `builtin` (default; seeded at deploy, user may pause), `implicit` (system-owned; memory extraction; never shown in settings, never paused), `user` (authored in chat; full lifecycle). Provenance is metadata on one row in one class, not a different class ([docs/theory/workflows.md](./docs/theory/workflows.md), draft). The gap in today's code: built-ins and implicit run with no definition reference (`tick.ts` dispatches them with `revisionId: null`) and cron built-ins bypass `workflows.tick` — the class work closes both. _Avoid_: system process (memory extraction is a workflow with system activation, not a fourth kind), kind (that word is taken — see _Knowledge kind_).
+
 ## Runtime primitives
 
 **Tick.** A BullMQ repeatable that fans out per-user. Existing pattern: `briefing.tick` (hourly, `packages/assistant/src/briefings/worker.ts`). m12 adds `workflows.tick` (every minute, generic, `packages/assistant/src/automation/worker.ts`) per ADR-0027.
@@ -140,9 +142,7 @@ These three bias every subsystem below. Read them first.
 
 **Brief-only workflow.** `steps = null`, `brief != null`. Runtime: a single `AlfredAgent`-driven loop with a stable boss system prompt, the workflow brief as the first user transcript message, and exact tools seeded/preloaded/grown within `allowedIntegrations`. m12 stored and dispatched these but did not execute them; m13 added the sentinel workflow + tool dispatch + `AlfredAgent`→runtime bridge, and #411/#412 replaced integration loading with exact search/load.
 
-**Explicit-DAG workflow.** `steps != null`. Runtime executes deterministically; node kinds: `run_skill | tool_call | llm_call | agent_run | condition | parallel | loop | hil_approve`. The Zod schema exists; runtime support for these node kinds is partial (only `agent_run` is implicit via the executor; the rest are unbuilt).
-
-**Hybrid workflow.** Explicit DAG with embedded `agent_run(brief)` nodes — deterministic outer, LLM-decided inner. Forward-compatible; not v1.
+**Explicit-DAG workflow (retired, ADR-0017 amendment 2026-11-17).** The stored DAG authoring surface is deleted — no workflow ever used `steps`, the API rejected writes, and the one workflow class (ADR-0017 amendment, docs/theory/workflows.md) holds the replacement: a definition artifact is a brief or a code-referenced step spine. The column drop rides a maintenance migration (superseded-code ledger).
 
 ## Privacy posture
 
@@ -239,6 +239,12 @@ _Avoid_: deepen, second pass, escalation call
 **Evidence card.** `EvidenceCard` is the canonical shared contract in `packages/contracts/src/evidence-card.ts` (#423); `packEvidenceCards` in `packages/assistant/src/context-search/pack.ts` renders cards as bounded, cited, model-facing text with a per-source missing/failed note, so the model never sees a raw card or provider body. The boundary does not replace its substrate. Document/chunk `search` in `@alfred/corpus` (the epic's `semanticSearch`), memory recall (`recallMemory`) and durable user context (`readUserContext`, the `system.read_user_context` tool) in `@alfred/assistant/knowledge`, the active ADR-0067 projection (`userModelReader`), the object-state store, and the live provider drill-down tools all stay the owners; the fabric aggregates them.
 
 **Context Search (built to the model-facing read).** The documents, memory, and object-state adapters register at boot (#424, #425), and the model-facing `system.search_context` tool (#426) reaches the boundary through the `SystemToolContextSearchAdapter` boot seam and returns packed evidence text. The deterministic ranker (#427), the live drill-down adapters (#428), the media card surface (#429), the retrieval evals (#430), the ADR-0067 identity upgrade (#431), and the source capability manifest (#466) are later slices.
+
+**Activity record.** The one record of what happened when, across every source: an action by a person on a thing, or a change of a thing's state category, with provider time, actor, verb, object key, and the receipt id — not the body. Table: `observations` (ADR-0118). It is the read-side store the evidence map names for "what did the user do"; `event_receipts` still holds every delivery, and the reducer replay rebuilds it. _Avoid_: event log (it is not per-delivery), feed.
+
+**Evidence map.** The pre-stated knowledge of which stores exist, how far back each reaches, what each can answer, and what it cannot — so a judgment gathers instead of paying a search to find out where evidence lives. Two homes split by cost: a compact map in the prompt (reach, gaps, answers) and Code Mode type declarations (the shape). One map serves every gather; a feature never writes its own idea of the stores ([docs/theory/evidence-map.md](./docs/theory/evidence-map.md), draft). Not built; waits on Code Mode (#535). _Avoid_: schema list, catalog, index.
+
+**Read scope.** The boundary on what a Code Mode program may read: the stores of the user's life, never the observability of the machine (`api_call_log`, `model_prices`, queue internals, credential vault). Enforced by the typed surface itself — a table the declarations do not name is unreachable by construction (ADR-0124); no grant tables. Owner direction, 2026-11-16. System gathers that need an observability slice name their own; the user-facing surface never grows one silently. _Avoid_: permissions, row-level security, user grant.
 
 ## Todos
 

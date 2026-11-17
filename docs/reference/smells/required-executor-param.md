@@ -57,7 +57,7 @@ The paydown made 28 slots required and added no disable comment:
 
 - 22 slots now take `DbTransaction | "own"`. `"own"` keeps the old executor of a caller that passed nothing: the callee opens its own transaction, or it runs one statement on the root client. These slots are in `entity-graph.ts`, `affiliation.ts`, `projection.ts`, `entities.ts`, `observations.ts`, `gmail-kind-fold.ts`, `team-graph.ts` (`persistContacts`), `facts.ts` (`FactExec.exec`, and the `exec: DbTransaction | undefined` parameter of `inFactTransaction`) and the four workflow writers in `automation/revisions.ts`.
 - 2 slots now take a plain `DbTransaction`, because each caller holds a transaction: `projectGmailWorksAtEdges` and `applyCorrespondenceIncrements`.
-- 3 parameters are gone, because no caller passed a transaction: `previewContactKinds` (#1225), `recordOrgAffiliationOnConnect` and `failProjectionRun`.
+- 2 parameters are gone, because no caller passed a transaction: `previewContactKinds` (#1225) and `failProjectionRun`. The third, the org-affiliation connect writer, was deleted as superseded; its successor `recordOrgAffiliationOnCredentialUpsert` takes `DbTransaction | "own"`.
 - `upsertIntegrationCredential` lost its `= db()` default. The GitHub and bearer writers now pass `db()`.
 
 `packages/http/test/workflows/revisions.test.ts` is in the type-check baseline, so the compiler does not see it. Its 23 calls now pass `tx: "own"` by hand.

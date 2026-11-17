@@ -27,7 +27,7 @@ import { parseGoogleCredentialMetadata } from "@alfred/integrations/google";
 import { insertObservation } from "./observations";
 import type { DbTransaction } from "@alfred/db";
 
-export type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
+type OrgAffiliationStatus = UserOrgAffiliationPayload["status"];
 
 /** The credential fields the emitter reads. `createdAt` is the connect time. */
 export interface CredentialForAffiliation {
@@ -40,7 +40,7 @@ export interface CredentialForAffiliation {
   metadata: unknown;
 }
 
-export type BuildOrgAffiliationResult =
+type BuildOrgAffiliationResult =
   | {
       ok: true;
       input: ObservationInsertInput & { payload: UserOrgAffiliationPayload };
@@ -97,11 +97,12 @@ function payloadsMatchForCurrentAffiliation(
 }
 
 /**
- * Build the observation for a credential. Pure, so the backfill dry run prints
- * what a commit would write. An ungroundable account returns a skip reason, not
- * an error: no grounding, no row. `occurredAt` must be `createdAt` for a connect.
+ * Build the observation for a credential. Pure token math on one credential; an
+ * ungroundable account returns a skip reason, not an error: no grounding, no row.
+ * `occurredAt` must be `createdAt` for a connect. Internal: only the `record*`
+ * entries below are public; tests exercise this through them.
  */
-export function buildOrgAffiliationObservationInput(
+function buildOrgAffiliationObservationInput(
   cred: CredentialForAffiliation,
   opts: { status: OrgAffiliationStatus; occurredAt: Date },
 ): BuildOrgAffiliationResult {
@@ -257,17 +258,6 @@ async function recordOrgAffiliationConnectEvent(
   const { deduped } = await insertOrgAffiliationObservation(built.input, tx);
 
   return { status: deduped ? "deduped" : "emitted" };
-}
-
-/** Append the connect observation for a credential id. A skip is not an error. */
-export async function recordOrgAffiliationOnConnect(
-  credentialId: string,
-): Promise<RecordOrgAffiliationResult> {
-  const cred = await loadGoogleCredentialForAffiliation(credentialId, db());
-
-  if (!cred) return { status: "skipped", reason: "missing_account_id" };
-
-  return recordOrgAffiliationConnectEvent(cred, cred.createdAt, "own");
 }
 
 /**
