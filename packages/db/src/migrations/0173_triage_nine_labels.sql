@@ -4,25 +4,29 @@
 -- tables (`email_triage_changes`, `agent_decision_traces`, run states) keep their old
 -- values: history is never rewritten.
 --
--- Order matters: the mapped values land before the new CHECK constraints.
-UPDATE "email_triage" SET "category" = CASE "category"--> statement-breakpoint
-  WHEN 'action_needed' THEN 'action'--> statement-breakpoint
-  WHEN 'awaiting_reply' THEN 'reply'--> statement-breakpoint
-  WHEN 'follow_up' THEN 'reply'--> statement-breakpoint
-  WHEN 'payment' THEN 'receipt'--> statement-breakpoint
-  WHEN 'newsletter' THEN 'news'--> statement-breakpoint
-  WHEN 'marketing' THEN 'promo'--> statement-breakpoint
-  ELSE "category" END--> statement-breakpoint
+-- The old CHECK constraints leave first: a mapped value (`news`) violates them, and the
+-- mapped values must land before the new CHECK constraints arrive.
+ALTER TABLE "sender_priors" DROP CONSTRAINT "sender_priors_last_category_valid";--> statement-breakpoint
+ALTER TABLE "email_triage" DROP CONSTRAINT "email_triage_category_valid";--> statement-breakpoint
+
+UPDATE "email_triage" SET "category" = CASE "category"
+  WHEN 'action_needed' THEN 'action'
+  WHEN 'awaiting_reply' THEN 'reply'
+  WHEN 'follow_up' THEN 'reply'
+  WHEN 'payment' THEN 'receipt'
+  WHEN 'newsletter' THEN 'news'
+  WHEN 'marketing' THEN 'promo'
+  ELSE "category" END
 WHERE "category" IN ('action_needed', 'awaiting_reply', 'follow_up', 'payment', 'newsletter', 'marketing');--> statement-breakpoint
-UPDATE "email_triage"--> statement-breakpoint
-SET "model_verdict" = jsonb_set("model_verdict", '{category}', to_jsonb(CASE "model_verdict"->>'category'--> statement-breakpoint
-  WHEN 'action_needed' THEN 'action'--> statement-breakpoint
-  WHEN 'awaiting_reply' THEN 'reply'--> statement-breakpoint
-  WHEN 'follow_up' THEN 'reply'--> statement-breakpoint
-  WHEN 'payment' THEN 'receipt'--> statement-breakpoint
-  WHEN 'newsletter' THEN 'news'--> statement-breakpoint
-  WHEN 'marketing' THEN 'promo'--> statement-breakpoint
-  ELSE "model_verdict"->>'category' END))--> statement-breakpoint
+UPDATE "email_triage"
+SET "model_verdict" = jsonb_set("model_verdict", '{category}', to_jsonb(CASE "model_verdict"->>'category'
+  WHEN 'action_needed' THEN 'action'
+  WHEN 'awaiting_reply' THEN 'reply'
+  WHEN 'follow_up' THEN 'reply'
+  WHEN 'payment' THEN 'receipt'
+  WHEN 'newsletter' THEN 'news'
+  WHEN 'marketing' THEN 'promo'
+  ELSE "model_verdict"->>'category' END))
 WHERE "model_verdict" ? 'category';--> statement-breakpoint
 -- The standing instructions carry `force_category` effects, so a live instruction with an
 -- old id must map, or its parse fails and the instruction goes dark.
@@ -56,16 +60,14 @@ END
 $$;--> statement-breakpoint
 -- `sender_priors` has no reader since slice 1 stopped the self-learning; its row still
 -- carries the category CHECK, so the stored last category maps.
-UPDATE "sender_priors" SET "last_category" = CASE "last_category"--> statement-breakpoint
-  WHEN 'action_needed' THEN 'action'--> statement-breakpoint
-  WHEN 'awaiting_reply' THEN 'reply'--> statement-breakpoint
-  WHEN 'follow_up' THEN 'reply'--> statement-breakpoint
-  WHEN 'payment' THEN 'receipt'--> statement-breakpoint
-  WHEN 'newsletter' THEN 'news'--> statement-breakpoint
-  WHEN 'marketing' THEN 'promo'--> statement-breakpoint
-  ELSE "last_category" END--> statement-breakpoint
+UPDATE "sender_priors" SET "last_category" = CASE "last_category"
+  WHEN 'action_needed' THEN 'action'
+  WHEN 'awaiting_reply' THEN 'reply'
+  WHEN 'follow_up' THEN 'reply'
+  WHEN 'payment' THEN 'receipt'
+  WHEN 'newsletter' THEN 'news'
+  WHEN 'marketing' THEN 'promo'
+  ELSE "last_category" END
 WHERE "last_category" IN ('action_needed', 'awaiting_reply', 'follow_up', 'payment', 'newsletter', 'marketing');--> statement-breakpoint
-ALTER TABLE "sender_priors" DROP CONSTRAINT "sender_priors_last_category_valid";--> statement-breakpoint
-ALTER TABLE "email_triage" DROP CONSTRAINT "email_triage_category_valid";--> statement-breakpoint
 ALTER TABLE "sender_priors" ADD CONSTRAINT "sender_priors_last_category_valid" CHECK ("sender_priors"."last_category" IN ('action', 'done', 'fyi', 'meeting', 'news', 'promo', 'receipt', 'reply', 'urgent'));--> statement-breakpoint
 ALTER TABLE "email_triage" ADD CONSTRAINT "email_triage_category_valid" CHECK ("email_triage"."category" IN ('action', 'done', 'fyi', 'meeting', 'news', 'promo', 'receipt', 'reply', 'urgent'));

@@ -17,19 +17,19 @@ import {
 describe("attentionScore", () => {
   test("an unscored sender keeps the category base — today's intrinsic-only behavior", () => {
     // No graph row means multiplier 1.0, so score equals base.
-    const r = attentionScore({ category: "awaiting_reply" });
-    assert.equal(r.score, CATEGORY_BASE_DEMAND.awaiting_reply);
+    const r = attentionScore({ category: "reply" });
+    assert.equal(r.score, CATEGORY_BASE_DEMAND.reply);
     assert.equal(r.band, "demanding");
   });
 
-  test("a cold low-significance awaiting_reply (the LinkedIn ask) drops to the ambient tail", () => {
-    const r = attentionScore({ category: "awaiting_reply", significanceBand: "weak" });
+  test("a cold low-significance reply (the LinkedIn ask) drops to the ambient tail", () => {
+    const r = attentionScore({ category: "reply", significanceBand: "weak" });
     assert.ok(r.score < MUTED_BELOW, `expected muted, got ${r.score}`);
     assert.equal(r.band, "muted");
   });
 
-  test("a known-important awaiting_reply stays demanding", () => {
-    const r = attentionScore({ category: "awaiting_reply", significanceBand: "strong" });
+  test("a known-important reply stays demanding", () => {
+    const r = attentionScore({ category: "reply", significanceBand: "strong" });
     assert.equal(r.band, "demanding");
   });
 
@@ -40,9 +40,9 @@ describe("attentionScore", () => {
     assert.equal(r.band, "muted");
   });
 
-  test("quiet payment/follow_up stay below `demanding` at the category floor", () => {
-    // Regression: a resolved $6.79 receipt read as demanding. Both bases sit below DEMANDING_AT.
-    for (const category of ["payment", "follow_up"] as const) {
+  test("a quiet receipt stays below `demanding` at the category floor", () => {
+    // Regression: a resolved $6.79 receipt read as demanding. The base sits below DEMANDING_AT.
+    for (const category of ["receipt"] as const) {
       const unscored = attentionScore({ category });
       assert.equal(unscored.band, "normal", `${category} unscored should be normal`);
       const strong = attentionScore({ category, significanceBand: "strong" });
@@ -151,18 +151,18 @@ describe("scoreAttentionForItems", () => {
       {
         sender: "Fabian <fabian@acme.com>",
         subject: "Contract review",
-        category: "awaiting_reply",
+        category: "reply",
       },
       {
         sender: "Fabian <fabian@acme.com>",
         subject: "Contract review",
-        category: "awaiting_reply",
+        category: "reply",
       },
     ]);
 
     assert.ok(a && b);
     assert.equal(a.band, b.band);
-    assert.equal(b.score, CATEGORY_BASE_DEMAND.awaiting_reply);
+    assert.equal(b.score, CATEGORY_BASE_DEMAND.reply);
   });
 
   test("distinct bot subjects don't decay each other", () => {

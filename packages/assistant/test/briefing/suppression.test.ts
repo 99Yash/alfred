@@ -88,21 +88,21 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         occurredAtMs: 3,
       },
       {
-        sender: "someone@acme.com",
-        subject: "Following up",
-        category: "reply",
+        sender: "digest@substack.com",
+        subject: "This week in X",
+        category: "news",
         occurredAtMs: 2,
       },
       {
         sender: "digest@substack.com",
-        subject: "This week in X",
+        subject: "An older edition",
         category: "fyi",
         occurredAtMs: 1,
       },
     ]);
 
     assert.equal(demand.demandingCount, 0);
-    assert.equal(demand.topBand, "normal"); // payment/follow_up sit at normal, fyi muted
+    assert.equal(demand.topBand, "normal"); // receipt sits at normal; news and fyi sit below it
   });
 
   test("an actionable payment failure counts as demanding ⇒ send", async () => {

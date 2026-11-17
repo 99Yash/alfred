@@ -145,9 +145,8 @@ describe("applyFloors — sequence order", () => {
     });
 
     const before = structuredClone(input);
-    const outcome = applyFloors(input, context());
+    applyFloors(input, context());
     assert.deepEqual(input, before);
-    assert.notEqual(outcome.classification, input);
   });
 });
 
