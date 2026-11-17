@@ -64,6 +64,14 @@ catalog:
   # lockstep and chose this line for us.) Bump to the newest version that clears
   # pnpm's 24-hour release-age floor, never past it.
   ai: 7.0.165
+  # Pinned exact — ADR-0087/ADR-0124. The Code Mode sandbox substrate:
+  # QuickJS-in-WebAssembly in a worker thread, zero runtime and peer runtime
+  # deps. The `typescript` peer it declares from 2.1.x is OPTIONAL and only
+  # type-strips guest source when Node's own `stripTypeScriptTypes` is missing
+  # (Node < 22.6) — on Node 26 it is never loaded, so the `<7` range never
+  # binds. Re-review the source on every bump (the version pinning rule in
+  # docs/plans/code-mode-object-handles-v1.md).
+  run: 2.1.13
   # Provider-fallback cascade for the LanguageModel dispatchers (see
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
