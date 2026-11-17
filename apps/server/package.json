@@ -32,6 +32,7 @@
     "elysia": "catalog:",
     "isomorphic-dompurify": "^2.36.0",
     "jsdom": "^28.1.0",
+    "run": "catalog:",
     "sharp": "^0.35.2",
     "zod": "catalog:"
   },

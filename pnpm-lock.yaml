@@ -99,6 +99,9 @@ catalogs:
     resend:
       specifier: ^6.28.0
       version: 6.28.0
+    run:
+      specifier: 2.1.13
+      version: 2.1.13
     sonner:
       specifier: ^2.0.8
       version: 2.0.8
@@ -229,6 +232,9 @@ importers:
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0(@noble/hashes@2.3.0)(supports-color@8.1.1)
+      run:
+        specifier: 'catalog:'
+        version: 2.1.13(typescript@7.0.2)
       sharp:
         specifier: ^0.35.2
         version: 0.35.3(@types/node@26.6.6)
@@ -6905,6 +6911,15 @@ packages:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
 
+  run@2.1.13:
+    resolution: {integrity: sha512-Oza31vagvs4YIY6Z8p/SeRCfzFnJIwP7Vh1MF2Wg0ti30cosh/Gm5O8KGuLcIr+hVG52B/FdcV+AiDhJtQPzcg==}
+    engines: {node: '>=20.19.0'}
+    peerDependencies:
+      typescript: '>=5.1.6 <7'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   safe-buffer@5.2.1:
     resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
@@ -13435,6 +13450,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
     optional: true
+
+  run@2.1.13(typescript@7.0.2):
+    optionalDependencies:
+      typescript: 7.0.2
 
   safe-buffer@5.2.1: {}
 

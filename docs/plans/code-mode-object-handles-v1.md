@@ -7,6 +7,8 @@ evidence: "#535, #898 and epic #271 open. Only docs PRs merged (#536, #869); no 
 
 **Status:** Designed (grilled 2026-07-21). **Substrate amended 2026-08-19, and again 2026-08-26** — see [Substrate](#substrate-amended-2026-08-19-dependency-narrowed-2026-08-26). Decision record: ADR-0087 (extends ADR-0074 rung-(b)). Epic: #271. Issues: #535 (build), #898 (trajectory scorers).
 
+**Re-scoped 2026-11-11 by [ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md).** Code Mode is the chat read path, and handles wait. Of the build order below, step 1 (the handle substrate) is deferred until a script-trimmed result still does not fit; the build starts at step 2, with the curated read tools — not `broker.read` — as the host functions, the index generated from the TypeScript return types, and no plan-then-apply writes (ADR-0116 waits for its bulk-write trigger). The substrate, limits, honest envelope, and eval obligations carry over unchanged. Forced provenance on the return is dropped (owner, 2026-11-17): the host-side call ledger is the only record.
+
 ## One-line
 
 Keep large tool results out of the transcript by **parking them as object handles**, and let the boss compute derived results over a handle by writing **JS/TS run in a network-less, credential-less self-hosted sandbox** whose only capabilities are host functions.
@@ -71,15 +73,24 @@ The no-network / no-credential isolate closes exfil **by the injected code itsel
 
 ### What runs the code
 
-`run` from `vercel-labs` (Apache-2.0, **zero runtime dependencies, zero peer dependencies**, `engines: node >= 22.13.0`), called directly. Pin it **exactly**; `2.0.1` at the time of writing. `run` embeds a **1,027,523-byte QuickJS WebAssembly module** (built by `quickjs-emscripten` 0.32.0 / `@jitl/quickjs-wasmfile-release-asyncify`; the decoded bytes start with the WASM magic `00 61 73 6d`) and starts it in a `node:worker_threads` `Worker` created from a `data:text/javascript` URL with `execArgv: []`. Receipts from the published `2.0.1` tarball:
+`run` from `vercel-labs` (Apache-2.0, **zero runtime dependencies**), called directly. Pin it **exactly**. The pin is **`2.1.13`** (published 2026-11-12; source re-reviewed 2026-11-17 — see the receipts below). It embeds a QuickJS WebAssembly module (built by `quickjs-wasi` 3.6.3; the decoded bytes start with the WASM magic `00 61 73 6d`) and starts it in a `node:worker_threads` `Worker` created from a `data:text/javascript` URL with `execArgv: []`. Receipts from the published `2.1.13` tarball:
 
 ```
-run@2.0.1  dist/runtime/manager.js:4     import { Worker } from "node:worker_threads";
-run@2.0.1  dist/runtime/worker-source.js const INLINE_RUN_WORKER_SOURCE = "globalThis.__RUN_QUICKJS_WASM_BASE64__ = \"AGFzbQEAAAA…"
-run@2.0.1  node: builtins, whole dist    buffer, crypto, worker_threads, async_hooks, util, os, module, fs, events
+run@2.1.13  dist/runtime/manager.js         import { Worker } from "node:worker_threads";
+run@2.1.13  dist/runtime/worker-source.js  export const INLINE_RUN_WORKER_SOURCE = "globalThis.__RUN_QUICKJS_WASM_BASE64__ = \"AGFzbQ…"
+run@2.1.13  worker builtins (grep of the embedded worker): buffer, fs (writeSync only, WASI stdio), util, worker_threads
+run@2.1.13  no node:http / node:net / node:dns / node:tls / node:child_process / node:vm anywhere in dist
 ```
 
-**This is a library, not a hosted service.** A probe of the tarball found no `node:vm`, no `isolated-vm`, and no `node:http` / `node:net` / `node:dns` / `node:tls` client anywhere in the distributed JavaScript. Nothing leaves the Alfred process, so the Freestyle.sh data-custody rejection does not extend to it.
+**This is a library, not a hosted service.** The grep above is the whole audit: no request leaves Alfred's own process, so the Freestyle.sh data-custody rejection does not extend to it.
+
+Changes between the `2.0.1` pin of 2026-08-26 and `2.1.13`, each verified in the published `dist`:
+
+- **`limits.cpuTimeoutMs` (2.1.8, default 10 s).** Bounds the guest JavaScript of one invocation separately from the wall clock; awaiting async host functions does not count. Exceeding it fails with the new `RUN_CPU_TIMEOUT`. It replaces a hidden interrupt cap that stopped long loops after about a second regardless of `timeoutMs`.
+- **`RUN_USER_SOURCE_ERROR` (2.1.4).** An uncaught guest error surfaces with this code, so source failures are distinguishable from infrastructure failures. **A memory-limit kill also surfaces as `RUN_USER_SOURCE_ERROR`** — the honest envelope cannot tell a script bug from an OOM by code alone.
+- **Synchronous host functions and native ES module loaders (2.1.0).** Not used by the read path: Alfred's host functions stay async, and the guest gets no module loader.
+- **Guest TypeScript type stripping runs through Node's `stripTypeScriptTypes` first.** The `typescript` peer dependency (declared `>=5.1.6 <7` from 2.1.x, **optional**) is loaded only when Node's own stripper is missing — Node < 22.6. Alfred runs Node 26 (`.nvmrc`), so the peer never binds and the workspace's `typescript: ^7.0.2` pin is unaffected. `engines` relaxed to `node >=20.19.0`.
+- **Fail-closed banned-pattern check in the package's own CI (2.1.1) and bounded guest-error conversion (2.1.13)** — hardening releases, no API change.
 
 `github.com/vercel-labs/run` is **public** since the 2026-08-25 announcement, so review the source in the repository rather than in the published sourcemaps.
 
@@ -95,7 +106,8 @@ The public surface is stable: a probe found **zero** `experimental_` identifiers
 
 | Limit                                     | Default |
 | ----------------------------------------- | ------- |
-| Timeout                                   | 30 s    |
+| Wall-clock timeout                        | 30 s    |
+| CPU timeout (`cpuTimeoutMs`, 2.1.8+)      | 10 s    |
 | QuickJS memory                            | 64 MiB  |
 | QuickJS stack                             | 2 MiB   |
 | Source                                    | 256 KiB |
@@ -108,7 +120,7 @@ The public surface is stable: a probe found **zero** `experimental_` identifiers
 
 The worker pool cap is process-wide, shared with any other `run` user in the process, and set through `setMaxWorkers`; excess invocations reject with `RunConcurrencyError` rather than queue without bound. Every run gets a fresh QuickJS context, and a worker that cannot reach a verified clean state after an abort, a timeout, or a protocol failure is retired.
 
-Failures **throw** rather than returning a status. `RunResult` is only `{ status: 'completed', value }` or `{ status: 'interrupted', interruptions, continuation }`; everything else raises a `RunError` subclass with a stable `code` (`RUN_TIMEOUT`, `RUN_ABORTED`, `RUN_CONCURRENCY_LIMIT`, `RUN_PROTOCOL_ERROR`, `RUN_HOST_FUNCTION_ERROR`, `RUN_BRIDGE_LIMIT`, `RUN_SOURCE_TOO_LARGE`, `RUN_DETACHED_BRIDGE_REQUEST`). Alfred's honest envelope maps each of those to a user-visible outcome; do not let one fall through to a generic message.
+Failures **throw** rather than returning a status. `RunResult` is only `{ status: 'completed', value }` or `{ status: 'interrupted', interruptions, continuation }`; everything else raises a `RunError` subclass with a stable `code` (`RUN_TIMEOUT`, `RUN_CPU_TIMEOUT`, `RUN_ABORTED`, `RUN_CONCURRENCY_LIMIT`, `RUN_PROTOCOL_ERROR`, `RUN_HOST_FUNCTION_ERROR`, `RUN_BRIDGE_LIMIT`, `RUN_SOURCE_TOO_LARGE`, `RUN_DETACHED_BRIDGE_REQUEST`, and `RUN_USER_SOURCE_ERROR` for an uncaught guest error). Alfred's honest envelope maps each of those to a user-visible outcome; do not let one fall through to a generic message. Two nuances measured by the probe: a wall-clock or CPU overrun surfaces as `RUN_TIMEOUT` or `RUN_CPU_TIMEOUT`, but a memory-limit kill surfaces as `RUN_USER_SOURCE_ERROR` — the envelope cannot tell a script bug from an OOM by code alone.
 
 Values cross the boundary in `run`'s versioned `run-js-v1` format, which carries primitives, plain objects, arrays, cycles, `Date`, `RegExp`, `Map`, `Set`, typed arrays, and `Error`. Functions, symbols, promises, and class instances **cannot** cross, so a parked page must reach the guest as plain data — which it already does.
 
@@ -146,7 +158,7 @@ Four scorers, all exact:
 
 Two checks remain. The rest of the old Phase 0 died with `isolated-vm`.
 
-- **Production-image smoke test.** Run one `run()` call on the Railway image and confirm the worker thread starts, the WebAssembly module instantiates, and a timeout, an out-of-memory run, an output flood, and a crash each terminate the run and leave the API healthy.
+- **Production-image smoke test.** The probe matrix now lives in `apps/server/src/scripts/probes/probe-code-mode-sandbox.ts` (a tsdown bundle entry, no DB, no network). The local half ran 2026-11-17 on `run@2.1.13` with **10/10 PASS** (baseline, async host functions, guest catch, guest TS, wall/CPU timeout, memory limit, console flood, guest crash, bridge cap, concurrency). The production half is one command after the pin deploys: `railway ssh --service server -- node dist/scripts/probes/probe-code-mode-sandbox.js`.
 - **Fork-or-not decision.** The worker thread shares the credential-holding process. Decide from the owner experiment whether to wrap the `run()` call in a `child_process.fork()`. Record the answer either way.
 
 **Unchanged:** the evidence gate. The rung-(a) truncation thermometer has still not fired. A cheaper sandbox lowers the cost of this experiment; it does not create the need.

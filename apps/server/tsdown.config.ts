@@ -32,6 +32,9 @@ export default defineConfig({
     "./src/scripts/backfills/backfill-widen-standing-instructions-committed.ts",
     "./src/scripts/backfills/migrate-standing-instructions-v2-committed.ts",
     "./src/scripts/probes/probe-chat-ttft.ts",
+    // Code Mode substrate smoke (ADR-0087/ADR-0124 open verification): no DB, no
+    // network; safe to run through `railway ssh` on the deployed image.
+    "./src/scripts/probes/probe-code-mode-sandbox.ts",
   ],
   format: "esm",
   outDir: "./dist",
