@@ -71,8 +71,8 @@ export function labelNameFor(category: TriageCategory): string {
 }
 
 const NAME_TO_CATEGORY = new Map<string, TriageCategory>([
-  ...typedEntries(LABEL_NAMES),
-  ...Object.entries(LEGACY_LABEL_NAME_TO_CATEGORY),
+  ...typedEntries(LABEL_NAMES).map(([cat, name]) => [name, cat] as const),
+  ...Object.entries(LEGACY_LABEL_NAME_TO_CATEGORY).map(([name, cat]) => [name, cat] as const),
 ]);
 
 export interface AlfredLabelMap {

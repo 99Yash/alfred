@@ -137,13 +137,13 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
       userId,
       from: "Railway <billing@railway.app>",
       subject: "Your receipt for $6.79",
-      category: "payment",
+      category: "receipt",
     });
     await seedEmail({
       userId,
-      from: "Someone <someone@acme.com>",
-      subject: "Following up on last week",
-      category: "follow_up",
+      from: "Organizer <organizer@acme.com>",
+      subject: "Weekly sync",
+      category: "meeting",
     });
     await seedEmail({
       userId,
@@ -153,7 +153,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
     });
 
     const gate = await gateFor(userId);
-    // Payment info and follow_up sit below the 0.6 cutoff; fyi is not a priority bucket.
+    // Receipt and meeting sit below the 0.6 cutoff; fyi is not a priority bucket.
     assert.equal(gate.emailCount, 2);
     assert.equal(gate.demandingCount, 0);
     assert.equal(gate.quiet, true);
@@ -166,7 +166,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
       from: "Railway <billing@railway.app>",
       subject: "Payment failed - update your card",
       snippet: "We were unable to process your payment. Please update your billing card.",
-      category: "payment",
+      category: "receipt",
     });
 
     const gate = await gateFor(userId);
@@ -180,7 +180,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
       userId,
       from: "Colleague <colleague@acme.com>",
       subject: "Can you review this before EOD?",
-      category: "action_needed",
+      category: "action",
     });
 
     const gate = await gateFor(userId);
@@ -188,7 +188,7 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
     assert.equal(gate.quiet, false);
   });
 
-  test("KNOWN GAP (#259): a mixed day with an over-tagged bulk action_needed still sends", async () => {
+  test("KNOWN GAP (#259): a mixed day with an over-tagged bulk action still sends", async () => {
     // A known trade-off (#259): nothing demotes a one-off bulk digest tagged action_needed yet.
     // Flip this on purpose if that changes.
     const userId = await seedUser();
@@ -196,13 +196,13 @@ describe("morning suppression gate over gathered rows (DB-backed)", { skip: SKIP
       userId,
       from: "Railway <billing@railway.app>",
       subject: "Your receipt for $6.79",
-      category: "payment",
+      category: "receipt",
     });
     await seedEmail({
       userId,
       from: "GitHub <notifications@github.com>",
       subject: "Weekly Dependabot digest",
-      category: "action_needed",
+      category: "action",
     });
 
     const gate = await gateFor(userId);

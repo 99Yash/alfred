@@ -67,7 +67,7 @@ async function seedEmail(args: {
   await db().insert(emailTriage).values({
     userId: args.userId,
     sourceThreadId: threadId,
-    category: "action_needed",
+    category: "action",
     confidence: 0.9,
     model: "test",
     documentId: docId,

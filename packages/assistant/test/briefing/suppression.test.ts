@@ -120,7 +120,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
     assert.equal(demand.topBand, "demanding");
   });
 
-  test("an unscored action_needed counts as demanding ⇒ send (errs toward sending)", async () => {
+  test("an unscored action counts as demanding ⇒ send (errs toward sending)", async () => {
     const demand = await scorePriorityEmailDemand(userId, [
       {
         sender: "colleague@acme.com",

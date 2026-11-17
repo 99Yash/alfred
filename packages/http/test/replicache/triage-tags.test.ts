@@ -135,7 +135,7 @@ describe("serverMutators.triageTagOverride", () => {
 
     const result = await serverMutators.triageTagOverride.run(
       tx,
-      { threadId: baseTag.threadId, category: "action_needed" },
+      { threadId: baseTag.threadId, category: "action" },
       baseTag.userId,
     );
 
@@ -144,7 +144,7 @@ describe("serverMutators.triageTagOverride", () => {
     const set = setValue;
     assert.ok(isRecord(set));
 
-    assert.equal(set.category, "action_needed");
+    assert.equal(set.category, "action");
     assert.equal(set.source, "user");
     assert.ok(set.overriddenAt instanceof Date);
     assert.equal(set.appliedLabelId, null);

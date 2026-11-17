@@ -352,7 +352,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
 
     assert.equal(result.written, false, "older message must not become the canonical row");
     assert.equal(result.row.documentId, newerDocId);
-    assert.equal(result.row.category, "action_needed");
+    assert.equal(result.row.category, "action");
     assert.equal((await traceRows(runId)).length, 0, "recency loser writes no stale trace");
   });
 
