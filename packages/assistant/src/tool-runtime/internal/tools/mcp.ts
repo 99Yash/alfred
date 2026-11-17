@@ -35,7 +35,7 @@ import {
 } from "@alfred/assistant/tool-runtime/mcp";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
-interface McpBrokerToolResult {
+export interface McpBrokerToolResult {
   /**
    * `false` when the remote tool failed or nothing was sent. `executedResultOutcome` reads it, so
    * the action record, the trace span, and the chat trail all show the call as failed. `tool_error`
@@ -50,6 +50,11 @@ interface McpBrokerToolResult {
   reason?: string;
   message?: string;
 }
+
+/** The MCP catalog reads, named so the Code Mode index reads their types (ADR-0124). */
+export type McpListToolsResult = Awaited<ReturnType<typeof searchMcpToolsLocal>>;
+
+export type McpInspectToolResult = Awaited<ReturnType<typeof inspectMcpToolLocal>>;
 
 function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   switch (outcome.status) {
@@ -220,6 +225,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       'Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection ("railway" for Railway) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.',
     discovery: {
@@ -234,7 +240,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpToolSearchInputSchema,
-    execute: async (input, ctx) =>
+    execute: async (input, ctx): Promise<McpListToolsResult> =>
       searchMcpToolsLocal({
         userId: ctx.userId,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
@@ -246,6 +252,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "inspect_tool",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
     discovery: {
@@ -258,7 +265,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     staging: "fast_path",
     policyGateWaiver: "#540: exact local read of Alfred's validated MCP catalog",
     inputSchema: mcpToolInspectInputSchema,
-    execute: async (input, ctx) =>
+    execute: async (input, ctx): Promise<McpInspectToolResult> =>
       inspectMcpToolLocal({
         userId: ctx.userId,
         ref: input.ref,

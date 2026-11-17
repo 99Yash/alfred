@@ -253,6 +253,7 @@ Each script below runs in `pnpm check`, in CI (`.github/workflows/ci.yml`), or i
 | `check-types` | no | yes | `turbo run check-types && tsc -p scripts/tsconfig.json` |  |
 | `check:architecture` | yes | yes | `node scripts/check-module-architecture.mjs` |  |
 | `check:campaign-state` | yes | yes | `node scripts/campaign-state.selftest.mjs` | Drives `campaign-state.mjs` against the failure it exists to prevent: two phases writing two different items of one `state.json` at the same time. |
+| `check:code-mode-index` | yes | yes | `node scripts/generate-code-mode-index.mjs --check` | Generate the Code Mode index of host-function output types (ADR-0124 decision 3). |
 | `check:consolidation` | yes | yes | `node scripts/check-consolidation-drift.mjs` | Guards the "define once, derive everything else" consolidations against re-drift. Each `gate` rule was hand-rolled in N places, collapsed to a single canonical helper, and would silently return the moment someone types the raw idiom again. jscpd (`pnpm dup`) only *reports* duplication after the fact and nobody runs it on every change — this runs inside `pnpm check`, so a reintroduced idiom fails the same gate as a type error. |
 | `check:constraint-snapshot` | yes | yes | `pnpm --filter @alfred/db check:constraint-snapshot` |  |
 | `check:doc-symbols` | yes | yes | `node scripts/check-doc-symbols.mjs` | Fails when a doc names a code symbol that no longer exists. |

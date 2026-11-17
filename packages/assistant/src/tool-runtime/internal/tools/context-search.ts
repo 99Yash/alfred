@@ -1,5 +1,5 @@
 import { searchContextInput } from "@alfred/contracts";
-import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
+import type { ContextSearchToolResult, RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { liveTool, runContextSearch } from "@alfred/assistant/tool-runtime";
 
 /**
@@ -13,13 +13,14 @@ export const contextSearchTools: readonly RegisteredTool[] = [
     action: "search_context",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     staging: "fast_path",
     // Kernel: the chat prompt names it as the first pass, so it must exist on turn one.
     availability: { surface: "kernel" },
     description:
       "One bounded read across Alfred's evidence sources at once: your memory of the user, their ingested documents and attachments, known work-object state, and live Drive files. Use it as the first pass for a question that may need evidence assembled across sources — 'what do we know about X', 'what did Y change last week'. It returns bounded, cited snippets with a note for any source that had nothing, failed, or was not consulted for this question (a source that only answers a different kind of question is skipped, which is different from finding nothing); never full documents or media bytes. For an action, use the provider-specific tools (an MCP server's tools, such as the Gmail, Google Drive, or Google Calendar server, …). An empty or thin result is a real answer, not a dead end: drill into a provider or the live web next.",
     inputSchema: searchContextInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ContextSearchToolResult> => {
       return await runContextSearch({
         input,
         context: {

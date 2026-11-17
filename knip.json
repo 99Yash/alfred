@@ -85,7 +85,14 @@
       "entry": ["src/scripts/**/*.ts!"]
     },
     "packages/assistant": {
-      "entry": ["src/scripts/**/*.ts!", "evals/**/*.ts!", "evalite.config.ts!", "test/**/*.test.ts"],
+      // `codegen/` is compiled by scripts/generate-code-mode-index.mjs, never imported (ADR-0124).
+      "entry": [
+        "src/scripts/**/*.ts!",
+        "codegen/**/*.ts!",
+        "evals/**/*.ts!",
+        "evalite.config.ts!",
+        "test/**/*.test.ts"
+      ],
       // Evalite loads Vitest at runtime but does not declare it as a dependency.
       "ignoreDependencies": ["vitest"]
     },

@@ -130,6 +130,84 @@ Pin `run` **exactly** and re-review the source on each bump; it is a `vercel-lab
 
 Two facts kept from the superseded `@ai-sdk/code-mode` rule, because they still describe this workspace. The `ai` catalog pin is `7.0.66` and is now a **free** choice — nothing in this plan requires a specific `ai` release. And one measured pnpm trap remains true for any deliberate bump: `minimumReleaseAgeExclude` is honored while pnpm **resolves**, but not while it **verifies an existing lockfile**, so a too-new transitive package blocks every later `pnpm install` even with an exclude entry present. Bumping straight to `ai@7.0.68` pulled `@ai-sdk/gateway@4.0.54` (published the same hour) and wedged install; `7.0.66` pulls `@ai-sdk/gateway@4.0.52` and installs clean.
 
+## Slice 2 — the read path (settled 2026-11-17)
+
+ADR-0124 build. The owner made three decisions on 2026-11-17. The agent made the other decisions in this section from the code. Each decision gives its reason.
+
+### Owner decisions
+
+1. **The MCP reads are in this slice.** Gmail, Calendar, and GitHub have no curated actions. All their reads go through `mcp.call`, and so does the 41-call driver run. A slice with only the curated reads cannot reach them.
+2. **A read that the user's policy gates fails in the script, with a named error.** The script gets no card, and the read does not run. The host function throws `needs_approval`, and the script's `catch` gets the error. The interrupt and resume of build-order step 3 wait for their own trigger.
+3. **A default-off flag does the flip.** When the flag is on, `system.code_run` is on the boss surface, and the read tools are not on it. When the flag is off, the surface is the same as today. In each mode, the model has one read path (ADR-0124 decision 1).
+
+### The seam: a host call is a nested dispatch, not the `fast_path` arm
+
+The 2026-11-17 handoff said that host functions use the `fast_path` arm. The code shows that this is not possible. Only 7 tools use that arm. The reads that matter use the staged arm, and `mcp.call` needs its staging row, because the MCP broker keys its ledger on that row. Thus each host call goes through the full dispatch pipeline:
+
+- `toolCallId = <code.run toolCallId>#<requestIndex>` (the format of ADR-0116 and `attribution.ts`). Each read gets its own `action_stagings` row, tool span, gate, and replay. If a crash causes `code.run` to run again, each read that has a saved row replays and does not run again.
+- **Dispatch uses the `deferIfGated` mode.** Dispatch returns `deferred` before it writes a row, if the gate would show a card. The host function then throws `needs_approval` (owner decision 2). No new gate logic is necessary.
+- **The thread's full-autonomy flag is not sent.** Thus a nested dispatch keeps every floor, as a background run does. A write that full autonomy would allow without a card cannot run in a script.
+- **`mcp.read(ref, args)` also refuses a tool that is not read-only before it dispatches.** It uses the selected descriptor's `readOnlyHint`, with the check that `mcp.call` already uses. This is a second barrier. A high-tier `mcp.call` also stops at the gate.
+
+### What is a read
+
+`riskTier: "no_risk"` does not mean that a tool is a read. For example, `system.resolve_todo` and `system.write_scratch` are `no_risk`, and both write. Thus a curated tool states `codeModeRead: true`. `registerTool` refuses the flag on a tool that has one of these properties: it is not `replay: "safe"`, it is `high` tier, it uses the `artifact_mutation` lane, or its staging is `join`, `question`, or `confirm`. The v1 read set:
+
+- `contacts.search`, `contacts.list`, and `contacts.get`.
+- `vercel.list_projects`, `vercel.list_deployments`, and `vercel.request`. The `request` tool permits GET and HEAD only.
+- `system.web_search`, `system.fetch_url`, `system.search_context`, `system.corpus_search`, `system.read_chat_history`, `system.read_user_context`, `system.list_instructions`, `system.list_todos`, and `system.read_scratch`.
+- `mcp.list_tools` and `mcp.inspect_tool`. They do the job of ADR-0116's `mcp.search` and `mcp.describe`, so the script uses their names and there are no new names.
+- `mcp.read`. This is the only new host function. It is a facade over `mcp.call`.
+
+In the script, each host function has its tool name, for example `contacts.search(input)` or `mcp.read(ref, args)`. `fetch_url` returns text and only reports binary resources, so it is a read (ADR-0124 decision 4).
+
+### The index: guest types that the compiler checks
+
+TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the checker for a return type. The index uses this method:
+
+- Each read tool annotates its `execute` with a named output type. `packages/assistant/codegen/code-mode-guest-index.ts` maps each host path to `guest<ThatType>()`, where `Guest<T>` is the JSON form of `T`. Dispatch sanitizes each result to JSON, so a `Date` becomes a string.
+- The generator `scripts/generate-code-mode-index.mjs` compiles that file with declaration emit. The compiler prints each `guest<T>()` call as the expanded type, and the generator copies the text into `guest-index.generated.ts`. The printer reuses an alias name for any type with the same structure as a declared one, so `Guest<T>` adds markers that the generator removes. The generator fails if `import(`, `any`, or an elided type is left. `pnpm check:code-mode-index` generates the file again and fails if the file is stale.
+- The index is checked at boot. If a `codeModeRead` tool and the index do not agree, registration throws. The input of each host function comes from the tool's model-facing JSON Schema, which is what the model sees today. The 2a description is about 3.4k tokens.
+- The `code.run` description holds the curated index and the `mcp.*` functions. An MCP tool's type comes from its descriptor at run time: the script calls `mcp.inspect_tool`. If the tool has no output schema, the script first returns a short sample (ADR-0124 decision 2). Each user's MCP tools are different, so the description stays static, and the memo key of `resolve` stays the same.
+
+### The flag
+
+- `feature.internal.code_mode_read_path` is a hidden key, as `feature.internal.triage_sender_kind_projection` is. A missing row means off. It goes in the availability snapshot, as `passthroughEnabled` does, and dispatch checks it again.
+- When the flag is on, chat adds `system.code_run` to the active tools at the start of the run. The kernel does not change, so the schema-budget ratchet does not change. The prompt is pinned for each run, so code.run guidance is added at run start (ADR-0124 decision 7).
+- One gate removes the read tools from the boss surface: `evaluateToolAvailability`. Preload, carryover, `search_tools`, `load_tool`, the inactive-tool reissue, and dispatch all use that evaluator. When the flag is on, a `codeModeRead` tool is not available to the boss outside a script. A direct `mcp.call` from the boss to a read-only tool is refused with "use system.code_run". `search_tools` returns a read-only MCP hit as a ref for `mcp.read`. A host dispatch runs with a `code_run` run context, so the same gate lets the read through.
+
+### The honest envelope and the ledger
+
+`runReadProgram` is the deep module: it receives the source, the host functions, and the limits, and it returns the outcome and the ledger. It catches each `RunError` and maps its code to one outcome. The model sees this:
+
+- `completed`: the value, plus `calls: { total, failed }`.
+- `script_error` for `RUN_USER_SOURCE_ERROR`. The message says "an uncaught error, or the 64 MiB memory limit", because the code cannot show which of the two occurred.
+- `timeout` and `cpu_timeout`, each with its limit.
+- `too_many_calls` for `RUN_BRIDGE_LIMIT`, and `source_too_large`.
+- `busy` for `RUN_CONCURRENCY_LIMIT`, with the instruction to try again one time.
+- `unawaited_call` for `RUN_DETACHED_BRIDGE_REQUEST`.
+- `internal` for `RUN_PROTOCOL_ERROR`, `RUN_HOST_FUNCTION_ERROR`, and `RUN_ABORTED`. These are logged with the run id.
+
+A host call that does not execute throws a guest error. Its `code` is the refusal, for example `needs_approval`, `failed`, or `invalid_input`, and its message is the public message. The ledger is kept on the host side: `{ index, path, kind, ms }`. The script cannot change it.
+
+Facts measured on `run@2.1.13` while building 2a (2026-11-17):
+
+- **Only a thrown `RunError` reaches the guest with its message and `code`.** A plain `Error` arrives as "Host function failed.". Thus a refused read throws `RunError(message, refusal)`.
+- **A refused read that the script does not catch fails the run with the host's own code.** It does not fail with `RUN_HOST_FUNCTION_ERROR`. `run` mints only `RUN_*` codes, so any other code maps to `uncaught_read_failure`.
+- **A result that is too large or is not serializable fails with `RUN_SERIALIZATION_ERROR`.** That code is not in the list above. It maps to `result_too_large_or_not_json`.
+- **The read path has its own limits.** The result cap is 64 KiB, not 1 MiB, because only the return value reaches the model, and `boundToolResult` clips strings but not the total size. The wall clock is 90 s, under the 180 s turn ceiling, and at most 8 reads run at the same time.
+
+### Instrumentation (ADR-0124's three rows)
+
+- **The share of chat reads that ran in a script.** Each host call already gets its own `tool:<name>` span. A host call's `toolCallId` has the `#` form, so a Langfuse query divides the host-call spans by all read spans. When the flag is on, a direct read is refused, so the share must be 100%. A lower share shows a leak.
+- **The script success rate and the failed calls in scripts that returned.** These are metadata on the `tool:system.code_run` span: `outcome`, `hostCalls`, `hostCallsFailed`, and counts for each tool.
+- **The model steps and the context tokens of each turn.** These are recorded already. `runtime.turn.phases.turns` holds the steps. The `api_call_log.input_tokens` of each row, grouped by `run_id`, holds the context of each step. Nothing new is built.
+
+### Split into PRs
+
+- **2a.** `runReadProgram`, the honest envelope, the ledger, the nested-dispatch seam, `codeModeRead`, `mcp.read`, `system.code_run`, the guest types, and the index generator with its gate. The flag and the span metadata are in 2a too, but the boss surface does not change yet.
+- **2b.** The flip: chat adds `code_run`, the availability gate, the `search_tools` refs, and the prompt guidance. Also the eval case for `run_s7yi1ymxakcj`, with fake host functions (#898).
+
 ## Build order
 
 1. **Handle substrate** — auto-park at the bound; R2 blob + PG metadata row (thread-scoped, TTL); `{handle,preview,schema,rowCount,provenance}` in the transcript; schema inferred by sampling parked rows.

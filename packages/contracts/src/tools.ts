@@ -340,6 +340,11 @@ export const TOOL_LABELS = {
     title: "search conversation history",
   },
   "system.read_scratch": { running: "Reading notes", done: "Read notes", title: "read notes" },
+  "system.code_run": {
+    running: "Reading with a script",
+    done: "Read with a script",
+    title: "read with a script",
+  },
   "system.write_scratch": { running: "Saving notes", done: "Saved notes", title: "save notes" },
   "system.promote": {
     running: "Recording a finding",
@@ -521,6 +526,7 @@ export const TOOL_CATEGORIES = {
   "system.append_artifact_section": "action",
   "system.update_artifact": "action",
   "system.ask_user": "system",
+  "system.code_run": "source",
 
   "mcp.call": "action",
   "mcp.list_tools": "system",

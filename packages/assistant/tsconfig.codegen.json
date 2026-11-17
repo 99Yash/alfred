@@ -1,0 +1,15 @@
+{
+  // Codegen project for the Code Mode index (ADR-0124). `scripts/generate-code-mode-index.mjs`
+  // compiles it with declaration emit and passes its own temporary `--outDir`. Nothing else
+  // builds it, and nothing imports the file it compiles.
+  "extends": "@alfred/config/tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "composite": false,
+    "rootDir": ".",
+    "outDir": "../../node_modules/.cache/code-mode-index",
+    "jsx": "react"
+  },
+  "files": ["codegen/code-mode-guest-index.ts"]
+}

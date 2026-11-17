@@ -29,7 +29,7 @@ import {
   awaitSubAgentInput,
   spawnSubAgentInput,
 } from "@alfred/contracts";
-import type { AskUserResult, IanaTimezone } from "@alfred/contracts";
+import type { AskUserResult, IanaTimezone, ScratchEntry } from "@alfred/contracts";
 import {
   appendArtifactPage,
   appendArtifactSection,
@@ -38,9 +38,14 @@ import {
   type ArtifactWriteContext,
 } from "@alfred/assistant/artifacts";
 import type {
+  ChatHistoryToolResult,
+  ListInstructionsResult,
+  ListTodosResult,
   LiveChatToolExecuteContext,
+  ReadUserContextResult,
   SystemToolScratchpad,
   ToolExecuteContext,
+  WebSearchToolResult,
 } from "@alfred/assistant/tool-runtime";
 import {
   activateWorkflow,
@@ -66,7 +71,7 @@ import {
 } from "@alfred/assistant/tool-runtime";
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
-import { redactCredentialUrl, runFetchUrl } from "./fetch-url";
+import { redactCredentialUrl, runFetchUrl, type FetchUrlResult } from "./fetch-url";
 import { liveTool, NO_TOOL_EFFECTS, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   resolveExactToolLoad,
@@ -91,6 +96,11 @@ export function currentTimeSnapshot(timezone: IanaTimezone, now: Date = new Date
     timezone,
   };
 }
+
+/** `system.read_scratch` result. Named so the Code Mode index reads its type (ADR-0124). */
+export type ReadScratchResult =
+  | { ok: true; key: string; found: false }
+  | { ok: true; key: string; found: true; entry: ScratchEntry<unknown> };
 
 export const systemTools: readonly RegisteredTool[] = [
   liveTool({
@@ -316,12 +326,13 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_chat_history",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
     // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
     availability: { surface: "kernel", requiresLiveChat: true },
     inputSchema: readChatHistoryInput,
-    execute: async (input, ctx) =>
+    execute: async (input, ctx): Promise<ChatHistoryToolResult> =>
       readChatHistory({ userId: ctx.userId, threadId: ctx.chat.threadId, input }),
   }),
   liveTool({
@@ -423,12 +434,13 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_user_context",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
     // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
     availability: { surface: "kernel" },
     inputSchema: readUserContextInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ReadUserContextResult> => {
       return await readUserContext({
         input,
         context: {
@@ -445,12 +457,13 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_scratch",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
     inputSchema: readScratchInput,
     refuseInput: (input, ctx) => callerScratchpad(ctx).refusal({ verb: "read", key: input.key }),
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ReadScratchResult> => {
       const entry = await callerScratchpad(ctx).read(input.key);
 
       if (!entry) return { ok: true, key: input.key, found: false };
@@ -556,6 +569,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "list_instructions",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "List the user's active standing instructions (each with its `factId`, `instructionId`, " +
       "`schemaVersion`, scope, targets, effects, and directive). Call this before forgetting, " +
@@ -563,7 +577,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "to check whether a new request duplicates or conflicts with an existing instruction. The result " +
       "is capped; if `truncated` is true and the target is unclear, ask the user to narrow it.",
     inputSchema: listInstructionsInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ListInstructionsResult> => {
       return await listInstructions({
         input,
         context: {
@@ -627,6 +641,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "list_todos",
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "List the user's todos (each with its `id`, `name`, `status`, `dueDate`, `sources`, and " +
       "`creatorActor`). Never changes a todo. By default it returns the live todos in the rail " +
@@ -635,7 +650,7 @@ export const systemTools: readonly RegisteredTool[] = [
       "`creatorActor` is null when the creation was not recorded. The result is capped; if " +
       "`truncated` is true, say that the list is partial.",
     inputSchema: listTodosInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<ListTodosResult> => {
       return await listTodos({
         input,
         context: {
@@ -699,12 +714,13 @@ export const systemTools: readonly RegisteredTool[] = [
     // Cost is logged under api_call_log.kind = 'web_search'.
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     // Kernel: a hot path for person and company research.
     availability: { surface: "kernel" },
     description:
       "Search the live web and get back what the search found: a synthesized answer, source results/citations behind it (open a result URL with fetch_url to read the page in full), and the queries actually run. Use this for current events, facts you're unsure of, or public background on a person or company — don't guess from memory when a lookup would settle it. It surfaces candidate matches even when uncertain rather than stopping at 'no confident match', so treat a thin result as a cue to search a different angle or drill a source, not a dead end.",
     inputSchema: webSearchInput,
-    execute: async (input, ctx) => {
+    execute: async (input, ctx): Promise<WebSearchToolResult> => {
       return await webSearch({
         input,
         context: {
@@ -722,10 +738,11 @@ export const systemTools: readonly RegisteredTool[] = [
     // ADR-0071: text only, size-bounded, binary reported, host-guarded for SSRF.
     riskTier: "no_risk",
     replay: "safe",
+    codeModeRead: true,
     description:
       "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
     inputSchema: fetchUrlInput,
-    execute: async (input) => {
+    execute: async (input): Promise<FetchUrlResult> => {
       return await runFetchUrl({ url: input.url });
     },
     // Scrub credential values from the URL before it reaches a trace or a staging row.

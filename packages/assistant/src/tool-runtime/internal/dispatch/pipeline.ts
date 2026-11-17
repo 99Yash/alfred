@@ -96,6 +96,8 @@ import {
   resolveToolAvailability,
   toolEffectsSchema,
   type BoundToolCall,
+  type HostReadOutcome,
+  type HostReadRequest,
   type RegisteredTool,
   type ToolEffects,
   type ToolExecuteContext,
@@ -602,7 +604,86 @@ function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
     chat: args.chat,
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
+    hostRead: (request) => dispatchHostRead(args, request),
   });
+}
+
+/**
+ * `mcp.call` is also the MCP write path, so it is not a `codeModeRead` tool. `mcp.read` checks
+ * the descriptor's `readOnlyHint` first, and a write keeps the `high` floor, which the gate refuses.
+ */
+const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
+
+/**
+ * ADR-0124: one read of a `system.code_run` script, as a nested dispatch of the parent call. The
+ * nested call keeps every gate, its own staging row, and its own span. It runs in the
+ * `deferIfGated` mode with no thread, so a call that needs a card, or that only chat full
+ * autonomy would let through, writes nothing and comes back as `needs_approval`.
+ */
+async function dispatchHostRead(
+  parent: ToolCallDispatchArgs,
+  request: HostReadRequest,
+): Promise<HostReadOutcome> {
+  const tool = getTool(request.toolName);
+
+  if (!tool || !(tool.codeModeRead || request.toolName === MCP_CALL_TOOL)) {
+    return {
+      kind: "refused",
+      refusal: "not_a_read",
+      message: `'${request.toolName}' is not a read that a script can run.`,
+    };
+  }
+
+  const result = await runDispatchStages(
+    {
+      ...parent,
+      toolCallId: `${parent.toolCallId}#${request.requestIndex}`,
+      toolName: request.toolName,
+      input: request.input,
+      approvalThreadId: undefined,
+      // The script's host functions are its surface, so the read is active inside it.
+      activeTools: [...parent.activeTools, request.toolName],
+    },
+    true,
+  );
+
+  return hostReadOutcome(result);
+}
+
+function hostReadOutcome(result: DispatchResult | DeferredDispatch): HostReadOutcome {
+  switch (result.kind) {
+    case "executed":
+      return { kind: "executed", value: toJsonValue(result.toolResult) };
+    case "deferred":
+      return {
+        kind: "refused",
+        refusal: "needs_approval",
+        message:
+          "This read needs the user's approval, and a script cannot ask for it. Tell the user " +
+          "which read is gated.",
+      };
+    case "failed":
+      return { kind: "refused", refusal: "failed", message: result.error.message };
+    case "rejected":
+      return { kind: "refused", refusal: "rejected", message: result.result.reason };
+    case "blocked":
+    case "fenced":
+    case "invalid_input":
+    case "unknown_tool":
+    case "not_allowed":
+    case "feature_disabled":
+      return { kind: "refused", refusal: result.kind, message: result.result.message };
+    // The read is in `activeTools`, so this is a dispatch fault, not a model fault.
+    case "inactive_tool":
+      return { kind: "refused", refusal: "not_allowed", message: result.result.message };
+    // `deferIfGated` returns before a card, and no read parks or asks.
+    case "staged":
+    case "parked":
+    case "unanswered":
+      throw new Error(`[dispatch] a host read returned '${result.kind}'`);
+    default:
+      return assertNever(result, "host read dispatch result");
+  }
 }
 
 /** Stage 2: validate input, then run `join` and `fast_path` tools inline. */
@@ -1438,8 +1519,11 @@ async function executeToolWithSpan(
       // A returned failure is not a span success. The status is a code, so it holds no PII.
       const status = getStringPath(execution.output, "status") ?? "ok: false";
       span.error(`${tool.name} returned ${outcome} (status ${status})`);
-    } else if (thermometer) {
-      span.success(execution.output, { thermometer: toJsonValue(thermometer) });
+    } else if (thermometer || execution.spanFacts.metadata) {
+      span.success(execution.output, {
+        ...execution.spanFacts.metadata,
+        ...(thermometer ? { thermometer: toJsonValue(thermometer) } : {}),
+      });
     } else {
       span.success(execution.output);
     }
