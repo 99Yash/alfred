@@ -138,7 +138,7 @@ ADR-0124 build. The owner made three decisions on 2026-11-17. The agent made the
 
 1. **The MCP reads are in this slice.** Gmail, Calendar, and GitHub have no curated actions. All their reads go through `mcp.call`, and so does the 41-call driver run. A slice with only the curated reads cannot reach them.
 2. **A read that the user's policy gates fails in the script, with a named error.** The script gets no card, and the read does not run. The host function throws `needs_approval`, and the script's `catch` gets the error. The interrupt and resume of build-order step 3 wait for their own trigger. **Amended 2026-11-17 (review of #1776):** the same read keeps its direct route with its card. See decision 5.
-3. **A default-off flag does the flip.** When the flag is on, `system.code_run` is on the boss surface, and the read tools are not on it. When the flag is off, the surface is the same as today. In each mode, the model has one read path (ADR-0124 decision 1).
+3. **A default-off flag does the flip.** When the flag is on, `system.code_run` is on the boss surface. A read that cannot wait for a card is not on it. When the flag is off, the surface is the same as today. Decision 5 amends ADR-0124 decision 1 for the reads that wait for a card.
 4. **The pin rules the run (2026-11-17, review of #1776).** The flag decides the read path only when a chat run starts. A pinned `code_run` run keeps `system.code_run` until it ends. No gate reads the live flag, so a flag that goes off cannot strand a parked run.
 5. **A read that waits for a card is a direct call (2026-11-17, review of #1776).** A script cannot show a card, so in a `code_run` run a read that the gate holds for a card runs as a direct call with its card. Each other read runs in a script, and dispatch refuses its direct call. Full autonomy of the thread reaches a script read, so under it every read runs in a script. Before this decision, a GitHub read under Gated could not run at all with the flag on (ADR-0125 decision 2, ADR-0069 amendment of 2026-10-24). The rule covers each gateable read, the curated `contacts.*` and `vercel.*` reads too, not only MCP.
 
@@ -146,9 +146,9 @@ ADR-0124 build. The owner made three decisions on 2026-11-17. The agent made the
 
 The 2026-11-17 handoff said that host functions use the `fast_path` arm. The code shows that this is not possible. Only 7 tools use that arm. The reads that matter use the staged arm, and `mcp.call` needs its staging row, because the MCP broker keys its ledger on that row. Thus each host call goes through the full dispatch pipeline:
 
-- `toolCallId = <code.run toolCallId>#<requestIndex>` (the format of ADR-0116 and `attribution.ts`). Each read gets its own `action_stagings` row, tool span, gate, and replay. If a crash causes `code.run` to run again, each read that has a saved row replays and does not run again.
-- **Dispatch uses the `deferIfGated` mode.** Dispatch returns `deferred` before it writes a row, if the gate would show a card. The host function then throws `needs_approval` (owner decision 2). No new gate logic is necessary.
-- **The thread's full-autonomy flag is not sent.** Thus a nested dispatch keeps every floor, as a background run does. A write that full autonomy would allow without a card cannot run in a script.
+- `toolCallId = <code.run toolCallId>#<hash of tool and input>.<occurrence>`. Each read gets its own `action_stagings` row, tool span, gate, and replay. If a crash causes `code.run` to run again, each read that has a saved row replays and does not run again. The id does not use `run`'s request order, because a restart can give one position to a different read. **Amended 2026-11-17:** the first version used `#<requestIndex>`.
+- **Dispatch uses the `deferIfGated` mode.** Dispatch returns `deferred` before it writes a row, if the gate would show a card. The host function then throws `needs_approval`, and the message tells the model to make the same read as a direct call with its card (owner decisions 2 and 5).
+- **The nested dispatch keeps the parent's approval thread.** Thus full autonomy of the thread waives the card for a script read, the same as for a direct call (owner decision 5). **Amended 2026-11-17:** the first version did not send the thread.
 - **`mcp.read(ref, args)` also refuses a tool that is not read-only before it dispatches.** It uses the selected descriptor's `readOnlyHint`, with the check that `mcp.call` already uses. This is a second barrier. A high-tier `mcp.call` also stops at the gate.
 
 ### What is a read
@@ -173,6 +173,8 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 - The `code.run` description holds the curated index and the `mcp.*` functions. An MCP tool's type comes from its descriptor at run time: the script calls `mcp.inspect_tool`. If the tool has no output schema, the script first returns a short sample (ADR-0124 decision 2). Each user's MCP tools are different, so the description stays static, and the memo key of `resolve` stays the same.
 
 ### The flag
+
+**Superseded in 2b.** The items below are the design before the build. "As built in 2b" and owner decision 4 replace them: no gate reads the flag, and the gate reads the run context, not the snapshot.
 
 - `feature.internal.code_mode_read_path` is a hidden key, as `feature.internal.triage_sender_kind_projection` is. A missing row means off. It goes in the availability snapshot, as `passthroughEnabled` does, and dispatch checks it again.
 - When the flag is on, chat adds `system.code_run` to the active tools at the start of the run. The kernel does not change, so the schema-budget ratchet does not change. The prompt is pinned for each run, so code.run guidance is added at run start (ADR-0124 decision 7).
@@ -204,6 +206,21 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 - The two checks of #535: the sandbox smoke on Railway's own container, and the fork-or-not decision.
 - A browsing card for each web read of a script. The trail shows one `system.code_run` card.
 
+**The second review of #1776 (2026-11-17).** It hit the rethink trigger: this is the third patch of the read route, and each round opened more work than it closed. Three findings are fixed in #1776:
+
+- When `run` returns, the host queue closes. A read that waits in the queue does not start, and the outcome keeps a copy of the ledger.
+- The input check of a script-read replay normalizes the keys first, the same as a fresh call.
+- The plan no longer gives the pre-2b instructions for the id, the approval thread, the flag gate, or the script-read share.
+
+**Open: the read-route theory.** These findings wait for the owner. No more route code is written until the theory is settled:
+
+- One route decision for each read call, in the tool runtime. Its inputs are the effect authority, the output kind, and the approval. Discovery quotes it, dispatch and the broker enforce it, and the connected summary does not state a live policy. Today discovery, the registry, and dispatch each hold a copy, and they disagree on `fast_path` reads (`mcp.list_tools`, `mcp.inspect_tool`).
+- The read authority of an MCP tool. Today a `readOnlyHint` with no review that says otherwise is enough. A custom server can set the hint on a write. A pinned built-in, or an exact read policy, is independent authority.
+- The binary route (ADR-0124 decision 4). No route input says that a result is binary. Drive's pinned `download_file_content` returns base64 bytes, and it now goes to a script.
+- The sources of a script: a bounded field with whole URLs, kept for a failed script too.
+- The evidence record of each host read (function, arguments, and the ids read), for the memory check job (memory.md).
+- The default: every chat read in a script, or only fan-out. The single-read and Gated costs are not measured. The eval of the follow-up PR measures them.
+
 ### The honest envelope and the ledger
 
 `runReadProgram` is the deep module: it receives the source, the host functions, and the limits, and it returns the outcome and the ledger. It catches each `RunError` and maps its code to one outcome. The model sees this:
@@ -227,7 +244,7 @@ Facts measured on `run@2.1.13` while building 2a (2026-11-17):
 
 ### Instrumentation (ADR-0124's three rows)
 
-- **The share of chat reads that ran in a script.** Each host call already gets its own `tool:<name>` span. A host call's `toolCallId` has the `#` form, so a Langfuse query divides the host-call spans by all read spans. When the flag is on, a direct read is refused, so the share must be 100%. A lower share shows a leak.
+- **The share of chat reads that ran in a script.** Each host call already gets its own `tool:<name>` span. A host call's `toolCallId` has the `#` form. Count only the reads that can run in a script: the reads that did not wait for a card. A Langfuse query divides their host-call spans by all their spans. When the flag is on, dispatch refuses a direct call of such a read, so this share must be 100%. A lower share shows a leak. A direct read that showed a card is correct (owner decision 5), and it is not in the count.
 - **The script success rate and the failed calls in scripts that returned.** These are metadata on the `tool:system.code_run` span: `outcome`, `hostCalls`, `hostCallsFailed`, and counts for each tool.
 - **The model steps and the context tokens of each turn.** These are recorded already. `runtime.turn.phases.turns` holds the steps. The `api_call_log.input_tokens` of each row, grouped by `run_id`, holds the context of each step. Nothing new is built.
 

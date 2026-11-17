@@ -518,9 +518,10 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
   }
 
   // A script read's id comes from its request, so a saved row must hold the same input. The
-  // check makes a mismatch loud: the saved result of one read must never answer another.
+  // check makes a mismatch loud: the saved result of one read must never answer another. It
+  // binds the input the way `validateInputStage` did when the row was written.
   if (args.runContext.readPath === "code_run_host") {
-    const binding = tool.bind(args.input);
+    const binding = tool.bind(normalizeToolInputKeys(args.input, tool.modelInputSchema).input);
 
     if (!binding.success || hashToolInput(toolName, binding.call.input) !== row.proposedInputHash) {
       throw new Error(

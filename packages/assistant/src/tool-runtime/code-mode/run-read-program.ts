@@ -82,8 +82,22 @@ export async function runReadProgram(args: {
   runId: string;
 }): Promise<ReadProgramOutcome> {
   const ledger: ReadProgramLedgerEntry[] = [];
-  const limits = READ_PROGRAM_LIMITS;
   const slots = new HostReadSlots(HOST_READS_IN_FLIGHT);
+
+  // After `run` returns, no queued read may start: the script that asked for it has ended.
+  const outcome = await runScript(args, ledger, slots).finally(() => slots.close());
+
+  // A read in flight at that time can still settle and push to `ledger`. Dispatch takes no
+  // abort signal, so it runs to its own deadline. The outcome keeps the ledger as at return.
+  return { ...outcome, ledger: [...ledger] };
+}
+
+async function runScript(
+  args: { source: string; hosts: readonly HostBinding[]; runId: string },
+  ledger: ReadProgramLedgerEntry[],
+  slots: HostReadSlots,
+): Promise<ReadProgramOutcome> {
+  const limits = READ_PROGRAM_LIMITS;
 
   try {
     const result = await run({
@@ -135,18 +149,26 @@ function hostFunctions(
   );
 }
 
-/** A queue that runs at most `size` host reads at once, in arrival order. */
+/**
+ * A queue that runs at most `size` host reads at once, in arrival order. `close` ends the queue
+ * when the script ends: each waiting read and each later request is refused, not started.
+ */
 class HostReadSlots {
   #free: number;
-  readonly #waiting: (() => void)[] = [];
+  #closed = false;
+  readonly #waiting: { start: () => void; refuse: (error: RunError) => void }[] = [];
 
   constructor(size: number) {
     this.#free = size;
   }
 
   async run<T>(read: () => Promise<T>): Promise<T> {
+    if (this.#closed) throw scriptEnded();
+
     if (this.#free > 0) this.#free -= 1;
-    else await new Promise<void>((resolve) => this.#waiting.push(resolve));
+    else {
+      await new Promise<void>((start, refuse) => this.#waiting.push({ start, refuse }));
+    }
 
     try {
       return await read();
@@ -154,10 +176,21 @@ class HostReadSlots {
       // Hand the slot to the next waiter, or free it.
       const next = this.#waiting.shift();
 
-      if (next) next();
+      if (next) next.start();
       else this.#free += 1;
     }
   }
+
+  close(): void {
+    this.#closed = true;
+
+    for (const waiter of this.#waiting.splice(0)) waiter.refuse(scriptEnded());
+  }
+}
+
+/** The guest never sees it: `run` has returned, and the read must not start. */
+function scriptEnded(): RunError {
+  return new RunError("The script ended before this read started.", "RUN_ABORTED");
 }
 
 async function callHost(
