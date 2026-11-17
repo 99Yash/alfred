@@ -436,10 +436,12 @@ parse at the client boundary and return the schema's output type. Do not add a n
 per-file wrapper that only binds the service tag. Pass `uncheckedResponse` when a
 call only needs success.
 
-**Not a target (throwaway):** the `parseTargetEmails` / `resolveTargets` /
-`parseEmails` repeats all live in one-shot `server/src/scripts/backfills/*-committed.ts`.
-Self-contained committed migration scripts; copy-paste there is intended and the
-tooling already ignores `scripts/`.
+**Not a target (throwaway):** the small email-parsing helper repeats lived in
+one-shot `server/src/scripts/backfills/*-committed.ts` self-contained committed
+migration scripts; copy-paste there was intended and the tooling already ignored
+`scripts/`. Those scripts left the tracked tree on 2026-11-17 (superseded-code
+ledger) and live under gitignored `archive/scripts/`. The exemption still holds
+for the one-off scripts that remain.
 
 ## Closing the loop
 

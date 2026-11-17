@@ -41,6 +41,14 @@ The model does not hold the map in its weights, and it does not pay a search to 
 
 One compact map serves every reader (the triage gather, the journal pass, the memory check job, the chat read path). A feature that gathers does not write its own idea of the stores. The map must stay compact: a prompt map that grows per feature is boilerplate by another name (principle 7).
 
+**The map is the user-scoped surface.** Owner direction, 2026-11-16: the reads a Code Mode program can make reach the stores of the user's life — mail, activity, receipts, object state, chat turns, claims, briefings, todos, workflow history — and **not the observability of the machine**: `api_call_log`, `model_prices`, queue internals, and the credential vault. Enforcement is the surface itself, not a permission system: a program can call only what the typed declarations name (ADR-0124), so a table the surface does not declare is unreachable by construction. The reasons, in the owner's words and the theory's:
+
+- The user's questions are about the user's life, not about the machine's spend. A cost table inside a gather produces mechanism narration, which the voice bans ([core-agent.md §5](./core-agent.md#5-the-voice)), and it bloats context on every run (principle 7).
+- Untrusted content (mail bodies, webhook payloads) flows through these reads. A narrower surface is a smaller blast radius for a prompt-injected payload.
+- One user changes nothing about the design. The owner holds the Railway connection and can query prod directly; the boundary governs the **model's** reads — what a judgment may cite and what a script may pull — not the owner's access.
+
+**The exception is named, not silent.** The self-awareness reads of §5 below — run records for memory quality ([memory.md §7](./memory.md#7-observability-how-memory-quality-is-measured-over-time)), the ADRs, `decisions.md`, git history — belong to **system gathers with their own declared slice**, not to the user-facing surface. A store that a system job needs names that job; the default surface stays user-scoped. A new store is user-visible only when the map names it, and the gate that keeps the prompt map matching the sources is where visibility is checked.
+
 ## 3. The reach facts known today
 
 Verified against the code on 2026-11-14. This table is the seed of the map; the Code Mode declarations carry it when they are built.
@@ -92,6 +100,7 @@ The parked self-awareness item of [memory.md §9](./memory.md#9-not-settled) res
 | The declarations exist, compile, and name only real stores | Code |
 | The prompt map and the types stay in agreement | Code (gate) |
 | A gather cites the stores it read, and the ledger shows it | Code |
+| A gather reads only the user-scoped surface; observability stays off it, and a system job names its own slice | Code (checked where the map and the sources are kept in agreement) |
 
 ## 7. Theory state and code state
 
@@ -99,6 +108,7 @@ The parked self-awareness item of [memory.md §9](./memory.md#9-not-settled) res
 | --- | --- | --- | --- |
 | The map in the prompt and in the types | Settled (owner, 2026-11-14) | Not built | Waits on Code Mode (#535) |
 | One map shared by every gather | Settled | Partly | Each gather hand-picks its slice today (the composer's tools) |
+| The user-scoped read surface (observability off the map) | Settled as direction (owner, 2026-11-16) | Not built | Waits on Code Mode (#535); the ADR-0124 plan carries the declarations |
 | Alfred's own stores on the map | Settled (resolves the parked item) | Not built | Self-identity grounding gives hosts, not the repository |
 | Pattern cache in the durable profile | Open | Not built | Section 9 |
 

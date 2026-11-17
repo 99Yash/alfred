@@ -12,7 +12,7 @@ export { previewStoredContactKinds, type ContactKind } from "./entity-graph";
 // The one definition of the re-kind clash with the `entities` unique index.
 export { reKindWouldCollide } from "./entity-graph";
 
-export { gateDocumentFact, isServiceSender, isUninformativeRelationshipValue } from "./fact-policy";
+export { gateDocumentFact } from "./fact-policy";
 
 export { embedMemoryChunk, findPendingEmbedChunks } from "./chunks";
 

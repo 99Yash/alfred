@@ -8,7 +8,8 @@ import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { listEmailsSinceWatermark, readEmailDocument } from "@alfred/assistant/briefings/read";
-import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
+// The v1 writer is not in the `knowledge` barrel.
+import { rememberSenderSuppression } from "../../src/knowledge/sender-suppression";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 

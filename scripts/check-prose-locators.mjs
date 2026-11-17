@@ -61,12 +61,10 @@ const ALLOWED = new Map([
     "docs/reference/user-model-gmail-projection-activation.md:`apps/server/.env`",
     "env file created at boot, gitignored by design; the committed template is root `.env.example`",
   ],
-  // The prod bundle path is a build artifact (tsc emits it), not a tracked
-  // source path. The same doc line lists the runnable src script above it.
-  [
-    "docs/reference/user-model-gmail-projection-activation.md:`apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js`",
-    "compiled build artifact emitted by tsc; the runnable source script is on the same doc line",
-  ],
+  // The prod bundle path was a build artifact (tsc emitted it), not a tracked
+  // source path. The backfill scripts left the tracked tree on 2026-11-17
+  // (superseded-code ledger), and the doc line that named this artifact went
+  // with them.
 ]);
 
 // A check that cannot see a rotted locator passes a clean tree exactly like a

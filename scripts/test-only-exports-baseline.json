@@ -50,9 +50,6 @@
   "packages/assistant/src/chat/chat-history-retrieval.ts": ["CHAT_HISTORY_EXCERPT_CHARS"],
   "packages/assistant/src/chat/chat-turn-closure.ts": ["sanitizeChatMessageFields"],
   "packages/assistant/src/chat/compaction/chat-context-assembly.ts": ["selectVerbatimTail"],
-  "packages/assistant/src/chat/compaction/conversation-compaction-scheduler.ts": [
-    "BACKGROUND_COMPACTION_ABSOLUTE_CAP_TOKENS"
-  ],
   "packages/assistant/src/chat/compaction/conversation-compaction-wait.ts": ["isCompactionActive"],
   "packages/assistant/src/chat/compaction/conversation-summary-evidence.ts": [
     "CONVERSATION_EVIDENCE_TEXT_LIMIT_CHARS",

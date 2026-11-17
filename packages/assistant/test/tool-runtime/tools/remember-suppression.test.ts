@@ -8,7 +8,8 @@ import { documents, todos, user } from "@alfred/db/schemas";
 import { eq, inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
-import { rememberSenderSuppression } from "@alfred/assistant/knowledge";
+// The v1 writer is not in the `knowledge` barrel.
+import { rememberSenderSuppression } from "../../../src/knowledge/sender-suppression";
 import { closeRedis } from "@alfred/db/redis";
 import { rememberInstructionAndDismissTodos } from "../../../src/runtime/adapters/system-tool-product";
 import { dbBackedSkip } from "../../support/db-backed";

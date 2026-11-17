@@ -42,7 +42,7 @@ export function classifyDocumentFactKey(canonicalKey: string): DocumentFactTier 
 // --- service-sender / uninformative relationship classifier (#491 / #492) ---
 
 /** True for a no-reply, service, or role mailbox. The memory module's one definition (ADR-0080). */
-export function isServiceSender(email: string): boolean {
+function isServiceSender(email: string): boolean {
   return classifyConnectedAccount({ email }) === "service_or_role_account";
 }
 
@@ -76,7 +76,7 @@ function fieldHasContent(value: unknown): boolean {
 }
 
 /** True when a `relationship:<email>` value has nothing to review: blank, empty, or not a string or object. */
-export function isUninformativeRelationshipValue(value: unknown): boolean {
+function isUninformativeRelationshipValue(value: unknown): boolean {
   if (isNonBlankString(value)) return false;
 
   if (isRecord(value)) return !Object.values(value).some(fieldHasContent);

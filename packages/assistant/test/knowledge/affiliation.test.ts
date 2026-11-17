@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
-import { getStringPath, observationInsertSchema } from "@alfred/contracts";
+import { getStringPath } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { unsealedTestSecret } from "../support/unsealed-secret";
 import {
@@ -12,8 +12,6 @@ import {
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
-  buildOrgAffiliationObservationInput,
-  recordOrgAffiliationOnConnect,
   recordOrgAffiliationOnCredentialUpsert,
   recordOrgAffiliationOnDisconnect,
   type CredentialForAffiliation,
@@ -41,16 +39,6 @@ after(async () => {
   await closeConnections();
 });
 
-function cred(over: Partial<CredentialForAffiliation>): CredentialForAffiliation {
-  return {
-    userId: "user_1",
-    accountId: "108412341234123412341",
-    accountEmail: "yash.k@oliv.ai",
-    metadata: { googleHostedDomain: "oliv.ai" },
-    ...over,
-  };
-}
-
 async function seedUser(): Promise<string> {
   const userId = `${ID_PREFIX}${randomUUID()}`;
   createdUserIds.push(userId);
@@ -65,10 +53,11 @@ async function seedGoogleCredential(args: {
   userId: string;
   accountId: string;
   createdAt: Date;
-  accountEmail?: string;
+  /** `null` seeds no `account_label`, for the missing-email skip. */
+  accountEmail?: string | null;
   hostedDomain?: string | null;
 }): Promise<string> {
-  const accountEmail = args.accountEmail ?? "yash.k@oliv.ai";
+  const accountEmail = args.accountEmail === undefined ? "yash.k@oliv.ai" : args.accountEmail;
   const hostedDomain = args.hostedDomain === undefined ? "oliv.ai" : args.hostedDomain;
 
   const [row] = await db()
@@ -94,185 +83,346 @@ async function seedGoogleCredential(args: {
   return row.id;
 }
 
-describe("buildOrgAffiliationObservationInput", () => {
-  test("work account with a matching hosted domain grounds employer", () => {
-    const res = buildOrgAffiliationObservationInput(cred({}), {
-      status: "connected",
-      occurredAt: T0,
-    });
+/**
+ * The observation builder is internal; every scenario here runs through the public
+ * `recordOrgAffiliationOnCredentialUpsert` / `recordOrgAffiliationOnDisconnect` entries
+ * and asserts on what they return and store.
+ */
+describe(
+  "org-affiliation observation built through the record entries (DB-backed)",
+  { skip: SKIP_DB },
+  () => {
+    const ACCOUNT_ID = "108412341234123412341";
 
-    assert.equal(res.ok, true);
+    /** Connects one seeded credential with no `previousCredential`, so the connect time is its `createdAt`. */
+    async function connectSeed(args: {
+      accountEmail?: string | null;
+      hostedDomain?: string | null;
+      accountId?: string;
+      createdAt?: Date;
+    }): Promise<{
+      userId: string;
+      credentialId: string;
+      result: Awaited<ReturnType<typeof recordOrgAffiliationOnCredentialUpsert>>;
+    }> {
+      const userId = await seedUser();
 
-    assert.equal(res.domainClass, "corporate_domain");
-    assert.deepEqual(res.input.payload, {
-      accountId: "108412341234123412341",
-      accountEmail: "yash.k@oliv.ai",
-      orgDomain: "oliv.ai",
-      verifiedHostedDomain: "oliv.ai",
-      domainClass: "corporate_domain",
-      status: "connected",
-      evidence: "connected_google_account",
-    });
-    assert.equal(res.input.subjectIdentity.kind, "user");
-    assert.equal(res.input.source, "google_account");
-    assert.equal(res.input.kind, "user_org_affiliation");
-    assert.equal(res.input.occurredAt, T0);
-    assert.equal(res.input.familyKey, "org_affiliation:108412341234123412341:oliv.ai");
-  });
+      const seedArgs: Parameters<typeof seedGoogleCredential>[0] = {
+        userId,
+        accountId: args.accountId ?? ACCOUNT_ID,
+        createdAt: args.createdAt ?? T0,
+      };
 
-  test("every produced input passes the real observation write boundary", () => {
-    for (const status of ["connected", "disconnected"] as const) {
-      const res = buildOrgAffiliationObservationInput(cred({}), { status, occurredAt: T0 });
-      assert.equal(res.ok, true);
+      if (args.accountEmail !== undefined) seedArgs.accountEmail = args.accountEmail;
 
-      // The boundary re-derives domainClass and re-checks the hosted domain; a throw means a bad row.
-      assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
+      if (args.hostedDomain !== undefined) seedArgs.hostedDomain = args.hostedDomain;
+
+      const credentialId = await seedGoogleCredential(seedArgs);
+
+      const result = await recordOrgAffiliationOnCredentialUpsert(
+        { credentialId, changedAt: T0 },
+        "own",
+      );
+
+      return { userId, credentialId, result };
     }
-  });
 
-  test("consumer gmail classifies as consumer_email with no verified domain", () => {
-    const res = buildOrgAffiliationObservationInput(
-      cred({ accountEmail: "yash@gmail.com", metadata: {} }),
-      { status: "connected", occurredAt: T0 },
-    );
+    test("work account with a matching hosted domain grounds employer at connect time", async () => {
+      const { userId, result } = await connectSeed({});
 
-    assert.equal(res.ok, true);
+      assert.equal(result.connectedCurrent.status, "emitted");
 
-    assert.equal(res.domainClass, "consumer_email");
-    assert.equal(res.input.payload.verifiedHostedDomain, null);
-    assert.equal(res.input.payload.orgDomain, "gmail.com");
-    assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
-  });
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
 
-  test("custom domain with no hosted-domain claim stays ambiguous (no employer grounding)", () => {
-    const res = buildOrgAffiliationObservationInput(
-      cred({ accountEmail: "z@yourelasticdash.co", metadata: {} }),
-      { status: "connected", occurredAt: T0 },
-    );
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
 
-    assert.equal(res.ok, true);
+      const [row] = rows;
 
-    assert.equal(res.domainClass, "ambiguous_domain");
-    assert.equal(res.input.payload.verifiedHostedDomain, null);
-    assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
-  });
-
-  test("a hosted domain that differs from the email domain verifies the Workspace org", () => {
-    // Key the org by Google's `hd`; the email can carry an alias domain.
-    const res = buildOrgAffiliationObservationInput(
-      cred({ accountEmail: "contractor@vendor.com", metadata: { googleHostedDomain: "oliv.ai" } }),
-      { status: "connected", occurredAt: T0 },
-    );
-
-    assert.equal(res.ok, true);
-
-    assert.equal(res.domainClass, "corporate_domain");
-    assert.equal(res.input.payload.verifiedHostedDomain, "oliv.ai");
-    assert.equal(res.input.payload.orgDomain, "oliv.ai");
-    assert.equal(res.input.familyKey, "org_affiliation:108412341234123412341:oliv.ai");
-    assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
-  });
-
-  test("a role/service mailbox is never an employer grounding", () => {
-    const res = buildOrgAffiliationObservationInput(cred({ accountEmail: "noreply@oliv.ai" }), {
-      status: "connected",
-      occurredAt: T0,
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(row.occurredAt.getTime(), T0.getTime());
+      assert.deepEqual(row.payload, {
+        accountId: ACCOUNT_ID,
+        accountEmail: "yash.k@oliv.ai",
+        orgDomain: "oliv.ai",
+        verifiedHostedDomain: "oliv.ai",
+        domainClass: "corporate_domain",
+        status: "connected",
+        evidence: "connected_google_account",
+      });
     });
 
-    assert.equal(res.ok, true);
+    test("connected and disconnected writes both pass the real observation write boundary", async () => {
+      const { userId, result } = await connectSeed({});
 
-    assert.equal(res.domainClass, "service_or_role_account");
-    assert.doesNotThrow(() => observationInsertSchema.parse(res.input));
-  });
+      assert.equal(result.connectedCurrent.status, "emitted");
 
-  test("the account email is canonicalized (trimmed + lowercased)", () => {
-    const res = buildOrgAffiliationObservationInput(cred({ accountEmail: "  Yash.K@OLIV.ai  " }), {
-      status: "connected",
-      occurredAt: T0,
+      const disconnected = await recordOrgAffiliationOnDisconnect(
+        {
+          userId,
+          accountId: ACCOUNT_ID,
+          accountEmail: "yash.k@oliv.ai",
+          metadata: { googleHostedDomain: "oliv.ai" },
+        },
+        new Date(T0.getTime() + 1000),
+        "own",
+      );
+
+      assert.equal(disconnected.status, "emitted");
     });
 
-    assert.equal(res.ok, true);
-
-    assert.equal(res.input.payload.accountEmail, "yash.k@oliv.ai");
-    assert.equal(res.input.payload.orgDomain, "oliv.ai");
-  });
-
-  for (const [label, over, reason] of [
-    ["missing account id", { accountId: "  " }, "missing_account_id"],
-    ["missing email", { accountEmail: null }, "missing_account_email"],
-    [
-      "whitespace-only email (present but unusable)",
-      { accountEmail: "   " },
-      "invalid_account_email",
-    ],
-    ["malformed email", { accountEmail: "not-an-email" }, "invalid_account_email"],
-  ] as const) {
-    test(`skips with a typed reason: ${label}`, () => {
-      const res = buildOrgAffiliationObservationInput(cred(over), {
-        status: "connected",
-        occurredAt: T0,
+    test("consumer gmail classifies as consumer_email with no verified domain", async () => {
+      const { userId, result } = await connectSeed({
+        accountEmail: "yash@gmail.com",
+        hostedDomain: null,
       });
 
-      assert.equal(res.ok, false);
+      assert.equal(result.connectedCurrent.status, "emitted");
 
-      assert.equal(res.reason, reason);
-    });
-  }
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:gmail.com`;
 
-  describe("evidenceHash idempotency / lifecycle distinctness", () => {
-    test("same credential + same occurredAt → identical evidenceHash (re-run/re-auth dedups)", () => {
-      const a = buildOrgAffiliationObservationInput(cred({}), {
-        status: "connected",
-        occurredAt: T0,
-      });
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
 
-      const b = buildOrgAffiliationObservationInput(cred({}), {
-        status: "connected",
-        occurredAt: T0,
-      });
+      const [row] = rows;
 
-      assert.equal(a.ok && b.ok, true);
-
-      if (!a.ok || !b.ok) return;
-      assert.equal(a.input.evidenceHash, b.input.evidenceHash);
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(row.payload.domainClass, "consumer_email");
+      // `getStringPath` returns undefined for both an absent field and a null one,
+      // which is what "no verified domain" means here.
+      assert.equal(getStringPath(row.payload, "verifiedHostedDomain"), undefined);
+      assert.equal(getStringPath(row.payload, "orgDomain"), "gmail.com");
     });
 
-    test("a later occurredAt → different evidenceHash (reconnect advances the family)", () => {
-      const a = buildOrgAffiliationObservationInput(cred({}), {
-        status: "connected",
-        occurredAt: T0,
+    test("custom domain with no hosted-domain claim stays ambiguous (no employer grounding)", async () => {
+      const { userId, result } = await connectSeed({
+        accountEmail: "z@yourelasticdash.co",
+        hostedDomain: null,
       });
 
-      const b = buildOrgAffiliationObservationInput(cred({}), {
-        status: "connected",
-        occurredAt: new Date(T0.getTime() + 1000),
-      });
+      assert.equal(result.connectedCurrent.status, "emitted");
 
-      assert.equal(a.ok && b.ok, true);
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:yourelasticdash.co`;
 
-      if (!a.ok || !b.ok) return;
-      assert.notEqual(a.input.evidenceHash, b.input.evidenceHash);
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
+
+      const [row] = rows;
+
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(row.payload.domainClass, "ambiguous_domain");
+      // `getStringPath` returns undefined for both an absent field and a null one,
+      // which is what "no employer grounding" means here.
+      assert.equal(getStringPath(row.payload, "verifiedHostedDomain"), undefined);
     });
 
-    test("connected vs disconnected at the same time → different evidenceHash, same family", () => {
-      const c = buildOrgAffiliationObservationInput(cred({}), {
-        status: "connected",
-        occurredAt: T0,
+    test("a hosted domain that differs from the email domain verifies the Workspace org", async () => {
+      // Key the org by Google's `hd`; the email can carry an alias domain.
+      const { userId, result } = await connectSeed({
+        accountEmail: "contractor@vendor.com",
+        hostedDomain: "oliv.ai",
       });
 
-      const d = buildOrgAffiliationObservationInput(cred({}), {
-        status: "disconnected",
-        occurredAt: T0,
-      });
+      assert.equal(result.connectedCurrent.status, "emitted");
 
-      assert.equal(c.ok && d.ok, true);
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
 
-      if (!c.ok || !d.ok) return;
-      assert.notEqual(c.input.evidenceHash, d.input.evidenceHash);
-      assert.equal(c.input.familyKey, d.input.familyKey);
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
+
+      const [row] = rows;
+
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(row.payload.domainClass, "corporate_domain");
+      assert.equal(getStringPath(row.payload, "verifiedHostedDomain"), "oliv.ai");
     });
-  });
-});
+
+    test("a role/service mailbox is never an employer grounding", async () => {
+      const { userId, result } = await connectSeed({ accountEmail: "noreply@oliv.ai" });
+
+      assert.equal(result.connectedCurrent.status, "emitted");
+
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
+
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
+
+      const [row] = rows;
+
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(row.payload.domainClass, "service_or_role_account");
+    });
+
+    test("the account email is canonicalized (trimmed + lowercased)", async () => {
+      const { userId, result } = await connectSeed({ accountEmail: "  Yash.K@OLIV.ai  " });
+
+      assert.equal(result.connectedCurrent.status, "emitted");
+
+      const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
+
+      const rows = await db()
+        .select({
+          occurredAt: observations.occurredAt,
+          payload: observations.payload,
+          supersedesObservationId: observations.supersedesObservationId,
+        })
+        .from(observations)
+        .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+        .orderBy(asc(observations.occurredAt));
+
+      const [row] = rows;
+
+      assert.equal(rows.length, 1);
+      assert.ok(row);
+      assert.equal(getStringPath(row.payload, "accountEmail"), "yash.k@oliv.ai");
+      assert.equal(getStringPath(row.payload, "orgDomain"), "oliv.ai");
+    });
+
+    for (const [label, over, reason] of [
+      ["missing account id", { accountId: "   " }, "missing_account_id"],
+      ["missing email", { accountEmail: null }, "missing_account_email"],
+      [
+        "whitespace-only email (present but unusable)",
+        { accountEmail: "   " },
+        "invalid_account_email",
+      ],
+      ["malformed email", { accountEmail: "not-an-email" }, "invalid_account_email"],
+    ] as const) {
+      test(`skips with a typed reason: ${label}`, async () => {
+        const { result } = await connectSeed(over);
+
+        assert.deepEqual(result.connectedCurrent, { status: "skipped", reason });
+      });
+    }
+
+    describe("evidenceHash idempotency / lifecycle distinctness", () => {
+      test("same credential + same occurredAt → identical evidenceHash (re-run/re-auth dedups)", async () => {
+        const { credentialId, result } = await connectSeed({});
+
+        assert.equal(result.connectedCurrent.status, "emitted");
+
+        const again = await recordOrgAffiliationOnCredentialUpsert(
+          { credentialId, changedAt: T0 },
+          "own",
+        );
+
+        assert.equal(again.connectedCurrent.status, "deduped");
+      });
+
+      test("a later occurredAt → different evidenceHash (reconnect advances the family)", async () => {
+        const { userId, credentialId, result } = await connectSeed({});
+
+        assert.equal(result.connectedCurrent.status, "emitted");
+
+        await db()
+          .update(integrationCredentials)
+          .set({ createdAt: new Date(T0.getTime() + 1000) })
+          .where(eq(integrationCredentials.id, credentialId));
+
+        const reconnected = await recordOrgAffiliationOnCredentialUpsert(
+          { credentialId, changedAt: T0 },
+          "own",
+        );
+
+        assert.equal(reconnected.connectedCurrent.status, "emitted");
+
+        const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
+
+        const rows = await db()
+          .select({
+            occurredAt: observations.occurredAt,
+            payload: observations.payload,
+            supersedesObservationId: observations.supersedesObservationId,
+          })
+          .from(observations)
+          .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+          .orderBy(asc(observations.occurredAt));
+
+        assert.equal(rows.length, 2);
+      });
+
+      test("connected vs disconnected at the same time → different evidenceHash, same family", async () => {
+        const { userId, result } = await connectSeed({});
+
+        assert.equal(result.connectedCurrent.status, "emitted");
+
+        const disconnected = await recordOrgAffiliationOnDisconnect(
+          {
+            userId,
+            accountId: ACCOUNT_ID,
+            accountEmail: "yash.k@oliv.ai",
+            metadata: { googleHostedDomain: "oliv.ai" },
+          },
+          T0,
+          "own",
+        );
+
+        assert.equal(disconnected.status, "emitted");
+
+        const familyKey = `org_affiliation:${ACCOUNT_ID}:oliv.ai`;
+
+        const rows = await db()
+          .select({
+            occurredAt: observations.occurredAt,
+            payload: observations.payload,
+            supersedesObservationId: observations.supersedesObservationId,
+          })
+          .from(observations)
+          .where(and(eq(observations.userId, userId), eq(observations.familyKey, familyKey)))
+          .orderBy(asc(observations.occurredAt));
+
+        const [connectedRow, disconnectedRow] = rows;
+
+        assert.equal(rows.length, 2);
+        assert.ok(connectedRow);
+        assert.ok(disconnectedRow);
+        assert.equal(getStringPath(connectedRow.payload, "status"), "connected");
+        assert.equal(getStringPath(disconnectedRow.payload, "status"), "disconnected");
+        assert.equal(disconnectedRow.occurredAt.getTime(), T0.getTime());
+      });
+    });
+  },
+);
 
 describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => {
   test("connect dedups, disconnect supersedes connect, and reconnect supersedes disconnect", async () => {
@@ -288,10 +438,18 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       createdAt: connectAt,
     });
 
-    const connected = await recordOrgAffiliationOnConnect(firstCredentialId);
+    const { connectedCurrent: connected } = await recordOrgAffiliationOnCredentialUpsert(
+      { credentialId: firstCredentialId, changedAt: connectAt },
+      "own",
+    );
+
     assert.equal(connected.status, "emitted");
 
-    const duplicateConnect = await recordOrgAffiliationOnConnect(firstCredentialId);
+    const { connectedCurrent: duplicateConnect } = await recordOrgAffiliationOnCredentialUpsert(
+      { credentialId: firstCredentialId, changedAt: connectAt },
+      "own",
+    );
+
     assert.equal(duplicateConnect.status, "deduped");
 
     const disconnected = await recordOrgAffiliationOnDisconnect(
@@ -317,7 +475,11 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       createdAt: reconnectAt,
     });
 
-    const reconnected = await recordOrgAffiliationOnConnect(secondCredentialId);
+    const { connectedCurrent: reconnected } = await recordOrgAffiliationOnCredentialUpsert(
+      { credentialId: secondCredentialId, changedAt: reconnectAt },
+      "own",
+    );
+
     assert.equal(reconnected.status, "emitted");
 
     const familyKey = `org_affiliation:${accountId}:oliv.ai`;
@@ -368,7 +530,11 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       createdAt: connectAt,
     });
 
-    const connected = await recordOrgAffiliationOnConnect(credentialId);
+    const { connectedCurrent: connected } = await recordOrgAffiliationOnCredentialUpsert(
+      { credentialId, changedAt: connectAt },
+      "own",
+    );
+
     assert.equal(connected.status, "emitted");
 
     const previousCredential: CredentialForAffiliation = {
@@ -450,7 +616,11 @@ describe("recordOrgAffiliation lifecycle (DB-backed)", { skip: SKIP_DB }, () => 
       createdAt: connectAt,
     });
 
-    const connected = await recordOrgAffiliationOnConnect(credentialId);
+    const { connectedCurrent: connected } = await recordOrgAffiliationOnCredentialUpsert(
+      { credentialId, changedAt: connectAt },
+      "own",
+    );
+
     assert.equal(connected.status, "emitted");
 
     const previousCredential: CredentialForAffiliation = {
