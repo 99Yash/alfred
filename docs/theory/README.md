@@ -11,8 +11,8 @@ Read this page before you design a change, add a prompt rule, a floor, a table, 
 | [context-graph.md](./context-graph.md)       | The settled model of things, links, and state.                               |
 | [memory.md](./memory.md)                     | The settled theory of memory: claims, name links, and the check job (ADR-0123). |
 | [journal.md](./journal.md)                   | The theory of the journal: recall a past talk, and connect it to what happens later. |
-| [core-agent.md](./core-agent.md)             | Draft, awaiting owner review: one runner, its destination, the push, and the voice. |
-| [workflows.md](./workflows.md)               | Draft, awaiting owner review: one workflow class — defaults, implicit, and user-authored as metadata on one row. |
+| [core-agent.md](./core-agent.md)             | The settled theory of the core agent: one runner, its destination, the push, and the voice. |
+| [workflows.md](./workflows.md)               | The settled theory of the workflow class: defaults, implicit, and user-authored as metadata on one row. |
 | [evidence-map.md](./evidence-map.md)         | Draft, awaiting owner review: which stores exist, how far back each reaches, what each answers. |
 | [stores.md](./stores.md)                     | Draft, awaiting owner review: one copy of what came in, what Alfred derives from it, and the two times of each row. |
 | [product-direction.md](./product-direction.md) | The owner's plan compared with Dimension and with the built code.          |
@@ -138,7 +138,7 @@ A foundation is a piece that many later stages read. Build a settled foundation 
 | The journal: past chats that can be found, entries, and lookouts ([journal.md](./journal.md)) | Settled | Chat recall, remarks, the Muse example  |
 | Memory: claims with evidence, name links, the check job ([memory.md](./memory.md)) | Settled | Chat (resolve a name), triage, briefing, the journal, the triage profile |
 | Code Mode as the read path ([ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md)) | Settled | Chat reads, the memory check job |
-| One workflow class for defaults, implicit, and user-authored ([workflows.md](./workflows.md)) | Draft | The runner, history, the settings surface |
+| One workflow class for defaults, implicit, and user-authored ([workflows.md](./workflows.md)) | Settled | The runner, history, the settings surface |
 
 The order:
 

@@ -1,6 +1,6 @@
 # The workflow class: one class, every workflow
 
-Status: draft for owner review, 2026-11-16. The owner direction dated 2026-11-16 is from this page's first discussion; the direction dated 2026-11-14 is from the core-agent grill and the workflow-use research decisions.
+Status: settled, 2026-11-17. The owner direction dated 2026-11-16 is from this page's first discussion; the direction dated 2026-11-14 is from the core-agent grill and the workflow-use research decisions; the owner word dated 2026-11-17 settles the two §4 mechanics.
 
 Read first: [core-agent.md](./core-agent.md) (one runner, destination on the revision), [ADR-0017](../decisions/ADR-0017-skills-workflows-skills-are-markdown-workflows.md) (trigger + brief + optional step DAG), [ADR-0025](../decisions/ADR-0025-built-in-background-workflows.md) (built-ins in the same table), [ADR-0027](../decisions/ADR-0027-workflow-trigger-dispatch-generic-workflows.md) (occurrence dispatch), [workflows-v1.md](../plans/workflows-v1.md) (draft → revision → activation), and [workflow-use-2026-11-14.md](../research/workflow-use-2026-11-14.md) (owner decisions on replay and the rewrite).
 
@@ -53,7 +53,7 @@ One lifecycle for every row; the kinds differ only in who acts at each step.
 | Pause | user toggle | never | user toggle |
 | Retire | seeder retires the slug | n/a | archive |
 
-The owner reads theory, not code. One fact from the code belongs in the theory because it *is* the gap: **built-ins and implicit workflows run with no definition reference** (`tick.ts` dispatches built-ins with `revisionId: null`), and cron built-ins bypass the generic dispatch entirely (`briefing.tick`, `memory.extract.daily` run them; `workflows.tick` skips them). The proposal, awaiting the owner's word:
+The owner reads theory, not code. One fact from the code belongs in the theory because it *is* the gap: **built-ins and implicit workflows run with no definition reference** (`tick.ts` dispatches built-ins with `revisionId: null`), and cron built-ins bypass the generic dispatch entirely (`briefing.tick`, `memory.extract.daily` run them; `workflows.tick` skips them). Settled, owner word 2026-11-17:
 
 - **Every run names its definition.** A built-in revision is a code-referenced definition — its content hash is the registered module and prompt version, seeded at deploy like the row is today. This deletes the `revisionId: null` special case instead of adding a rule around it, and gives one History tab that does not care who wrote the workflow.
 - **One dispatch path.** Every trigger — a webhook, a cron line, a chat draft — claims its occurrence through the ADR-0027 path. A module that owns its own tick today moves behind the trigger table; the trigger row, not module code, decides when a run happens.
@@ -84,8 +84,8 @@ Owner direction, 2026-11-16: the owner reads the theory of the software, not the
 | --- | --- | --- | --- |
 | One class, five parameters, provenance as metadata | Settled as direction (owner, 2026-11-16) | Not built | Two execution realities behind one table |
 | Implicit workflows in the class, no toggle | Settled (owner, 2026-11-16, conditional on fitting completely) | Not built | Memory extraction is a system process with no definition reference |
-| Built-in and implicit runs name their definition (code-hash revisions) | Proposed, awaiting owner | Not built | `revisionId: null` on every built-in run |
-| One dispatch path for every trigger | Proposed, awaiting owner | Not built | `briefing.tick` and `memory.extract.daily` bypass `workflows.tick` |
+| Built-in and implicit runs name their definition (code-hash revisions) | Settled (owner, 2026-11-17) | Not built | `revisionId: null` on every built-in run |
+| One dispatch path for every trigger | Settled (owner, 2026-11-17) | Not built | `briefing.tick` and `memory.extract.daily` bypass `workflows.tick` |
 | The user lifecycle (draft → revision → activation → run) | Settled (workflows-v1) | Built | — |
 | The runner and the destination on the revision | Settled (core-agent.md) | Not built | #535 first |
 
@@ -100,6 +100,5 @@ Nothing queues behind this page today. It sits settled next to core-agent.md, an
 
 ## 10. Not settled
 
-- **Built-ins as revisions, and one dispatch path.** The two proposals of §4. The owner has confirmed the class, not yet these two mechanics.
 - **Do chat-visible workflow kinds need names?** The settings page may say "Alfred's workflows" and "Yours" instead of exposing `builtin`/`user`. A wording question, parked until the surface is built.
 - **Whether the eight-seeded-rows reality changes.** The seed plan seeds public slugs only and retires dead ones; whether implicit slugs join the seeded set or stay unseeded rows is a mechanics question for §9 step 3.

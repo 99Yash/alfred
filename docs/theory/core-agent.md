@@ -1,6 +1,6 @@
 # The core agent: one runner, its destination, and its voice
 
-Status: draft for owner review, 2026-11-14. The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. The page is on main (#1754) and awaits owner review.
+Status: settled, 2026-11-17. The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. The owner reviewed the page on 2026-11-17; the §9 items stay open until each settles.
 
 Read first: [README principles](./README.md#2-the-principles), [journal.md §9](./journal.md#9-not-settled) (what waited on a push surface), [ADR-0099](../decisions/ADR-0099-a-question-is-an-approval-with-a-different-card.md) (`ask_user`), and the research page that this page settles: [core-agent-primitives-vs-junior-2026-11-14.md](../research/core-agent-primitives-vs-junior-2026-11-14.md).
 
