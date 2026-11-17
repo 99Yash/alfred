@@ -38,19 +38,18 @@ export const attentionBandSchema = z.enum(ATTENTION_BANDS);
 
 /**
  * Demand per category. This is the ceiling: significance and recurrence only lower it.
- * `awaiting_reply` starts high so a weak cold sender drops out and a strong one stays.
+ * `reply` starts high so a weak cold sender drops out and a strong one stays.
  */
 export const CATEGORY_BASE_DEMAND = {
   urgent: 1.0,
-  action_needed: 0.85,
-  awaiting_reply: 0.7,
-  follow_up: 0.55,
+  action: 0.85,
+  reply: 0.7,
   meeting: 0.55,
-  payment: 0.55,
+  receipt: 0.55,
   fyi: 0.2,
   done: 0.0,
-  newsletter: 0.1,
-  marketing: 0.05,
+  news: 0.1,
+  promo: 0.05,
 } as const satisfies Record<TriageCategory, number>;
 
 /** Demotion per band. An unscored sender keeps the base. Nothing goes above 1. */

@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 
 import type { ActiveEntityProfile } from "@alfred/assistant/knowledge";
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
-import { applyFloors, type FloorContext, type FloorOutcome } from "@alfred/assistant/triage/floors";
+import { applyFloors, type FloorOutcome } from "@alfred/assistant/triage/floors";
 import type { Observations } from "@alfred/assistant/triage/observations";
 import type { SenderContextResult } from "@alfred/assistant/knowledge/sender-context";
 import { senderExtractionEvent } from "../../src/triage/sender-extraction-event";
@@ -118,27 +118,17 @@ describe("senderKindSignalFromProfile", () => {
   });
 });
 
-test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => {
+test("senderExtractionEvent records the sender-kind projection breadcrumb", () => {
   const event = senderExtractionEvent({
     senderContextResult: senderContextResult(),
     observations: observations(),
     audit: {
-      firstPass: classification({ category: "action_needed", collabActivity: "other_activity" }),
+      firstPass: classification({ category: "action", collabActivity: "other_activity" }),
       conflict: null,
       secondPass: null,
       secondPassFailure: null,
       floors: {
         override: { verdict: { kind: "keep" }, matched: false },
-        senderKind: {
-          verdict: {
-            kind: "demote",
-            key: "sender_kind_floor",
-            note: "group sender sent passive collaboration activity",
-            reason: "Sender-kind floor",
-          },
-          reason: "collab_passive_activity",
-        },
-        meeting: { verdict: { kind: "keep" }, reason: null },
       },
     },
     classification: classification({ collabActivity: "other_activity" }),
@@ -150,22 +140,16 @@ test("senderExtractionEvent records the sender-kind demotion breadcrumb", () => 
   assert.equal(event.senderKindConfidence, 0.99);
   assert.deepEqual(event.senderKindEvidenceCodes, ["gmail:list_id"]);
   assert.equal(event.senderKindDemotedPersonTreatment, true);
-  assert.equal(event.senderKindDemotedCategory, true);
-  assert.equal(event.senderKindDemotionReason, "collab_passive_activity");
   assert.equal(event.firstPassCollabActivity, "other_activity");
   assert.equal(event.finalCollabActivity, "other_activity");
   assert.equal(event.knownContact, false);
   assert.equal(event.senderRelationship, null);
 });
 
-test("senderExtractionEvent carries each floor's real outcome", () => {
+test("senderExtractionEvent carries the override floor's real outcome", () => {
   // Use the fold's real output, not a hand-built audit, so the test crosses the projection seam.
-  const recap = { subject: "Meeting notes: Eng standup", effectiveAuthor: "person" as const };
-
   const escalated = eventFor(
-    applyFloors(classification({ category: "meeting" }), {
-      ...floorContext(),
-      ...recap,
+    applyFloors(classification({ category: "fyi" }), {
       signalText: "an api key was leaked in the public repo",
     }),
   );
@@ -173,19 +157,6 @@ test("senderExtractionEvent carries each floor's real outcome", () => {
   assert.equal(escalated.floorMatched, true);
   assert.equal(escalated.floorForced, true);
   assert.equal(escalated.finalCategory, "urgent");
-  // Override moved the category off `meeting` first, so the meeting floor reports "did not fire".
-  assert.equal(escalated.meetingDemotedCategory, false);
-  assert.equal(escalated.meetingDemotionReason, null);
-  assert.equal(escalated.senderKindDemotedCategory, false);
-
-  const gated = eventFor(
-    applyFloors(classification({ category: "meeting" }), { ...floorContext(), ...recap }),
-  );
-
-  assert.equal(gated.meetingDemotedCategory, true);
-  assert.equal(gated.meetingDemotionReason, "meeting_recap");
-  assert.equal(gated.floorMatched, false);
-  assert.equal(gated.finalCategory, "fyi");
 });
 
 test("senderExtractionEvent still reports every floor on the audit-less path", () => {
@@ -203,36 +174,13 @@ test("senderExtractionEvent still reports every floor on the audit-less path", (
     {
       floorMatched: event.floorMatched,
       floorForced: event.floorForced,
-      senderKindDemotedCategory: event.senderKindDemotedCategory,
-      senderKindDemotionReason: event.senderKindDemotionReason,
-      meetingDemotedCategory: event.meetingDemotedCategory,
-      meetingDemotionReason: event.meetingDemotionReason,
     },
     {
       floorMatched: false,
       floorForced: false,
-      senderKindDemotedCategory: false,
-      senderKindDemotionReason: null,
-      meetingDemotedCategory: false,
-      meetingDemotionReason: null,
     },
   );
 });
-
-function floorContext(): FloorContext {
-  return {
-    signalText: "",
-    collabVetoText: "",
-    senderKind: null,
-    effectiveAuthor: null,
-    sender: null,
-    subject: null,
-    to: null,
-    cc: null,
-    accountEmail: null,
-    contentFlags: { hasInvestorNotice: false, hasPublicEventLanguage: false },
-  };
-}
 
 /** The trace the workflow would persist for a floor outcome. */
 function eventFor(outcome: FloorOutcome) {

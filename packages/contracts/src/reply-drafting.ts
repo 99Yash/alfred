@@ -47,11 +47,10 @@ export const replyDraftInvocationSchema = z.enum(REPLY_DRAFT_INVOCATIONS);
 
 /**
  * Required for a proactive draft, but not enough alone.
- * `urgent` and `action_needed` are left out: a wrong draft there costs more than a missed one.
+ * `urgent` and `action` are left out: a wrong draft there costs more than a missed one.
  */
 export const REPLY_EXPECTED_TRIAGE_CATEGORIES = [
-  "awaiting_reply",
-  "follow_up",
+  "reply",
 ] as const satisfies readonly TriageCategory[];
 
 export const isReplyExpectedTriageCategory = enumGuard(REPLY_EXPECTED_TRIAGE_CATEGORIES);

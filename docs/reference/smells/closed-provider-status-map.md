@@ -13,10 +13,16 @@ Why: an unknown state that reads as `absent` counts toward a demotion. Example: 
 
 ```ts
 switch (state) {
-  case "READY": return "success";
-  case "ERROR": return "failure";
-  case "BUILDING": case "INITIALIZING": case "QUEUED": return "pending";
-  default: return null;
+  case "READY":
+    return "success";
+  case "ERROR":
+    return "failure";
+  case "BUILDING":
+  case "INITIALIZING":
+  case "QUEUED":
+    return "pending";
+  default:
+    return null;
 }
 ```
 

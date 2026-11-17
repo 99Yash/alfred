@@ -10,14 +10,7 @@ import {
 import { serverEnv } from "@alfred/env/server";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
-import {
-  resolveTodoSuggestion,
-  todoSuppressionReason,
-  type ClassifyEmailArgs,
-  type RunPass,
-  type TodoDecisionOutcome,
-} from "@alfred/assistant/triage/classify";
-import { DEFAULT_USER_TIMEZONE } from "@alfred/assistant/time";
+import type { ClassifyEmailArgs, RunPass } from "@alfred/assistant/triage/classify";
 import { assembleObservations, type Observations } from "@alfred/assistant/triage/observations";
 import type { ThreadMessageContext } from "@alfred/assistant/triage/thread-state";
 import { llmJudgeScorer } from "./lib/llm-judge";
@@ -51,9 +44,7 @@ interface Expected {
    * often holds both answers, so it still scores 1 when the guard is deleted.
    */
   guards?: readonly string[];
-  /** Whether a rail todo should mint. */
-  todo: "mint" | "suppress";
-  /** Set when the case exercises rule 19. */
+  /** Set when the case exercises a category judgment the deck also carries. */
   collabActivity?: CollabActivityKind | null;
   /** Context for the judge and the reader. */
   note: string;
@@ -97,7 +88,6 @@ const CASES: Case[] = [
     body: "A secret (Redis connection URI) was found exposed in a commit to acme/api. Rotate the credential immediately and remove it from history.",
     expected: {
       category: ["urgent"],
-      todo: "mint",
       note: "Exposed live secret — urgent (override floor), and a real rotate-now obligation.",
     },
   },
@@ -108,7 +98,6 @@ const CASES: Case[] = [
     body: "Enter this one-time code to finish signing in. It expires in 10 minutes. If you didn't request this, ignore the email.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Self-initiated auth (rule 15) — fyi, nothing to remember (16c would_not_forget).",
     },
   },
@@ -121,7 +110,6 @@ const CASES: Case[] = [
     knownContact: true,
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "The action is owned by Sakshi, not the user (16a-ii) — fyi, no todo.",
     },
   },
@@ -142,8 +130,7 @@ const CASES: Case[] = [
       },
     ],
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       note: "Filing a backlog task OPENS work; the thread shows a live bug assigned to the user (rules 12e/17). The bot 'Done' is the filing, not the fix.",
     },
   },
@@ -161,7 +148,6 @@ const CASES: Case[] = [
     },
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       collabActivity: "other_activity",
       note: "The bot completed filing a new task, but no thread message assigns it to the user. Filing opens work, so this is passive activity (fyi), never done.",
     },
@@ -180,7 +166,6 @@ const CASES: Case[] = [
     },
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       collabActivity: "state_change",
       note: "The imperative subject names the tracked item. The body only records a passive status change, with no action assigned to the user.",
     },
@@ -199,7 +184,6 @@ const CASES: Case[] = [
     },
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       collabActivity: "other_activity",
       note: "Rule 19: passive third-party ClickUp comment is not directed at the user. The service sender-kind floor should demote any action_needed spike to fyi.",
     },
@@ -217,8 +201,7 @@ const CASES: Case[] = [
       displayName: "Oliv AI",
     },
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       collabActivity: "assigned_to_user",
       note: "Rule 19 counter-case: assignment to the user is ownership activity, so the sender-kind floor must not demote it.",
     },
@@ -236,8 +219,7 @@ const CASES: Case[] = [
       displayName: "Oliv AI",
     },
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       collabActivity: "mentioned_user",
       note: "Rule 19 counter-case: an @mention with a concrete merge ask is directed at the user and must stay demanding.",
     },
@@ -249,7 +231,6 @@ const CASES: Case[] = [
     body: "Review comment on /pull/42: consider adding an index on user_id to speed up this query. Nit: rename `foo` to `bar` for clarity. Overall looks good.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Bot review on unmerged PR code — advisory by default (12a) and pre-merge, nothing live at stake (16b liveness); structural suppression also fires.",
     },
   },
@@ -259,8 +240,7 @@ const CASES: Case[] = [
     subject: "You've reached your 50-review trial limit",
     body: "99Yash has reached the 50-review trial limit. Upgrade your plan to continue getting automated reviews from Greptile.",
     expected: {
-      category: ["marketing"],
-      todo: "suppress",
+      category: ["promo"],
       note: "Freemium upsell, nothing owed (11a) — marketing; manufactured conversion stake (16b not_significant).",
     },
   },
@@ -273,7 +253,6 @@ const CASES: Case[] = [
     body: "Ankur Singh, Senior Software Developer at Sosuv, would like to connect with you on LinkedIn. Accept or ignore.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "A social-network connection request is passive social activity → fyi (rule 8a), NOT awaiting_reply/action_needed — accepting or ignoring is the sender's want, not a question the user must answer (16a-i no_obligation); no todo.",
     },
   },
@@ -284,7 +263,6 @@ const CASES: Case[] = [
     body: "Grow your network: add Priya, Karan, and Maya to your LinkedIn network. View profiles or connect now.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Network-growth nudges are passive social activity (rule 8a), not a task the user owns; no todo.",
     },
   },
@@ -295,7 +273,6 @@ const CASES: Case[] = [
     body: "Your profile appeared in 13 searches this week. See who's searching for you and update your profile to get more views.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Profile-activity notifications are passive awareness / manufactured engagement (rule 8a); no todo.",
     },
   },
@@ -308,8 +285,7 @@ const CASES: Case[] = [
     knownContact: true,
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
-      category: ["awaiting_reply"],
-      todo: "mint",
+      category: ["reply"],
       note: "Rule 8a exception: a real correspondent's platform message with a genuine ask is judged on content; strong relationship means a real person is waiting.",
     },
   },
@@ -319,8 +295,7 @@ const CASES: Case[] = [
     subject: "Your payment failed — update your card",
     body: "We couldn't charge your card for the $49.00 monthly invoice. Update your payment method by Jun 15 to avoid losing access to your account.",
     expected: {
-      category: ["payment"],
-      todo: "mint",
+      category: ["receipt"],
       note: "Money owed on an existing paid relationship, access at risk (rule 11) — payment, real obligation with a date.",
     },
   },
@@ -334,7 +309,6 @@ const CASES: Case[] = [
     authoredAt: NOW,
     expected: {
       category: ["done"],
-      todo: "mint",
       note: "Closure email (done) carrying a real trailing ask the user owns — category and todo disagree (16a-c all pass).",
     },
   },
@@ -367,7 +341,6 @@ const CASES: Case[] = [
     authoredAt: new Date("2026-06-10T09:00:00Z"),
     expected: {
       category: ["done"],
-      todo: "suppress",
       note: "The user has ALREADY replied — the latest thread message is the user's send and thread state shows the reply. The user owes nothing further, so the thread is no longer awaiting_reply → done (rule 18; the user's side of the loop is closed, waiting on the recruiter is not a user action). No todo: already handled (16e) and a cold sender besides.",
     },
   },
@@ -378,8 +351,7 @@ const CASES: Case[] = [
     body: "Here are this week's top stories from the writers you follow. Read on the web or in the app. Unsubscribe anytime from your settings.",
     labelIds: ["INBOX", "CATEGORY_UPDATES"],
     expected: {
-      category: ["newsletter"],
-      todo: "suppress",
+      category: ["news"],
       note: "Subscribed editorial digest — newsletter, no obligation.",
     },
   },
@@ -395,8 +367,7 @@ const CASES: Case[] = [
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
-      category: ["awaiting_reply"],
-      todo: "suppress",
+      category: ["reply"],
       note: "Cold sender, no correspondence history — not a real person waiting (16b cold_sender). The direct ask keeps awaiting_reply honest, but no todo. THIS is failure A.",
     },
   },
@@ -411,8 +382,7 @@ const CASES: Case[] = [
     isColdContact: true,
     authoredAt: NOW,
     expected: {
-      category: ["awaiting_reply"],
-      todo: "suppress",
+      category: ["reply"],
       note: "Cold sales follow-up from a personal-gmail 'sales team', no prior contact — the person-waiting stake is uncorroborated (16b cold_sender). 'Worth a conversation?' keeps awaiting_reply honest, but no rail todo. The HyperNexus prod leak.",
     },
   },
@@ -425,8 +395,7 @@ const CASES: Case[] = [
     knownContact: true,
     senderRelationship: 'strong · two-way thread · same-org · you: "Founder, Acme"',
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       note: "Strong two-way same-org colleague with a direct, blocking ask — a real person is waiting (16b passes). Same ask shape as the cold seeker, opposite todo call.",
     },
   },
@@ -439,8 +408,7 @@ const CASES: Case[] = [
     senderRelationship: "no prior contact on record",
     isColdContact: true,
     expected: {
-      category: ["payment"],
-      todo: "mint",
+      category: ["receipt"],
       note: "Cold sender, but money owed is an INTRINSIC stake — NOT gated by the person-waiting rule. Over-correction guard: the relationship gate must not kill real bills.",
     },
   },
@@ -451,7 +419,6 @@ const CASES: Case[] = [
     body: "Arjun Rao, Founder & CEO at NimbusAI, would like to connect with you on LinkedIn. Accept or ignore.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "A connection request is passive social activity → fyi (rule 8a), even from a 'Founder & CEO' — the seniority of the requester does not make it a question the user must answer. Todo also suppressed (16a-i optional nicety). Reverses the prior action_needed expectation: an optional nicety with no obligation is passive awareness, not an action.",
     },
   },
@@ -465,8 +432,7 @@ const CASES: Case[] = [
     isColdContact: true,
     authoredAt: NOW,
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       note: "Weak/one-way sender, but a hard deadline + loss of publication is an INTRINSIC stake — ungated. Over-correction guard alongside the invoice case.",
     },
   },
@@ -480,8 +446,7 @@ const CASES: Case[] = [
     senderRelationship: "moderate · two-way thread · same-org",
     authoredAt: NOW,
     expected: {
-      category: ["action_needed"],
-      todo: "mint",
+      category: ["action"],
       note: "Moderate, two-way, same-org colleague with a concrete blocking ask — a real person waiting (16b passes).",
     },
   },
@@ -494,7 +459,6 @@ const CASES: Case[] = [
     persona: "work",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "The VENDOR'S own outage — the user only consumes Claude, cannot act on the outage (rule 12f). fyi while ongoing (would be done on 'resolved'); NEVER urgent, however alarming 'elevated error rate' reads. The 06-24 doc_b608m5vh4cni miss.",
     },
   },
@@ -506,7 +470,6 @@ const CASES: Case[] = [
     persona: "work",
     expected: {
       category: ["urgent"],
-      todo: "mint",
       note: "The USER'S OWN project failing in production, same-day actionable (rule 12c) — stays urgent. The ownership counter-case to the vendor-status rule: don't sweep the user's own infra into fyi.",
     },
   },
@@ -518,7 +481,6 @@ const CASES: Case[] = [
     body: "Here is your sudo verification code: 284613. Enter it to confirm your identity and continue. This code expires in 15 minutes. If you did not request it, you can ignore this email.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Self-initiated step-up / sudo code the user just triggered (rule 15) — mid-flow, expires harmlessly. fyi, nothing to remember (16c). The doc_tcfumx9884kk-class miss.",
     },
   },
@@ -529,7 +491,6 @@ const CASES: Case[] = [
     body: "A new passkey was just added to your account. You can now use it to sign in. If you did not create this passkey, review your security settings.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a vendor self-echo: GitHub reports an event on the GitHub account that the user could have performed, and asserts no observation of its own. The 'if you did not create this passkey' line is boilerplate that reads the same on a legitimate echo and on a phish, so it carries no signal.",
     },
   },
@@ -540,7 +501,6 @@ const CASES: Case[] = [
     body: "Two-factor authentication has been enabled for your account. If you did not make this change, review your security settings.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a vendor self-echo. The demotion does NOT turn on proving the user was mid-flow — it turns on the vendor asserting no observation about who acted.",
     },
   },
@@ -551,7 +511,6 @@ const CASES: Case[] = [
     body: "We detected a suspicious sign-in to your account from a new device in a location you don't usually sign in from. If this wasn't you, secure your account immediately.",
     expected: {
       category: ["urgent"],
-      todo: "mint",
       note: "The UNSOLICITED inverse of rule 15 — a sign-in the user did NOT initiate. Stays urgent. The counter-case that keeps the self-initiated demotion from over-reaching.",
     },
   },
@@ -563,7 +522,6 @@ const CASES: Case[] = [
     body: "Your Wellfound password was changed. If you did not make this change, your account may be compromised — contact support immediately.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a at its loudest: the vendor reports an event on its own account and asserts NO observation about who performed it. The compromise language is the vendor's boilerplate, which never escalates a category on its own. Contrast the unsolicited-new-device case, where the asserter names a device it observed.",
     },
   },
@@ -576,7 +534,6 @@ const CASES: Case[] = [
     body: "Your one-time token is 419283. This token expires in 10 minutes. Never share this token with anyone. If you did not request it, your account may be compromised.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a. The vendor echoes a code the user asked for and asserts NO observation about who asked. The compromise line is the same boilerplate the Wellfound row carries; the only difference is the noun it sits next to.",
     },
   },
@@ -588,7 +545,6 @@ const CASES: Case[] = [
     body: "Follow this link to reset your password: https://app.example.com/auth/v1/verify?token=pkce_9f1c4&type=recovery. If you did not request a password reset, your account may be compromised.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a. The user asked for the reset; the vendor is echoing the link back. No asserter claims to have observed anything about who asked.",
     },
   },
@@ -599,7 +555,6 @@ const CASES: Case[] = [
     body: "The OAuth application 'DeployBot' was authorized to access your account with repo and read:org scopes. If you did not authorize this, revoke its access.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "Rule 15a. The email cannot tell an authorization from a compromise, and that is exactly why it is zero signal: an urgent tag inside the mailbox it warns about is not a security control (rule 15c). No todo: verifying is a mechanical check, not a memorable obligation.",
     },
   },
@@ -613,7 +568,6 @@ const CASES: Case[] = [
     // `…-noreply` suffix and the `linkedin.com` domain; other rows test each alone.
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "A platform relay, not a person: the `…-noreply@linkedin.com` envelope parses as a service, so rule 8a governs and the reminder copy is invitation boilerplate. Passive social activity → fyi, never awaiting_reply; no todo (16a-i no_obligation).",
     },
   },
@@ -626,7 +580,6 @@ const CASES: Case[] = [
     body: "Rhea Kapoor: I'm still waiting for your response to my post in Build Club. Reply in the community to continue the thread.",
     expected: {
       category: ["fyi"],
-      todo: "suppress",
       note: "The envelope is the platform's, not Rhea's, so rule 8a governs: passive social activity → fyi, never awaiting_reply off the relayed reminder copy. No todo (16a-i no_obligation).",
     },
   },
@@ -642,10 +595,6 @@ interface TaskOutput {
   confidence: number;
   rationale: string;
   collabActivity: CollabActivityKind | null;
-  todoOutcome: TodoDecisionOutcome | undefined;
-  todoName: string | null;
-  wouldMintTodo: boolean;
-  suppression: string | null;
   context: string;
   email: { from: string; subject: string; body: string };
   /**
@@ -781,33 +730,11 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
         confidence: 0,
         rationale: `[skipped: ${kind}]`,
         collabActivity: null,
-        todoOutcome: undefined,
-        todoName: null,
-        wouldMintTodo: false,
-        suppression: null,
         context,
         email,
         skipped: true,
       };
     }
-
-    const authoredAt = input.authoredAt ?? NOW;
-
-    // Fixtures have no user, so the zone is UTC.
-    const resolved = resolveTodoSuggestion(classification, {
-      sentAt: authoredAt,
-      timezone: DEFAULT_USER_TIMEZONE,
-    });
-
-    const suppression = todoSuppressionReason({
-      sender: input.from,
-      subject: input.subject,
-      signalText: `${input.subject}\n${input.body}\n${input.snippet ?? ""}`,
-      category: classification.category,
-      isColdContact: input.isColdContact ?? false,
-    });
-
-    const wouldMintTodo = resolved !== null && suppression === null;
 
     return {
       category: classification.category,
@@ -815,10 +742,6 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
       confidence: classification.confidence,
       rationale: classification.rationale,
       collabActivity: classification.collabActivity ?? null,
-      todoOutcome: classification.todoDecision?.outcome,
-      todoName: resolved?.name ?? null,
-      wouldMintTodo,
-      suppression,
       context,
       email,
       skipped: false,
@@ -852,25 +775,6 @@ evalite<Case, TaskOutput, Expected>("Triage classifier", {
           metadata: missingGuards.length
             ? `${got}; guard never ran: ${missingGuards.join(", ")}`
             : got,
-        };
-      },
-    },
-    {
-      // The same path the email-triage tail step runs.
-      name: "Todo mint decision",
-      scorer: ({ output, expected }) => {
-        if (output.skipped) return { score: 0, metadata: "skipped (provider overload)" };
-
-        const want = expected.todo === "mint";
-        const ok = output.wouldMintTodo === want;
-
-        const got = output.wouldMintTodo
-          ? `mint "${output.todoName}"`
-          : `suppress (${output.suppression ?? output.todoOutcome ?? "no todo"})`;
-
-        return {
-          score: ok ? 1 : 0,
-          metadata: `${got}; want ${expected.todo}`,
         };
       },
     },

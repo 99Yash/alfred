@@ -311,6 +311,12 @@ const labelSchema = z.object({
   type: z.enum(["system", "user"]).optional(),
   messageListVisibility: z.enum(["show", "hide"]).optional(),
   labelListVisibility: z.enum(["labelShow", "labelShowIfUnread", "labelHide"]).optional(),
+  color: z
+    .object({
+      textColor: z.string(),
+      backgroundColor: z.string(),
+    })
+    .optional(),
 });
 
 export type GmailLabel = z.infer<typeof labelSchema>;
@@ -334,6 +340,8 @@ export interface CreateLabelArgs {
   name: string;
   messageListVisibility?: "show" | "hide" | undefined;
   labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide" | undefined;
+  /** Hex strings from Gmail's fixed palette. */
+  color?: { textColor: string; backgroundColor: string } | undefined;
 }
 
 export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
@@ -341,11 +349,35 @@ export async function createLabel(args: CreateLabelArgs): Promise<GmailLabel> {
     name: args.name,
     messageListVisibility: args.messageListVisibility ?? "show",
     labelListVisibility: args.labelListVisibility ?? "labelShow",
+    ...(args.color ? { color: args.color } : {}),
   };
 
   return googleJson("gmail", labelSchema, {
     method: "POST",
     url: `${API_BASE}/labels`,
+    accessToken: args.accessToken,
+    payload,
+  });
+}
+
+export interface UpdateLabelArgs {
+  accessToken: string;
+  labelId: string;
+  name?: string | undefined;
+  /** Hex strings from Gmail's fixed palette. Both fields together; one alone is rejected. */
+  color?: { textColor: string; backgroundColor: string } | undefined;
+}
+
+/** Renames or recolors a label in place, keeping its id and every message it sits on. */
+export async function updateLabel(args: UpdateLabelArgs): Promise<GmailLabel> {
+  const payload = {
+    ...(args.name ? { name: args.name } : {}),
+    ...(args.color ? { color: args.color } : {}),
+  };
+
+  return googleJson("gmail", labelSchema, {
+    method: "PATCH",
+    url: `${API_BASE}/labels/${args.labelId}`,
     accessToken: args.accessToken,
     payload,
   });

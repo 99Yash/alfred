@@ -145,14 +145,14 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Acme Coaching <no-reply@shapeshifter.so>",
       subject: 'Your milestone "Professional Networking" is due tomorrow',
-      category: "action_needed",
+      category: "action",
     });
 
     const keptDocId = await seedEmail({
       userId,
       from: "Sakshi <sakshi@example.com>",
       subject: "Can you look at the import issue?",
-      category: "action_needed",
+      category: "action",
     });
 
     // Before the instruction: both paths see both emails.
@@ -181,7 +181,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     assert.equal(suppressedByInstruction.length, 1);
     const audit = suppressedByInstruction[0];
     assert.equal(audit?.documentId, suppressedDocId);
-    assert.equal(audit.category, "action_needed");
+    assert.equal(audit.category, "action");
     assert.equal(audit.sender, "Acme Coaching <no-reply@shapeshifter.so>");
     assert.equal(audit.effect, "exclude_briefing_priority");
     assert.ok(audit.factId, "the audit entry names the standing-instruction fact");
@@ -194,7 +194,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Sakshi <sakshi@example.com>",
       subject: "Can you review the migration?",
-      category: "action_needed",
+      category: "action",
     });
 
     const fyiDocId = await seedEmail({
@@ -208,7 +208,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Some List <news@list.example>",
       subject: "Weekly roundup",
-      category: "newsletter",
+      category: "news",
     });
 
     const untriagedDocId = await seedEmail({
@@ -234,7 +234,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Edge <edge@example.com>",
       subject: "At the window start",
-      category: "action_needed",
+      category: "action",
       ingestedAt: WINDOW_START,
     });
 
@@ -242,7 +242,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Edge <edge@example.com>",
       subject: "At the window end",
-      category: "action_needed",
+      category: "action",
       ingestedAt: WINDOW_END,
     });
 
@@ -250,14 +250,14 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Edge <edge@example.com>",
       subject: "Before the window",
-      category: "action_needed",
+      category: "action",
       ingestedAt: new Date(WINDOW_START.getTime() - 1000),
     });
     await seedEmail({
       userId,
       from: "Edge <edge@example.com>",
       subject: "After the window",
-      category: "action_needed",
+      category: "action",
       ingestedAt: new Date(WINDOW_END.getTime() + 1000),
     });
 
@@ -276,7 +276,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       userId,
       from: "Sakshi <sakshi@example.com>",
       subject: "Can you review the migration?",
-      category: "action_needed",
+      category: "action",
     });
 
     const { gather, suppressedByInstruction, closedLoops } = await gatherFor(userId);

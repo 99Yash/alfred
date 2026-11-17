@@ -84,13 +84,13 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         sender: "billing@railway.app",
         subject: "Payment receipt",
         snippet: "Your receipt for $6.79",
-        category: "payment",
+        category: "receipt",
         occurredAtMs: 3,
       },
       {
         sender: "someone@acme.com",
         subject: "Following up",
-        category: "follow_up",
+        category: "reply",
         occurredAtMs: 2,
       },
       {
@@ -111,7 +111,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
         sender: "billing@railway.app",
         subject: "Payment failed - update your card",
         snippet: "We were unable to process your payment. Please update your billing card.",
-        category: "payment",
+        category: "receipt",
         occurredAtMs: 1,
       },
     ]);
@@ -125,7 +125,7 @@ describe("scorePriorityEmailDemand", { skip: SKIP }, () => {
       {
         sender: "colleague@acme.com",
         subject: "Please review",
-        category: "action_needed",
+        category: "action",
         occurredAtMs: 1,
       },
     ]);

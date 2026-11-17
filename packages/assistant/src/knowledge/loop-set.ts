@@ -34,8 +34,8 @@ import { liveObservationHeadJoin } from "./observations";
 /** The triage categories whose mails open a loop (decision 4). */
 const LOOP_CATEGORIES: ReadonlySet<TriageCategory> = new Set<TriageCategory>([
   "urgent",
-  "action_needed",
-  "follow_up",
+  "action",
+  "reply",
 ]);
 
 /** One mail of the verify set. */

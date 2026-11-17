@@ -82,7 +82,7 @@ export interface DeckCase {
 }
 
 /** Every quiet label except `meeting`. Use it when the theory says "quiet" and no more. */
-const QUIET = ["fyi", "done", "payment", "newsletter", "marketing"] as const;
+const QUIET = ["fyi", "done", "receipt", "news", "promo"] as const;
 
 const CHESS_STREAK_KIND = {
   kind: "group",
@@ -99,7 +99,7 @@ export const DECK: readonly DeckCase[] = [
   {
     label: "chess-streak-mail-keeps-one-label",
     oneKind: true,
-    accept: ["marketing"],
+    accept: ["promo"],
     note: "Chess.com streak nudges sell engagement. Nothing is owed and no person waits. Prod gave the same kind of mail action_needed, newsletter, and fyi.",
     mails: [
       {
@@ -108,7 +108,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Play a quick game or Puzzle before midnight to save it! Keep Your 5 Day Streak Alive! Hey player, your 5 day streak needs rescuing! Keep it going before midnight.",
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -117,7 +117,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Play a game or solve a Puzzle before midnight to keep going! Unpause Your Streak. Go for your highest streak! Play a game, do a puzzle, or review a game to keep your streak alive.",
         authoredAt: "2026-11-04T12:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -126,7 +126,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Keep it going with a quick game or Puzzle before midnight! Keep Your Streak Alive! Play a game, do a puzzle, or review a game to add to your streak. Extend Your Streak.",
         authoredAt: "2026-11-03T12:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "newsletter",
+        prodCategory: "news",
         senderKind: CHESS_STREAK_KIND,
       },
       {
@@ -141,7 +141,7 @@ export const DECK: readonly DeckCase[] = [
   },
   {
     label: "chess-promo-mail",
-    accept: ["marketing", "newsletter"],
+    accept: ["promo", "news"],
     note: "A game-review upsell and a monthly recap from a consumer app. The owner, 2026-11-07: marketing. News also passes, but he never subscribed; he only logged in to chess.com.",
     mails: [
       {
@@ -151,7 +151,7 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-26T12:05:01Z",
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
-        prodCategory: "marketing",
+        prodCategory: "promo",
       },
       {
         from: '"Chess.com" <hello@chess.com>',
@@ -160,7 +160,7 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
-        prodCategory: "newsletter",
+        prodCategory: "news",
         senderKind: CHESS_STREAK_KIND,
       },
     ],
@@ -169,7 +169,7 @@ export const DECK: readonly DeckCase[] = [
   // ── Money went wrong: loud, never Receipt ─────────────────────────────────
   {
     label: "github-billing-lock",
-    accept: ["urgent", "action_needed"],
+    accept: ["urgent", "action"],
     note: "GitHub cannot bill the account and service stops. On 2026-11-06 GitHub locked the account and every CI job stopped. Prod said payment: the worst error.",
     mails: [
       {
@@ -178,14 +178,14 @@ export const DECK: readonly DeckCase[] = [
         body: "Greetings, This email is to inform you that we cannot bill your account. There is currently no payment method on file. A payment method must be added to continue service. To update your payment information, please head to https://github.com/settings/billing/payment_information",
         authoredAt: "2026-11-06T09:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "payment",
+        prodCategory: "receipt",
         senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
       },
     ],
   },
   {
     label: "voyage-payment-failed",
-    accept: ["action_needed", "urgent"],
+    accept: ["action", "urgent"],
     note: "A payment failed and access is at risk. Action, never Receipt.",
     mails: [
       {
@@ -194,13 +194,13 @@ export const DECK: readonly DeckCase[] = [
         body: "Hi, We were unable to process your Voyage AI payment of $1.13 for October 2026 for your organization. To ensure uninterrupted access to Voyage AI services, please update your payment method and complete your payment as soon as possible: Update Payment Method. We'll automatically retry your payment on Nov 6, 2026.",
         authoredAt: "2026-11-02T21:45:53Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
     ],
   },
   {
     label: "greptile-out-of-credits",
-    accept: ["action_needed", "urgent"],
+    accept: ["action", "urgent"],
     note: "Zero credits left, and code reviews pause. A service will stop: Action.",
     mails: [
       {
@@ -209,7 +209,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hello, Yashk has 0 credits left. When they run out, Greptile will pause code reviews until you add more. Add credits now to keep reviews running. You can also turn on automatic recharge to top up whenever your balance drops below an amount you set.",
         authoredAt: "2026-10-31T06:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
         senderKind: {
           kind: "group",
           confidence: 0.99,
@@ -220,7 +220,7 @@ export const DECK: readonly DeckCase[] = [
   },
   {
     label: "railway-confirm-card-payment",
-    accept: ["action_needed", "urgent"],
+    accept: ["action", "urgent"],
     note: "The bank holds the monthly payment until the owner confirms it. A payment that needs an action is Action.",
     mails: [
       {
@@ -229,13 +229,13 @@ export const DECK: readonly DeckCase[] = [
         body: "Railway Corporation. Confirm your $5.81 payment. Confirm your monthly payment to Railway Corporation using Discover ProtectBuy. Your bank requires this security measure for your card. Confirm payment.",
         authoredAt: "2026-10-23T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
     ],
   },
   {
     label: "voyage-review-payment-method-by-date",
-    accept: ["action_needed"],
+    accept: ["action"],
     note: "A billing change with a real deadline: review the default payment method by October 26. Action.",
     mails: [
       {
@@ -244,7 +244,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hi Yash, We're updating Voyage AI's billing process to make payments more seamless and automated. Starting with the October 2026 billing cycle, we'll automatically charge your default payment method instead of sending invoices for manual payment. What you need to do by October 26, 2026: Log in to your Voyage AI dashboard and navigate to the Billing section. Review your saved payment methods and confirm your preferred default payment method.",
         authoredAt: "2026-10-19T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
     ],
   },
@@ -252,7 +252,7 @@ export const DECK: readonly DeckCase[] = [
   // ── Money moved and nothing went wrong: Receipt ───────────────────────────
   {
     label: "receipts-and-zero-invoices",
-    accept: ["payment"],
+    accept: ["receipt"],
     note: "Paid receipts and a $0.00 invoice. Money moved, nothing went wrong.",
     mails: [
       {
@@ -261,7 +261,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Railway Corporation. Receipt from Railway Corporation $5.81. Paid on October 23, 2026. Sep 23–Oct 23, 2026. Disk $0.23. Network $0.53. Total $5.81. Amount paid $5.81.",
         authoredAt: "2026-10-24T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
       {
         from: "Voyage AI <invoice+statements+acct_1O4eAaJ1Erqf01gG@stripe.com>",
@@ -269,7 +269,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Voyage AI. Receipt from Voyage AI $1.13. Paid on November 2, 2026. VoyageAI API usage credit Qty 1 $1.13. Total $1.13. Amount paid $1.13. Download receipt.",
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: ["CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
       {
         from: "Cloudflare <noreply@notify.cloudflare.com>",
@@ -277,7 +277,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Your invoice is ready. Your latest Cloudflare invoice is ready for review. Invoice details: Due on: November 1, 2026. Amount: $0.00.",
         authoredAt: "2026-11-01T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -288,7 +288,7 @@ export const DECK: readonly DeckCase[] = [
   },
   {
     label: "pricing-change-notice-is-not-a-receipt",
-    accept: ["fyi", "newsletter"],
+    accept: ["fyi", "news"],
     note: "A future pricing change. No money moved and nothing is due. Prod said payment.",
     mails: [
       {
@@ -297,7 +297,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hello, Starting December 1, 2026, Cloudflare Observability will use volume-based pricing for logs and traces ingested and stored on Cloudflare, as announced earlier this month. Workers Paid: your account will automatically get a Paid Observability subscription. No Workers Paid plan: your account stays on the Free Observability plan and will not be charged for Observability.",
         authoredAt: "2026-10-29T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
     ],
   },
@@ -305,7 +305,7 @@ export const DECK: readonly DeckCase[] = [
   // ── Webinars are never Meeting ────────────────────────────────────────────
   {
     label: "vendor-webinars",
-    accept: ["marketing", "fyi"],
+    accept: ["promo", "fyi"],
     note: "Vendor webinar invites and a live stream. Not a meeting that the owner attends. Prod gave all four the meeting label.",
     mails: [
       {
@@ -354,7 +354,7 @@ export const DECK: readonly DeckCase[] = [
   // ── Broadcast event invites are never Meeting, however they arrive ────────
   {
     label: "broadcast-event-invites",
-    accept: ["marketing", "newsletter", "fyi"],
+    accept: ["promo", "news", "fyi"],
     note: "The three mails prod gave `meeting` in the 14 days to 2026-11-13, which the owner reported as the class: webinar and live-stream scheduling blasts. An open-audience event is never Meeting — even when it invites him by name and offers an add-to-calendar link. The other attendees decide, not the calendar object. Note the subjects carry no event word; the tells are registration and unsubscribe language in the body.",
     mails: [
       {
@@ -402,7 +402,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Central Depository Services (India) Limited. Dear Shareholder, Greetings from CDSL! Reminder for e-Voting of KESTREL MOTORS RE 1/-. Commencement of e-voting 23-09-2026 09:00. Conclusion of e-voting 22-10-2026 17:00. Meeting Date & Time NA.",
         authoredAt: "2026-09-22T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
       {
         from: "evoting@nsdl.com",
@@ -411,7 +411,7 @@ export const DECK: readonly DeckCase[] = [
         body: "DECCAN MINERALS LIMITED (A Govt. of India Enterprise). Date: 6th September 2026. Ref: Folio / DP ID & Client ID No.: [redacted]. Dear Member(s), We are pleased to inform you that the 68th Annual General Meeting of the Members of Deccan Minerals Limited is scheduled to be held on Monday, the 28th September 2026 at 11:30 A.M. (IST) through two-way Video Conferencing facility / Other Audio-Visual Means. The Annual Report is also available at www.evoting.nsdl.com.",
         authoredAt: "2026-09-06T17:47:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
       {
         from: "sahyadriauto.cs@kfintech.com",
@@ -419,7 +419,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Sahyadri Auto Limited. Date: 06 November 2026. Ref: Folio No. / DP Id & Client Id: [redacted]. Dear Member, We wish to inform you that pursuant to the provisions of Sections 110 and 108 of the Companies Act, 2013 read with Rules 22 and 20 of the Companies (Management and Administration) Rules, 2014, Regulation 44 of the SEBI Listing Regulations, and General Circular No. 03/2025.",
         authoredAt: "2026-11-06T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderRelationship: "no prior contact on record",
       },
     ],
@@ -436,7 +436,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Dear Shareholder(s), November 03, 2026. REF: FOLIO_DP_CL_ID: [redacted]. Sub: Communication on Tax Deduction at Source on Dividend. The Board declared an Interim Dividend of Rs. 4.30 per equity share. Record Date: Friday, November 06, 2026. Dividend payout date (on or before): Tuesday, December 01, 2026. Last date to submit tax related documents: Friday, November 06, 2026.",
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
       {
         from: "konkan.reit@kfintech.com",
@@ -444,7 +444,7 @@ export const DECK: readonly DeckCase[] = [
         body: "KONKAN OFFICE PARKS REIT. October 28, 2026. Ref: Folio/DP Id & Client Id No: [redacted]. Dear Unitholder, The distributions by Konkan REIT to Unitholders are characterized as a combination of dividend, interest, repayment of SPV level debt and other income. Please see below a brief summary of the withholding tax implications of the distributions for the period ending September 30, 2026. Interest: Tax will be deducted under Section 393 of the Income-tax Act, 2025.",
         authoredAt: "2026-10-28T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderRelationship: "no prior contact on record",
       },
       {
@@ -454,7 +454,7 @@ export const DECK: readonly DeckCase[] = [
         body: "NILGIRI PHARMA SCIENCE LIMITED. Date: October 30, 2026. Ref: Folio / DP Id & Client Id: [redacted]. Dear Shareholder(s), Sub: Unaudited Financial Results for the quarter and half year ended September 30, 2026. The Board of Directors, at its meeting held on Thursday, October 29, 2026, approved the Unaudited Financial Results (Consolidated and Standalone) of the Company.",
         authoredAt: "2026-10-30T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         knownContact: true,
         senderRelationship: "weak · one-way inbound (you never replied) · not same-org",
       },
@@ -472,7 +472,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Dear Investor, With reference to BSE notices, Stock Brokers are required to upload segregation and monitoring of collateral at client level on daily basis. Your Stockbroker [redacted] BROKING LTD. has reported the details of Funds balance and Securities balance as on 22/08/2026 to Clearing Corporations, is attached. Please follow the procedure given below for opening the attachment. The password is your PAN in upper case. Please note that negative number in the file represents debit balance/balance payable by you.",
         authoredAt: "2026-09-08T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
       {
         from: "BSE ALERTS <info@bseindia.in>",
@@ -480,7 +480,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Dear Investor, With reference to BSE notices, Stock Brokers are required to upload segregation and monitoring of collateral at client level on daily basis. Your Stockbroker [redacted] BROKING LTD. has reported the details of Funds balance and Securities balance as on 30/09/2026 to Clearing Corporations, is attached. Please follow the procedure given below for opening the attachment. The password is your PAN in upper case. Please note that negative number in the file represents debit balance/balance payable by you.",
         authoredAt: "2026-10-17T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
       },
     ],
   },
@@ -496,7 +496,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Dear Investor, With reference to NSE circulars, Trading members are required to upload clients' securities balance on a daily basis. Information pertaining to your fund and securities balance provided by your trading member, along with the details of securities ISIN wise, is attached. Please follow the procedure given below for opening the attachment. The password is your PAN number in upper case.",
         authoredAt: "2026-09-19T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
       {
         from: "nse_alerts <nse_alerts@nse.co.in>",
@@ -519,7 +519,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Investment Reminder. Your monthly investment for the following smallcase is still pending. You can review and edit the reminder details from the Investments tab. Equity & Gold Asset Allocation. Invest Now.",
         authoredAt: "2026-11-05T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "payment",
+        prodCategory: "receipt",
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -532,7 +532,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Pending Rebalance. Rebalance Update Available. You have rebalance update pending for your smallcase Growth & Value Multicap Model. Quarterly Update: the manager has updated the list of stocks/ETFs in this portfolio. See Update.",
         authoredAt: "2026-09-15T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
       },
     ],
   },
@@ -582,7 +582,7 @@ export const DECK: readonly DeckCase[] = [
         body: 'Production deployment failed. Hello, Yash. The production deployment for project blair failed on branch main at commit 0a3b055. Build error: Command "pnpm run build" exited with 1. Commit message: Merge pull request #11 from 99Yash/polylane/autofix/xws2fsihx0r1.',
         authoredAt: "2026-11-06T10:05:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderKind: {
           kind: "service",
           confidence: 0.92,
@@ -616,7 +616,7 @@ export const DECK: readonly DeckCase[] = [
         body: "You have 1 unread notification on Linear. Open your Inbox. Unsubscribe from these emails.",
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
         thread: {
           messageCount: 2,
@@ -642,7 +642,7 @@ export const DECK: readonly DeckCase[] = [
         body: "[99Yash/alfred] ci workflow run. Repository: 99Yash/alfred. Workflow: ci. Duration: 4 minutes and 50.0 seconds. Jobs: db-tests failed (2 annotations). logging-unit-tests succeeded. contracts-unit-tests succeeded. http-tests succeeded. static succeeded.",
         authoredAt: "2026-09-06T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         thread: {
           messageCount: 2,
           newestDirection: "received",
@@ -675,7 +675,7 @@ export const DECK: readonly DeckCase[] = [
         body: "[99Yash/alfred] ci workflow run. Repository: 99Yash/alfred. Workflow: ci. Duration: 3 minutes and 13.0 seconds. Jobs: unit-tests succeeded. db-tests succeeded. http-tests succeeded. duplicates succeeded. leaf-db-tests failed (3 annotations). assistant-unit-tests succeeded.",
         authoredAt: "2026-09-22T07:25:01Z",
         labelIds: UPDATES,
-        prodCategory: "action_needed",
+        prodCategory: "action",
         thread: {
           messageCount: 3,
           newestDirection: "received",
@@ -717,7 +717,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Thanks for being an early adopter of Agensi! Hi Yash, I'm Samuel Rose, the founder of Agensi. I would love to hear what you think of the platform! Reply to this email and tell me why you made an account, what you're looking to get out of Agensi, and what we can do better. I read every reply. Prefer to look around first? Browse the marketplace.",
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "awaiting_reply",
+        prodCategory: "reply",
         senderRelationship: "no prior contact on record",
       },
       {
@@ -727,7 +727,7 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "SPAM"],
         outOfScope: "spam",
-        prodCategory: "marketing",
+        prodCategory: "promo",
         senderRelationship: "no prior contact on record",
       },
       {
@@ -736,7 +736,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Why you are hearing from us, and what happens next. Welcome to Clera. Let the right opportunities come to you. You may have first heard from someone working with Clera about an opportunity, rather than from Clera directly.",
         authoredAt: "2026-10-04T08:00:00Z",
         labelIds: UPDATES,
-        prodCategory: "marketing",
+        prodCategory: "promo",
         senderRelationship: "no prior contact on record",
       },
       {
@@ -745,7 +745,7 @@ export const DECK: readonly DeckCase[] = [
         body: "Hi Yash, Just wanted to drop another quick note in case you're still looking for flexible, project-based work that fits your full-stack background. Our software engineering projects continue to be a strong fit for developers experienced in Next.js and TypeScript. If you'd like to pick up where you left off, you can complete your setup.",
         authoredAt: "2026-09-28T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_PERSONAL", "INBOX"],
-        prodCategory: "action_needed",
+        prodCategory: "action",
         knownContact: true,
         senderRelationship: "weak · one-way inbound (you never replied) · not same-org",
       },
@@ -753,7 +753,7 @@ export const DECK: readonly DeckCase[] = [
   },
   {
     label: "newsletter-about-a-hack-is-not-a-security-alert",
-    accept: ["newsletter", "marketing"],
+    accept: ["news", "promo"],
     note: 'A job-board newsletter whose headline is about a hack. Nothing of the owner\'s is exposed. Prod said urgent through the security floor (`+floor`): its regex reads "No private key leaked" as a leak. Slice 3 must narrow that check.',
     mails: [
       {
@@ -807,7 +807,7 @@ export const DECK: readonly DeckCase[] = [
   // ── A real matter: loud ───────────────────────────────────────────────────
   {
     label: "railway-secrets-exposed-rotate",
-    accept: ["urgent", "action_needed"],
+    accept: ["urgent", "action"],
     note: "The owner's production runs on Railway, and Railway says env secrets may be exposed. Rotate them now.",
     mails: [
       {
@@ -823,7 +823,7 @@ export const DECK: readonly DeckCase[] = [
   // ── Gmail filed it as spam ─────────────────────────────────────────────────
   {
     label: "spam-filed-sign-this-invite-sent-bcc-style",
-    accept: ["fyi", "marketing"],
+    accept: ["fyi", "promo"],
     note: "Gmail filed it as spam. The user is not in To or Cc, and the mail asks to review and sign a stranger's document through a link. Authentication passes, so the sender's own account sent it; that does not make the ask real. Prod gave action_needed, and the morning brief showed it. After slice 2a, spam is not tagged: this case checks the skip, and the briefing must say the mail is in spam.",
     mails: [
       {
@@ -839,14 +839,14 @@ export const DECK: readonly DeckCase[] = [
           "Authentication-Results":
             "mx.google.com; dkim=permerror (no key for signature) header.i=@studio-example.com; arc=pass; spf=pass (google.com: domain of h.blake@studio-example.com designates 2a01:111:f403:c107::1 as permitted sender) smtp.mailfrom=h.blake@studio-example.com; dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=studio-example.com",
         },
-        prodCategory: "action_needed",
+        prodCategory: "action",
         senderRelationship: "no prior contact on record",
       },
     ],
   },
   {
     label: "spam-filed-recruiter-ask-on-the-users-own-application",
-    accept: ["action_needed", "awaiting_reply"],
+    accept: ["action", "reply"],
     note: "Synthetic, from #1098: Gmail's filter is wrong about 1 time in 100. The user applied for the role, the recruiter writes to the user directly with a deadline, and authentication passes. The ask is the user's own obligation, so it stays loud. prodCategory is what the hard spam floor of #1097 gave this shape. After slice 2a, spam is not tagged: this case checks the skip, and the briefing must say the mail is in spam.",
     mails: [
       {
@@ -991,7 +991,7 @@ export const DECK: readonly DeckCase[] = [
   },
   {
     label: "sign-in-by-another-person-is-loud",
-    accept: ["urgent", "action_needed"],
+    accept: ["urgent", "action"],
     note: "Synthetic, from the theory's echo section: 'The deck also needs a sign-in by another person, with a loud label, so that it guards the worst error too.' No prod mail shows one yet (checked 2026-11-16). The same sign-in shape as the echo case, but the facts point to another person: a device Yash does not use, a place he is not in, at an hour outside his pattern. It is a security notice, not an echo: the loud question applies.",
     mails: [
       {

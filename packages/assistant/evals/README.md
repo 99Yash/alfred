@@ -46,8 +46,9 @@ it.
 - `voice-ai-tells.eval.ts` — a small, non-gating nightly sample that checks
   Alfred's default chat voice for high-confidence AI-writing tells and grades
   usefulness with a cheap cross-provider judge.
-- `triage-classify.eval.ts` — the email-triage classifier: category match, rail-todo
-  mint decision, and an LLM-judge pass on rationale soundness.
+- `triage-classify.eval.ts` — the email-triage classifier: category match, a collab-activity
+  partition check, and an LLM-judge pass on rationale soundness. The rail-todo mint scorer
+  left with the todo rubric (slice 3).
 - `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
   `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
   no case gets worse. Deterministic only.

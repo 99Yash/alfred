@@ -2,7 +2,7 @@
  * Read-only watch over `triage.classification` decision traces (#1099). Reports:
  *   1. how often an over-classification conflict on a non-person author gets a
  *      second pass, and how often that pass throws;
- *   2. which senders land in `awaiting_reply`.
+ *   2. which senders land in `reply`.
  *
  * Why TypeScript, not SQL: `->>` on a missing JSON key returns NULL, so a renamed
  * key makes raw SQL report zero forever. Every key here goes through
@@ -50,7 +50,7 @@ const OVER_CLASSIFICATION: NonNullable<TraceRecord["conflict"]> = "over_classifi
 
 const PERSON_AUTHOR: TraceRecord["effectiveAuthor"] = "person";
 
-const AWAITING_REPLY: TraceRecord["finalCategory"] = "awaiting_reply";
+const AWAITING_REPLY: TraceRecord["finalCategory"] = "reply";
 
 /**
  * CTE of the latest attempt per run in the window. Filter on `decided_at`, which
@@ -161,7 +161,7 @@ async function watchOverClassification(total: number): Promise<void> {
   );
 }
 
-/** Watch 2: senders in `awaiting_reply`. A relay or service sender there is a miss. */
+/** Watch 2: senders in `reply`. A relay or service sender there is a miss. */
 async function watchAwaitingReplySenders(total: number): Promise<void> {
   console.log(`\n## 2. Fresh '${AWAITING_REPLY}' rows, by sender`);
 

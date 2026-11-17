@@ -14,7 +14,10 @@ Why: a present `undefined` binds `NULL` where an absent key takes the column `DE
 ## Bad
 
 ```ts
-interface CreateTodoArgs { title: string; status?: TodoStatus | undefined }
+interface CreateTodoArgs {
+  title: string;
+  status?: TodoStatus | undefined;
+}
 
 await db.insert(todos).values({ userId, title: args.title, status: args.status });
 ```
@@ -24,7 +27,10 @@ When `args.status` is `undefined`, the insert binds `NULL` and does not take the
 ## Good
 
 ```ts
-interface CreateTodoArgs { title: string; status?: TodoStatus }
+interface CreateTodoArgs {
+  title: string;
+  status?: TodoStatus;
+}
 
 await db
   .insert(todos)

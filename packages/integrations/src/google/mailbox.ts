@@ -15,6 +15,7 @@ import {
   modifyThreadLabels,
   startWatch,
   stopWatch,
+  updateLabel,
   type BatchModifyMessagesArgs,
   type CreateLabelArgs,
   type GetAttachmentArgs,
@@ -28,6 +29,7 @@ import {
   type ModifyThreadLabelsArgs,
   type DraftMessageArgs,
   type StartWatchArgs,
+  type UpdateLabelArgs,
 } from "./gmail";
 
 type Unbound<T extends { accessToken: string }> = Omit<T, "accessToken">;
@@ -67,6 +69,8 @@ export function gmailMailboxFor(
     listLabels: async () => listLabels({ accessToken: await accessToken() }),
     createLabel: async (args: Unbound<CreateLabelArgs>) =>
       createLabel({ ...args, accessToken: await accessToken() }),
+    updateLabel: async (args: Unbound<UpdateLabelArgs>) =>
+      updateLabel({ ...args, accessToken: await accessToken() }),
     modifyMessageLabels: async (args: Unbound<ModifyMessageLabelsArgs>): Promise<GmailMessage> =>
       modifyMessageLabels({ ...args, accessToken: await accessToken() }),
     batchModifyMessages: async (args: Unbound<BatchModifyMessagesArgs>) =>

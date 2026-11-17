@@ -89,11 +89,11 @@ const CASES: Case[] = [
     expectCollabActivity: "other_activity",
   },
   {
-    name: "COUNTER — task assigned to the user (must stay action_needed + todo)",
+    name: "COUNTER — task assigned to the user (must stay action)",
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Fix login redirect loop on SSO",
     body: "Akshay Jyothis assigned this task to you.\nDue Jun 14. Priority: High.\nThe SSO login redirects in a loop for enterprise accounts.",
-    expectCategory: ["action_needed"],
+    expectCategory: ["action"],
     expectTodo: true,
     expectCollabActivity: "assigned_to_user",
   },
@@ -102,7 +102,7 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "Deal Merge Flow",
     body: "Akshay Jyothis mentioned you in a comment\n@yash.k can you confirm whether the merge dedupes by external id before we ship? Need your call today.",
-    expectCategory: ["action_needed", "awaiting_reply"],
+    expectCategory: ["action", "reply"],
     expectTodo: true,
     expectCollabActivity: "mentioned_user",
   },
@@ -112,7 +112,7 @@ const CASES: Case[] = [
     from: "Oliv AI <notifications@tasks.clickup.com>",
     subject: "dvd",
     body: "Brain: Done. Created [Fix imports not triggering deal driver messages] in the 26.3 Backlog list.\nView comment or reply to add a comment",
-    expectCategory: ["action_needed", "awaiting_reply"],
+    expectCategory: ["action", "reply"],
     // A real assigned bug (rule 16). It dedupes against the earlier todo by thread.
     expectTodo: true,
     recentMessages: [
@@ -233,7 +233,6 @@ async function main() {
       result = await classifyWithRetry({
         identity: { name: "Yash", email: "yash.k@oliv.ai" },
         // The smoke checks the todo rubric too, so it runs with action items on.
-        proposeTodo: true,
         document,
         mailFacts,
         runPass: runLivePass,

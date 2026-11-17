@@ -341,8 +341,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         mailFacts,
         observations,
         identity: ctxData.identity,
-        // Action items off: the model gets no todo rubric and returns no todo fields.
-        proposeTodo: flags.actionItems,
         runId: ctx.runId,
         stepId: "classify",
         idempotencyKey: ctx.idempotencyKey,
@@ -702,11 +700,11 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
     summary: summarize(summaryTail),
   });
 
-  // Two closers: a user reply, and a payment receipt. A receipt often lands on a
+  // Two closers: a user reply, and a receipt. A receipt often lands on a
   // new thread, so it cannot sit behind the reply gate.
-  const isPaymentTriage = ctx.state.category === "payment";
+  const isReceiptTriage = ctx.state.category === "receipt";
 
-  if (ctx.state.reason !== "reply" && !isPaymentTriage) return done();
+  if (ctx.state.reason !== "reply" && !isReceiptTriage) return done();
 
   // Best-effort from here, flag read included. The label already landed (#1168).
   try {
@@ -756,7 +754,7 @@ export async function runEmailTriageCloseLoopTodos<State extends EmailTriageOper
       }
     }
 
-    if (isPaymentTriage) {
+    if (isReceiptTriage) {
       const payment = await resolvePaymentTodoFromReceipt({
         userId: ctx.userId,
         receiptDocumentId: ctx.state.documentId,
@@ -1022,10 +1020,7 @@ function todoObjectOf(
 
 /** The classify input of one stored mail, and the mailbox it came from. */
 export interface StoredTriageClassifyInput {
-  input: Pick<
-    ClassifyEmailArgs,
-    "userId" | "identity" | "proposeTodo" | "document" | "mailFacts" | "observations"
-  >;
+  input: Pick<ClassifyEmailArgs, "userId" | "identity" | "document" | "mailFacts" | "observations">;
   accountId: string | null;
 }
 
@@ -1049,9 +1044,8 @@ export async function loadStoredTriageClassifyInput(args: {
 
   if (!mailFacts) return null;
 
-  // One bind: the action-items flag and the observation gather share its load.
+  // One bind: the observation gather shares its settings load.
   const userSettings = settings({ userId: args.userId });
-  const flags = await userSettings.flags();
 
   const { observations } = await gatherObservations({
     userId: args.userId,
@@ -1068,7 +1062,6 @@ export async function loadStoredTriageClassifyInput(args: {
     input: {
       userId: args.userId,
       identity: ctxData.identity,
-      proposeTodo: flags.actionItems,
       document: {
         id: document.id,
         title: document.title,

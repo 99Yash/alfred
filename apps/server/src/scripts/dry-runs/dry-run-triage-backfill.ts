@@ -145,7 +145,6 @@ async function main() {
         observations,
         identity: ctxData.identity,
         // This dry run audits the todo rubric, so it asks for a todo whatever the user's flag.
-        proposeTodo: true,
       });
     } catch (err) {
       console.log(`! ${header}\n    classify error (skipped): ${toMessage(err)}\n`);

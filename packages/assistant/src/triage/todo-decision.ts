@@ -1,28 +1,19 @@
 import type { UserSettings } from "@alfred/assistant/settings";
 import type { ActiveStandingInstruction, ReportedStandingInstructionSet } from "../knowledge";
-import {
-  resolveTodoSuggestion,
-  todoSuppressionReason,
-  type AssistDateAnchor,
-  type ResolvedTodoSuggestion,
-  type TodoSuppressionReason,
-  type TriageClassification,
-} from "./classify";
+import type { TriageClassification } from "./classify";
 import type { StandingInstructionMatch } from "./floors";
-import {
-  deriveEffectiveTriage,
-  standingBlockWaitsOn,
-  type EffectiveTriage,
-  type EffectiveTriageRow,
-} from "./effective";
+import { deriveEffectiveTriage, type EffectiveTriage, type EffectiveTriageRow } from "./effective";
 import type { TriageDocumentContext } from "./store";
-import { readGmailThreadClosure, userRepliedAfterMessage } from "./thread-state";
 import type { TriageRunReason } from "./workflow-input";
 
 /**
  * Whether a classify run mints its rail todo (ADR-0050), with the reads that decide it.
  * The classify step and the backfill dry-run both call this, so a replay keeps
  * production's reads, precedence and read-failure policy.
+ *
+ * The classifier's todo rubric left with slice 3; slice 7 returns todos as a follow-up
+ * workflow with its own prompt. The lane mints nothing until then, and the signature
+ * stays so a replay keeps the call shape.
  */
 
 /** Why a proposed todo is not minted, in precedence order. */
@@ -36,13 +27,17 @@ export type TriageTodoSuppression =
   | { kind: "standing_instruction_unknown"; instructions: ActiveStandingInstruction[] }
   /** Fails closed: an unknown instruction must not mint a todo the user blocked. */
   | { kind: "standing_instruction_read_failed"; error: unknown }
-  | { kind: "gate"; reason: TodoSuppressionReason }
+  | { kind: "gate"; reason: string }
   | { kind: "action_items_off" };
 
 export type TriageTodoOutcome =
   | { kind: "none" }
-  | { kind: "mint"; todo: ResolvedTodoSuggestion }
-  | { kind: "suppressed"; todo: ResolvedTodoSuggestion; suppression: TriageTodoSuppression };
+  | { kind: "mint"; todo: { name: string; assist?: string } }
+  | {
+      kind: "suppressed";
+      todo: { name: string; assist?: string };
+      suppression: TriageTodoSuppression;
+    };
 
 /**
  * The whole-thread closure read. Only a reply run reads it, because a reply run may
@@ -110,37 +105,7 @@ export function triageTodoStanding(args: {
   };
 }
 
-/** The classification with the effective category, ask, and todo of the current instructions. */
-function effectiveClassification(
-  classification: TriageClassification,
-  standing: TriageTodoStanding,
-): TriageClassification {
-  const result = standing.kind === "loaded" ? standing.effective.result : null;
-
-  if (!result) return classification;
-
-  return {
-    ...classification,
-    category: result.category,
-    documentAsk: result.documentAsk,
-    todoSuggestion: result.todoSuggestion,
-    todoDecision: result.todoDecision ?? undefined,
-  };
-}
-
-/** A matched block decides first, so an `unknown` one cannot turn it into a wait. */
-function todoStandingRead(standing: TriageTodoStanding): TriageTodoStandingRead {
-  if (standing.kind === "read_failed") return standing;
-
-  const { effective } = standing;
-
-  if (effective.todoBlockedBy) return { kind: "blocked", match: effective.todoBlockedBy };
-
-  const waitingOn = standingBlockWaitsOn(effective, "block_todo_suggestion");
-
-  return waitingOn.length > 0 ? { kind: "waiting", instructions: waitingOn } : { kind: "none" };
-}
-
+/** The todo lane's decision for this run. It mints nothing until slice 7 rebuilds the lane. */
 export async function decideTriageTodo(args: {
   userId: string;
   /** The same user's bind. The caller's step bind, so the zone shares its flag load. */
@@ -158,78 +123,14 @@ export async function decideTriageTodo(args: {
   /** From {@link triageTodoStanding} over the step's one `"report"` load, so both lanes agree. */
   standing: TriageTodoStanding;
 }): Promise<TriageTodoDecision> {
-  const { document } = args;
-  const classification = effectiveClassification(args.classification, args.standing);
-
-  // Read the zone only when a todo is proposed. The step bind usually holds it already.
-  const assistDateAnchor: AssistDateAnchor | null =
-    document.authoredAt && classification.todoSuggestion
-      ? { sentAt: document.authoredAt, timezone: await args.settings.timezone() }
-      : null;
-
-  const todo = resolveTodoSuggestion(classification, assistDateAnchor);
-  const closure = args.reason === "reply" ? await readClosure(args) : { kind: "not_read" as const };
-
-  if (!todo) return { outcome: { kind: "none" }, standingSuppression: { kind: "none" }, closure };
-
-  const standingSuppression = todoStandingRead(args.standing);
-
-  const gateReason = todoSuppressionReason({
-    sender: document.metadata.from ?? null,
-    subject: document.title,
-    signalText: [document.title, document.content, document.metadata.snippet ?? null]
-      .filter(Boolean)
-      .join("\n"),
-    // Not persisted, so absent on a reused row; the tracker-sender regex covers that.
-    collabActivity: classification.collabActivity ?? null,
-    category: classification.category,
-    isColdContact: args.isColdContact,
-    // Per message on purpose. `observations.thread` and `newestDirection` both
-    // read `sent` on a fresh inbound after an old reply and withheld its todo.
-    userRepliedAfterMessage: closure.kind === "read" && closure.documentRepliedAfter,
-  });
-
-  const suppression: TriageTodoSuppression | null =
-    standingSuppression.kind === "blocked"
-      ? { kind: "standing_instruction_matched", match: standingSuppression.match }
-      : standingSuppression.kind === "waiting"
-        ? { kind: "standing_instruction_unknown", instructions: standingSuppression.instructions }
-        : standingSuppression.kind === "read_failed"
-          ? { kind: "standing_instruction_read_failed", error: standingSuppression.error }
-          : gateReason
-            ? { kind: "gate", reason: gateReason }
-            : !args.actionItemsEnabled
-              ? { kind: "action_items_off" }
-              : null;
+  // The classifier's todo rubric left with slice 3; slice 7 returns todos as a follow-up
+  // workflow with its own prompt. The lane mints nothing until then, and it keeps the
+  // signature so a backfill replay keeps the call shape.
+  void args;
 
   return {
-    outcome: suppression ? { kind: "suppressed", todo, suppression } : { kind: "mint", todo },
-    standingSuppression,
-    closure,
+    outcome: { kind: "none" },
+    standingSuppression: { kind: "none" },
+    closure: { kind: "not_read" },
   };
-}
-
-async function readClosure(args: {
-  userId: string;
-  sourceThreadId: string;
-  document: { authoredAt: Date | null };
-}): Promise<TriageThreadClosureRead> {
-  try {
-    // Read the whole thread, so a fresh inbound after an old reply still counts as open.
-    const closure = await readGmailThreadClosure({
-      userId: args.userId,
-      sourceThreadId: args.sourceThreadId,
-    });
-
-    return {
-      kind: "read",
-      userAlreadyReplied: closure.userHasReplied,
-      documentRepliedAfter: userRepliedAfterMessage(
-        closure.lastUserReplyAt,
-        args.document.authoredAt,
-      ),
-    };
-  } catch (error) {
-    return { kind: "read_failed", error };
-  }
 }

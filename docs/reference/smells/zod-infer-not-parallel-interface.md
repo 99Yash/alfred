@@ -14,8 +14,12 @@ Why: the schema is the source of the type. Example: `SetPreferenceArgs` in `pack
 ## Bad
 
 ```ts
-export const setPreferenceArgsSchema = userPreferenceInsertSchema
-  .pick({ userId: true, key: true, value: true, source: true });
+export const setPreferenceArgsSchema = userPreferenceInsertSchema.pick({
+  userId: true,
+  key: true,
+  value: true,
+  source: true,
+});
 
 export interface SetPreferenceArgs {
   userId: string;
@@ -28,8 +32,12 @@ export interface SetPreferenceArgs {
 ## Good
 
 ```ts
-export const setPreferenceArgsSchema = userPreferenceInsertSchema
-  .pick({ userId: true, key: true, value: true, source: true });
+export const setPreferenceArgsSchema = userPreferenceInsertSchema.pick({
+  userId: true,
+  key: true,
+  value: true,
+  source: true,
+});
 
 export type SetPreferenceArgs = z.infer<typeof setPreferenceArgsSchema>;
 ```

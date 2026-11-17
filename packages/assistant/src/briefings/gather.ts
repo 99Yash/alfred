@@ -92,23 +92,22 @@ import { logger } from "@alfred/logging";
 
 /**
  * Inbox briefing data (ADR-0025 #2). Only priority categories are listed;
- * the rest are counted ("+12 newsletters"). `urgent` comes first so it is never buried.
+ * the rest are counted ("+12 news"). `urgent` comes first so it is never buried.
  */
 
 const PRIORITY_CATEGORIES = [
   "urgent",
-  "action_needed",
-  "follow_up",
-  "awaiting_reply",
+  "action",
+  "reply",
   "meeting",
-  "payment",
+  "receipt",
 ] as const satisfies readonly TriageCategory[];
 
 const SUPPRESSED_CATEGORIES = [
   "fyi",
   "done",
-  "newsletter",
-  "marketing",
+  "news",
+  "promo",
 ] as const satisfies readonly TriageCategory[];
 
 export type PriorityCategory = (typeof PRIORITY_CATEGORIES)[number];
@@ -320,18 +319,17 @@ export async function gatherBriefingDigest(
 
   const buckets = {
     urgent: newPriorityBucket(),
-    action_needed: newPriorityBucket(),
-    follow_up: newPriorityBucket(),
-    awaiting_reply: newPriorityBucket(),
+    action: newPriorityBucket(),
+    reply: newPriorityBucket(),
     meeting: newPriorityBucket(),
-    payment: newPriorityBucket(),
+    receipt: newPriorityBucket(),
   };
 
   const suppressedCounts = {
     fyi: 0,
     done: 0,
-    newsletter: 0,
-    marketing: 0,
+    news: 0,
+    promo: 0,
   };
 
   const suppressedByInstruction: BriefingInstructionSuppression[] = [];

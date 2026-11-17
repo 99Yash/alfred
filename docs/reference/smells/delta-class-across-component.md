@@ -24,7 +24,12 @@ Why: the delta classes sit in `@layer components`, so the utility wins, and the 
 ## Good
 
 ```tsx
-<FrostButton tone="light" size="lg" className="hover:not-active:scale-[1.04]" onClick={onGetStarted}>
+<FrostButton
+  tone="light"
+  size="lg"
+  className="hover:not-active:scale-[1.04]"
+  onClick={onGetStarted}
+>
   Get started
 </FrostButton>
 ```

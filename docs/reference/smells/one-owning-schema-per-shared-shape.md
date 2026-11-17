@@ -20,7 +20,10 @@ export async function readIntegrationStatus(userId: string) {
 }
 
 // web: a second copy of the same shape
-interface IntegrationStatusResponse { integrations: IntegrationMap; alerts: Alert[] }
+interface IntegrationStatusResponse {
+  integrations: IntegrationMap;
+  alerts: Alert[];
+}
 ```
 
 ## Good

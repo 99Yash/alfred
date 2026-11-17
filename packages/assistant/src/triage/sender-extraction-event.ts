@@ -36,14 +36,6 @@ export const FLOOR_TRACE_PROJECTIONS = {
     /** It also forced `urgent`. */
     floorForced: audit?.verdict.kind === "escalate",
   }),
-  senderKind: (audit) => ({
-    senderKindDemotedCategory: audit?.verdict.kind === "demote",
-    senderKindDemotionReason: audit?.reason ?? null,
-  }),
-  meeting: (audit) => ({
-    meetingDemotedCategory: audit?.verdict.kind === "demote",
-    meetingDemotionReason: audit?.reason ?? null,
-  }),
 } satisfies { [K in keyof FloorAudits]: FloorTraceProjection<K> };
 
 type UnionToIntersection<U> = (U extends unknown ? (of: U) => void : never) extends (
@@ -65,8 +57,6 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
 
   return {
     ...project.override(floors?.override ?? null),
-    ...project.senderKind(floors?.senderKind ?? null),
-    ...project.meeting(floors?.meeting ?? null),
   };
 }
 
@@ -76,7 +66,7 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
  * queries still count the same thing.
  */
 interface StandingTraceFields {
-  /** The model verdict was `urgent` or `action_needed`, and the effective category is neither. */
+  /** The model verdict was `urgent` or `action`, and the effective category is neither. */
   standingDemotedCategory: boolean;
   /**
    * `demoted_demand_lane`, `held_secret_lane` (the exposed-secret signal held a lowering

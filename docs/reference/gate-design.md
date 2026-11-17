@@ -12,13 +12,13 @@ Each rule has its enforcement status in one place:
 
 A rule that holds several edits together needs a mechanism. Name the mechanism, because it decides whether the gap is closed.
 
-| Tier | Mechanism | Effect |
-| --- | --- | --- |
-| 1 | Static enforcement | Types, lint, or a boundary check reject the wrong structure before runtime. |
-| 2 | Runtime validation | The wrong value cannot enter or persist. |
-| 3 | Centralized ownership | One place owns the fact or the operation. |
-| 4 | Tests | A test detects divergence after it occurs. |
-| 5 | Convention or documentation | A document asks people not to diverge. |
+| Tier | Mechanism                   | Effect                                                                      |
+| ---- | --------------------------- | --------------------------------------------------------------------------- |
+| 1    | Static enforcement          | Types, lint, or a boundary check reject the wrong structure before runtime. |
+| 2    | Runtime validation          | The wrong value cannot enter or persist.                                    |
+| 3    | Centralized ownership       | One place owns the fact or the operation.                                   |
+| 4    | Tests                       | A test detects divergence after it occurs.                                  |
+| 5    | Convention or documentation | A document asks people not to diverge.                                      |
 
 Only tiers 1 to 3 close a structural gap. A test detects drift after it occurs. A convention only asks. The tiers do not replace each other: a static type cannot validate untrusted runtime data, and an owner does not stop a bypass unless a check closes the other doors. Use the earliest tier that can state the rule. Combine tiers when the rule crosses a static, runtime and ownership boundary.
 
@@ -33,12 +33,12 @@ Examples in this tree:
 
 Take the first rung that can state the rule. Each lower rung reads less of the program, so it misses more cases.
 
-| Rung | Instrument | States | Fails |
-| --- | --- | --- | --- |
-| 1 | The compiler: types, `tsc` flags | which values a function accepts, which cases a mapping must cover | `pnpm check-types` |
-| 2 | Type-aware lint: `typescript/*` in `.oxlintrc.json`, run through tsgolint | a fact that needs the type of an expression but is not a signature | `pnpm lint` |
-| 3 | AST rule: `scripts/oxlint/alfred/` | scope, nesting, binding, data flow inside one file | `pnpm lint` |
-| 4 | Regex row: `scripts/consolidation-rules.mjs` | one identifier, one call spelling, or one import specifier, on one line | `pnpm check:consolidation` |
+| Rung | Instrument                                                                | States                                                                  | Fails                      |
+| ---- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------- |
+| 1    | The compiler: types, `tsc` flags                                          | which values a function accepts, which cases a mapping must cover       | `pnpm check-types`         |
+| 2    | Type-aware lint: `typescript/*` in `.oxlintrc.json`, run through tsgolint | a fact that needs the type of an expression but is not a signature      | `pnpm lint`                |
+| 3    | AST rule: `scripts/oxlint/alfred/`                                        | scope, nesting, binding, data flow inside one file                      | `pnpm lint`                |
+| 4    | Regex row: `scripts/consolidation-rules.mjs`                              | one identifier, one call spelling, or one import specifier, on one line | `pnpm check:consolidation` |
 
 A fact that is not about source code goes to a check script. Examples: a document (`check:pr-body`, `check:plan-status`), a config (`check:oxlint-config`), a manifest or the bundle graph (`check:web-boundaries`, `check:web-bundle-graph`), or reachability (`check:knip`).
 
@@ -63,7 +63,8 @@ interface UseTheRegistryNotThisFunction {
   readonly "Use INTEGRATION_DISPLAY_NAMES[slug]": never;
 }
 export function format<S extends string>(
-  value: S & ([Extract<S, IntegrationSlug>] extends [never] ? unknown : UseTheRegistryNotThisFunction),
+  value: S &
+    ([Extract<S, IntegrationSlug>] extends [never] ? unknown : UseTheRegistryNotThisFunction),
 ): string {
   /* … */
 }
@@ -112,7 +113,7 @@ A gate built on a declared list proves only the rows in the list, not the next i
 
 A suppression says "this line is the one exception". The gates check its form. Review checks that its reason is still true.
 
-- Name each rule in the spelling that the config uses, and give the reason after ` -- `. The `suppression-without-reason` row enforces this.
+- Name each rule in the spelling that the config uses, and give the reason after `--`. The `suppression-without-reason` row enforces this.
 - `pnpm lint` runs with `--report-unused-disable-directives-severity=error`, so a directive that suppresses nothing fails the build. Delete it. Do not keep a directive "in case the rule comes back".
 - An `overrides` entry that turns a rule `"off"` for authored source needs an `// oxlint-disarm: <rule> — <why>` comment beside the key. `pnpm check:oxlint-config` enforces this, except in test and eval scopes, where a blanket `"off"` is correct.
 - An override REPLACES the options of a rule. A scoped `no-restricted-imports` entry therefore restates each root group, or names an omitted group with an `oxlint-omission:` marker.

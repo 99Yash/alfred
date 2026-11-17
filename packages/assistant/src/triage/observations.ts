@@ -65,7 +65,7 @@ export interface ContentFlags {
   hasCurrencyAmount: boolean;
   /**
    * Broad security vocabulary; every vendor auth echo sets it. A hint only:
-   * no deterministic path may turn it into `urgent` or `action_needed`.
+   * no deterministic path may turn it into `urgent` or `action`.
    */
   hasSecurityKeyword: boolean;
   hasCalendarInvite: boolean;

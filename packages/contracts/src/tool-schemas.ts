@@ -535,8 +535,8 @@ export const rememberInput = coerceJsonArrayFields(
         .array(z.enum(STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS))
         .max(STANDING_INSTRUCTION_CAPTURE_EFFECT_KINDS.length)
         .describe(
-          "Only the effects the words ask for. demote_urgent: urgent becomes action_needed. " +
-            "demote_demand: urgent and action_needed become fyi. demote_meeting: meeting mail " +
+          "Only the effects the words ask for. demote_urgent: urgent becomes action. " +
+            "demote_demand: urgent and action become fyi. demote_meeting: meeting mail " +
             "becomes fyi. force_category: always `forceCategory`. block_todo_suggestion: no " +
             "todo. exclude_briefing_priority: not a briefing priority. block_reply_draft: no " +
             "proactive draft. Can be empty: the words then stay prose for later model readers. " +

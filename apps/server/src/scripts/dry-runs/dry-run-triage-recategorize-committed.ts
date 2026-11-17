@@ -104,9 +104,8 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
       continue;
     }
 
-    // One bind: the action-items flag and the gather share its load, as in the live step.
+    // One bind: the gather shares its settings load, as in the live step.
     const userSettings = settings({ userId: u.userId });
-    const flags = await userSettings.flags();
 
     const { observations } = await gatherObservations({
       userId: u.userId,
@@ -135,7 +134,6 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
         mailFacts,
         observations,
         identity: ctxData.identity,
-        proposeTodo: flags.actionItems,
       });
 
       newCategory = classification.category;

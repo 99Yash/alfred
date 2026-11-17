@@ -129,9 +129,7 @@ function argsFor(
 
   return {
     identity: USER,
-    // Prod runs with action items off, and the theory moves todos out of triage (slice 7).
-    proposeTodo: false,
-    // The floors read this row (slice 3 deletes them); the prompt reads `mailFacts`.
+    // The floors read this row; the prompt reads `mailFacts`.
     document: {
       id,
       title: mail.subject,

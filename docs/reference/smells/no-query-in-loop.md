@@ -28,7 +28,12 @@ Each key costs two queries, so a read that proposes hundreds of keys holds the p
 
 ```ts
 for (const group of exactByGroup.values()) {
-  const resolved = await store.resolveByKeys(args.userId, group.provider, group.keyKind, group.keys.map((key) => key.keyValue));
+  const resolved = await store.resolveByKeys(
+    args.userId,
+    group.provider,
+    group.keyKind,
+    group.keys.map((key) => key.keyValue),
+  );
   for (const key of group.keys) {
     const ref = resolved.get(key.keyValue);
     if (ref) refByKey.set(candidateIdentity(key), ref);

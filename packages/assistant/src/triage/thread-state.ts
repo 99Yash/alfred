@@ -155,21 +155,8 @@ export interface GmailThreadClosure {
   userHasReplied: boolean;
   /** For logs. */
   newestDirection: ThreadState["newestDirection"];
-  /** Read through {@link userRepliedAfterMessage} for the mint. */
+  /** Read with {@link readGmailThreadClosure}; the todo lane compares it itself. */
   lastUserReplyAt: Date | null;
-}
-
-/**
- * The user's newest send is newer than this message. Use this, not
- * `newestDirection === "sent"`, which flips on the next inbound. No date means false.
- */
-export function userRepliedAfterMessage(
-  lastUserReplyAt: Date | null,
-  messageAuthoredAt: Date | null,
-): boolean {
-  return (
-    lastUserReplyAt != null && messageAuthoredAt != null && lastUserReplyAt > messageAuthoredAt
-  );
 }
 
 export async function readGmailThreadClosure(args: {
