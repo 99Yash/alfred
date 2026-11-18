@@ -1,3 +1,36 @@
+diff --git a/lib/ServiceProvider.js b/lib/ServiceProvider.js
+index ef7fafd01ac770f5c7369b32888f620df9417cd7..6d1bff98422ceaa4f8526074522aa649ad86dff7 100644
+--- a/lib/ServiceProvider.js
++++ b/lib/ServiceProvider.js
+@@ -306,10 +306,10 @@ const waitForDeployment = (environmentId, serviceId) => Effect.gen(function* ()
+     return yield* new ServiceDeployPending({ serviceId, status: status ?? "pending" });
+ }).pipe(Effect.retry({
+     while: (e) => e._tag === "Railway.ServiceDeployPending",
+-    times: 15,
++    times: 60,
+     schedule: Schedule.spaced("10 seconds"),
+ }), Effect.timeoutOrElse({
+-    duration: "150 seconds",
++    duration: "600 seconds",
+     orElse: () => Effect.fail(new ServiceDeployPending({ serviceId, status: "pending" })),
+ }));
+ const asDeployRef = (row) => row === undefined ? undefined : { id: row.id, status: row.status ?? undefined };
+@@ -355,13 +355,13 @@ const waitForDeploymentById = (input) => Effect.gen(function* () {
+     });
+ }).pipe(Effect.retry({
+     while: (e) => e._tag === "Railway.ServiceDeployPending",
+-    times: 15,
++    times: 60,
+     schedule: Schedule.spaced("10 seconds"),
+ }), 
+ // Surface the budget as a pending deploy so the final check below still
+ // reports a ready instance, or a failed deploy with its logs.
+ Effect.timeoutOrElse({
+-    duration: "150 seconds",
++    duration: "600 seconds",
+     orElse: () => Effect.fail(new ServiceDeployPending({ serviceId: input.serviceId, status: "pending" })),
+ }), Effect.catchTag("Railway.ServiceDeployPending", (pending) => Effect.gen(function* () {
+     const instance = yield* getInstance(input.environmentId, input.serviceId);
 diff --git a/lib/local-context.js b/lib/local-context.js
 index 24403a5bd306abf1f277c5cbd59942e227101db3..751e9d485de11519628ab8dae910d9d6fab7641d 100644
 --- a/lib/local-context.js
@@ -90,6 +123,40 @@ index 24403a5bd306abf1f277c5cbd59942e227101db3..751e9d485de11519628ab8dae910d9d6
      let copiedSize = 2 * TAR_BLOCK_BYTES;
      let copiedEntries = 0;
      for (const entry of entries) {
+diff --git a/src/ServiceProvider.ts b/src/ServiceProvider.ts
+index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..bee919db87974643c4d3f84ea2249ee162d186cc 100644
+--- a/src/ServiceProvider.ts
++++ b/src/ServiceProvider.ts
+@@ -553,11 +553,11 @@ const waitForDeployment = (environmentId: string, serviceId: string) =>
+   }).pipe(
+     Effect.retry({
+       while: (e) => e._tag === "Railway.ServiceDeployPending",
+-      times: 15,
++      times: 60,
+       schedule: Schedule.spaced("10 seconds"),
+     }),
+     Effect.timeoutOrElse({
+-      duration: "150 seconds",
++      duration: "600 seconds",
+       orElse: () => Effect.fail(new ServiceDeployPending({ serviceId, status: "pending" })),
+     }),
+   );
+@@ -638,13 +638,13 @@ const waitForDeploymentById = (input: {
+   }).pipe(
+     Effect.retry({
+       while: (e) => e._tag === "Railway.ServiceDeployPending",
+-      times: 15,
++      times: 60,
+       schedule: Schedule.spaced("10 seconds"),
+     }),
+     // Surface the budget as a pending deploy so the final check below still
+     // reports a ready instance, or a failed deploy with its logs.
+     Effect.timeoutOrElse({
+-      duration: "150 seconds",
++      duration: "600 seconds",
+       orElse: () =>
+         Effect.fail(new ServiceDeployPending({ serviceId: input.serviceId, status: "pending" })),
+     }),
 diff --git a/src/local-context.ts b/src/local-context.ts
 index 3e6a6d640a3d4f1b66841602516e12c141b9a0e3..91ac094d974721004d93504a7590b1a92cc0ad9d 100644
 --- a/src/local-context.ts
