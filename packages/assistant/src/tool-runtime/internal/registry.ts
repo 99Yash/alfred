@@ -21,6 +21,7 @@ import type {
 import {
   ASK_USER_TOOL,
   buildToolName,
+  CODE_RUN_TOOL,
   builtInMCPProvidersAdmittedBy,
   INTEGRATION_ACTIONS,
   INTEGRATION_DISPLAY_NAMES,
@@ -68,8 +69,10 @@ interface ToolAvailabilityMetadata {
    */
   passthrough?: true;
   /**
-   * Available only when the user's ADR-0124 flag (`codeModeReadPath`) is on. Only
-   * `system.code_run` declares it. Off reads as `feature_disabled`, which the model never sees.
+   * Available only in a `code_run` run (`ToolRunContext.readPath`). Only `system.code_run`
+   * declares it. The user's ADR-0124 flag (`codeModeReadPath`) decides the read path when a chat
+   * run starts, and the pin rules the run (owner, 2026-11-17). So this gate reads the run context,
+   * never the live flag: a flag turned off mid-run cannot strand a pinned run.
    */
   codeModeReadPath?: true;
 }
@@ -150,7 +153,10 @@ export interface ToolExecuteContext {
 export interface HostReadRequest {
   toolName: ToolName;
   input: unknown;
-  /** `run`'s one-based request order. The nested call's id is `<toolCallId>#<requestIndex>`. */
+  /**
+   * `run`'s one-based request order. The ledger and the span read it. The nested call's id does
+   * not: a restart can give the same position to a different request (see `dispatchHostRead`).
+   */
   requestIndex: number;
 }
 
@@ -306,6 +312,12 @@ export interface ToolArgsCommon<
    */
   refuseProposal?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<string | null>;
   /**
+   * For a tool that reads or writes by its input (`mcp.call`): whether this call only reads, from
+   * durable state. A `code_run` run sends a read with no card into a script (ADR-0124). A
+   * `codeModeRead` tool is always a read and declares none. Must be side-effect free.
+   */
+  selectsRead?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<boolean>;
+  /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
    */
@@ -377,6 +389,8 @@ export interface BoundToolCall {
   input: unknown;
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
+  /** A `codeModeRead` tool, or {@link LiveToolArgs.selectsRead}. `false` when neither applies. */
+  isRead: (ctx: ToolExecuteContext) => Promise<boolean>;
   /** See {@link LiveToolArgs.refuseProposal}. `null` when the tool declares none. */
   proposalRefusal: ((ctx: ToolExecuteContext) => Promise<string | null>) | null;
   /**
@@ -485,16 +499,56 @@ export function evaluateToolRunContext(
     };
   }
 
+  return evaluateReadPath(tool, context);
+}
+
+/**
+ * ADR-0124 decision 1: a run has one read path. In a `code_run` run, a read runs inside
+ * `system.code_run`. In every other run, `system.code_run` is absent. The nested dispatch of a
+ * script read runs as `code_run_host`, so the read passes.
+ *
+ * One exception (owner, 2026-11-17): a read that the gate holds for a card runs as a direct call
+ * with its card, because a script cannot show one. This gate is static, so it hides only a read
+ * that can never wait for approval. Dispatch refuses a direct call of any other read that would
+ * run with no card (`refuseScriptableDirectRead` in the pipeline).
+ */
+function evaluateReadPath(tool: RegisteredTool, context: ToolRunContext): ToolAvailabilityResult {
+  if (tool.codeModeRead && context.readPath === "code_run" && !toolCanWaitForApproval(tool)) {
+    return {
+      available: false,
+      code: "wrong_caller",
+      reason: `In this chat, ${tool.name} runs only inside system.code_run. Call it there as ${tool.name}(input).`,
+    };
+  }
+
+  // `not_allowed`, so search never offers it: this run reads through its direct tools.
+  if (tool.availability?.codeModeReadPath && context.readPath !== "code_run") {
+    return {
+      available: false,
+      code: "not_allowed",
+      reason: "Only a chat that reads through scripts can use this tool.",
+    };
+  }
+
   return { available: true };
+}
+
+/**
+ * Whether any call of `tool` can meet an approval card. `fast_path` and `join` return before the
+ * gate. A `system` tool resolves to autonomy, so only the `high` tier or a dynamic tier or rule
+ * can gate it. Every other integration has a policy rule that the user can set to Gated.
+ */
+export function toolCanWaitForApproval(tool: RegisteredTool): boolean {
+  if (tool.staging === "fast_path" || tool.staging === "join") return false;
+
+  if (tool.integration !== "system") return true;
+
+  return tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyIntegration;
 }
 
 /** Whether connection state can change this tool's availability result. */
 export function readsAvailabilitySnapshot(tool: RegisteredTool): boolean {
-  return (
-    tool.availability?.passthrough === true ||
-    tool.availability?.codeModeReadPath === true ||
-    isLoadableIntegrationSlug(tool.integration)
-  );
+  return tool.availability?.passthrough === true || isLoadableIntegrationSlug(tool.integration);
 }
 
 function evaluateSnapshotGates(
@@ -515,14 +569,6 @@ function evaluateSnapshotGates(
         reason: `${name} raw API access is turned off. Enable it under Settings → Features to use this tool.`,
       };
     }
-  }
-
-  if (tool.availability?.codeModeReadPath && snapshot.codeModeReadPath !== true) {
-    return {
-      available: false,
-      code: "feature_disabled",
-      reason: "Code Mode reads are turned off for this user.",
-    };
   }
 
   if (isLoadableIntegrationSlug(tool.integration)) {
@@ -720,8 +766,18 @@ export function liveTool<
 >(args: LiveToolArgs<I, A, S, boolean, O> | PassthroughToolArgs<I, A, S, boolean>): RegisteredTool {
   const name = buildToolName(args.integration, args.action);
 
-  const { redactInput, resolveRiskTier, resolvePolicyIntegration, refuseInput, refuseProposal } =
-    args;
+  const {
+    redactInput,
+    resolveRiskTier,
+    resolvePolicyIntegration,
+    refuseInput,
+    refuseProposal,
+    selectsRead,
+  } = args;
+
+  if (selectsRead && args.codeModeRead) {
+    throw new Error(`[tools] '${name}' is a codeModeRead tool, so it must not declare selectsRead`);
+  }
 
   // Only a gated call writes a staging row, so on any other policy the check would never run.
   if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
@@ -793,6 +849,8 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
+          isRead: async (ctx) =>
+            args.codeModeRead === true || ((await selectsRead?.(input, ctx)) ?? false),
           proposalRefusal: refuseProposal ? (ctx) => refuseProposal(input, ctx) : null,
           effectiveRiskTier: async (ctx) =>
             resolveRiskTier
@@ -889,7 +947,7 @@ export function registerTool(tool: RegisteredTool): void {
     }
   }
 
-  if (tool.availability?.codeModeReadPath && tool.name !== "system.code_run") {
+  if (tool.availability?.codeModeReadPath && tool.name !== CODE_RUN_TOOL) {
     throw new Error(`[tools] only 'system.code_run' may declare availability.codeModeReadPath`);
   }
 

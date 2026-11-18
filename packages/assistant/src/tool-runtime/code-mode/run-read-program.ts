@@ -8,7 +8,7 @@
  */
 
 import { getHostFunctionContext, run, RunError, type HostFunctions, type RunLimits } from "run";
-import { isJsonObject, toJsonValue, type JsonValue } from "@alfred/contracts";
+import { isJsonObject, isRecord, toJsonValue, type JsonValue } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import type { HostReadOutcome, HostReadRefusal } from "../internal/registry";
 
@@ -57,7 +57,11 @@ export type ReadProgramOutcome =
 /**
  * The read path's limits. The wall clock stays under the 180 s chat turn ceiling. The result cap
  * is far below `run`'s 1 MiB: only the return value reaches the model, so a script trims first.
- * Eight reads in flight keeps one `Promise.all` from opening 32 dispatches at once.
+ *
+ * `run` ends the whole script when its in-flight limit is reached, and a guest `catch` cannot
+ * stop that (measured on run@2.1.13: the ninth of nine parallel reads ended the script). So
+ * `run`'s in-flight limit equals the total, and the host queues reads instead
+ * ({@link HOST_READS_IN_FLIGHT}).
  */
 export const READ_PROGRAM_LIMITS = {
   timeoutMs: 90_000,
@@ -65,8 +69,11 @@ export const READ_PROGRAM_LIMITS = {
   memoryLimitBytes: 64 * 1024 * 1024,
   maxResultBytes: 64 * 1024,
   maxBridgeRequests: 256,
-  maxInFlightBridgeRequests: 8,
+  maxInFlightBridgeRequests: 256,
 } as const satisfies RunLimits;
+
+/** Host reads that dispatch at once. One `Promise.all` cannot open 32 dispatches; the rest wait. */
+export const HOST_READS_IN_FLIGHT = 8;
 
 export async function runReadProgram(args: {
   source: string;
@@ -75,12 +82,27 @@ export async function runReadProgram(args: {
   runId: string;
 }): Promise<ReadProgramOutcome> {
   const ledger: ReadProgramLedgerEntry[] = [];
+  const slots = new HostReadSlots(HOST_READS_IN_FLIGHT);
+
+  // After `run` returns, no queued read may start: the script that asked for it has ended.
+  const outcome = await runScript(args, ledger, slots).finally(() => slots.close());
+
+  // A read in flight at that time can still settle and push to `ledger`. Dispatch takes no
+  // abort signal, so it runs to its own deadline. The outcome keeps the ledger as at return.
+  return { ...outcome, ledger: [...ledger] };
+}
+
+async function runScript(
+  args: { source: string; hosts: readonly HostBinding[]; runId: string },
+  ledger: ReadProgramLedgerEntry[],
+  slots: HostReadSlots,
+): Promise<ReadProgramOutcome> {
   const limits = READ_PROGRAM_LIMITS;
 
   try {
     const result = await run({
       source: args.source,
-      hostFunctions: hostFunctions(args.hosts, ledger),
+      hostFunctions: hostFunctions(args.hosts, ledger, slots),
       limits,
     });
 
@@ -102,6 +124,7 @@ export async function runReadProgram(args: {
 function hostFunctions(
   bindings: readonly HostBinding[],
   ledger: ReadProgramLedgerEntry[],
+  slots: HostReadSlots,
 ): HostFunctions {
   const groups = new Map<string, Map<string, (...guestArgs: never[]) => Promise<JsonValue>>>();
 
@@ -116,12 +139,58 @@ function hostFunctions(
       groups.get(group) ?? new Map<string, (...guestArgs: never[]) => Promise<JsonValue>>();
 
     groups.set(group, members);
-    members.set(name, async (...guestArgs: unknown[]) => callHost(binding, guestArgs, ledger));
+    members.set(name, async (...guestArgs: unknown[]) =>
+      slots.run(() => callHost(binding, guestArgs, ledger)),
+    );
   }
 
   return Object.fromEntries(
     [...groups].map(([group, members]) => [group, Object.fromEntries(members)]),
   );
+}
+
+/**
+ * A queue that runs at most `size` host reads at once, in arrival order. `close` ends the queue
+ * when the script ends: each waiting read and each later request is refused, not started.
+ */
+class HostReadSlots {
+  #free: number;
+  #closed = false;
+  readonly #waiting: { start: () => void; refuse: (error: RunError) => void }[] = [];
+
+  constructor(size: number) {
+    this.#free = size;
+  }
+
+  async run<T>(read: () => Promise<T>): Promise<T> {
+    if (this.#closed) throw scriptEnded();
+
+    if (this.#free > 0) this.#free -= 1;
+    else {
+      await new Promise<void>((start, refuse) => this.#waiting.push({ start, refuse }));
+    }
+
+    try {
+      return await read();
+    } finally {
+      // Hand the slot to the next waiter, or free it.
+      const next = this.#waiting.shift();
+
+      if (next) next.start();
+      else this.#free += 1;
+    }
+  }
+
+  close(): void {
+    this.#closed = true;
+
+    for (const waiter of this.#waiting.splice(0)) waiter.refuse(scriptEnded());
+  }
+}
+
+/** The guest never sees it: `run` has returned, and the read must not start. */
+function scriptEnded(): RunError {
+  return new RunError("The script ended before this read started.", "RUN_ABORTED");
 }
 
 async function callHost(
@@ -194,11 +263,7 @@ function failureFromRunError(
         ledger,
       );
     case "RUN_BRIDGE_LIMIT":
-      return failure(
-        "too_many_calls",
-        `The script made more than ${limits.maxBridgeRequests ?? "the allowed"} reads.`,
-        ledger,
-      );
+      return failure("too_many_calls", bridgeLimitMessage(error, limits), ledger);
     case "RUN_SOURCE_TOO_LARGE":
       return failure("source_too_large", "The script source is too long.", ledger);
     case "RUN_SERIALIZATION_ERROR":
@@ -226,6 +291,21 @@ function failureFromRunError(
 
       return failure("internal", "The sandbox failed. This is not a fault of the script.", ledger);
   }
+}
+
+/** `run` uses one code for three limits. Its `details` names the limit that the script reached. */
+function bridgeLimitMessage(error: RunError, limits: RunLimits): string {
+  const has = (key: string) => isRecord(error.details) && key in error.details;
+
+  if (has("maxBridgeRequests")) {
+    return `The script made more than ${limits.maxBridgeRequests ?? "the allowed"} reads. Make fewer reads, or split the job.`;
+  }
+
+  if (has("maxInFlightBridgeRequests")) {
+    return `The script had more than ${limits.maxInFlightBridgeRequests ?? "the allowed"} reads waiting at once.`;
+  }
+
+  return `One read's arguments or result was too large for the sandbox bridge: ${error.message}`;
 }
 
 function failure(

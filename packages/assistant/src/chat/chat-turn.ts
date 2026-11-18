@@ -9,7 +9,7 @@ import {
 } from "@alfred/ai";
 import { composeAgentInstructions } from "@alfred/ai/voice";
 import { ARTIFACT_DESIGN_PROMPT } from "@alfred/artifacts-design";
-import type { ToolRunContext } from "@alfred/contracts";
+import { CODE_RUN_TOOL, type ToolRunContext } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { CHAT_TURN_WORKFLOW_SLUG, chatMessages } from "@alfred/db/schemas";
 import { and, asc, eq } from "drizzle-orm";
@@ -73,6 +73,7 @@ import {
   foldResumedPark,
   fullAssistantText,
   interruptChatRun,
+  type ChatReadPath,
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
@@ -109,7 +110,11 @@ function chatToolRunIdentity(
     runId: ctx.runId,
     workflow: CHAT_TURN_WORKFLOW_SLUG,
     caller: "boss",
-    runContext: CHAT_TOOL_RUN_CONTEXT,
+    // ADR-0124: the read path pinned at run start. Absent before the pin, or on an older run.
+    runContext:
+      state.readPath === "code_run"
+        ? { ...CHAT_TOOL_RUN_CONTEXT, readPath: "code_run" }
+        : CHAT_TOOL_RUN_CONTEXT,
     chat: { threadId: state.threadId, messageId: state.messageId },
     approvalThreadId: state.threadId,
     scratchpadRunId: ctx.runId,
@@ -187,22 +192,38 @@ const ARTIFACT_SYSTEM_GUIDANCE = [
   "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
 ].join("\n");
 
+/**
+ * ADR-0124 decisions 1 and 7, for a `code_run` run. The base prompt names the read tools, so this
+ * block maps each of them into the script. `system.code_run` holds the script rules and the index.
+ */
+const CODE_RUN_READ_GUIDANCE = [
+  "How you read in this chat:",
+  "- Every read runs inside system.code_run: one script that calls read tools as async functions and returns only what the answer needs. Where these instructions name a read tool (system.read_user_context, system.search_context, system.read_chat_history, system.web_search, system.fetch_url, or a read of a connected service), call it inside the script by the same name. A direct call of a read that needs no approval is refused.",
+  "- Put the reads of one step in one script. Run reads that do not depend on each other together with Promise.all (the host runs at most 8 at a time and queues the rest), keep the fields you need, and return a small result. Never spend one model step on each item of a list.",
+  "- A read of a connected service is mcp.read(ref, args) inside the script. system.search_tools returns such a hit as system.code_run with hostFunction mcp.read and its exact ref, and mcp.list_tools inside the script finds one too. A curated read hit comes back as system.code_run with hostFunction set to the tool name.",
+  "- Writes stay direct tool calls, and so do sub-agents, questions, and artifacts. A write to a connected service still goes through mcp.call.",
+  "- A read that waits for the user's approval is the exception: a script cannot show the approval card, so call that read directly, and the user approves it on the card. The connected list marks these reads, system.search_tools returns them under their direct name, and a script read that fails with needs_approval names the direct call.",
+].join("\n");
+
 export function buildChatSystemPrompt(
   grounding: string,
   connectedSummary: string,
   selfIdentity: string,
+  readPath: ChatReadPath = "direct",
 ): string {
   // Chat passes no date: a date in the cached prefix goes stale when a parked run
   // resumes after midnight. Its "now" rides `formatRuntimeTimeGrounding` instead.
   // Evals and other single-turn callers may still pass one.
   const dateLine = grounding ? `The current date is ${grounding}.` : "";
+  const readRules = readPath === "code_run" ? [CODE_RUN_READ_GUIDANCE] : [];
 
   // Order is for the cache (#223): constant rules first, the catalog last (ADR-0077).
-  // `selfIdentity` is snapshotted into run state, so a redeploy cannot break the prompt pin.
+  // `selfIdentity` and `readPath` are pinned in run state, so a redeploy or a flag change
+  // cannot break the prompt pin.
   return composeAgentInstructions({
     purpose: "assistant_response",
     role: CHAT_SYSTEM_PROMPT_BASE,
-    rules: [ARTIFACT_SYSTEM_GUIDANCE, ARTIFACT_DESIGN_PROMPT],
+    rules: [...readRules, ARTIFACT_SYSTEM_GUIDANCE, ARTIFACT_DESIGN_PROMPT],
     grounding: [dateLine, selfIdentity, connectedSummary],
   });
 }
@@ -343,6 +364,13 @@ const chatTurnStep: Step<ChatRunState> = {
       const timezone = (state.timezone ??= await settings({ userId: ctx.userId }).timezone());
       const availability = await readIntegrationAvailability(ctx.userId);
 
+      // ADR-0124: pinned once, before the identity, because the gate, the surface, the connected
+      // summary, and the prompt all follow it. A run that pinned its prompt earlier stays direct.
+      state.readPath ??=
+        state.systemPromptHash === undefined && availability.codeModeReadPath === true
+          ? "code_run"
+          : "direct";
+
       const tools = toolRuntimeForRun(chatToolRunIdentity(ctx, state), availability);
       state.connectedSummary ??= await tools.connectedSummary();
 
@@ -402,10 +430,23 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       if (!landing) await tools.preload(state, hydratedTranscript);
+
+      // The run's one read tool. Every step adds it, so carryover or a restore cannot drop it.
+      if (state.readPath === "code_run") {
+        state.activeTools = uniqueToolNames([...state.activeTools, CODE_RUN_TOOL]);
+      }
+
       // Budget the guide before compaction. Admit it after the guard, so it cannot move the replay boundary.
       const pendingGuidance = admitPdfDesignGuide(state);
+
       // The anchor re-stamps only when the local day moved or a park outlived the cache (#410).
-      const systemPrompt = buildChatSystemPrompt("", state.connectedSummary, state.selfIdentity);
+      const systemPrompt = buildChatSystemPrompt(
+        "",
+        state.connectedSummary,
+        state.selfIdentity,
+        state.readPath,
+      );
+
       assertStableChatSystem(state, systemPrompt);
 
       const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
@@ -872,6 +913,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(resultTruncated ? { resultTruncated } : {}),
             ...(sanitized ? { sanitized } : {}),
             ...(nonExecution ? { nonExecution } : {}),
+            ...(completion.verifiedRead ? { verifiedRead: completion.verifiedRead } : {}),
             // Keep the repair hint on the durable trail (#378).
             ...(connectNudge ? { connectNudge } : {}),
             segmentIndex: call.segmentIndex,

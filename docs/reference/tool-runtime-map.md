@@ -30,9 +30,22 @@ a provider or database graph. `system.corpus_search`
 
 A provider with a working MCP server has no curated tool. GitHub is the example
 (ADR-0125). The model finds a GitHub tool through the MCP line of the connected
-summary, `system.search_tools`, or `mcp.list_tools`. It calls the tool with
-`mcp.call`. The registry entry `INTEGRATIONS.github` has `actions: []` and
-`passthrough: null`.
+summary, `system.search_tools`, or `mcp.list_tools`. The registry entry
+`INTEGRATIONS.github` has `actions: []` and `passthrough: null`. How the model
+calls the tool depends on the read path that the chat run pinned at its start
+(ADR-0124, `ToolRunContext.readPath`):
+
+- **Direct (flag off, and every background run and sub-agent).** The model calls
+  each GitHub tool, read or write, with `mcp.call`.
+- **`code_run` (flag on when the chat run started).** The model calls a GitHub
+  read inside `system.code_run` as `mcp.read(ref, args)`. A write stays a direct
+  `mcp.call`. A read that waits for an approval card (GitHub set to Gated, with
+  no full autonomy on the thread) also stays a direct `mcp.call`, because a script
+  cannot show a card. Dispatch refuses a direct `mcp.call` of a read that would run
+  with no card. `system.search_tools` returns each hit with its route: a
+  `system.code_run` hit with `hostFunction: "mcp.read"`, or an `mcp.call` hit.
+
+The pin rules the run. A flag change applies only to the next chat run.
 
 Google follows the same rule (ADR-0126, amended 2026-11-15: Alfred makes Gmail drafts
 only). The six Google Workspace MCP servers are the Google tool surface, and their rows

@@ -101,7 +101,15 @@ export type ToolCallDispatchResult =
       wake: Extract<WakeCondition, { kind: "hil" }>;
     }
   | { kind: "parked"; wake: Extract<WakeCondition, { kind: "signal" }> }
-  | { kind: "invalid_input"; result: InvalidInputToolResult }
+  | {
+      kind: "invalid_input";
+      result: InvalidInputToolResult;
+      /**
+       * Set only when a `code_run` run refused a direct read (ADR-0124). The call only reads, from
+       * durable state, so the finalize guard must not count it as a failed write.
+       */
+      verifiedRead?: true;
+    }
   | { kind: "unknown_tool"; result: UnknownToolResult }
   | { kind: "inactive_tool"; result: InactiveToolResult }
   | {

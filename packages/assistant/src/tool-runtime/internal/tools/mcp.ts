@@ -164,6 +164,15 @@ export const mcpTools: readonly RegisteredTool[] = [
 
       return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
     },
+    // ADR-0124: a `code_run` run sends a read with no card into a script. The selected revision's
+    // descriptor and review decide, the same rule as `mcp.read` and the broker's `requireRead`.
+    selectsRead: (input, ctx) =>
+      isSelectedMcpToolReadOnly({
+        userId: ctx.userId,
+        connectionId: input.connectionId,
+        remoteName: input.remoteName,
+        catalogRevision: input.catalogRevision,
+      }),
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); a code-owned built-in entry binds the exact descriptor the same way (ADR-0096 amendment 2026-11-13); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
@@ -190,6 +199,8 @@ export const mcpTools: readonly RegisteredTool[] = [
           arguments: input.arguments,
           // `input` is the effective input (an approval edit included), on a resume and a replay too.
           serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+          // A script read: the broker checks the live descriptor and review again (ADR-0124).
+          ...(ctx.runContext.readPath === "code_run_host" ? { requireRead: true } : {}),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {

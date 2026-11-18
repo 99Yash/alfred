@@ -242,6 +242,9 @@ async function selectWriteCalls(
       ? { ...call, effectUnconfirmed: true }
       : call;
 
+    // A `code_run` run refused this direct read, and dispatch verified it reads (ADR-0124).
+    if (call.verifiedRead) continue;
+
     if (call.toolName !== "mcp.call") {
       if (isActionTool(call.toolName)) writes.push(write);
       continue;

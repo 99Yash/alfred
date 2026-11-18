@@ -64,6 +64,7 @@ import {
   questionToolInput,
   registerToolCallRoundAdapter,
   type DispatchStepLease,
+  type ToolCallActor,
   type ToolCallDispatchArgs,
 } from "@alfred/assistant/tool-runtime";
 import {
@@ -97,6 +98,7 @@ import {
   toolEffectsSchema,
   type BoundToolCall,
   type HostReadOutcome,
+  type HostReadDispatcher,
   type HostReadRequest,
   type RegisteredTool,
   type ToolEffects,
@@ -515,6 +517,19 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     );
   }
 
+  // A script read's id comes from its request, so a saved row must hold the same input. The
+  // check makes a mismatch loud: the saved result of one read must never answer another. It
+  // binds the input the way `validateInputStage` did when the row was written.
+  if (args.runContext.readPath === "code_run_host") {
+    const binding = tool.bind(normalizeToolInputKeys(args.input, tool.modelInputSchema).input);
+
+    if (!binding.success || hashToolInput(toolName, binding.call.input) !== row.proposedInputHash) {
+      throw new Error(
+        `[dispatch] input mismatch on a script read re-dispatch (run=${args.runId}, toolCallId=${args.toolCallId})`,
+      );
+    }
+  }
+
   const fence = await stagingStore().readCancellationFence(args.runId);
 
   if (fence.generation > args.fence.generation) {
@@ -604,8 +619,28 @@ function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
     chat: args.chat,
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
-    hostRead: (request) => dispatchHostRead(args, request),
+    hostRead: hostReadDispatcher(args),
   });
+}
+
+/**
+ * The host reads of one `system.code_run` call. Each nested call's id names its exact request:
+ * `<toolCallId>#<tool and input hash>.<occurrence>`. `run`'s request order is not stable on a
+ * restart, because fresh discovery or another completion order of parallel reads can give one
+ * position to a different read. With this id, a restart replays the saved result of the same
+ * read only. The occurrence counts equal requests, so a repeat of one read gets its own row.
+ */
+function hostReadDispatcher(parent: ToolCallDispatchArgs): HostReadDispatcher {
+  const occurrences = new Map<string, number>();
+
+  return (request) => {
+    const key = hashToolInput(request.toolName, request.input).replace(/^fnv1a64:/, "");
+    const occurrence = (occurrences.get(key) ?? 0) + 1;
+
+    occurrences.set(key, occurrence);
+
+    return dispatchHostRead(parent, request, `${parent.toolCallId}#${key}.${occurrence}`);
+  };
 }
 
 /**
@@ -617,12 +652,14 @@ const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 /**
  * ADR-0124: one read of a `system.code_run` script, as a nested dispatch of the parent call. The
  * nested call keeps every gate, its own staging row, and its own span. It runs in the
- * `deferIfGated` mode with no thread, so a call that needs a card, or that only chat full
- * autonomy would let through, writes nothing and comes back as `needs_approval`.
+ * `deferIfGated` mode, so a call that needs a card writes nothing and comes back as
+ * `needs_approval`. It keeps the parent's thread, so chat full autonomy waives the card here the
+ * same as for a direct call (owner, 2026-11-17). `deferIfGated` returns before any card.
  */
 async function dispatchHostRead(
   parent: ToolCallDispatchArgs,
   request: HostReadRequest,
+  toolCallId: string,
 ): Promise<HostReadOutcome> {
   const tool = getTool(request.toolName);
 
@@ -637,20 +674,34 @@ async function dispatchHostRead(
   const result = await runDispatchStages(
     {
       ...parent,
-      toolCallId: `${parent.toolCallId}#${request.requestIndex}`,
+      ...hostReadActor(parent),
+      toolCallId,
       toolName: request.toolName,
       input: request.input,
-      approvalThreadId: undefined,
       // The script's host functions are its surface, so the read is active inside it.
       activeTools: [...parent.activeTools, request.toolName],
     },
     true,
   );
 
-  return hostReadOutcome(result);
+  return hostReadOutcome(result, request);
 }
 
-function hostReadOutcome(result: DispatchResult | DeferredDispatch): HostReadOutcome {
+/**
+ * The parent's actor, with the `code_run_host` read path. In a `code_run` run the gate refuses a
+ * direct read; this context lets the script's read through the same gate (ADR-0124).
+ */
+function hostReadActor(parent: ToolCallActor): ToolCallActor {
+  // The two arms are the same. Each arm narrows the union, so the spread keeps its `caller` pair.
+  return parent.caller === "boss"
+    ? { caller: parent.caller, runContext: { ...parent.runContext, readPath: "code_run_host" } }
+    : { caller: parent.caller, runContext: { ...parent.runContext, readPath: "code_run_host" } };
+}
+
+function hostReadOutcome(
+  result: DispatchResult | DeferredDispatch,
+  request: HostReadRequest,
+): HostReadOutcome {
   switch (result.kind) {
     case "executed":
       return { kind: "executed", value: toJsonValue(result.toolResult) };
@@ -659,8 +710,9 @@ function hostReadOutcome(result: DispatchResult | DeferredDispatch): HostReadOut
         kind: "refused",
         refusal: "needs_approval",
         message:
-          "This read needs the user's approval, and a script cannot ask for it. Tell the user " +
-          "which read is gated.",
+          "This read waits for the user's approval, and a script cannot show the approval card. " +
+          `Call ${request.toolName} as a direct tool call with the same input: the user sees ` +
+          "the card there.",
       };
     case "failed":
       return { kind: "refused", refusal: "failed", message: result.error.message };
@@ -941,6 +993,54 @@ async function refuseUnavailableRun(
 }
 
 /**
+ * ADR-0124 decision 1, with the owner's exception of 2026-11-17. In a `code_run` run, a read runs
+ * inside `system.code_run`, and a direct call of a read is refused. A read that this gate holds
+ * for a card is the exception: a script cannot show a card, so it runs here with its card. Full
+ * autonomy waives the card, so under it every read goes to the script. The decision is this
+ * call's own `requiresApproval`, so the route and the gate cannot disagree.
+ *
+ * Only a fresh proposal: a replay or a resume has a row, and its call already passed. The result
+ * marks the call a verified read, so the finalize guard does not count it as a failed write.
+ */
+async function refuseScriptableDirectRead(
+  suppressed: SuppressedDispatch,
+  requiresApproval: boolean,
+): Promise<DispatchResult | null> {
+  const { args, toolName, call, ctx } = suppressed;
+
+  if (args.runContext.readPath !== "code_run" || requiresApproval) return null;
+
+  if (!(await call.isRead(ctx))) return null;
+
+  if (await stagingStore().readStaging({ runId: args.runId, toolCallId: args.toolCallId })) {
+    return null;
+  }
+
+  const howToCall =
+    toolName === MCP_CALL_TOOL
+      ? "mcp.read(ref, args) with this ref"
+      : `${toolName}(input) with the same input`;
+
+  const message =
+    `This read needs no approval, so in this chat it runs only inside system.code_run. Call ` +
+    `${howToCall} in a script.`;
+
+  recordRejection({
+    dispatch: args,
+    outcome: "invalid_input",
+    reason: message,
+    toolName,
+    input: redactTraceInput(call),
+  });
+
+  return {
+    kind: "invalid_input",
+    verifiedRead: true,
+    result: { status: "invalid_input", toolName, message },
+  };
+}
+
+/**
  * Stage 4: upsert the staging row, then act on its status. Pending parks or
  * executes, approved executes the decided input, and settled rows replay.
  */
@@ -995,6 +1095,10 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     !arm.forcesApproval && policyRequiresApproval && (await readFullAutonomy(args));
 
   const requiresApproval = arm.forcesApproval || (policyRequiresApproval && !fullAutonomy);
+
+  const scriptableRead = await refuseScriptableDirectRead(suppressed, requiresApproval);
+
+  if (scriptableRead) return scriptableRead;
 
   // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
   if (requiresApproval && suppressed.deferIfGated) return DEFERRED;

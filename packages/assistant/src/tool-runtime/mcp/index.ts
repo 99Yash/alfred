@@ -44,7 +44,7 @@ export {
   type McpHealthMappingResolution,
 } from "./health-mapping";
 
-export { resolveMcpCallRiskTier } from "./risk";
+export { resolveMcpCallRiskAndRead, resolveMcpCallRiskTier } from "./risk";
 
 export { getMcpExecutionBroker } from "./runtime";
 

@@ -5,6 +5,7 @@ import {
   chatConnectNudgeSchema,
   chatModelTierSchema,
   ianaTimezoneSchema,
+  type ToolReadPath,
 } from "@alfred/contracts";
 import { sha256Hex } from "@alfred/db/hash";
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
@@ -32,7 +33,7 @@ export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;
 
 // `satisfies`: a key the persisted card declares and this shape lacks fails to compile,
 // and so does a key this shape adds that the card does not declare. It checks keys, not
-// value types. `nonExecution` is the one key the sync wire drops on purpose.
+// value types. `nonExecution` and `verifiedRead` are the keys the sync wire drops on purpose.
 const toolCallLogSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
@@ -45,11 +46,13 @@ const toolCallLogSchema = z.object({
   sanitized: z.boolean().optional(),
   // A `failed` entry rejected before execution: malformed, invented, inactive, or disallowed.
   nonExecution: z.boolean().optional(),
+  // A direct read that a `code_run` run sent into a script (ADR-0124). Not a failed write.
+  verifiedRead: z.literal(true).optional(),
   // Connection-health rejection only (#378). `.catch`: a slug this build does not
   // know reads as no nudge instead of failing the whole state parse.
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),
-} satisfies Record<keyof ChatMessageToolCall | "nonExecution", z.ZodType>);
+} satisfies Record<keyof ChatMessageToolCall | "nonExecution" | "verifiedRead", z.ZodType>);
 
 export type ToolCallLogEntry = z.infer<typeof toolCallLogSchema>;
 
@@ -57,6 +60,11 @@ const narrationSegmentSchema = z.object({
   index: z.number().int().nonnegative(),
   text: z.string(),
 });
+
+/** `direct`: the read tools are on the surface. `code_run`: reads run only in `system.code_run`. */
+const chatReadPathSchema = z.enum(["direct", "code_run" satisfies ToolReadPath]);
+
+export type ChatReadPath = z.infer<typeof chatReadPathSchema>;
 
 // Defaults and optionals let older checkpoints still parse.
 export const chatRunStateSchema = z
@@ -73,6 +81,9 @@ export const chatRunStateSchema = z
     connectedSummary: z.string().optional(),
     // `selfIdentityGrounding`, snapshotted for the same reason. Empty on older pinned runs.
     selfIdentity: z.string().optional(),
+    // ADR-0124: how the run reads, from the user's flag on the first turn. The tool gate and the
+    // prompt both follow it, so it is pinned with the prompt. Older runs read as `direct`.
+    readPath: chatReadPathSchema.optional(),
     // Pins the system prompt for the whole run. Never cleared once set.
     systemPromptHash: z
       .string()

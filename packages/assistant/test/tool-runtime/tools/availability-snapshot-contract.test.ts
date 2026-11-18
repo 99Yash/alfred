@@ -26,6 +26,9 @@ const EMPTY_SNAPSHOT: IntegrationAvailabilitySnapshot = {
 /** Clears phase 1, so a failure can only come from the snapshot phase. */
 const PERMISSIVE = { caller: "boss", interaction: "live_chat" } as const;
 
+/** `system.code_run` clears phase 1 only in a `code_run` run (ADR-0124: the pin rules the run). */
+const SCRIPT_READS = { ...PERMISSIVE, readPath: "code_run" } as const;
+
 before(() => {
   clearToolRegistryForTests();
   registerBuiltinTools();
@@ -41,7 +44,8 @@ describe("skipping the credential read is a promise phase 2 keeps", () => {
     assert.ok(excused.length > 0, "expected some tools to skip the read — otherwise vacuous");
 
     for (const tool of excused) {
-      const result = evaluateToolAvailability(EMPTY_SNAPSHOT, tool, new Set(), PERMISSIVE);
+      const context = tool.availability?.codeModeReadPath ? SCRIPT_READS : PERMISSIVE;
+      const result = evaluateToolAvailability(EMPTY_SNAPSHOT, tool, new Set(), context);
       assert.equal(
         result.available,
         true,
