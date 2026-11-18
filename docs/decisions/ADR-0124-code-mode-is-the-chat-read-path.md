@@ -23,6 +23,46 @@
 7. **The prompt asks for safe scripts.** A `try/catch` around each call, `Promise.all` for calls that do not depend on each other, and a part of the time budget for each kind of tool. A failed call then costs a catch block, not a model step.
 8. **Handles wait.** ADR-0087 point 1 is built only when a result still does not fit after a script trims it.
 
+## Amendment 2026-11-18: the read route, read authority, and the evidence record
+
+Decided with the owner after two reviews of #1776. The route had three patches, so the theory is written first (theory README, principle 2). This amends decisions 1, 2, and 4.
+
+**One route decision for each call.** After the existing checks, the tool runtime decides the route of each call with this table:
+
+| Call | Route |
+|---|---|
+| A write, or a call whose effect is not confirmed | Direct, through the existing approval |
+| A confirmed read with binary output | Direct |
+| A confirmed read that requires approval | Direct, with its card |
+| A confirmed read with structured output and no approval | Script |
+
+- The approval input includes the staging arm and the thread's Full Autonomy. Thus a local `fast_path` catalog read is a script read.
+- Search reports the current decision. Dispatch decides again. The broker checks the current descriptor and the read authority before delivery.
+- A policy can change between search and dispatch. So a refusal returns the current route and its reason.
+- The connected summary describes the capabilities and the route rule. Its pinned text makes no claim about the current approval settings.
+
+**Read authority is independent of the server.** A call is a confirmed read only with one of these:
+
+- a trusted built-in read-only endpoint, together with the tool's published read-only hint, or
+- an exact read policy bound to the descriptor, from Alfred's built-in code or approved by the owner.
+
+The hint of a custom server alone leaves the effect unknown. A change of the descriptor needs a new authority decision. Full Autonomy can waive the approval, but the script-read rule still applies. A descriptor pin records the approval of an exact interface. The behavior of the server stays a trust assumption, because MCP treats annotations as hints.
+
+**The output kind is declared beside the read authority.** Alfred declares it for a curated tool. A built-in MCP tool keeps it in its descriptor-bound policy. A custom tool needs a trusted declaration before its output can enter a script. The declaration can depend on the validated input. A tool with no output schema can still have a known structured kind. Base64 file content is binary, so Drive's `download_file_content` is direct. A response that does not match its declared kind returns a named failure.
+
+**The sources of a script.** The host collects them, and they do not depend on the script's status:
+
+- The sources of successful reads stay after a later script failure.
+- The sources have a count limit and a byte limit. Each kept URL is complete, and the result states how many were left out.
+- The UI gets the sources through a field that the generic preview does not prune.
+- The full model-facing envelope stays within its result budget.
+
+**The evidence record.** Each program run keeps a record, so Alfred can explain and check what happened. The record holds the program source, the arguments, the tool identities, the evidence references, and the outcome. Failed and partial runs keep a record too. For each host call, it holds the function, the canonical arguments, the call identity, the outcome, the evidence references, and the content hashes or versions. It also records pagination and truncation where they change the coverage. A replay keeps the references and versions of the saved result. The existing staging and invocation rows carry the facts that they hold. The read boundary adds the missing fields, and each reader supplies its own evidence references. A search hit proves that the program got a title or a snippet. A body read proves that it got the body. The check job validates a citation against the content that the host delivered (memory.md).
+
+**The default stays an experiment.** Every eligible read goes to a script while the flag is off. A paired evaluation decides the production default: the same tasks and provider responses in both modes. It covers single lookups, large single results, fan-out, dependent reads, and Gated reads. It measures answer quality, latency, total tokens, model steps, and approval effort. A route chosen from the expected fan-out is rejected, because it adds a judgment to the runtime.
+
+**A saved program for reuse is a separate feature.** A completed run proves only that the program ran. A saved skill also needs evidence that it does the intended job, and rules for selection, version changes, and new approval checks. It waits until repeated tasks show a need.
+
 ## Instrumentation
 
 These rows start with the first slice, so the change is measured from day one:
