@@ -105,6 +105,11 @@
       // entries stops knip from reporting those default exports as dead.
       "entry": ["src/emails/*.tsx!"],
       "ignoreDependencies": ["@react-email/preview-server"]
+    },
+    "infra": {
+      // The ADR-0128 program. `alchemy.run.ts` is the CLI entrypoint the
+      // `alchemy` binary loads; nothing in the tree imports it.
+      "entry": ["alchemy.run.ts!"]
     }
   }
 }
