@@ -1,16 +1,21 @@
 /**
- * The fixed MCP tools (PRD #540). A remote tool never becomes a `ToolName`: its
- * `ExternalToolRef` rides in the `mcp.call` args, and dispatch authorizes each call.
+ * The fixed MCP tools (PRD #540). A remote tool never becomes a `ToolName`: the model names it
+ * with `connectionId` and `remoteName` in the `mcp.call` args, and dispatch authorizes each call.
+ * The server binds the catalog revision when the call is proposed (ADR-0088 amendment
+ * 2026-11-18), so the model never sees or copies one.
  * `mcp.list_tools` and `mcp.inspect_tool` are local catalog reads on the fast path.
  */
 
 import {
   assertNever,
   mcpCallInput,
+  mcpCallModelInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
   truncatedCoverage,
   unknownEffectEnvelopeSchema,
+  type McpCallInput,
+  type McpToolRef,
   type PassthroughTruncation,
   type ReadEvidenceRefDraft,
 } from "@alfred/contracts";
@@ -19,7 +24,7 @@ import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
   builtInBorrowsGoogleCredential,
-  inspectMcpToolLocal,
+  inspectCurrentMcpToolLocal,
   integrationOfMcpConnection,
   McpClientError,
   mcpScopeAdmits,
@@ -27,16 +32,24 @@ import {
   needsMcpReauthorization,
   readOwnedConnection,
   searchMcpToolsLocal,
+  toCurrentToolDiscoveryPage,
   type ExternalToolRef,
   type McpCallEnvelope,
+  type McpListToolsResult,
+  type McpInspectToolResult,
 } from "@alfred/assistant/connections/mcp";
-import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import {
+  liveTool,
+  readResult,
+  type ReadResult,
+  type RegisteredTool,
+} from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
-  isSelectedMcpToolReadOnly,
-  resolveMcpCallReadFacts,
-  resolveMcpCallRiskTier,
+  readCurrentMcpCatalogRevision,
+  resolveMcpCallProposalFacts,
   type McpBrokerOutcome,
+  type McpCallProposalFacts,
 } from "@alfred/assistant/tool-runtime/mcp";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
@@ -60,10 +73,54 @@ export interface McpBrokerToolResult {
   truncation?: PassthroughTruncation;
 }
 
-/** The MCP catalog reads, named so the Code Mode index reads their types (ADR-0124). */
-export type McpListToolsResult = Awaited<ReturnType<typeof searchMcpToolsLocal>>;
+/**
+ * Bind the call to the connection's current catalog revision (ADR-0088 amendment 2026-11-18).
+ * Dispatch runs this on a fresh proposal, before the refusals, the tier, and the read facts, and
+ * the staging row saves the result. A revision in the model's input is dropped: the server owns
+ * it. A Code Mode read keeps the revision that its pass pinned (ADR-0116 amendment 2026-11-18).
+ */
+async function bindCatalogRevision(
+  input: McpCallInput,
+  ctx: { userId: string; runContext: { readPath?: string | undefined } },
+): Promise<McpCallInput> {
+  if (ctx.runContext.readPath === "code_run_host" && input.catalogRevision !== undefined) {
+    return input;
+  }
 
-export type McpInspectToolResult = Awaited<ReturnType<typeof inspectMcpToolLocal>>;
+  const { catalogRevision: _fromCaller, ...call } = input;
+
+  const current = await readCurrentMcpCatalogRevision({
+    userId: ctx.userId,
+    connectionId: input.connectionId,
+  });
+
+  // No published catalog: the call has no revision, so it keeps the `high` floor and never runs.
+  return current === null ? call : { ...call, catalogRevision: current };
+}
+
+/**
+ * One identity read for each bound call. The registry passes the same parsed input object to the
+ * refusal, the tier, and the read facts of one decision, so the three share this read, and a
+ * catalog change between them cannot give them different answers.
+ */
+const proposalFactsByInput = new WeakMap<McpCallInput, Promise<McpCallProposalFacts>>();
+
+function proposalFacts(input: McpCallInput, userId: string): Promise<McpCallProposalFacts> {
+  const cached = proposalFactsByInput.get(input);
+
+  if (cached) return cached;
+
+  const facts = resolveMcpCallProposalFacts({
+    userId,
+    connectionId: input.connectionId,
+    remoteName: input.remoteName,
+    catalogRevision: input.catalogRevision,
+  });
+
+  proposalFactsByInput.set(input, facts);
+
+  return facts;
+}
 
 function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   switch (outcome.status) {
@@ -104,20 +161,15 @@ function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
  * `readOnlyHint` and no review says otherwise.
  */
 async function refuseGoogleWorkspaceWrite(
-  input: { connectionId: string; remoteName: string; catalogRevision: string },
+  input: McpCallInput,
   userId: string,
   endpointUrl: string,
 ): Promise<string | null> {
   if (gmailMailboxWritesEnabled() || !builtInBorrowsGoogleCredential(endpointUrl)) return null;
 
-  const read = await isSelectedMcpToolReadOnly({
-    userId,
-    connectionId: input.connectionId,
-    remoteName: input.remoteName,
-    catalogRevision: input.catalogRevision,
-  });
+  const { readOnly } = await proposalFacts(input, userId);
 
-  return read
+  return readOnly
     ? null
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
@@ -138,7 +190,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     riskTier: "high",
     replay: "safe",
     description:
-      "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by system.search_tools or mcp.list_tools, plus `arguments` matching the tool schema. Use mcp.inspect_tool if you need the full schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
+      "Invoke a tool on a connected MCP server. Supply the `connectionId` and `remoteName` of the ref returned by system.search_tools or mcp.list_tools, plus `arguments` matching the tool schema. Use mcp.inspect_tool if you need the full schema. The call is validated against the server's exact schema and routed through Alfred's approval + durable-execution boundary; a write that may have been delivered but not confirmed comes back as `status:\"unknown\"` and MUST NOT be repeated — check its state instead.",
     discovery: {
       aliases: ["mcp call", "call connected tool", "run mcp tool", "invoke mcp"],
       tags: ["mcp", "integration", "external"],
@@ -147,16 +199,15 @@ export const mcpTools: readonly RegisteredTool[] = [
       relatedTools: ["mcp.list_tools"],
     },
     inputSchema: mcpCallInput,
+    // The model names the tool. Only the server writes `catalogRevision` (ADR-0088 amendment).
+    modelInputSchema: mcpCallModelInput,
+    // Before every decision, so the refusal, the tier, the read facts, and the staging row all
+    // read the one revision that the server bound.
+    bindServerFields: bindCatalogRevision,
     // Three downgrades: a reviewed policy row or a code-owned built-in entry on a `readOnlyHint`
     // descriptor (#541, ADR-0096 amendment), or a read-only resource plus the hint (ADR-0096).
-    // Reads the persisted catalog only. Any doubt stays high.
-    resolveRiskTier: (input, ctx) =>
-      resolveMcpCallRiskTier({
-        userId: ctx.userId,
-        connectionId: input.connectionId,
-        remoteName: input.remoteName,
-        catalogRevision: input.catalogRevision,
-      }),
+    // Reads the persisted catalog at the bound revision only. Any doubt stays high.
+    resolveRiskTier: async (input, ctx) => (await proposalFacts(input, ctx.userId)).riskTier,
     // A built-in follows its provider's rule, so the GitHub Auto/Gated setting governs GitHub reads.
     // A user-added server has no provider and keeps the `mcp` rule.
     resolvePolicyIntegration: async (input, ctx) =>
@@ -175,17 +226,20 @@ export const mcpTools: readonly RegisteredTool[] = [
         return publicAppError("mcp_connection_outside_scope").message;
       }
 
+      // A script read whose pass pin is no longer current: the catalog changed during the pass.
+      // Name it here, before the floor sends the read to a card (ADR-0116 amendment 2026-11-18).
+      if (
+        ctx.runContext.readPath === "code_run_host" &&
+        (await proposalFacts(input, ctx.userId)).stale
+      ) {
+        return publicAppError("mcp_catalog_changed").message;
+      }
+
       return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
     },
-    // ADR-0124 amendment 2026-11-18: the read authority and the declared output of the current
+    // ADR-0124 amendment 2026-11-18: the read authority and the declared output of the bound
     // descriptor. The route decision reads them, and the broker checks them again before delivery.
-    resolveReadFacts: (input, ctx) =>
-      resolveMcpCallReadFacts({
-        userId: ctx.userId,
-        connectionId: input.connectionId,
-        remoteName: input.remoteName,
-        catalogRevision: input.catalogRevision,
-      }),
+    resolveReadFacts: async (input, ctx) => (await proposalFacts(input, ctx.userId)).facts,
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); a code-owned built-in entry binds the exact descriptor the same way (ADR-0096 amendment 2026-11-13); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {
@@ -194,6 +248,16 @@ export const mcpTools: readonly RegisteredTool[] = [
         throw new Error("mcp.call executed without a staging row id");
       }
 
+      const scriptRead = ctx.runContext.readPath === "code_run_host";
+
+      // The server bound no revision: the connection had no published catalog when the call was
+      // proposed. Execution never selects a descriptor on its own, so the call does not run.
+      if (input.catalogRevision === undefined) {
+        throw new AppError(scriptRead ? "mcp_catalog_changed" : "mcp_catalog_stale");
+      }
+
+      // The saved revision of the proposal. The broker refuses on drift, and never selects the
+      // newest descriptor (ADR-0088 amendment 2026-11-18).
       const ref: ExternalToolRef = {
         kind: "mcp",
         connectionId: input.connectionId,
@@ -213,7 +277,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           // `input` is the effective input (an approval edit included), on a resume and a replay too.
           serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
           // A script read: the broker checks the live descriptor and review again (ADR-0124).
-          ...(ctx.runContext.readPath === "code_run_host" ? { requireScriptRead: true } : {}),
+          ...(scriptRead ? { requireScriptRead: true } : {}),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {
@@ -224,9 +288,13 @@ export const mcpTools: readonly RegisteredTool[] = [
 
         // A generic "try again" makes the model resend the same call, so these name the next step.
         if (error instanceof McpClientError) {
-          // The broker already published the live catalog, so a new search returns a current ref.
+          // The catalog changed after the bind. A direct call binds again when the model calls
+          // again. A script read failed against its pass pin, so the script must run again
+          // (ADR-0116 amendment 2026-11-18): the host never refreshes the pin silently.
           if (error.code === "catalog_stale") {
-            throw new AppError("mcp_catalog_stale", { cause: error });
+            throw new AppError(scriptRead ? "mcp_catalog_changed" : "mcp_catalog_stale", {
+              cause: error,
+            });
           }
 
           if (error.code === "arguments_rejected") {
@@ -257,7 +325,10 @@ export const mcpTools: readonly RegisteredTool[] = [
                   store: "mcp_call",
                   id: `${input.connectionId}/${input.remoteName}`,
                   depth: "body",
-                  version: input.catalogRevision,
+                  // Execute refuses a call with no bound revision, so a result always has one.
+                  ...(input.catalogRevision === undefined
+                    ? {}
+                    : { version: input.catalogRevision }),
                 },
                 item: output.result,
               },
@@ -285,17 +356,28 @@ export const mcpTools: readonly RegisteredTool[] = [
     policyGateWaiver:
       "#540 clarification #5: bounded local read of Alfred's own validated MCP catalog — no outbound action, nothing to approve",
     inputSchema: mcpToolSearchInputSchema,
-    execute: async (input, ctx): Promise<McpListToolsResult> =>
-      searchMcpToolsLocal({
+    // The model gets refs with no revision. The evidence record keeps the revision of each hit,
+    // which is not in the model-facing output.
+    execute: async (input, ctx): Promise<ReadResult<McpListToolsResult>> => {
+      const page = await searchMcpToolsLocal({
         userId: ctx.userId,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
         ...input,
-      }),
-    readEvidence: (output) =>
-      itemEvidence(
-        output.tools.map((hit) => mcpToolItem(hit.ref, "hit", hit)),
-        output.nextCursor ? { morePages: true, returned: output.tools.length } : undefined,
-      ),
+      });
+
+      const output = toCurrentToolDiscoveryPage(page);
+
+      return readResult(
+        output,
+        itemEvidence(
+          output.tools.map((hit, index) =>
+            mcpToolItem(hit.ref, page.tools[index]?.ref.catalogRevision, "hit", hit),
+          ),
+          output.nextCursor ? { morePages: true, returned: output.tools.length } : undefined,
+        ),
+      );
+    },
+    readEvidence: "returned_by_execute",
   }),
   liveTool({
     integration: "mcp",
@@ -304,7 +386,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: true,
     description:
-      "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
+      "Inspect one connected MCP tool by the ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
     discovery: {
       aliases: ["inspect mcp tool", "mcp tool schema"],
       tags: ["mcp", "integration", "discovery"],
@@ -315,20 +397,31 @@ export const mcpTools: readonly RegisteredTool[] = [
     staging: "fast_path",
     policyGateWaiver: "#540: exact local read of Alfred's validated MCP catalog",
     inputSchema: mcpToolInspectInputSchema,
-    execute: async (input, ctx): Promise<McpInspectToolResult> =>
-      inspectMcpToolLocal({
+    // The current descriptor: the ref has no revision, so it cannot go stale.
+    execute: async (input, ctx): Promise<ReadResult<McpInspectToolResult>> => {
+      const { result, catalogRevision } = await inspectCurrentMcpToolLocal({
         userId: ctx.userId,
         ref: input.ref,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
-      }),
-    readEvidence: (output) =>
-      itemEvidence(output.status === "tool" ? [mcpToolItem(output.ref, "body", output)] : []),
+      });
+
+      return readResult(
+        result,
+        itemEvidence(
+          result.status === "tool"
+            ? [mcpToolItem(result.ref, catalogRevision, "body", result)]
+            : [],
+        ),
+      );
+    },
+    readEvidence: "returned_by_execute",
   }),
 ];
 
 /** One MCP tool descriptor in the evidence record (ADR-0124), at its catalog revision. */
 function mcpToolItem(
-  ref: ExternalToolRef,
+  ref: McpToolRef,
+  catalogRevision: string | undefined,
   depth: ReadEvidenceRefDraft["depth"],
   item: unknown,
 ): DeliveredItem {
@@ -338,7 +431,7 @@ function mcpToolItem(
       store: "mcp_tool",
       id: `${ref.connectionId}/${ref.remoteName}`,
       depth,
-      version: ref.catalogRevision,
+      ...(catalogRevision === undefined ? {} : { version: catalogRevision }),
     },
     item,
   };

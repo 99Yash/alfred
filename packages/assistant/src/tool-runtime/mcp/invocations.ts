@@ -209,6 +209,30 @@ export async function isSelectedMcpToolReadOnly(
 }
 
 /**
+ * The current catalog revision of one owned connection, or `null` when the user does not own it
+ * or it has no published catalog. The server binds a call to this revision when the call is
+ * proposed (ADR-0088 amendment 2026-11-18), and a Code Mode pass pins it (ADR-0116 amendment
+ * 2026-11-18). A `null` bind leaves the call with no revision, so it keeps the `high` floor and
+ * never runs.
+ */
+export async function readCurrentMcpCatalogRevision(
+  input: { userId: string; connectionId: string },
+  runner: DbRunner = db(),
+): Promise<string | null> {
+  const [row] = await runner
+    .select({ revisionHash: mcpCatalogRevisions.revisionHash })
+    .from(mcpConnections)
+    .innerJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .limit(1);
+
+  return row?.revisionHash ?? null;
+}
+
+/**
  * Resolve one selected MCP tool's identity in one query (runs on every `mcp.call`).
  * Stale revision, missing descriptor, or foreign connection gives `unresolved`.
  * The policy join also checks `userId`, so a cross-user row never downgrades.

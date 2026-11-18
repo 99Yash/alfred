@@ -6,8 +6,9 @@
  */
 
 import { isToolRiskTier, type IntegrationSlug, type ToolRiskTier } from "@alfred/contracts";
-import type { ReadFacts } from "../read-route";
+import { NOT_A_CONFIRMED_READ, type ReadFacts } from "../read-route";
 import {
+  isReadOnlyMcpToolIdentity,
   mcpReadFacts,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
@@ -48,18 +49,53 @@ export async function resolveMcpCallRouteFacts(
   };
 }
 
-/** The read facts of the current descriptor, for dispatch's route decision. */
-export async function resolveMcpCallReadFacts(
-  input: ResolveMcpToolIdentityInput,
-): Promise<ReadFacts> {
-  return mcpReadFacts(await resolveMcpToolIdentity(input));
+/**
+ * What dispatch decides one `mcp.call` proposal from (ADR-0088 amendment 2026-11-18): the tier,
+ * the read facts, and the read claim of the Google write refusal. All three come from one identity
+ * read at the revision that the server bound to the proposal, so no two of them can read different
+ * catalogs.
+ */
+export interface McpCallProposalFacts {
+  riskTier: ToolRiskTier;
+  facts: ReadFacts;
+  /** The descriptor asserts `readOnlyHint`, and no review says otherwise. Not an approval input. */
+  readOnly: boolean;
+  /**
+   * The bound revision is no longer the connection's current one. The tier is already the floor;
+   * a Code Mode read uses this to name the failure (ADR-0116 amendment 2026-11-18).
+   */
+  stale: boolean;
 }
 
-/** Resolve the risk tier for one `mcp.call` against the current catalog. */
-export async function resolveMcpCallRiskTier(
-  input: ResolveMcpToolIdentityInput,
-): Promise<ToolRiskTier> {
-  return effectiveMcpRiskTier(await resolveMcpToolIdentity(input));
+/**
+ * Resolve the proposal facts at the bound revision. No revision (the connection had no published
+ * catalog when the server bound the call) keeps the `high` floor and confirms no read.
+ */
+export async function resolveMcpCallProposalFacts(input: {
+  userId: string;
+  connectionId: string;
+  remoteName: string;
+  catalogRevision: string | undefined;
+}): Promise<McpCallProposalFacts> {
+  const { catalogRevision } = input;
+
+  if (catalogRevision === undefined) {
+    return {
+      riskTier: MCP_CALL_RISK_FLOOR,
+      facts: NOT_A_CONFIRMED_READ,
+      readOnly: false,
+      stale: false,
+    };
+  }
+
+  const identity = await resolveMcpToolIdentity({ ...input, catalogRevision });
+
+  return {
+    riskTier: effectiveMcpRiskTier(identity),
+    facts: mcpReadFacts(identity),
+    readOnly: identity.status === "resolved" && isReadOnlyMcpToolIdentity(identity),
+    stale: identity.status === "unresolved" && identity.reason === "revision_stale",
+  };
 }
 
 /**

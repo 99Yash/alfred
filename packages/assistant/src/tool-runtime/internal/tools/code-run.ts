@@ -11,6 +11,7 @@ import {
   type ScriptSource,
 } from "@alfred/contracts";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { readCurrentMcpCatalogRevision } from "@alfred/assistant/tool-runtime/mcp";
 import type { HostCallEntry } from "../registry";
 import { readHostBindings } from "../../code-mode/host-bindings";
 import { codeRunDescription } from "../../code-mode/index-text";
@@ -70,7 +71,13 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
       // Dispatch saves the ledger with this call's result (ADR-0124 amendment 2026-11-18).
       const outcome = await runReadProgram({
         source: input.source,
-        hosts: readHostBindings({ readTools, hostRead }),
+        // One pass, one set of catalog pins (ADR-0116 amendment 2026-11-18).
+        hosts: readHostBindings({
+          readTools,
+          hostRead,
+          readCatalogRevision: (connectionId) =>
+            readCurrentMcpCatalogRevision({ userId: ctx.userId, connectionId }),
+        }),
         ledger: hostCalls,
         runId: ctx.runId,
       });

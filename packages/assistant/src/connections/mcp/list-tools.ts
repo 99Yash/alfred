@@ -8,15 +8,21 @@ import {
   mcpExternalToolRefSchema,
   mcpToolDiscoveryPageSchema,
   mcpToolInspectionResultSchema,
+  mcpToolRefSchema,
   mcpToolSearchInputSchema,
   parseJsonWith,
   summarizeBody,
+  toMcpToolRef,
   type ExternalToolRef,
+  type JsonObject,
   type McpDiscoveryConnection,
   type McpListToolsDetail,
   type McpToolDiscoveryHit,
   type McpToolDiscoveryPage,
+  type McpToolInspectionNotFound,
   type McpToolInspectionResult,
+  type McpToolInspectionSuccess,
+  type McpToolRef,
   type McpToolSearchInput,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
@@ -355,13 +361,15 @@ export async function searchMcpToolsLocal(
   });
 }
 
-export async function inspectMcpToolLocal(
-  input: {
-    userId: string;
-    ref: ExternalToolRef;
-  } & AdmittedServers,
-): Promise<McpToolInspectionResult> {
-  const ref = mcpExternalToolRefSchema.parse(input.ref);
+/** One descriptor of the current catalog, or why the caller cannot inspect it. */
+type CurrentDescriptorRead =
+  | { status: "tool"; row: OwnedCurrentCatalogRow; tool: JsonObject }
+  | { status: "not_found"; message: string };
+
+async function readInspectableDescriptor(
+  input: { userId: string; ref: McpToolRef } & AdmittedServers,
+): Promise<CurrentDescriptorRead> {
+  const { ref } = input;
 
   const row = await readOwnedCurrentCatalogDescriptor({
     userId: input.userId,
@@ -370,22 +378,47 @@ export async function inspectMcpToolLocal(
   });
 
   if (!row) {
-    return mcpToolInspectionResultSchema.parse({
-      status: "not_found",
-      ref,
-      message: "This MCP tool is not available for the current user.",
-    });
+    return { status: "not_found", message: "This MCP tool is not available for the current user." };
   }
 
   if (input.serverIds != null && !input.serverIds.includes(row.namespace)) {
-    return mcpToolInspectionResultSchema.parse({
+    return {
       status: "not_found",
-      ref,
       message: "This MCP tool is outside the integrations of this run.",
-    });
+    };
   }
 
-  if (row.revisionHash !== ref.catalogRevision) {
+  // The read selects by name, so a mismatch here is a bug.
+  const tool = jsonObjectSchema.safeParse(row.descriptor);
+
+  if (!tool.success || tool.data.name !== ref.remoteName) {
+    return {
+      status: "not_found",
+      message: `MCP tool '${ref.remoteName}' is not in the current catalog.`,
+    };
+  }
+
+  return { status: "tool", row, tool: tool.data };
+}
+
+/**
+ * Inspect the descriptor at the revision that the owner saw (the settings page). A newer catalog
+ * answers `catalog_stale`, because the owner reviews one exact descriptor.
+ */
+export async function inspectMcpToolLocal(
+  input: {
+    userId: string;
+    ref: ExternalToolRef;
+  } & AdmittedServers,
+): Promise<McpToolInspectionResult> {
+  const ref = mcpExternalToolRefSchema.parse(input.ref);
+  const read = await readInspectableDescriptor({ ...input, ref: toMcpToolRef(ref) });
+
+  if (read.status === "not_found") {
+    return mcpToolInspectionResultSchema.parse({ status: "not_found", ref, message: read.message });
+  }
+
+  if (read.row.revisionHash !== ref.catalogRevision) {
     return mcpToolInspectionResultSchema.parse({
       status: "catalog_stale",
       ref,
@@ -393,21 +426,49 @@ export async function inspectMcpToolLocal(
     });
   }
 
-  // The read selects by name, so a mismatch here is a bug.
-  const tool = jsonObjectSchema.safeParse(row.descriptor);
-
-  if (!tool.success || tool.data.name !== ref.remoteName) {
-    return mcpToolInspectionResultSchema.parse({
-      status: "not_found",
-      ref,
-      message: `MCP tool '${ref.remoteName}' is not in the current catalog.`,
-    });
-  }
-
   return mcpToolInspectionResultSchema.parse({
     status: "tool",
     ref,
-    connection: connection(row),
-    tool: tool.data,
+    connection: connection(read.row),
+    tool: read.tool,
   });
+}
+
+/** What the model and a program get from `mcp.inspect_tool`: a ref with no revision. */
+export type McpInspectToolResult =
+  | (Omit<McpToolInspectionSuccess, "ref"> & { ref: McpToolRef })
+  | (Omit<McpToolInspectionNotFound, "ref"> & { ref: McpToolRef });
+
+/**
+ * Inspect the descriptor of the current catalog (ADR-0088 amendment 2026-11-18). The ref has no
+ * revision, so it cannot go stale. The server binds the revision when a call is proposed.
+ * `catalogRevision` is the revision that the descriptor came from, for the evidence record only.
+ */
+export async function inspectCurrentMcpToolLocal(
+  input: { userId: string; ref: McpToolRef } & AdmittedServers,
+): Promise<{ result: McpInspectToolResult; catalogRevision: string | undefined }> {
+  const ref = toMcpToolRef(mcpToolRefSchema.parse(input.ref));
+  const read = await readInspectableDescriptor({ ...input, ref });
+
+  if (read.status === "not_found") {
+    return {
+      result: { status: "not_found", ref, message: read.message },
+      catalogRevision: undefined,
+    };
+  }
+
+  return {
+    result: { status: "tool", ref, connection: connection(read.row), tool: read.tool },
+    catalogRevision: read.row.revisionHash,
+  };
+}
+
+/** What the model and a program get from `mcp.list_tools`: refs with no revision. */
+export type McpListToolsResult = Omit<McpToolDiscoveryPage, "tools"> & {
+  tools: (Omit<McpToolDiscoveryHit, "ref"> & { ref: McpToolRef })[];
+};
+
+/** Remove the revision from each hit, so the model never copies one (ADR-0088 amendment 2026-11-18). */
+export function toCurrentToolDiscoveryPage(page: McpToolDiscoveryPage): McpListToolsResult {
+  return { ...page, tools: page.tools.map((hit) => ({ ...hit, ref: toMcpToolRef(hit.ref) })) };
 }

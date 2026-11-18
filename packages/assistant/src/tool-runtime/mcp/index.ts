@@ -18,6 +18,7 @@ export {
 export {
   isSelectedMcpToolReadOnly,
   mcpUnresolvedInvocationGate,
+  readCurrentMcpCatalogRevision,
   reconcileInflightInvocations,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
@@ -45,9 +46,9 @@ export {
 } from "./health-mapping";
 
 export {
-  resolveMcpCallReadFacts,
+  resolveMcpCallProposalFacts,
   resolveMcpCallRouteFacts,
-  resolveMcpCallRiskTier,
+  type McpCallProposalFacts,
   type McpCallRouteFacts,
 } from "./risk";
 

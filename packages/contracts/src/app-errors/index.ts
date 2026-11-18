@@ -153,9 +153,15 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
   },
   mcp_catalog_stale: {
     message:
-      "This MCP server's tool list changed after you selected this tool, so the ref is out of date and fails every time. Run system.search_tools or mcp.list_tools again and call mcp.call with the new ref.",
-    why: "The ref's catalogRevision is not the live revision. The first call after a client start loads the live catalog, so a ref read from an older stored catalog goes stale.",
-    fix: { kind: "correct_input" },
+      "This MCP server's tool list changed after Alfred checked this call, so the call did not run. Call mcp.call again with the same connectionId, remoteName, and arguments: Alfred checks it against the new tool list.",
+    why: "The server binds each call to the connection's current catalog revision when the call is proposed (ADR-0088 amendment 2026-11-18). The live catalog had another revision at delivery, so the broker refused instead of running a descriptor that nobody checked.",
+    fix: { kind: "retry" },
+  },
+  mcp_catalog_changed: {
+    message:
+      "This MCP server's tool list changed while the script ran, so this read did not run. Run the script again: the new run reads the new tool list.",
+    why: "A Code Mode pass pins one catalog revision for each connection at its first read (ADR-0116 amendment 2026-11-18). The live catalog changed during the pass, and the host does not refresh it silently.",
+    fix: { kind: "retry" },
   },
   mcp_arguments_rejected: {
     message:
