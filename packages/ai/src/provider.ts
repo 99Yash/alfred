@@ -76,17 +76,18 @@ const MODEL_ROUTES = {
     legs: [() => googleLeg("gemini-3.8-flash")],
     reasoning: "none",
   },
-  // The chat tiers differ only in effort.
+  // Alfred: the everyday chat tier.
   standard: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // `xhigh` is the generic ceiling. OpenAI gets its provider-only `max`; Gemini maps `xhigh` to `high`.
+  // Alfred Pro (ADR-0077 amendment 2026-11-18). `medium` is explicit: the Anthropic API default is
+  // `high`, and the paired Code Mode eval measured Haiku at `medium`.
   deep: {
-    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
-    reasoning: "xhigh",
-    providerOptions: { ...GOOGLE_THOUGHT_SUMMARIES, openai: { reasoningEffort: "max" } },
+    legs: [() => anthropicLeg("claude-haiku-5-5"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "medium",
+    providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
 } as const satisfies Record<string, ModelRoute>;
 
