@@ -39,7 +39,7 @@ Decided with the owner after two reviews of #1776. The route had three patches, 
 - The approval input includes the staging arm and the thread's Full Autonomy. Thus a local `fast_path` catalog read is a script read.
 - Search reports the current decision. Dispatch decides again. The broker checks the current descriptor and the read authority before delivery.
 - A policy can change between search and dispatch. So a refusal returns the current route and its reason.
-- The connected summary describes the capabilities and the route rule. Its pinned text makes no claim about the current approval settings.
+- The connected summary describes capabilities and the read-route rule. It does not select read routes from approval settings captured at run start. Existing write approval labels remain confirmation hints under ADR-0069. Dispatch evaluates approval when each call runs (owner, 2026-11-18).
 
 **Read authority is independent of the server.** A call is a confirmed read only with one of these:
 

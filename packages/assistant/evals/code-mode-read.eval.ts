@@ -453,9 +453,6 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
   const hosts = readHostBindings({
     readTools: READ_TOOLS,
     hostRead: (request) => fakeHostRead(request, record),
-    isReadOnlyMcpTool: async (ref) =>
-      ref.connectionId === GITHUB_CONNECTION.id &&
-      GITHUB_DESCRIPTORS.some((descriptor) => descriptor.name === ref.remoteName),
   });
 
   const result = await generateText({

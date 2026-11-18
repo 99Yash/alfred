@@ -30,6 +30,7 @@ import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
   isSelectedMcpToolReadOnly,
+  resolveMcpCallReadFacts,
   resolveMcpCallRiskTier,
   type McpBrokerOutcome,
 } from "@alfred/assistant/tool-runtime/mcp";
@@ -49,6 +50,8 @@ export interface McpBrokerToolResult {
   retry?: "blocked";
   reason?: string;
   message?: string;
+  /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
+  hasBinaryContent?: true;
 }
 
 /** The MCP catalog reads, named so the Code Mode index reads their types (ADR-0124). */
@@ -59,13 +62,13 @@ export type McpInspectToolResult = Awaited<ReturnType<typeof inspectMcpToolLocal
 function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
-      return withTruncation(
+      return withResponseFacts(
         { status: "completed", result: outcome.envelope.result },
         outcome.envelope,
       );
     case "tool_error":
       // Only idempotent reads reach here. MCP `isError` does not prove no effect occurred.
-      return withTruncation(
+      return withResponseFacts(
         { ok: false, status: "tool_error", result: outcome.envelope.result },
         outcome.envelope,
       );
@@ -113,8 +116,12 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
-function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
-  return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
+function withResponseFacts<T extends object>(result: T, envelope: McpCallEnvelope): T {
+  return {
+    ...result,
+    ...(envelope.hasBinaryContent ? { hasBinaryContent: true } : {}),
+    ...(envelope.truncation ? { truncation: envelope.truncation } : {}),
+  };
 }
 
 export const mcpTools: readonly RegisteredTool[] = [
@@ -164,10 +171,10 @@ export const mcpTools: readonly RegisteredTool[] = [
 
       return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
     },
-    // ADR-0124: a `code_run` run sends a read with no card into a script. The selected revision's
-    // descriptor and review decide, the same rule as `mcp.read` and the broker's `requireRead`.
-    selectsRead: (input, ctx) =>
-      isSelectedMcpToolReadOnly({
+    // ADR-0124 amendment 2026-11-18: the read authority and the declared output of the current
+    // descriptor. The route decision reads them, and the broker checks them again before delivery.
+    resolveReadFacts: (input, ctx) =>
+      resolveMcpCallReadFacts({
         userId: ctx.userId,
         connectionId: input.connectionId,
         remoteName: input.remoteName,
@@ -200,7 +207,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           // `input` is the effective input (an approval edit included), on a resume and a replay too.
           serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
           // A script read: the broker checks the live descriptor and review again (ADR-0124).
-          ...(ctx.runContext.readPath === "code_run_host" ? { requireRead: true } : {}),
+          ...(ctx.runContext.readPath === "code_run_host" ? { requireScriptRead: true } : {}),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {

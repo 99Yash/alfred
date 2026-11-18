@@ -62,7 +62,12 @@ export async function integrationOfMcpConnection(
 
   if (!connection) return null;
 
-  const provider = builtInProviderForEndpoint(connection.server.endpointUrl);
+  return integrationOfMcpEndpoint(connection.server.endpointUrl);
+}
+
+/** The integration of a built-in endpoint, or `null` for a user-added server. */
+export function integrationOfMcpEndpoint(endpointUrl: string): IntegrationSlug | null {
+  const provider = builtInProviderForEndpoint(endpointUrl);
 
   return provider === undefined ? null : BUILT_IN_MCP_CATALOG[provider].slug;
 }

@@ -8,7 +8,7 @@
 import { isToolName, type PolicyMode, type ToolName, type ToolRiskTier } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
-import { getTool } from "./internal/registry";
+import { getTool, type ToolStagingPolicy } from "./internal/registry";
 
 /**
  * Approval is needed when policy is `gated` or the tier is `high`.
@@ -17,6 +17,36 @@ import { getTool } from "./internal/registry";
  */
 export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
   return policyMode === "gated" || riskTier === "high";
+}
+
+/**
+ * The live approval of one call, which the read route takes as its input (ADR-0124 amendment
+ * 2026-11-18): the staging arm, the rule and the tier, and the thread's Full Autonomy. `join` and
+ * `fast_path` return before the gate, so they never wait. A forced arm waits whatever the rest says.
+ * Dispatch reads Full Autonomy only when the rule would gate, so a caller may pass `false` then.
+ */
+export function callRequiresApproval(args: {
+  staging: ToolStagingPolicy;
+  policyMode: PolicyMode;
+  riskTier: ToolRiskTier;
+  fullAutonomy: boolean;
+}): boolean {
+  const arm = STAGING_ARM[args.staging];
+
+  if (arm === null) return false;
+
+  if (arm.forcesApproval) return true;
+
+  return toolRequiresApproval(args.policyMode, args.riskTier) && !args.fullAutonomy;
+}
+
+/**
+ * A declared script read (`codeModeRead`). In a `code_run` run, the connected summary gives such
+ * a read no approval label, because a run-start label would pick its route (ADR-0124 amendment
+ * 2026-11-18).
+ */
+export function isDeclaredScriptRead(toolName: ToolName): boolean {
+  return getTool(toolName)?.codeModeRead === true;
 }
 
 /**

@@ -93,6 +93,32 @@ export const isWriteRiskTier = enumGuard(WRITE_RISK_TIERS);
 
 export type RiskTierCounts = Record<ToolRiskTier, number>;
 
+/**
+ * The declared output of a confirmed read (ADR-0124 amendment 2026-11-18). Only a `structured`
+ * read can enter a script. `binary` is file content, for example base64 bytes, so it runs direct.
+ */
+export type ToolOutputKind = "structured" | "binary";
+
+/** Why a call stays direct, also carried by a public route-change error (ADR-0124). */
+export const directReadRouteReasonSchema = z.enum([
+  "not_a_confirmed_read",
+  "binary_output",
+  "undeclared_output",
+  "needs_approval",
+]);
+
+export type DirectRouteReason = z.infer<typeof directReadRouteReasonSchema>;
+
+/** Trusted wording shared by route refusals and the public failure catalog. */
+export const DIRECT_READ_ROUTE_REASON_TEXT = {
+  not_a_confirmed_read:
+    "Alfred cannot confirm that it only reads: no built-in read-only endpoint and no exact read policy covers it.",
+  binary_output: "It returns binary file content, which a script cannot use.",
+  undeclared_output: "No trusted declaration says that its output is structured.",
+  needs_approval:
+    "It waits for the user's approval now, and only a direct call shows the approval card.",
+} satisfies Record<DirectRouteReason, string>;
+
 /** `mode` is absent when a rule only holds tool overrides; the user default then applies. */
 export interface IntegrationRule {
   mode?: PolicyMode;

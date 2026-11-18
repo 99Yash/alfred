@@ -17,15 +17,9 @@ const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 /** The guest path of the one host function that is not a tool name. */
 export const MCP_READ_PATH = "mcp.read";
 
-export interface McpReadOnlyCheck {
-  (ref: { connectionId: string; remoteName: string; catalogRevision: string }): Promise<boolean>;
-}
-
 export function readHostBindings(args: {
   readTools: readonly RegisteredTool[];
   hostRead: HostReadDispatcher;
-  /** The selected descriptor's `readOnlyHint` (`isSelectedMcpToolReadOnly`). A fake in an eval. */
-  isReadOnlyMcpTool: McpReadOnlyCheck;
 }): HostBinding[] {
   const { hostRead } = args;
 
@@ -56,14 +50,8 @@ export function readHostBindings(args: {
 
       const [ref, toolArgs] = parsed.data;
 
-      // A second barrier: the gate also refuses a write, because a write keeps the `high` floor.
-      if (!(await args.isReadOnlyMcpTool(ref))) {
-        return refused(
-          "not_a_read",
-          `${ref.remoteName} is not marked read-only, so a script cannot call it.`,
-        );
-      }
-
+      // Dispatch decides the route of the nested call, and the broker checks the live
+      // descriptor again (ADR-0124 amendment 2026-11-18). A second copy here could disagree.
       return hostRead({
         toolName: MCP_CALL_TOOL,
         input: {
