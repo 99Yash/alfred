@@ -173,13 +173,15 @@ export interface HostReadRequest {
  * 2026-11-18): `needs_approval`, the gate would show a card, and a script cannot show one;
  * `not_a_read`, no authority confirms the read; `binary_output`, the output is declared binary or
  * the response held bytes; `undeclared_output`, no trusted declaration says the output is
- * structured. The rest are the dispatch result kinds.
+ * structured; `route_changed`, the broker refused the live route before delivery.
+ * The rest are the dispatch result kinds.
  */
 export type HostReadRefusal =
   | "needs_approval"
   | "not_a_read"
   | "binary_output"
   | "undeclared_output"
+  | "route_changed"
   | "failed"
   | "rejected"
   | "blocked"

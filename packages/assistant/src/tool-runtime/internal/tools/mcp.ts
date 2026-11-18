@@ -50,6 +50,8 @@ export interface McpBrokerToolResult {
   retry?: "blocked";
   reason?: string;
   message?: string;
+  /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
+  hasBinaryContent?: true;
 }
 
 /** The MCP catalog reads, named so the Code Mode index reads their types (ADR-0124). */
@@ -60,13 +62,13 @@ export type McpInspectToolResult = Awaited<ReturnType<typeof inspectMcpToolLocal
 function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
-      return withTruncation(
+      return withResponseFacts(
         { status: "completed", result: outcome.envelope.result },
         outcome.envelope,
       );
     case "tool_error":
       // Only idempotent reads reach here. MCP `isError` does not prove no effect occurred.
-      return withTruncation(
+      return withResponseFacts(
         { ok: false, status: "tool_error", result: outcome.envelope.result },
         outcome.envelope,
       );
@@ -114,8 +116,12 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
-function withTruncation<T extends object>(result: T, envelope: McpCallEnvelope): T {
-  return envelope.truncation ? { ...result, truncation: envelope.truncation } : result;
+function withResponseFacts<T extends object>(result: T, envelope: McpCallEnvelope): T {
+  return {
+    ...result,
+    ...(envelope.hasBinaryContent ? { hasBinaryContent: true } : {}),
+    ...(envelope.truncation ? { truncation: envelope.truncation } : {}),
+  };
 }
 
 export const mcpTools: readonly RegisteredTool[] = [

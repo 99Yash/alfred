@@ -1,11 +1,14 @@
 /**
  * The binary check of an executed `mcp.call` result (`brokerResult` in `./mcp`), for a script
- * read (ADR-0124 amendment 2026-11-18). A read declared `structured` that returns bytes fails by
- * name. A separate file, so dispatch can import it without the `mcp.call` tool module.
+ * read (ADR-0124 amendment 2026-11-18). The client records the fact before bounds remove blocks,
+ * and the staging result keeps it for replay. A separate file avoids importing the tool module.
  */
 
 import type { JsonValue } from "@alfred/contracts";
 import { z } from "zod";
+
+/** The client owns this fact; the remote result is nested under `result`. */
+const mcpBinaryContentFactSchema = z.object({ hasBinaryContent: z.literal(true) });
 
 /** The content blocks of `McpBrokerToolResult.result`. */
 const mcpResultContentSchema = z.object({
@@ -19,6 +22,9 @@ const mcpBinaryBlockSchema = z.union([
 ]);
 
 export function mcpResultHasBinaryContent(value: JsonValue): boolean {
+  if (mcpBinaryContentFactSchema.safeParse(value).success) return true;
+
+  // Older saved results have no raw-response fact. Keep detecting the blocks they retained.
   const parsed = mcpResultContentSchema.safeParse(value);
 
   if (!parsed.success) return false;

@@ -72,6 +72,8 @@ interface McpCallEnvelopeFields {
   outcome: "completed" | "tool_error";
   /** Payload-free record of what the server returned. The broker stores it in the ledger. */
   provenance: McpResultProvenance;
+  /** A raw response held bytes. Computed before bounds; absent when it held none. */
+  hasBinaryContent?: true;
 }
 
 /** A result the bounds left whole stays typed. A clipped result is `unknown` and carries `truncation`. */
@@ -793,6 +795,14 @@ export class McpRawClient {
       outputSchemaValidated = true;
     }
 
+    // The kind must survive bounds that can drop a whole block or the blob field of a resource.
+    const hasBinaryContent = result.content.some(
+      (block) =>
+        block.type === "image" ||
+        block.type === "audio" ||
+        (block.type === "resource" && "blob" in block.resource),
+    );
+
     const kept =
       options.result === "structured" && result.structuredContent !== undefined
         ? { ...result, content: [] }
@@ -805,6 +815,7 @@ export class McpRawClient {
       toolName: tool.name,
       catalogRevision: catalog.revision,
       outcome: isToolError ? "tool_error" : "completed",
+      ...(hasBinaryContent ? { hasBinaryContent: true } : {}),
       provenance: resultProvenance(result, {
         isToolError,
         outputSchemaValidated,

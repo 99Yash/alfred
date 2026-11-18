@@ -14,7 +14,7 @@ import {
   unrefTimer,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { publicAppError } from "@alfred/contracts/app-errors";
+import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import { requireRow, runAtomic } from "@alfred/db/helpers";
 import { isUniqueViolation, uniqueViolationConstraint } from "@alfred/db/pg-errors";
 import {
@@ -55,7 +55,7 @@ import {
   type OwnedMcpConnectionRef,
 } from "./invocations";
 import { effectiveMcpRiskTier } from "./risk";
-import { decideReadRoute, NOT_A_CONFIRMED_READ, readRouteReasonText } from "../read-route";
+import { decideReadRoute, NOT_A_CONFIRMED_READ } from "../read-route";
 import {
   hasMcpBrokerAdmissionCapacity,
   MCP_SETTLEMENT_REPAIR_BATCH_SIZE,
@@ -1424,11 +1424,7 @@ export class McpExecutionBroker {
       const route = decideReadRoute(facts, false);
 
       if (route.route !== "script") {
-        throw new McpClientError(
-          "route_changed",
-          `${ref.remoteName} cannot run in a script now: its descriptor or its review changed. ` +
-            `${readRouteReasonText(route)} Call it through mcp.call.`,
-        );
+        throw new AppError("mcp_read_route_changed", { reason: route.reason });
       }
     }
 

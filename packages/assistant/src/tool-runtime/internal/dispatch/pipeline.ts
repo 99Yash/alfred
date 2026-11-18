@@ -6,6 +6,7 @@
 
 import type {
   AskUserUnansweredReason,
+  DirectRouteReason,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   ToolName,
@@ -96,12 +97,7 @@ import {
   forecastToolApproval,
   toolRequiresApproval,
 } from "../../approval-rule";
-import {
-  decideReadRoute,
-  readRouteReasonText,
-  type DirectRouteReason,
-  type ReadRoute,
-} from "../../read-route";
+import { decideReadRoute, readRouteReasonText, type ReadRoute } from "../../read-route";
 import {
   getTool,
   NO_TOOL_EFFECTS,
@@ -777,7 +773,11 @@ function hostReadOutcome(
           "the card there.",
       };
     case "failed":
-      return { kind: "refused", refusal: "failed", message: result.error.message };
+      return {
+        kind: "refused",
+        refusal: result.error.code === "mcp_read_route_changed" ? "route_changed" : "failed",
+        message: result.error.message,
+      };
     case "rejected":
       return { kind: "refused", refusal: "rejected", message: result.result.reason };
     case "blocked":

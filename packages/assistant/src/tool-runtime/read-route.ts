@@ -5,7 +5,11 @@
  * keeps its own copy of the table.
  */
 
-import { assertNever, type ToolOutputKind } from "@alfred/contracts";
+import {
+  DIRECT_READ_ROUTE_REASON_TEXT,
+  type DirectRouteReason,
+  type ToolOutputKind,
+} from "@alfred/contracts";
 
 /** What the runtime knows about the effect and the output of one call. */
 export interface ReadFacts {
@@ -23,13 +27,6 @@ export const NOT_A_CONFIRMED_READ: ReadFacts = { read: false, output: undefined 
 
 /** A curated read: `codeModeRead` declares the effect and the structured output together. */
 export const DECLARED_STRUCTURED_READ: ReadFacts = { read: true, output: "structured" };
-
-/** Why a call stays a direct call in a `code_run` run. */
-export type DirectRouteReason =
-  | "not_a_confirmed_read"
-  | "binary_output"
-  | "undeclared_output"
-  | "needs_approval";
 
 export type ReadRoute = { route: "script" } | { route: "direct"; reason: DirectRouteReason };
 
@@ -56,16 +53,5 @@ export function readRouteReasonText(route: ReadRoute): string {
     return "It is a confirmed read with structured output, and it needs no approval now.";
   }
 
-  switch (route.reason) {
-    case "not_a_confirmed_read":
-      return "Alfred cannot confirm that it only reads: no built-in read-only endpoint and no exact read policy covers it.";
-    case "binary_output":
-      return "It returns binary file content, which a script cannot use.";
-    case "undeclared_output":
-      return "No trusted declaration says that its output is structured.";
-    case "needs_approval":
-      return "It waits for the user's approval now, and only a direct call shows the approval card.";
-    default:
-      return assertNever(route.reason, "direct read route reason");
-  }
+  return DIRECT_READ_ROUTE_REASON_TEXT[route.reason];
 }

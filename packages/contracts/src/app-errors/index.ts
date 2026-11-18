@@ -8,6 +8,7 @@ import { z } from "zod";
 import { isHttpError } from "../errors";
 import { enumGuard, isRecord } from "../guards";
 import { typedKeys } from "../records";
+import { DIRECT_READ_ROUTE_REASON_TEXT, directReadRouteReasonSchema } from "../tools";
 import {
   INTEGRATION_DISPLAY_NAMES,
   INTEGRATION_SLUGS,
@@ -168,6 +169,13 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The run has an integration allowlist, and the connection's server belongs to no listed integration. The check reads the input that runs, after any approval edit.",
     fix: { kind: "correct_input" },
   },
+  mcp_read_route_changed: withParams(z.object({ reason: directReadRouteReasonSchema }), {
+    message: ({ reason }) =>
+      "This MCP call runs as a direct call now, not in a script. " +
+      `${DIRECT_READ_ROUTE_REASON_TEXT[reason]} Call it through mcp.call with the same ref and arguments.`,
+    why: "The broker's descriptor and read-authority check no longer permits a script read.",
+    fix: (): Fix => ({ kind: "correct_input" }),
+  }),
   mcp_effect_not_applied: {
     message: "You confirmed that this MCP operation did not apply. It was not repeated.",
     why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",
