@@ -6,6 +6,7 @@
 
 import {
   codeRunInput,
+  toJsonValue,
   type JsonValue,
   type ReadEvidenceRef,
   type ScriptSource,
@@ -20,6 +21,7 @@ import {
   type ReadProgramFailure,
   type ReadProgramOutcome,
 } from "../../code-mode/run-read-program";
+import { CODE_RUN_RESULT_MAX_BYTES, jsonBytes } from "../../code-mode/result-budget";
 import { scriptSources } from "../../code-mode/script-sources";
 
 /**
@@ -116,9 +118,26 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   };
 
   if (outcome.status === "completed") {
-    return { status: "completed", value: outcome.value, reads, ...pages };
+    const completed: CodeRunResult = { status: "completed", value: outcome.value, reads, ...pages };
+    const bytes = jsonBytes(toJsonValue(completed));
+
+    // ADR-0124 amendment 2026-11-18 (b): the whole envelope that the model reads stays within its
+    // budget. `run` measures its own encoding of the value, so the parts alone do not prove it.
+    if (bytes <= CODE_RUN_RESULT_MAX_BYTES) return completed;
+
+    return {
+      status: "result_too_large_or_not_json",
+      message:
+        `The result is ${Math.round(bytes / 1024)} KiB, above the ` +
+        `${CODE_RUN_RESULT_MAX_BYTES / 1024} KiB that the chat can read. Return only the fields ` +
+        "the answer needs.",
+      reads,
+      ...pages,
+    };
   }
 
+  // A failure is within the budget by construction: the message cap and the sources cap are far
+  // below it (`result-budget.ts`).
   return { status: outcome.status, message: outcome.message, reads, ...pages };
 }
 

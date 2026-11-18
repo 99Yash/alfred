@@ -714,6 +714,7 @@ function hostCallRows(parentStagingId: string, record: HostCallRecord): NewCodeR
       omittedEvidence: entry.evidence?.omittedRefs ?? 0,
       contentHash: entry.contentHash,
       coverage: entry.evidence?.coverage ?? null,
+      savedBytes: entry.savedBytes,
       durationMs: entry.ms,
     }),
   );

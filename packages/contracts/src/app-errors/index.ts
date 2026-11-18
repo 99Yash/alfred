@@ -182,6 +182,16 @@ export const APP_ERROR_REGISTRY = defineFailureCatalog({
     why: "The broker's descriptor and read-authority check no longer permits a script read.",
     fix: (): Fix => ({ kind: "correct_input" }),
   }),
+  script_read_output_too_large: withParams(
+    z.object({ kib: z.number().int().nonnegative(), limitKib: z.number().int().positive() }),
+    {
+      message: ({ kib, limitKib }) =>
+        `The read returned ${kib} KiB, above the ${limitKib} KiB that a script can receive. ` +
+        "Ask for fewer items.",
+      why: "A script read gets the whole sanitized response up to the host's delivery cap. Dispatch refuses a larger one before it saves the result, so a replay returns the same failure (ADR-0124 amendment 2026-11-18 (b)).",
+      fix: (): Fix => ({ kind: "correct_input" }),
+    },
+  ),
   mcp_effect_not_applied: {
     message: "You confirmed that this MCP operation did not apply. It was not repeated.",
     why: "The user resolved an unresolved MCP invocation as not applied; the effect is closed.",

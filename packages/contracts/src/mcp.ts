@@ -473,8 +473,8 @@ export const mcpResultProvenanceSchema = z.object({
   contentBlockCount: z.number().int().nonnegative(),
   /** Block count per kind. Only kinds that occur appear. */
   contentKinds: z.partialRecord(mcpContentKindSchema, z.number().int().nonnegative()),
-  /** The text the model saw was clipped. */
-  truncated: z.boolean(),
+  // No `truncated` flag: the client no longer bounds the response, the recipient does (ADR-0124
+  // amendment 2026-11-18 (b)). A row from before that change still holds the old key.
 });
 
 export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;

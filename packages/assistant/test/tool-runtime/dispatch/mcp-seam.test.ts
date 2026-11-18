@@ -90,7 +90,6 @@ class CapturingBroker {
         outputSchemaValidated: false,
         contentBlockCount: 0,
         contentKinds: {},
-        truncated: false,
       },
     };
 

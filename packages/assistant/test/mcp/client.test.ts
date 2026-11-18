@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { getPath } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { McpClientError } from "../../src/connections/mcp";
 import { isPreDeliveryErrorCode } from "../../src/connections/mcp/errors";
@@ -975,7 +974,7 @@ describe("McpRawClient calls", () => {
     assert.deepEqual(protocol.calls, [{ name: "long_job", args: {} }]);
   });
 
-  test("preserves tool error state and bounds oversized untrusted results", async () => {
+  test("preserves tool error state and returns the whole sanitized result", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     protocol.callResult = {
       content: [{ type: "text", text: "x".repeat(40_000) }],
@@ -995,9 +994,9 @@ describe("McpRawClient calls", () => {
       { query: "hello" },
     );
 
+    // The recipient bounds the size (ADR-0124 amendment 2026-11-18 (b)), not the client.
     assert.equal(result.outcome, "tool_error");
-    assert.equal(result.truncation?.handleEligible, true);
-    assert.ok(JSON.stringify(result.result).length < 33_000);
+    assert.ok(JSON.stringify(result.result).length > 40_000);
   });
 
   test("validates successful structured output against the complete catalog", async () => {
@@ -1108,11 +1107,7 @@ describe("McpRawClient calls", () => {
 
       assert.equal(result.outcome, "completed", fixture.name);
       assert.equal(result.provenance.outputSchemaValidated, true, fixture.name);
-      assert.deepEqual(
-        getPath(result.result, "structuredContent"),
-        fixture.structuredContent,
-        fixture.name,
-      );
+      assert.deepEqual(result.result.structuredContent, fixture.structuredContent, fixture.name);
     }
   });
 
@@ -1165,7 +1160,6 @@ describe("McpRawClient calls", () => {
       outputSchemaValidated: false,
       contentBlockCount: 1,
       contentKinds: { text: 1 },
-      truncated: false,
     });
   });
 
@@ -1215,13 +1209,12 @@ describe("McpRawClient calls", () => {
       outputSchemaValidated: true,
       contentBlockCount: 4,
       contentKinds: { text: 2, image: 1, resource_link: 1 },
-      truncated: false,
     });
     // Payload-free: the returned resource-link URI never appears in provenance.
     assert.ok(!JSON.stringify(result.provenance).includes("secret.pdf"));
   });
 
-  test("provenance reflects a server tool_error and an oversized-result truncation", async () => {
+  test("provenance reflects a server tool_error on an oversized result", async () => {
     const protocol = new FakeProtocol([{ tools: [SEARCH_TOOL] }]);
     protocol.callResult = {
       content: [{ type: "text", text: "x".repeat(40_000) }],
@@ -1242,10 +1235,9 @@ describe("McpRawClient calls", () => {
     );
 
     assert.equal(result.outcome, "tool_error");
-    // isError is captured, a tool error skips the output validator, and the truncated projection is flagged.
+    // isError is captured, and a tool error skips the output validator.
     assert.equal(result.provenance.isError, true);
     assert.equal(result.provenance.outputSchemaValidated, false);
-    assert.equal(result.provenance.truncated, true);
     assert.deepEqual(result.provenance.contentKinds, { text: 1 });
   });
 

@@ -256,7 +256,7 @@ async function readMapping(
     mappingRevision: mapping.mappingRevision,
   });
 
-  if (!envelope || envelope.outcome !== "completed" || envelope.truncation) return null;
+  if (!envelope || envelope.outcome !== "completed") return null;
 
   const payload = parseMcpToolResult(envelope.result, jsonValueSchema);
 
