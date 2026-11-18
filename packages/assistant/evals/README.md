@@ -21,9 +21,9 @@ Every model call goes through the gateway, so there are no provider keys to set.
   DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
   `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
   cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — six suites GENERATE on that route, because
+- `route("standard")` (`gpt-6-luna`) — seven suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
-  `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
+  `code-mode-paired`, `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
   `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
@@ -56,9 +56,16 @@ it.
   chat: every read must run in `system.code_run`, in few steps and a small context. The
   scripts run in the real sandbox against fake host functions (#898), so the trajectory is
   graded offline. Deterministic only.
+- `code-mode-paired.eval.ts` — the ADR-0124 paired evaluation that decides the default read
+  path. Each case runs in both read modes, three times each, through the production chat
+  loop (`startChatTurn`, then `runOnce`). Only the GitHub MCP server is fake, at its
+  protocol client. Needs the local Postgres and Redis, and no dev server. It writes the
+  verdict of the owner's rule to `references/scratch/code-mode-paired/`. Deterministic only.
 - `tool-selection-bloat.eval.ts` — the context-purity experiment: does a bloated
   tool menu degrade tool selection? Runs the same tasks under a lean menu and a
   full one.
+- `lib/github-repo-fixture.ts` — the synthetic GitHub repo and the fake GitHub MCP
+  protocol client behind the captured catalog (`fixtures/github-mcp-catalog.json`).
 - `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
 - `lib/triage-classify-retry.ts` — the provider-weather guards the two triage suites share.
