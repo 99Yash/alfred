@@ -6,9 +6,12 @@
 // docs/research/alchemy-railway-probe.md, "Cutover gate experiments").
 //
 // The deploy trigger is the context upload: Railway builds the repo root
-// (filtered by the root `.dockerignore`) when `alchemy deploy` runs — the
-// deploy GitHub Action on push to main (ADR-0128). There is no GitHub
-// trigger on the Railway side; `alchemy deploy` is the only redeploy path.
+// (filtered by the root `.dockerignore`) with the per-service Dockerfile
+// under `docker/` — the `dockerfilePath` prop points each service at its
+// file, and Dockerfile detection wins over the Railpack fallback. The deploy
+// GitHub Action on push to main runs `alchemy deploy` (ADR-0128). There is
+// no GitHub trigger on the Railway side; `alchemy deploy` is the only
+// redeploy path.
 //
 // CI runners hold no local state, so every CI deploy re-adopts the services
 // in place (`deploy --adopt`); ownership probes at apply time find the
@@ -72,6 +75,7 @@ export const Server = Railway.Service("Server", {
   name: "server",
   region: REGION,
   context: REPO_ROOT,
+  dockerfilePath: "docker/server.Dockerfile",
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=server",
   startCommand: "node apps/server/dist/index.js",
@@ -92,6 +96,7 @@ export const Web = Railway.Service("Web", {
   name: "web",
   region: REGION,
   context: REPO_ROOT,
+  dockerfilePath: "docker/web.Dockerfile",
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=web",
   publicDomain: false,
