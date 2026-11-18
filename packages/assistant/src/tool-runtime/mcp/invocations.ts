@@ -127,11 +127,18 @@ function readOnlyClaimHolds(readOnly: boolean, effectClass: string | undefined):
 }
 
 /**
- * The effect class of a resolved tool: the owner's review, else the code-owned entry, else
- * `unknown`, which the broker treats as effectful.
+ * The effect class of a resolved tool: the owner's review, else the code-owned entry, else the
+ * structural branch, else `unknown`, which the broker treats as effectful. The structural branch
+ * is the read authority of the read route and of the tier: a built-in read-only endpoint and the
+ * tool's published `readOnlyHint` (ADR-0096 amendment 2026-11-18). A drifted review gives
+ * `unknown`, as it gives the `high` floor.
  */
 export function mcpToolEffectClass(identity: ResolvedMcpToolIdentity): McpEffectClass {
-  return identity.policy?.effectClass ?? identity.codePolicy?.effectClass ?? "unknown";
+  if (identity.policy !== undefined) return identity.policy.effectClass;
+
+  if (identity.codePolicy !== undefined) return identity.codePolicy.effectClass;
+
+  return !identity.reviewed && identity.readOnly && identity.readOnlyResource ? "read" : "unknown";
 }
 
 /** The exact descriptor/policy pair that may authorize a fixed read. */
