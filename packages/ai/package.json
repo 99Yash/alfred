@@ -4,6 +4,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./embeddings": "./src/embeddings.ts",
+    "./test-support": "./src/test-support.ts",
     "./voice": "./src/voice/index.ts"
   },
   "scripts": {

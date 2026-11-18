@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { CODE_MODE_READ_PATH_FEATURE_KEY, toMessage } from "@alfred/contracts";
+import { CODE_MODE_READ_PATH_FEATURE_KEY, keyGuard, toMessage } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { closeRedis } from "@alfred/db/redis";
 import {
@@ -13,6 +13,15 @@ import {
   user,
   userActionPolicies,
 } from "@alfred/db/schemas";
+import {
+  anthropicLeg,
+  flushMeteringWrites,
+  probeRoute,
+  route,
+  routeEffort,
+  type ModelRouteHandle,
+} from "@alfred/ai";
+import { _setRouteOverrideForTests, probeOpenAiLeg } from "@alfred/ai/test-support";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { config as loadEnv } from "dotenv";
@@ -74,6 +83,7 @@ import {
 // Run: `pnpm --filter @alfred/assistant exec evalite run code-mode-paired`. A filtered run
 // (`CODE_MODE_PAIRED_ONLY`, below) runs once, so its report is not a verdict.
 // The verdict of the owner's rule goes to references/scratch/code-mode-paired/ (gitignored).
+// `CODE_MODE_PAIRED_MODEL` (below) puts every chat route on another model for the whole run.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
 
@@ -95,6 +105,37 @@ const OWNER_INTEGRATION_RULES = {
   system: { mode: "autonomy" },
   github: { mode: "autonomy" },
 } as const;
+
+/**
+ * The chat model for the whole run. The verdict compares the two modes on one model, so a
+ * cross-model comparison reads the cost column of two reports, not their tokens.
+ */
+const PAIRED_MODELS = {
+  // The product chat route, with no override.
+  luna: null,
+  // The chat route's own reasoning level.
+  haiku: () => probeRoute(anthropicLeg("claude-haiku-5-5"), routeEffort("standard")),
+  // Not in the SDK's known OpenAI ids yet (2026-11-17), so it takes the probe leg.
+  sol62: () => probeRoute(probeOpenAiLeg("gpt-6.2-sol"), "medium"),
+} as const satisfies Record<string, (() => ModelRouteHandle) | null>;
+
+type PairedModel = keyof typeof PAIRED_MODELS;
+
+const isPairedModel = keyGuard(PAIRED_MODELS);
+
+function pairedModel(): PairedModel {
+  const value = process.env.CODE_MODE_PAIRED_MODEL ?? "luna";
+
+  if (!isPairedModel(value)) {
+    throw new Error(
+      `CODE_MODE_PAIRED_MODEL=${value} is not one of ${Object.keys(PAIRED_MODELS).join(", ")}`,
+    );
+  }
+
+  return value;
+}
+
+const PAIRED_MODEL = pairedModel();
 
 type Mode = "direct" | "code_mode";
 
@@ -157,11 +198,19 @@ interface RunInput {
 }
 
 interface RunMeasure extends RunInput {
+  /** The primary model id of the chat route for this run. */
+  model: string;
+  /** The model ids that `api_call_log` recorded for the run's chat steps. */
+  servedModels: string[];
   error: string | null;
   /** The share of planted facts that the answer states. */
   quality: number;
   latencyMs: number;
   totalTokens: number;
+  /** The sum of `api_call_log.cost_usd` for the run. Tokenizers differ, so this compares models. */
+  costUsd: number;
+  /** The largest input of one model call in the run. */
+  maxInputTokens: number;
   modelSteps: number;
   approvalCards: number;
   firstStepSchemaTokens: number | null;
@@ -173,6 +222,9 @@ interface RunMeasure extends RunInput {
 }
 
 let booted = false;
+
+/** The chat route's primary model id, known after `boot`. */
+let chatModelId = "";
 
 /** The tool-surface spans of each run, in order. The eval keeps no other span. */
 const surfaceTokens = new Map<string, number[]>();
@@ -187,6 +239,11 @@ function boot(): void {
   registerDefaultContextSources();
   registerDispatchToolCallRoundAdapter();
   registerRuntimeAdapters();
+  const override = PAIRED_MODELS[PAIRED_MODEL];
+
+  // The process ends with the run, so the override is never restored.
+  if (override) _setRouteOverrideForTests("chat", override());
+  chatModelId = route("standard").model().modelId;
   _setRuntimeSpanStarterForTests((input) => ({
     end(args) {
       if (input.name !== RUNTIME_TOOL_SURFACE) return;
@@ -346,6 +403,50 @@ async function driveRun(userId: string, runId: string): Promise<number> {
   throw new Error(`the run passed its ${RUN_DEADLINE_MS} ms deadline`);
 }
 
+interface RunUsage {
+  totalTokens: number;
+  costUsd: number;
+  maxInputTokens: number;
+  chatSteps: number;
+  servedModels: string[];
+}
+
+/** Every metered call of the run. Read before the user delete, which cascades to the rows. */
+async function readRunUsage(runId: string): Promise<RunUsage> {
+  // The metering rows settle in the background.
+  await flushMeteringWrites();
+
+  const calls = await db()
+    .select({
+      stepId: apiCallLog.stepId,
+      model: apiCallLog.model,
+      input: apiCallLog.inputTokens,
+      output: apiCallLog.outputTokens,
+      costUsd: apiCallLog.costUsd,
+    })
+    .from(apiCallLog)
+    .where(eq(apiCallLog.runId, runId));
+
+  // The step id is `<runId>:chat-turn:<n>`; a title or a compaction call has another one.
+  const chatCalls = calls.filter((call) => call.stepId?.includes(":chat-turn:"));
+
+  return {
+    totalTokens: calls.reduce((sum, call) => sum + (call.input ?? 0) + (call.output ?? 0), 0),
+    costUsd: calls.reduce((sum, call) => sum + Number(call.costUsd), 0),
+    maxInputTokens: Math.max(0, ...calls.map((call) => call.input ?? 0)),
+    chatSteps: chatCalls.length,
+    servedModels: [...new Set(chatCalls.map((call) => call.model))],
+  };
+}
+
+const NO_USAGE: RunUsage = {
+  totalTokens: 0,
+  costUsd: 0,
+  maxInputTokens: 0,
+  chatSteps: 0,
+  servedModels: [],
+};
+
 function factsStated(answer: string, facts: readonly string[]): number {
   const text = answer.toLowerCase();
 
@@ -385,25 +486,20 @@ async function measureRun(input: RunInput): Promise<RunMeasure> {
       .from(chatMessages)
       .where(eq(chatMessages.id, started.assistantMessageId));
 
-    const calls = await db()
-      .select({
-        stepId: apiCallLog.stepId,
-        input: apiCallLog.inputTokens,
-        output: apiCallLog.outputTokens,
-      })
-      .from(apiCallLog)
-      .where(eq(apiCallLog.runId, startedRunId));
-
+    const usage = await readRunUsage(startedRunId);
     const answer = message?.content ?? "";
 
     return {
       ...input,
+      model: chatModelId,
+      servedModels: usage.servedModels,
       error: null,
       quality: factsStated(answer, testCase.facts),
       latencyMs,
-      totalTokens: calls.reduce((sum, call) => sum + (call.input ?? 0) + (call.output ?? 0), 0),
-      // The step id is `<runId>:chat-turn:<n>`; a title or a compaction call has another one.
-      modelSteps: calls.filter((call) => call.stepId?.includes(":chat-turn:")).length,
+      totalTokens: usage.totalTokens,
+      costUsd: usage.costUsd,
+      maxInputTokens: usage.maxInputTokens,
+      modelSteps: usage.chatSteps,
       approvalCards,
       firstStepSchemaTokens: surfaceTokens.get(startedRunId)?.[0] ?? null,
       toolCalls: (message?.toolCalls ?? []).map((call) => call.toolName),
@@ -414,12 +510,20 @@ async function measureRun(input: RunInput): Promise<RunMeasure> {
       answer,
     };
   } catch (error) {
+    // A failed run still spent money, so its cost and its models are read. Its tokens stay 0,
+    // as before, so the token medians do not change.
+    const usage = runId ? await readRunUsage(runId).catch(() => NO_USAGE) : NO_USAGE;
+
     return {
       ...input,
+      model: chatModelId,
+      servedModels: usage.servedModels,
       error: toMessage(error),
       quality: 0,
       latencyMs: Date.now() - startedAt,
       totalTokens: 0,
+      costUsd: usage.costUsd,
+      maxInputTokens: usage.maxInputTokens,
       modelSteps: 0,
       approvalCards: 0,
       firstStepSchemaTokens: runId ? (surfaceTokens.get(runId)?.[0] ?? null) : null,
@@ -453,6 +557,8 @@ interface ModeSummary {
   quality: number;
   latencyMs: number;
   totalTokens: number;
+  costUsd: number;
+  maxInputTokens: number;
   modelSteps: number;
   approvalCards: number;
   firstStepSchemaTokens: number;
@@ -464,6 +570,8 @@ function summarize(runs: readonly RunMeasure[]): ModeSummary {
     quality: median(runs.map((run) => run.quality)),
     latencyMs: median(runs.map((run) => run.latencyMs)),
     totalTokens: median(runs.map((run) => run.totalTokens)),
+    costUsd: median(runs.map((run) => run.costUsd)),
+    maxInputTokens: median(runs.map((run) => run.maxInputTokens)),
     modelSteps: median(runs.map((run) => run.modelSteps)),
     approvalCards: median(runs.map((run) => run.approvalCards)),
     firstStepSchemaTokens: median(
@@ -517,7 +625,7 @@ function judgeKind(kind: CaseKind, direct: ModeSummary, codeMode: ModeSummary): 
 const results: RunMeasure[] = [];
 
 function summaryRow(mode: string, summary: ModeSummary): string {
-  return `| ${mode} | ${summary.quality.toFixed(2)} | ${Math.round(summary.latencyMs / 1000)} s | ${summary.totalTokens} | ${summary.modelSteps} | ${summary.approvalCards} | ${summary.firstStepSchemaTokens} | ${summary.errors} |`;
+  return `| ${mode} | ${summary.quality.toFixed(2)} | ${Math.round(summary.latencyMs / 1000)} s | ${summary.totalTokens} | $${summary.costUsd.toFixed(4)} | ${summary.maxInputTokens} | ${summary.modelSteps} | ${summary.approvalCards} | ${summary.firstStepSchemaTokens} | ${summary.errors} |`;
 }
 
 function writeReport(): void {
@@ -530,7 +638,9 @@ function writeReport(): void {
   );
 
   const lines = [
-    `# Code Mode paired evaluation, ${new Date().toISOString()}`,
+    `# Code Mode paired evaluation on ${chatModelId}, ${new Date().toISOString()}`,
+    "",
+    `Total cost: $${results.reduce((sum, run) => sum + run.costUsd, 0).toFixed(4)} over ${results.length} runs.`,
     "",
     `Verdict: ${verdicts.every((verdict) => verdict.pass) ? "Code Mode meets the owner's rule." : "Code Mode does not meet the owner's rule."}`,
     "",
@@ -540,8 +650,8 @@ function writeReport(): void {
     lines.push(
       `## ${verdict.kind}`,
       "",
-      "| Mode | Quality | Latency | Tokens | Steps | Cards | First-step schema tokens | Errors |",
-      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      "| Mode | Quality | Latency | Tokens | Cost | Largest call input | Steps | Cards | First-step schema tokens | Errors |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
       summaryRow("direct", verdict.direct),
       summaryRow("code_mode", verdict.codeMode),
       "",
@@ -552,7 +662,12 @@ function writeReport(): void {
 
   lines.push("## Runs", "", "```json", JSON.stringify(results, null, 2), "```", "");
   mkdirSync(REPORT_DIR, { recursive: true });
-  const file = path.join(REPORT_DIR, `${new Date().toISOString().replace(/[:.]/g, "")}.md`);
+
+  const file = path.join(
+    REPORT_DIR,
+    `${new Date().toISOString().replace(/[:.]/g, "")}-${PAIRED_MODEL}.md`,
+  );
+
   writeFileSync(file, lines.join("\n"));
   console.log(`[code-mode-paired] report: ${file}`);
 }
@@ -566,34 +681,37 @@ const RUNS: RunInput[] = CASES.flatMap((testCase) =>
   ).flat(),
 ).filter((run) => !ONLY || (run.kind === ONLY[0] && (!ONLY[1] || run.mode === ONLY[1])));
 
-evalite<RunInput, RunMeasure, null>("Code Mode — the paired evaluation (ADR-0124)", {
-  data: () => RUNS.map((input) => ({ input, expected: null })),
-  task: async (input) => {
-    const measure = await measureRun(input);
-    results.push(measure);
+evalite<RunInput, RunMeasure, null>(
+  `Code Mode — the paired evaluation (ADR-0124), ${PAIRED_MODEL}`,
+  {
+    data: () => RUNS.map((input) => ({ input, expected: null })),
+    task: async (input) => {
+      const measure = await measureRun(input);
+      results.push(measure);
 
-    if (results.length === RUNS.length) {
-      writeReport();
-      await closeRedis();
-      await closeConnections();
-    }
+      if (results.length === RUNS.length) {
+        writeReport();
+        await closeRedis();
+        await closeConnections();
+      }
 
-    return measure;
+      return measure;
+    },
+    scorers: [
+      {
+        name: "The answer states the planted facts",
+        scorer: ({ output }) => ({
+          score: output.quality,
+          metadata: `${output.model} ${output.mode} ${output.kind}#${output.repeat}; ${output.error ?? `answer: ${output.answer.slice(0, 300)}`}`,
+        }),
+      },
+      {
+        name: "The run finished",
+        scorer: ({ output }) => ({
+          score: output.error === null ? 1 : 0,
+          metadata: `model=${output.model}; served=[${output.servedModels.join(", ")}]; latency=${output.latencyMs} ms; tokens=${output.totalTokens}; cost=$${output.costUsd.toFixed(4)}; largest input=${output.maxInputTokens}; steps=${output.modelSteps}; cards=${output.approvalCards}; first-step schema tokens=${output.firstStepSchemaTokens}; tools=[${output.toolCalls.join(", ")}]; remote=[${output.remoteCalls.join(", ")}]`,
+        }),
+      },
+    ],
   },
-  scorers: [
-    {
-      name: "The answer states the planted facts",
-      scorer: ({ output }) => ({
-        score: output.quality,
-        metadata: `${output.mode} ${output.kind}#${output.repeat}; ${output.error ?? `answer: ${output.answer.slice(0, 300)}`}`,
-      }),
-    },
-    {
-      name: "The run finished",
-      scorer: ({ output }) => ({
-        score: output.error === null ? 1 : 0,
-        metadata: `latency=${output.latencyMs} ms; tokens=${output.totalTokens}; steps=${output.modelSteps}; cards=${output.approvalCards}; first-step schema tokens=${output.firstStepSchemaTokens}; tools=[${output.toolCalls.join(", ")}]; remote=[${output.remoteCalls.join(", ")}]`,
-      }),
-    },
-  ],
-});
+);

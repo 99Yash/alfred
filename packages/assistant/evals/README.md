@@ -61,6 +61,12 @@ it.
   loop (`startChatTurn`, then `runOnce`). Only the GitHub MCP server is fake, at its
   protocol client. Needs the local Postgres and Redis, and no dev server. It writes the
   verdict of the owner's rule to `references/scratch/code-mode-paired/`. Deterministic only.
+  `CODE_MODE_PAIRED_MODEL` sets the chat model for the whole run: `luna` (the default, the
+  product route), `haiku` (`claude-haiku-5-5` at the chat route's reasoning level), or
+  `sol62` (`gpt-6.2-sol` at reasoning `medium`). The report names the model in its title
+  and in its file name. Each run records its total cost in USD and its largest call input.
+  Tokenizers differ, so compare two models by cost, not by tokens. The verdict always
+  compares the two read modes on one model.
 - `tool-selection-bloat.eval.ts` — the context-purity experiment: does a bloated
   tool menu degrade tool selection? Runs the same tasks under a lean menu and a
   full one.
