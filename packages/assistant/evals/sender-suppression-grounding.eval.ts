@@ -2,7 +2,7 @@ import path from "node:path";
 import { route } from "@alfred/ai";
 import {
   getStringPath,
-  mcpCallInput,
+  mcpCallModelInput,
   mcpToolSearchInputSchema,
   parseIanaTimezone,
   rememberInput,
@@ -39,8 +39,6 @@ const MCP_CALL_TOOL = "mcp.call";
 
 const GMAIL_CONNECTION = { id: "mcp_conn_gmail", instanceKey: "gmail", label: "Gmail" };
 
-const GMAIL_CATALOG_REVISION = "rev_gmail_eval";
-
 const GMAIL_SEARCH_REMOTE = "search_threads";
 
 /** The label a Gmail search call gets in the tool path. */
@@ -51,7 +49,6 @@ const GMAIL_SEARCH_HIT = {
     kind: "mcp",
     connectionId: GMAIL_CONNECTION.id,
     remoteName: GMAIL_SEARCH_REMOTE,
-    catalogRevision: GMAIL_CATALOG_REVISION,
   },
   namespace: GMAIL_CONNECTION.instanceKey,
   connection: GMAIL_CONNECTION,
@@ -63,7 +60,7 @@ const MCP_LIST_TOOLS_DESCRIPTION =
   "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.";
 
 const MCP_CALL_DESCRIPTION =
-  "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
+  "Invoke a tool on a connected MCP server. Supply the `connectionId` and `remoteName` of the ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
 
 function isGmailSearchCall(toolName: string, input: unknown): boolean {
   return (
@@ -154,7 +151,7 @@ function runFirstCall(input: string) {
       }),
       [MCP_CALL_TOOL]: tool({
         description: MCP_CALL_DESCRIPTION,
-        inputSchema: mcpCallInput,
+        inputSchema: mcpCallModelInput,
       }),
       [REMEMBER_TOOL]: tool({
         description:
@@ -257,11 +254,11 @@ async function runResolutionScenario(
       }),
       [MCP_CALL_TOOL]: tool({
         description: MCP_CALL_DESCRIPTION,
-        inputSchema: mcpCallInput,
+        inputSchema: mcpCallModelInput,
         execute: async ({ remoteName }) =>
           remoteName === GMAIL_SEARCH_REMOTE
             ? searchResult
-            : { error: `Unknown tool ${remoteName} in catalog ${GMAIL_CATALOG_REVISION}.` },
+            : { error: `Unknown tool ${remoteName} in the catalog.` },
       }),
       [REMEMBER_TOOL]: tool({
         description:

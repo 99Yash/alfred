@@ -4,7 +4,7 @@ import {
   humanizeToolName,
   isActionTool,
   leavesEffectUnconfirmed,
-  mcpCallInput,
+  mcpBoundCallInput,
   SPAWN_SUB_AGENT_TOOL,
   toDisplayText,
   withDefaults,
@@ -251,9 +251,9 @@ async function selectWriteCalls(
     }
 
     // The broker reads the same pair, so this names the tool that ran.
-    const parsed = mcpCallInput.safeParse(row?.decidedInput ?? row?.input);
+    const parsed = mcpBoundCallInput.safeParse(row?.decidedInput ?? row?.input);
 
-    // One read per failed `mcp.call`. A turn has few, and each names its own revision.
+    // One read per failed `mcp.call`. A turn has few, and each row saved its bound revision.
     const isRead =
       parsed.success && (await isSelectedMcpToolReadOnly({ userId: ctx.userId, ...parsed.data }));
 

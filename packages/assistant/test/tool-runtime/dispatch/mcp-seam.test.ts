@@ -406,6 +406,13 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
     _setMcpExecutionBrokerForTests(asBroker(broker));
 
     const { userId, runId } = await seedUserAndRun();
+
+    // The server binds the revision from the published catalog (ADR-0088 amendment 2026-11-18);
+    // a connection with no catalog never runs.
+    const connectionId = await seedConnectionWithCatalog(userId, "Work MCP", [
+      { name: "create_issue", inputSchema: { type: "object", additionalProperties: true } },
+    ]);
+
     const toolCallId = `tc_${randomUUID().slice(0, 8)}`;
 
     const args = {
@@ -415,9 +422,8 @@ describe("dispatch → mcp seam (DB-backed)", { skip: SKIP }, () => {
       toolName: "mcp.call" as const,
       activeTools: ["mcp.call" as const],
       input: {
-        connectionId: "mcpc_y",
+        connectionId,
         remoteName: "create_issue",
-        catalogRevision: "sha256:rev",
         arguments: { title: "hi" },
       },
       userId,

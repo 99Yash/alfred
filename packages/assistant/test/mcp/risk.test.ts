@@ -12,11 +12,16 @@ import { inArray, like } from "drizzle-orm";
 import { descriptorHash } from "../../src/connections/mcp/hash";
 import { ensureConnection } from "../../src/connections/mcp/persistence";
 import { publishCatalogRevision } from "@alfred/assistant/connections/mcp/test-support";
-import { resolveMcpCallRiskTier } from "@alfred/assistant/tool-runtime/mcp";
+import { resolveMcpCallProposalFacts } from "@alfred/assistant/tool-runtime/mcp";
 import { upsertToolPolicy } from "@alfred/assistant/tool-runtime/mcp/test-support";
 import { dbBackedSkip } from "../support/db-backed";
 import { asContractViolation } from "../support/contract-violation";
 import { MCP_CALL_RISK_FLOOR } from "../../src/tool-runtime/mcp/risk";
+
+/** The tier that dispatch decides from, at the revision the test names. */
+async function resolveMcpCallRiskTier(input: Parameters<typeof resolveMcpCallProposalFacts>[0]) {
+  return (await resolveMcpCallProposalFacts(input)).riskTier;
+}
 
 /**
  * DB-backed tests for the `mcp.call` effective-risk resolver. A reviewed downgrade applies only to the

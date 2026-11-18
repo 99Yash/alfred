@@ -6,6 +6,7 @@ import {
   type HostReadRefusal,
   type JsonValue,
   mcpCallInput,
+  mcpCallModelInput,
   parseIanaTimezone,
   toMessage,
 } from "@alfred/contracts";
@@ -63,8 +64,6 @@ const OWNER = "99Yash";
 const REPO = "alfred";
 
 const GITHUB_CONNECTION = { id: "mcp_conn_github", instanceKey: "github", label: "GitHub" };
-
-const GITHUB_CATALOG_REVISION = "rev_github_code_mode_eval";
 
 const LIST_ISSUES_REMOTE = "list_issues";
 
@@ -188,7 +187,6 @@ function githubRef(remoteName: string) {
     kind: "mcp" as const,
     connectionId: GITHUB_CONNECTION.id,
     remoteName,
-    catalogRevision: GITHUB_CATALOG_REVISION,
   };
 }
 
@@ -417,17 +415,14 @@ function inspectTool(input: unknown): FakeOutcome {
 }
 
 function callGithub(input: unknown, record: HostRecord): FakeOutcome {
+  // The host input: the pass pins a revision, so this parses the runtime schema.
   const call = mcpCallInput.safeParse(input);
 
-  if (
-    !call.success ||
-    call.data.connectionId !== GITHUB_CONNECTION.id ||
-    call.data.catalogRevision !== GITHUB_CATALOG_REVISION
-  ) {
+  if (!call.success || call.data.connectionId !== GITHUB_CONNECTION.id) {
     return {
       kind: "refused",
       refusal: "invalid_input",
-      message: "Use the exact ref from mcp.list_tools.",
+      message: "Use the ref from mcp.list_tools.",
     };
   }
 
@@ -474,6 +469,8 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
   const hosts = readHostBindings({
     readTools: READ_TOOLS,
     hostRead: (request) => withCallFacts(request, fakeHostRead(request, record)),
+    // One fixed catalog: the pass pins this revision (ADR-0116 amendment 2026-11-18).
+    readCatalogRevision: async () => "rev_github_code_mode_eval",
   });
 
   const result = await generateText({
@@ -521,8 +518,8 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
       // The write path stays on the surface. No `execute`: a direct read here ends the run.
       "mcp.call": tool({
         description:
-          "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref, plus `arguments` matching the tool schema.",
-        inputSchema: mcpCallInput,
+          "Invoke a tool on a connected MCP server. Supply the `connectionId` and `remoteName` of the ref, plus `arguments` matching the tool schema.",
+        inputSchema: mcpCallModelInput,
       }),
     },
   });

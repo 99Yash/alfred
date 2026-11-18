@@ -11,8 +11,9 @@ import {
   type ToolRiskTier,
   type ToolAvailabilityResult,
   type ToolUnavailabilityCode,
-  type ExternalToolRef,
+  toMcpToolRef,
   type McpToolDiscoveryHit,
+  type McpToolRef,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { singularizePhrase } from "@alfred/assistant/search-words";
@@ -58,8 +59,11 @@ type RankedHit =
   | (ToolCandidateBase & { ref?: never; hostFunction?: never } & AvailabilityTag)
   | (ToolCandidateBase & {
       name: "mcp.call";
-      /** A connected catalog hit; pass this ref's fields to mcp.call. */
-      ref: ExternalToolRef;
+      /**
+       * A connected catalog hit; pass this ref's fields to mcp.call. It has no catalog revision:
+       * the server binds one when the call is proposed (ADR-0088 amendment 2026-11-18).
+       */
+      ref: McpToolRef;
       hostFunction?: never;
     } & AvailabilityTag);
 
@@ -72,7 +76,7 @@ type ScriptReadHit = ToolCandidateBase & {
   name: typeof CODE_RUN_TOOL;
   availability: "available";
 } & (
-    | { hostFunction: typeof MCP_READ_PATH; ref: ExternalToolRef }
+    | { hostFunction: typeof MCP_READ_PATH; ref: McpToolRef }
     | { hostFunction: ToolName; ref?: never }
   );
 
@@ -137,6 +141,9 @@ export async function searchAvailableTools(args: {
 
   const mcpAvailable = availability.get("mcp.call")?.available === true;
   const remote: RankedCandidate[] = [];
+  // The revision each hit's route is quoted at. Search reads the current catalog of each
+  // connection, so one connection has one revision. The model never sees it.
+  const revisions = new Map<string, string>();
 
   if (mcpAvailable) {
     const queryWords = catalogWords(args.query);
@@ -159,13 +166,15 @@ export async function searchAvailableTools(args: {
 
         if (score <= 0) continue;
 
+        revisions.set(hit.ref.connectionId, hit.ref.catalogRevision);
+
         remote.push({
           name: "mcp.call",
           title: hit.title ?? hit.ref.remoteName,
           summary: hit.description ?? "Connected MCP tool",
           risk: "high",
           reason: `connected MCP catalog: ${hit.namespace}`,
-          ref: hit.ref,
+          ref: toMcpToolRef(hit.ref),
           availability: "available",
           score,
           preloadEligible: false,
@@ -197,7 +206,7 @@ export async function searchAvailableTools(args: {
         })
       : false;
 
-  const route = { userId: args.userId, scriptReads, fullAutonomy };
+  const route = { userId: args.userId, scriptReads, fullAutonomy, revisions };
 
   return Promise.all(
     selected.map(({ score: _score, preloadEligible: _preloadEligible, ...candidate }) =>
@@ -211,6 +220,8 @@ interface HitRoute {
   /** The run is a `code_run` run (ADR-0124). */
   scriptReads: boolean;
   fullAutonomy: boolean;
+  /** The catalog revision that search read for each connection. */
+  revisions: ReadonlyMap<string, string>;
 }
 
 /**
@@ -222,11 +233,17 @@ async function routeConnectedHit(
   candidate: Extract<RankedHit, { name: "mcp.call" }>,
   route: HitRoute,
 ): Promise<ToolSearchCandidate> {
+  const catalogRevision = route.revisions.get(candidate.ref.connectionId);
+
+  // Every connected hit came from a page that named its revision, so a miss is a bug. Quote the
+  // floor: dispatch decides the call again anyway.
+  if (catalogRevision === undefined) return candidate;
+
   const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
     userId: route.userId,
     connectionId: candidate.ref.connectionId,
     remoteName: candidate.ref.remoteName,
-    catalogRevision: candidate.ref.catalogRevision,
+    catalogRevision,
   });
 
   if (!route.scriptReads || !facts.read) return { ...candidate, risk: riskTier };
