@@ -78,6 +78,10 @@ export const Server = Railway.Service("Server", {
   dockerfilePath: "docker/server.Dockerfile",
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=server",
+  // Migrate, then sync model prices, before the new deployment starts. The live
+  // manifest holds `["pnpm db:predeploy"]`; the provider compares the one-item
+  // array to this string, so the declaration writes nothing.
+  preDeploy: { command: "pnpm db:predeploy" },
   startCommand: "node apps/server/dist/index.js",
   healthcheck: "/health",
   // Upsert-only (`syncEnv` never deletes an undeclared variable), applied

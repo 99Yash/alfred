@@ -124,6 +124,9 @@ export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 // Approval workers (ADR-0034). Their scheduling stays in `tool-runtime`.
 export { approvalExpiryWorker } from "./approval-expiry-worker";
 
+// The daily models.dev price sync (ADR-0016).
+export { priceSyncWorker } from "./price-sync-worker";
+
 // The one owner of a staged action's decision and expiry (ADR-0034).
 export {
   stagedAction,

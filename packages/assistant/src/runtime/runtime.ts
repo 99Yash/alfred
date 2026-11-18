@@ -24,6 +24,7 @@ import {
   agentWorker,
   approvalExpiryWorker,
   approvalNotificationWorker,
+  priceSyncWorker,
   subAgentJoinWakeWorker,
   verifyMeteringModels,
 } from "@alfred/assistant/execution";
@@ -103,6 +104,7 @@ const SHUTDOWN_ORDER = [
   ["ingestion"],
   ["memory"],
   ["briefing"],
+  ["priceSync"],
   ["workflows"],
 ] as const;
 
@@ -127,6 +129,8 @@ function backgroundServices(config: RuntimeConfig) {
     chatMemory: chatMemoryWorker,
     conversationCompaction: conversationCompactionWorker,
     briefing: briefingWorker,
+    // Daily models.dev price sync. Ungated: it runs in dev too.
+    priceSync: priceSyncWorker,
     workflows: workflowsWorker,
     approvalNotification: approvalNotificationWorker,
     approvalExpiry: approvalExpiryWorker,
@@ -210,7 +214,8 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
       // Crons spend money and send mail with nobody watching, so they are off
       // outside production unless enabled. `pnpm dev` runs under `tsx watch`,
       // which can outlive its terminal: one orphan once ran for three days.
-      // Workers still run: they only act on jobs someone enqueued.
+      // Workers still run: they only act on jobs someone enqueued. An ungated
+      // worker's crons (the price sync) cost nothing, so they always register.
       if (scheduledJobsEnabled()) {
         for (const service of bootOrder) {
           if (service.kind === "scheduled-loop") service.start();
@@ -220,12 +225,20 @@ export function createAssistantRuntime(config: RuntimeConfig): AssistantRuntime 
           if (service.kind === "worker" && service.repeatable) await service.repeatable.schedule();
         }
       } else {
-        const removed = await clearPersistedJobSchedulers(
-          bootOrder.flatMap((service) => (service.kind === "worker" ? [service] : [])),
+        const workers = bootOrder.flatMap((service) =>
+          service.kind === "worker" ? [service] : [],
         );
 
+        const removed = await clearPersistedJobSchedulers(
+          workers.filter((service) => !service.repeatable?.ungated),
+        );
+
+        for (const service of workers) {
+          if (service.repeatable?.ungated) await service.repeatable.schedule();
+        }
+
         logger.info(
-          `[runtime] scheduled jobs are OFF — workers still run, but no cron will fire${
+          `[runtime] scheduled jobs are OFF — workers still run, but only ungated crons will fire${
             removed > 0 ? `; removed ${removed} scheduler(s) a previous run left in Redis` : ""
           }. Set ALFRED_RUN_SCHEDULED_JOBS=true to enable them.`,
         );

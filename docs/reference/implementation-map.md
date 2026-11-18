@@ -149,12 +149,13 @@ flowchart LR
 | `tool-runtime/approval-expiry-queue.ts` | The `approvalExpiryQueue` contract (`staging-expire`): the `approval.expire` kind and its job id |
 | `tool-runtime/approval-notification-queue.ts` | The `approvalNotificationQueue` contract (`staging-notify`): the `approval.notify` and `workflow.blocked` kinds |
 | `execution/approval-*-worker.ts` | The `approvalExpiryWorker` and `approvalNotificationWorker` consumers: `action_stagings` lifecycle (expiry, notification) |
+| `execution/price-sync-worker.ts` | The `price-sync` queue and its `priceSyncWorker`: a daily `metering.prices.sync` scheduler that runs the `@alfred/db/model-prices-sync` models.dev sync. Ungated, so it also runs in dev |
 | `automation/*` | User workflow authoring, readiness, `workflows-tick` |
 
 Tables: `agent_runs`, `agent_steps`, `agent_decision_traces`,
 `agent_run_context`, `workflows`, `workflow_revisions`, `action_stagings`.
 Queues: `agent-runs`, `sub-agent-join-wake`, `staging-expire`, `staging-notify`,
-`workflows-tick`. Surface: `apps/web/src/routes/workflows.$workflow.tsx` + approvals routes.
+`workflows-tick`, `price-sync`. Surface: `apps/web/src/routes/workflows.$workflow.tsx` + approvals routes.
 
 ---
 
