@@ -2,6 +2,7 @@ import { google } from "@ai-sdk/google";
 import type { SharedV4ProviderOptions } from "@ai-sdk/provider";
 import {
   chatEffortSchema,
+  chatModelTierValues,
   getPath,
   getStringPath,
   safeJsonParse,
@@ -128,8 +129,15 @@ function createRouteHandle(definition: ModelRoute): ModelRouteHandle {
 
 const namedRouteHandles = new Map<ModelRouteName, ModelRouteHandle>();
 
+/** Test and eval overrides, set only through `_setRouteOverrideForTests`. */
+const routeOverrides = new Map<ModelRouteName, ModelRouteHandle>();
+
 /** Memoized per name. */
 export function route(name: ModelRouteName): ModelRouteHandle {
+  const override = routeOverrides.get(name);
+
+  if (override) return override;
+
   let handle = namedRouteHandles.get(name);
 
   if (!handle) {
@@ -138,6 +146,30 @@ export function route(name: ModelRouteName): ModelRouteHandle {
   }
 
   return handle;
+}
+
+/** The chat tiers: the routes that `route(state.tier)` can select. */
+const CHAT_ROUTE_NAMES = chatModelTierValues satisfies readonly ModelRouteName[];
+
+/**
+ * Test-only: `route(name)` returns `handle` for each named route, or for every chat route
+ * with `"chat"`. `routeEffort` still reads the product route. Returns a restore function.
+ */
+export function _setRouteOverrideForTests(
+  names: "chat" | readonly ModelRouteName[],
+  handle: ModelRouteHandle,
+): () => void {
+  const targets = names === "chat" ? CHAT_ROUTE_NAMES : names;
+  const previous = new Map(targets.map((name) => [name, routeOverrides.get(name)] as const));
+
+  for (const name of targets) routeOverrides.set(name, handle);
+
+  return () => {
+    for (const [name, earlier] of previous) {
+      if (earlier) routeOverrides.set(name, earlier);
+      else routeOverrides.delete(name);
+    }
+  };
 }
 
 /** A one-leg route for probes and evals. Not memoized. */
