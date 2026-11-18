@@ -30,6 +30,7 @@ import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
   isSelectedMcpToolReadOnly,
+  resolveMcpCallReadFacts,
   resolveMcpCallRiskTier,
   type McpBrokerOutcome,
 } from "@alfred/assistant/tool-runtime/mcp";
@@ -164,10 +165,10 @@ export const mcpTools: readonly RegisteredTool[] = [
 
       return refuseGoogleWorkspaceWrite(input, ctx.userId, connection.server.endpointUrl);
     },
-    // ADR-0124: a `code_run` run sends a read with no card into a script. The selected revision's
-    // descriptor and review decide, the same rule as `mcp.read` and the broker's `requireRead`.
-    selectsRead: (input, ctx) =>
-      isSelectedMcpToolReadOnly({
+    // ADR-0124 amendment 2026-11-18: the read authority and the declared output of the current
+    // descriptor. The route decision reads them, and the broker checks them again before delivery.
+    resolveReadFacts: (input, ctx) =>
+      resolveMcpCallReadFacts({
         userId: ctx.userId,
         connectionId: input.connectionId,
         remoteName: input.remoteName,
@@ -200,7 +201,7 @@ export const mcpTools: readonly RegisteredTool[] = [
           // `input` is the effective input (an approval edit included), on a resume and a replay too.
           serverScope: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
           // A script read: the broker checks the live descriptor and review again (ADR-0124).
-          ...(ctx.runContext.readPath === "code_run_host" ? { requireRead: true } : {}),
+          ...(ctx.runContext.readPath === "code_run_host" ? { requireScriptRead: true } : {}),
           // The broker copies correlation ids from the staging row, so they cannot drift.
         });
       } catch (error) {

@@ -7,7 +7,12 @@
  */
 
 import { assertNever } from "@alfred/contracts";
-import type { ExternalToolRef, McpEffectClass } from "@alfred/contracts";
+import type {
+  ExternalToolRef,
+  IntegrationSlug,
+  McpEffectClass,
+  ToolOutputKind,
+} from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
 import {
@@ -23,11 +28,14 @@ import {
   type NewMcpToolPolicyRow,
 } from "@alfred/db/schemas";
 import {
+  builtInOutputKind,
   builtInReadOnlyResource,
+  integrationOfMcpEndpoint,
   builtInToolPolicy,
   type BuiltInToolPolicy,
   type McpConnectionRemovalGate,
 } from "@alfred/assistant/connections/mcp";
+import { NOT_A_CONFIRMED_READ, type ReadFacts } from "../read-route";
 import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
@@ -81,6 +89,10 @@ export type McpToolIdentityResolution =
       /** The endpoint is a built-in read-only resource, and this descriptor set `readOnlyHint` (ADR-0096). */
       readOnlyResource: boolean;
       readOnly: boolean;
+      /** Alfred's declaration of the output for this exact descriptor (`builtInOutputKind`). */
+      output: ToolOutputKind | undefined;
+      /** The integration whose policy rule governs the call: a built-in's provider, else `mcp`. */
+      policyIntegration: IntegrationSlug;
     }
   | {
       status: "unresolved";
@@ -125,6 +137,28 @@ export function mcpToolEffectClass(identity: ResolvedMcpToolIdentity): McpEffect
 /** The exact descriptor/policy pair that may authorize a fixed read. */
 export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): boolean {
   return readOnlyClaimHolds(identity.readOnly, identity.policy?.effectClass);
+}
+
+/**
+ * The read authority and the output of the current descriptor, for the read route only (ADR-0124
+ * amendment 2026-11-18). For the route, the authority is independent of the server: a published
+ * `readOnlyHint` counts only with a built-in read-only endpoint or a code pin of this exact
+ * descriptor. The health mapping, the finalize guard, and the Google write refusal still use
+ * `isReadOnlyMcpToolIdentity` and `isSelectedMcpToolReadOnly`, which are not route inputs. An owner review of this
+ * exact descriptor decides alone. A review under another hash (drift) confirms nothing, and it
+ * also cancels the code pin, the same as for the tier.
+ */
+export function mcpReadFacts(identity: McpToolIdentityResolution): ReadFacts {
+  if (identity.status !== "resolved") return NOT_A_CONFIRMED_READ;
+
+  const read =
+    identity.policy !== undefined
+      ? identity.policy.effectClass === "read"
+      : !identity.reviewed &&
+        identity.readOnly &&
+        (identity.codePolicy?.effectClass === "read" || identity.readOnlyResource);
+
+  return read ? { read, output: identity.output } : NOT_A_CONFIRMED_READ;
 }
 
 /**
@@ -261,6 +295,9 @@ export async function resolveMcpToolIdentity(
     // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade (ADR-0094).
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,
+    output: builtInOutputKind(row.endpointUrl, input.remoteName, row.descriptorHash),
+    // A built-in follows its provider's rule. A user-added server keeps the `mcp` rule.
+    policyIntegration: integrationOfMcpEndpoint(row.endpointUrl) ?? "mcp",
   };
 }
 

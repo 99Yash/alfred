@@ -5,9 +5,10 @@
  * Reads the persisted catalog in one joined query; runs on every call.
  */
 
-import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
+import { isToolRiskTier, type IntegrationSlug, type ToolRiskTier } from "@alfred/contracts";
+import type { ReadFacts } from "../read-route";
 import {
-  isReadOnlyMcpToolIdentity,
+  mcpReadFacts,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,
   type ResolveMcpToolIdentityInput,
@@ -22,19 +23,36 @@ export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
  */
 export const MCP_READ_ONLY_STRUCTURAL_TIER: ToolRiskTier = "low";
 
+/** What search needs to quote the route of one connected hit (ADR-0124 amendment 2026-11-18). */
+export interface McpCallRouteFacts {
+  riskTier: ToolRiskTier;
+  facts: ReadFacts;
+  /** The rule that governs the call: a built-in's provider, else `mcp`. */
+  policyIntegration: IntegrationSlug;
+}
+
 /**
- * The tier and the read claim of one selected tool, from one identity read. Discovery routes a
- * hit by both (ADR-0124), so the two cannot come from different policy states.
+ * The tier, the read facts, and the policy rule of one selected tool, from one identity read.
+ * So the three cannot come from different catalog or policy states, and search makes no
+ * second query for the connection.
  */
-export async function resolveMcpCallRiskAndRead(
+export async function resolveMcpCallRouteFacts(
   input: ResolveMcpToolIdentityInput,
-): Promise<{ riskTier: ToolRiskTier; read: boolean }> {
+): Promise<McpCallRouteFacts> {
   const identity = await resolveMcpToolIdentity(input);
 
   return {
     riskTier: effectiveMcpRiskTier(identity),
-    read: identity.status === "resolved" && isReadOnlyMcpToolIdentity(identity),
+    facts: mcpReadFacts(identity),
+    policyIntegration: identity.status === "resolved" ? identity.policyIntegration : "mcp",
   };
+}
+
+/** The read facts of the current descriptor, for dispatch's route decision. */
+export async function resolveMcpCallReadFacts(
+  input: ResolveMcpToolIdentityInput,
+): Promise<ReadFacts> {
+  return mcpReadFacts(await resolveMcpToolIdentity(input));
 }
 
 /** Resolve the risk tier for one `mcp.call` against the current catalog. */

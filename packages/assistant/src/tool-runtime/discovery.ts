@@ -19,13 +19,13 @@ import { singularizePhrase } from "@alfred/assistant/search-words";
 import {
   catalogWords,
   connectionNameWords,
-  integrationOfMcpConnection,
   mcpServerIdsAdmittedBy,
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
-import { resolveMcpCallRiskAndRead } from "@alfred/assistant/tool-runtime/mcp";
-import { toolRequiresApproval } from "./approval-rule";
+import { resolveMcpCallRouteFacts } from "@alfred/assistant/tool-runtime/mcp";
+import { callRequiresApproval } from "./approval-rule";
+import { decideReadRoute, DECLARED_STRUCTURED_READ } from "./read-route";
 import { MCP_READ_PATH } from "./code-mode/host-bindings";
 import { stagingStore } from "./internal/dispatch/staging-store";
 import {
@@ -214,32 +214,31 @@ interface HitRoute {
 }
 
 /**
- * The tier and the route of a connected hit, from one identity read. In a `code_run` run, a read
- * with no card runs as `mcp.read` in a script. A read that waits for a card stays an `mcp.call`
- * hit, because a script cannot show a card. Dispatch makes the same decision for the call.
+ * Search quotes the current route of a connected hit (ADR-0124 amendment 2026-11-18). One
+ * identity read gives the tier, the read facts, and the policy rule. Dispatch decides again for
+ * the call, so a policy change between the two cannot run a call on a stale route.
  */
 async function routeConnectedHit(
   candidate: Extract<RankedHit, { name: "mcp.call" }>,
   route: HitRoute,
 ): Promise<ToolSearchCandidate> {
-  const selector = {
+  const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
     userId: route.userId,
     connectionId: candidate.ref.connectionId,
     remoteName: candidate.ref.remoteName,
     catalogRevision: candidate.ref.catalogRevision,
-  };
+  });
 
-  const { riskTier, read } = await resolveMcpCallRiskAndRead(selector);
+  if (!route.scriptReads || !facts.read) return { ...candidate, risk: riskTier };
 
-  if (!route.scriptReads || !read) return { ...candidate, risk: riskTier };
+  const requiresApproval = callRequiresApproval({
+    staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
+    policyMode: await resolvePolicyMode(route.userId, MCP_CALL_TOOL, policyIntegration),
+    riskTier,
+    fullAutonomy: route.fullAutonomy,
+  });
 
-  // A built-in follows its provider's rule, the same as `mcp.call`'s `resolvePolicyIntegration`.
-  const policyIntegration =
-    (await integrationOfMcpConnection(route.userId, selector.connectionId)) ?? "mcp";
-
-  const policyMode = await resolvePolicyMode(route.userId, "mcp.call", policyIntegration);
-
-  if (toolRequiresApproval(policyMode, riskTier) && !route.fullAutonomy) {
+  if (decideReadRoute(facts, requiresApproval).route !== "script") {
     return { ...candidate, risk: riskTier };
   }
 
@@ -255,7 +254,11 @@ async function routeConnectedHit(
   };
 }
 
-/** A curated read in a `code_run` run takes the same route rule as a connected read. */
+/**
+ * A curated hit takes the same decision. The staging arm is an input, so a `fast_path` catalog
+ * read (`mcp.list_tools`) quotes the script, as dispatch runs it. With no input here, the static
+ * tier stands in for a dynamic one, and dispatch decides the call.
+ */
 async function routeCuratedHit(
   candidate: Extract<RankedHit, { ref?: never }>,
   route: HitRoute,
@@ -266,9 +269,16 @@ async function routeCuratedHit(
     return candidate;
   }
 
-  const policyMode = await resolvePolicyMode(route.userId, candidate.name);
+  const requiresApproval = callRequiresApproval({
+    staging: tool.staging,
+    policyMode: await resolvePolicyMode(route.userId, candidate.name),
+    riskTier: tool.riskTier,
+    fullAutonomy: route.fullAutonomy,
+  });
 
-  if (toolRequiresApproval(policyMode, tool.riskTier) && !route.fullAutonomy) return candidate;
+  if (decideReadRoute(DECLARED_STRUCTURED_READ, requiresApproval).route !== "script") {
+    return candidate;
+  }
 
   return {
     name: CODE_RUN_TOOL,
@@ -280,6 +290,8 @@ async function routeCuratedHit(
     availability: "available",
   };
 }
+
+const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 
 /** Above one name-word hit (55), so naming the connection ranks its tools over another server's. */
 const MCP_CONNECTION_NAME_BONUS = 60;

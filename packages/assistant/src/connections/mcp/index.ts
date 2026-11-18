@@ -41,6 +41,7 @@ export { persistApiKeyCredential, readApiKeyAuthForConnection } from "./api-key"
 
 export {
   integrationOfMcpConnection,
+  integrationOfMcpEndpoint,
   mcpScopeAdmits,
   mcpServerIdsAdmittedBy,
   type McpServerScope,
@@ -54,6 +55,7 @@ export {
 } from "./built-ins";
 
 export {
+  builtInOutputKind,
   builtInReadToolPinsOf,
   builtInToolPolicy,
   type BuiltInToolPolicy,

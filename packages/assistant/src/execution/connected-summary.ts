@@ -7,14 +7,16 @@ import {
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import {
-  integrationOfMcpConnection,
   listOwnedConnections,
   mcpScopeAdmits,
   mcpServerIdsAdmittedBy,
   type McpServerScope,
 } from "@alfred/assistant/connections/mcp";
 import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
-import { toolAlwaysWaitsForApproval } from "@alfred/assistant/tool-runtime/approval-rule";
+import {
+  isDeclaredScriptRead,
+  toolAlwaysWaitsForApproval,
+} from "@alfred/assistant/tool-runtime/approval-rule";
 
 /**
  * One line per connected integration for the system prompt (ADR-0053). Grounding only;
@@ -27,10 +29,12 @@ const CONNECTED_LIST_RULES =
 const CONNECTED_HEADER = `You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. ${CONNECTED_LIST_RULES}`;
 
 /**
- * ADR-0124: in a `code_run` run, a read is a host function of the script, not a direct call. A
- * read that waits for approval is the exception (owner, 2026-11-17): a script cannot show a card.
+ * ADR-0124: in a `code_run` run, a read is a host function of the script, not a direct call. The
+ * header states the route rule, not a route: the approval settings can change during the run,
+ * and dispatch decides the route of each call (amendment 2026-11-18). The write labels below stay
+ * as confirmation hints (ADR-0069).
  */
-const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. A read that waits for the user's approval is the exception: call it directly, because only a direct call shows the approval card. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
+const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. Some reads are direct calls: a read that waits for the user's approval (only a direct call shows the approval card), a read that returns file content, and an MCP tool whose read effect or output kind Alfred cannot confirm. A search hit and a refusal name the current route. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
@@ -76,7 +80,16 @@ export async function buildConnectedSummaryFromAvailability(
     }
 
     if (tools.length > 0) {
-      const approval = await approvalLabel(userId, tools);
+      // In a `code_run` run, only the writes get a label: a run-start label on a read would
+      // pick its route (ADR-0124 amendment 2026-11-18). Dispatch decides the route of each read.
+      const approval = scriptReads
+        ? await approvalLabel(
+            userId,
+            tools.filter((name) => !isDeclaredScriptRead(name)),
+            "direct call",
+          )
+        : await approvalLabel(userId, tools, "call");
+
       const suffix = approval ? `. ${approval}` : "";
       lines.push(`- ${tools.join(", ")} — ${entry.summaryBlurb}${suffix}`);
     }
@@ -98,7 +111,11 @@ export async function buildConnectedSummaryFromAvailability(
  * dynamic tier can still gate one (ADR-0088). Names the smaller group to save tokens. MCP lines
  * get no label, because `mcp.call` resolves its tier per remote tool.
  */
-async function approvalLabel(userId: string, tools: readonly ToolName[]): Promise<string | null> {
+async function approvalLabel(
+  userId: string,
+  tools: readonly ToolName[],
+  noun: "call" | "direct call",
+): Promise<string | null> {
   const modes = await Promise.all(
     tools.map(async (name) => ({ name, mode: await resolvePolicyMode(userId, name) })),
   );
@@ -112,11 +129,11 @@ async function approvalLabel(userId: string, tools: readonly ToolName[]): Promis
 
   if (waits.length === 0) return null;
 
-  if (others.length === 0) return "Every call waits for the user's approval.";
+  if (others.length === 0) return `Every ${noun} waits for the user's approval.`;
 
   return waits.length <= others.length
     ? `These wait for the user's approval: ${waits.join(", ")}.`
-    : `Every call waits for the user's approval except ${others.join(", ")}.`;
+    : `Every ${noun} waits for the user's approval except ${others.join(", ")}.`;
 }
 
 /**
@@ -133,7 +150,7 @@ async function mcpConnectionLines(
   const lines: string[] = [];
 
   const howToCall = scriptReads
-    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId. A search hit names its route: system.code_run with mcp.read for a read that runs at once, or mcp.call for a write or a read that waits for approval"
+    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId. A search hit names its current route: system.code_run with mcp.read for a read that runs in a script, or mcp.call for a direct call"
     : "find one with system.search_tools or mcp.list_tools scoped to this connectionId, then call it through mcp.call";
 
   for (const connection of await listOwnedConnections(userId)) {
@@ -150,19 +167,9 @@ async function mcpConnectionLines(
 
     if (!connection.toolCount) continue;
 
-    // A built-in follows its provider's rule. Under Gated, each of its reads shows a card, so
-    // each read is a direct `mcp.call` (ADR-0125 decision 2, owner 2026-11-17).
-    const gatedReads =
-      scriptReads &&
-      (await resolvePolicyMode(
-        userId,
-        "mcp.call",
-        (await integrationOfMcpConnection(userId, connection.id)) ?? "mcp",
-      )) === "gated";
-
-    lines.push(
-      `- ${name} — ${connection.toolCount} tools; ${howToCall}${gatedReads ? ". Every call waits for the user's approval, reads too: call each through mcp.call" : ""}`,
-    );
+    // No route from the run-start policy (ADR-0124 amendment 2026-11-18): search quotes the
+    // route of each hit, and dispatch decides it for each call.
+    lines.push(`- ${name} — ${connection.toolCount} tools; ${howToCall}`);
   }
 
   return lines;

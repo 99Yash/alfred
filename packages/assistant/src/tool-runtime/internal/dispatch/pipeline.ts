@@ -73,6 +73,7 @@ import {
   toPublicAppError,
 } from "@alfred/contracts/app-errors";
 import { logger, safeErrorDiagnostic } from "@alfred/logging";
+import { mcpResultHasBinaryContent } from "../tools/mcp-binary-content";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
@@ -90,7 +91,17 @@ import {
 } from "../tools/passthrough";
 import { toolExecuteContext } from "../../context";
 import { executedResultOutcome } from "../result-routing";
-import { forecastToolApproval, toolRequiresApproval } from "../../approval-rule";
+import {
+  callRequiresApproval,
+  forecastToolApproval,
+  toolRequiresApproval,
+} from "../../approval-rule";
+import {
+  decideReadRoute,
+  readRouteReasonText,
+  type DirectRouteReason,
+  type ReadRoute,
+} from "../../read-route";
 import {
   getTool,
   NO_TOOL_EFFECTS,
@@ -98,6 +109,7 @@ import {
   toolEffectsSchema,
   type BoundToolCall,
   type HostReadOutcome,
+  type HostReadRefusal,
   type HostReadDispatcher,
   type HostReadRequest,
   type RegisteredTool,
@@ -114,6 +126,16 @@ export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAda
 type DispatchResult = ToolCallDispatchResult;
 
 const DEFERRED: DeferredDispatch = { kind: "deferred" };
+
+/**
+ * A script read whose route is direct now, for a reason other than a card (ADR-0124 amendment
+ * 2026-11-18). Only a `code_run_host` dispatch returns it, and `hostReadOutcome` turns it into a
+ * refusal that names the route. A card keeps the `deferred` path.
+ */
+interface DirectRouteHostRead {
+  kind: "direct_route";
+  route: Extract<ReadRoute, { route: "direct" }>;
+}
 
 const UNKNOWN_TOOL_TRACE_NAME = "<unknown>";
 
@@ -293,6 +315,7 @@ function unavailableToolResult(args: {
 type DispatchStageOutcome<Next> =
   | DispatchResult
   | DeferredDispatch
+  | DirectRouteHostRead
   | { readonly continueWith: Next };
 
 type DispatchStage<In, Next> = (input: In) => Promise<DispatchStageOutcome<Next>>;
@@ -340,7 +363,23 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
     throw new Error(`[dispatch] ${args.toolName} deferred without deferIfGated`);
   }
 
+  return refuseHostRouteOutsideScript(result, args);
+}
+
+/** Only a script's nested dispatch runs as `code_run_host`, and it does not use these entry points. */
+function refuseHostRouteOutsideScript<Result extends { kind: string }>(
+  result: Result | DirectRouteHostRead,
+  args: ToolCallDispatchArgs,
+): Result {
+  if (isDirectRouteHostRead(result)) {
+    throw new Error(`[dispatch] ${args.toolName} returned a host route outside a script`);
+  }
+
   return result;
+}
+
+function isDirectRouteHostRead(result: { kind: string }): result is DirectRouteHostRead {
+  return result.kind === "direct_route";
 }
 
 /**
@@ -348,16 +387,16 @@ export async function dispatchToolCall(args: ToolCallDispatchArgs): Promise<Disp
  * `dispatchToolCall` does, but returns `deferred` before any write if the live gate would stage
  * a card. A switch to Review mid-round then cannot stage two cards beside each other.
  */
-function dispatchToolCallUnlessGated(
+async function dispatchToolCallUnlessGated(
   args: ToolCallDispatchArgs,
 ): Promise<DispatchResult | DeferredDispatch> {
-  return runDispatchStages(args, true);
+  return refuseHostRouteOutsideScript(await runDispatchStages(args, true), args);
 }
 
 async function runDispatchStages(
   args: ToolCallDispatchArgs,
   deferIfGated: boolean,
-): Promise<DispatchResult | DeferredDispatch> {
+): Promise<DispatchResult | DeferredDispatch | DirectRouteHostRead> {
   const registry = await resolveRegistryStage(args);
 
   if (!isContinue(registry)) return registry;
@@ -699,12 +738,35 @@ function hostReadActor(parent: ToolCallActor): ToolCallActor {
 }
 
 function hostReadOutcome(
-  result: DispatchResult | DeferredDispatch,
+  result: DispatchResult | DeferredDispatch | DirectRouteHostRead,
   request: HostReadRequest,
 ): HostReadOutcome {
   switch (result.kind) {
-    case "executed":
-      return { kind: "executed", value: toJsonValue(result.toolResult) };
+    case "executed": {
+      const value = toJsonValue(result.toolResult);
+
+      // The output was declared structured, so a binary block is a named failure, not a value.
+      // No hint to call it directly: its declaration still routes a direct call to the script.
+      if (request.toolName === MCP_CALL_TOOL && mcpResultHasBinaryContent(value)) {
+        return {
+          kind: "refused",
+          refusal: "binary_output",
+          message:
+            "This read returned binary content (an image, audio, or file bytes), and this chat " +
+            "cannot read binary content. Tell the user that the item is binary, or read a text " +
+            "form of it with another tool.",
+        };
+      }
+
+      return { kind: "executed", value };
+    }
+
+    case "direct_route":
+      return {
+        kind: "refused",
+        refusal: hostRefusalOf(result.route.reason),
+        message: `${request.toolName} runs as a direct call now, not in a script. ${readRouteReasonText(result.route)} ${directCallHint(request.toolName)}`,
+      };
     case "deferred":
       return {
         kind: "refused",
@@ -736,6 +798,28 @@ function hostReadOutcome(
     default:
       return assertNever(result, "host read dispatch result");
   }
+}
+
+/** The refusal code of a host read that runs direct now. A card keeps `needs_approval`. */
+function hostRefusalOf(reason: DirectRouteReason): HostReadRefusal {
+  switch (reason) {
+    case "not_a_confirmed_read":
+      return "not_a_read";
+    case "binary_output":
+      return "binary_output";
+    case "undeclared_output":
+      return "undeclared_output";
+    case "needs_approval":
+      return "needs_approval";
+    default:
+      return assertNever(reason, "direct read route reason");
+  }
+}
+
+function directCallHint(toolName: ToolName): string {
+  return toolName === MCP_CALL_TOOL
+    ? "Call it through mcp.call with the same ref and arguments."
+    : `Call ${toolName} as a direct tool call with the same input.`;
 }
 
 /** Stage 2: validate input, then run `join` and `fast_path` tools inline. */
@@ -993,24 +1077,37 @@ async function refuseUnavailableRun(
 }
 
 /**
- * ADR-0124 decision 1, with the owner's exception of 2026-11-17. In a `code_run` run, a read runs
- * inside `system.code_run`, and a direct call of a read is refused. A read that this gate holds
- * for a card is the exception: a script cannot show a card, so it runs here with its card. Full
- * autonomy waives the card, so under it every read goes to the script. The decision is this
- * call's own `requiresApproval`, so the route and the gate cannot disagree.
+ * ADR-0124 decision 1 and its amendment of 2026-11-18: dispatch decides the route of each call
+ * again with `decideReadRoute`, from the call's read facts and its live `requiresApproval`. Search
+ * only quoted the route, and a policy can change between the two.
  *
- * Only a fresh proposal: a replay or a resume has a row, and its call already passed. The result
- * marks the call a verified read, so the finalize guard does not count it as a failed write.
+ * - A direct call in a `code_run` run whose route is the script is refused. Only a fresh
+ *   proposal: a replay or a resume has a row, and its call already passed. The result marks the
+ *   call a verified read, so the finalize guard does not count it as a failed write.
+ * - A script read whose route is direct for a reason other than a card returns the route, so the
+ *   script gets a refusal that names it. A card keeps the `deferred` path of the caller.
  */
-async function refuseScriptableDirectRead(
+async function refuseMisroutedRead(
   suppressed: SuppressedDispatch,
   requiresApproval: boolean,
-): Promise<DispatchResult | null> {
+): Promise<DispatchResult | DirectRouteHostRead | null> {
   const { args, toolName, call, ctx } = suppressed;
+  const { readPath } = args.runContext;
 
-  if (args.runContext.readPath !== "code_run" || requiresApproval) return null;
+  if (readPath === "code_run_host") {
+    const route = decideReadRoute(await call.readFacts(ctx), requiresApproval);
 
-  if (!(await call.isRead(ctx))) return null;
+    if (route.route === "script" || route.reason === "needs_approval") return null;
+
+    return { kind: "direct_route", route };
+  }
+
+  // A call that waits for a card is direct whatever its facts say.
+  if (readPath !== "code_run" || requiresApproval) return null;
+
+  const route = decideReadRoute(await call.readFacts(ctx), requiresApproval);
+
+  if (route.route !== "script") return null;
 
   if (await stagingStore().readStaging({ runId: args.runId, toolCallId: args.toolCallId })) {
     return null;
@@ -1022,8 +1119,8 @@ async function refuseScriptableDirectRead(
       : `${toolName}(input) with the same input`;
 
   const message =
-    `This read needs no approval, so in this chat it runs only inside system.code_run. Call ` +
-    `${howToCall} in a script.`;
+    `In this chat this call runs only inside system.code_run now. ${readRouteReasonText(route)} ` +
+    `Call ${howToCall} in a script.`;
 
   recordRejection({
     dispatch: args,
@@ -1094,11 +1191,17 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const fullAutonomy =
     !arm.forcesApproval && policyRequiresApproval && (await readFullAutonomy(args));
 
-  const requiresApproval = arm.forcesApproval || (policyRequiresApproval && !fullAutonomy);
+  // The one approval input of the route decision too (ADR-0124 amendment 2026-11-18).
+  const requiresApproval = callRequiresApproval({
+    staging: tool.staging,
+    policyMode,
+    riskTier,
+    fullAutonomy,
+  });
 
-  const scriptableRead = await refuseScriptableDirectRead(suppressed, requiresApproval);
+  const misrouted = await refuseMisroutedRead(suppressed, requiresApproval);
 
-  if (scriptableRead) return scriptableRead;
+  if (misrouted) return misrouted;
 
   // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
   if (requiresApproval && suppressed.deferIfGated) return DEFERRED;

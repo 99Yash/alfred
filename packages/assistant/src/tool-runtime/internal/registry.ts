@@ -45,6 +45,14 @@ import {
 } from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 import { passthroughSpanFacts } from "./tools/passthrough/telemetry";
+import {
+  DECLARED_STRUCTURED_READ,
+  decideReadRoute,
+  NOT_A_CONFIRMED_READ,
+  readRouteReasonText,
+  type ReadFacts,
+  type ReadRoute,
+} from "../read-route";
 
 export interface ToolDiscoveryMetadata {
   /** Defaults to the humanized action slug. */
@@ -161,13 +169,17 @@ export interface HostReadRequest {
 }
 
 /**
- * Why a host read did not execute. `needs_approval`: the gate would show a card, and a script
- * cannot show one (owner, 2026-11-17). `not_a_read`: the tool is not a Code Mode read. The rest
- * are the dispatch result kinds.
+ * Why a host read did not execute. The first four name a direct route (ADR-0124 amendment
+ * 2026-11-18): `needs_approval`, the gate would show a card, and a script cannot show one;
+ * `not_a_read`, no authority confirms the read; `binary_output`, the output is declared binary or
+ * the response held bytes; `undeclared_output`, no trusted declaration says the output is
+ * structured. The rest are the dispatch result kinds.
  */
 export type HostReadRefusal =
   | "needs_approval"
   | "not_a_read"
+  | "binary_output"
+  | "undeclared_output"
   | "failed"
   | "rejected"
   | "blocked"
@@ -273,8 +285,10 @@ export interface ToolArgsCommon<
   /** No default: every tool states it. `fast_path`, `join`, and `question` must be `"safe"`. */
   replay: ToolReplay;
   /**
-   * A host function of `system.code_run` (ADR-0124): the tool only reads. `riskTier: "no_risk"`
-   * does not say this, because some `no_risk` tools write. `registerTool` checks the arms.
+   * A host function of `system.code_run` (ADR-0124). Alfred's declaration that the tool only
+   * reads and that its output is structured data, the two route facts of the amendment of
+   * 2026-11-18. `riskTier: "no_risk"` does not say this, because some `no_risk` tools write.
+   * `registerTool` checks the arms.
    */
   codeModeRead?: true;
   /** Calls in the same live-chat lane execute in model order. */
@@ -312,11 +326,12 @@ export interface ToolArgsCommon<
    */
   refuseProposal?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<string | null>;
   /**
-   * For a tool that reads or writes by its input (`mcp.call`): whether this call only reads, from
-   * durable state. A `code_run` run sends a read with no card into a script (ADR-0124). A
-   * `codeModeRead` tool is always a read and declares none. Must be side-effect free.
+   * For a tool that reads or writes by its input (`mcp.call`): the read authority and the
+   * declared output of this call, from durable state (ADR-0124 amendment 2026-11-18). The route
+   * decision reads them. A `codeModeRead` tool must not declare this hook, because its flag
+   * already declares both facts. Must be side-effect free.
    */
-  selectsRead?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<boolean>;
+  resolveReadFacts?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ReadFacts>;
   /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
@@ -389,8 +404,12 @@ export interface BoundToolCall {
   input: unknown;
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
-  /** A `codeModeRead` tool, or {@link LiveToolArgs.selectsRead}. `false` when neither applies. */
-  isRead: (ctx: ToolExecuteContext) => Promise<boolean>;
+  /**
+   * The effect and output facts of the route decision (ADR-0124 amendment 2026-11-18): a
+   * `codeModeRead` tool's declaration, else {@link LiveToolArgs.resolveReadFacts}, else no
+   * confirmed read.
+   */
+  readFacts: (ctx: ToolExecuteContext) => Promise<ReadFacts>;
   /** See {@link LiveToolArgs.refuseProposal}. `null` when the tool declares none. */
   proposalRefusal: ((ctx: ToolExecuteContext) => Promise<string | null>) | null;
   /**
@@ -503,21 +522,22 @@ export function evaluateToolRunContext(
 }
 
 /**
- * ADR-0124 decision 1: a run has one read path. In a `code_run` run, a read runs inside
- * `system.code_run`. In every other run, `system.code_run` is absent. The nested dispatch of a
- * script read runs as `code_run_host`, so the read passes.
+ * ADR-0124 decision 1: a run has one read path. In a `code_run` run, `decideReadRoute` sends each
+ * call to a script or keeps it direct. In every other run, `system.code_run` is absent. The
+ * nested dispatch of a script read runs as `code_run_host`, so the read passes.
  *
- * One exception (owner, 2026-11-17): a read that the gate holds for a card runs as a direct call
- * with its card, because a script cannot show one. This gate is static, so it hides only a read
- * that can never wait for approval. Dispatch refuses a direct call of any other read that would
- * run with no card (`refuseScriptableDirectRead` in the pipeline).
+ * This gate is the static half of the decision: it hides a declared read that no call can meet
+ * with a card, because its route is always the script. Dispatch decides each other call with its
+ * live approval (`refuseMisroutedRead` in the pipeline).
  */
 function evaluateReadPath(tool: RegisteredTool, context: ToolRunContext): ToolAvailabilityResult {
-  if (tool.codeModeRead && context.readPath === "code_run" && !toolCanWaitForApproval(tool)) {
+  const route = staticReadRoute(tool);
+
+  if (route?.route === "script" && context.readPath === "code_run") {
     return {
       available: false,
       code: "wrong_caller",
-      reason: `In this chat, ${tool.name} runs only inside system.code_run. Call it there as ${tool.name}(input).`,
+      reason: `In this chat, ${tool.name} runs only inside system.code_run. ${readRouteReasonText(route)} Call it there as ${tool.name}(input).`,
     };
   }
 
@@ -531,6 +551,16 @@ function evaluateReadPath(tool: RegisteredTool, context: ToolRunContext): ToolAv
   }
 
   return { available: true };
+}
+
+/**
+ * The route of every call of `tool`, when no input and no live policy can change it: a declared
+ * read that never meets a card. `null` when dispatch must decide each call.
+ */
+function staticReadRoute(tool: RegisteredTool): ReadRoute | null {
+  if (!tool.codeModeRead || toolCanWaitForApproval(tool)) return null;
+
+  return decideReadRoute(DECLARED_STRUCTURED_READ, false);
 }
 
 /**
@@ -772,11 +802,13 @@ export function liveTool<
     resolvePolicyIntegration,
     refuseInput,
     refuseProposal,
-    selectsRead,
+    resolveReadFacts,
   } = args;
 
-  if (selectsRead && args.codeModeRead) {
-    throw new Error(`[tools] '${name}' is a codeModeRead tool, so it must not declare selectsRead`);
+  if (resolveReadFacts && args.codeModeRead) {
+    throw new Error(
+      `[tools] '${name}' is a codeModeRead tool, so it must not declare resolveReadFacts`,
+    );
   }
 
   // Only a gated call writes a staging row, so on any other policy the check would never run.
@@ -849,8 +881,11 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
-          isRead: async (ctx) =>
-            args.codeModeRead === true || ((await selectsRead?.(input, ctx)) ?? false),
+          readFacts: async (ctx) => {
+            if (args.codeModeRead === true) return DECLARED_STRUCTURED_READ;
+
+            return resolveReadFacts ? resolveReadFacts(input, ctx) : NOT_A_CONFIRMED_READ;
+          },
           proposalRefusal: refuseProposal ? (ctx) => refuseProposal(input, ctx) : null,
           effectiveRiskTier: async (ctx) =>
             resolveRiskTier

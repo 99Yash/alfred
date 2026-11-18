@@ -31,6 +31,8 @@ const MCP_CLIENT_ERROR_CODES = [
   "admission_full",
   // The connection is outside the servers that the run's integration allowlist admits.
   "outside_scope",
+  // A script read whose route is direct now: its descriptor or its review changed (ADR-0124).
+  "route_changed",
 ] as const;
 
 export type McpClientErrorCode = (typeof MCP_CLIENT_ERROR_CODES)[number];
@@ -53,6 +55,7 @@ const MCP_PRE_DELIVERY_ERROR_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "authorization_unavailable",
   "admission_full",
   "outside_scope",
+  "route_changed",
 ]);
 
 /** True for a code that proves the call was not delivered. */

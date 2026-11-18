@@ -12,7 +12,6 @@ import {
   type ToolName,
 } from "@alfred/contracts";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
-import { isSelectedMcpToolReadOnly } from "@alfred/assistant/tool-runtime/mcp";
 import { readHostBindings } from "../../code-mode/host-bindings";
 import { codeRunDescription } from "../../code-mode/index-text";
 import {
@@ -110,7 +109,6 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
 
             return read;
           },
-          isReadOnlyMcpTool: (ref) => isSelectedMcpToolReadOnly({ userId: ctx.userId, ...ref }),
         }),
         runId: ctx.runId,
       });

@@ -41,9 +41,11 @@ calls the tool depends on the read path that the chat run pinned at its start
   read inside `system.code_run` as `mcp.read(ref, args)`. A write stays a direct
   `mcp.call`. A read that waits for an approval card (GitHub set to Gated, with
   no full autonomy on the thread) also stays a direct `mcp.call`, because a script
-  cannot show a card. Dispatch refuses a direct `mcp.call` of a read that would run
-  with no card. `system.search_tools` returns each hit with its route: a
-  `system.code_run` hit with `hostFunction: "mcp.read"`, or an `mcp.call` hit.
+  cannot show a card. One decision (`decideReadRoute` in
+  `tool-runtime/read-route.ts`) sets the route of each call. Dispatch refuses a direct
+  `mcp.call` whose route is the script. `system.search_tools` returns each hit with
+  its current route: a `system.code_run` hit with `hostFunction: "mcp.read"`, or an
+  `mcp.call` hit. Binary reads stay direct too (ADR-0124 amendment 2026-11-18).
 
 The pin rules the run. A flag change applies only to the next chat run.
 

@@ -185,7 +185,7 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 - The model surface (`resolveToolSurface`) checks only the run-context gates. Four read tools are on the kernel: `read_chat_history`, `read_user_context`, `web_search`, and `search_context`. A snapshot gate does not remove them from the surface.
 - ADR-0124 decision 1 is for chat. A background workflow and a sub-agent never get `system.code_run`. A snapshot gate removes their reads, so they have no read path. Only chat sets `readPath: "code_run"`. Each other run keeps its direct reads, and `system.code_run` is `not_allowed` there.
 - Chat pins the read path in run state on the first turn (`ChatRunState.readPath`), with the prompt. A run that pinned its prompt before this change stays direct. No gate reads the live flag (owner decision 4).
-- The connected summary computes its tool lines through the same gate. In a `code_run` run it uses the direct view of the run, so the read tools stay on the list. Its header and the MCP lines then say where a read runs, and an MCP line says when each call of the server waits for approval.
+- The connected summary computes its tool lines through the same gate. In a `code_run` run it uses the direct view of the run, so the read tools stay on the list. Its header states the read-route rule. It names no route from the approval settings at run start (PR A, below).
 - `dispatchHostRead` sets `readPath: "code_run_host"`.
 - The surface memo key serializes the context object. A `satisfies Record<keyof ToolRunContext, string>` makes a new field fail to compile until the object holds it, and the key serializes the object, so the key holds each field of the object. The first version wrote the key by hand, and a probe showed that a new field could compile and still be absent from the key.
 
@@ -212,14 +212,19 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 - The input check of a script-read replay normalizes the keys first, the same as a fresh call.
 - The plan no longer gives the pre-2b instructions for the id, the approval thread, the flag gate, or the script-read share.
 
-**Open: the read-route theory.** These findings wait for the owner. No more route code is written until the theory is settled:
+**The read-route theory is settled (2026-11-18).** The owner settled these findings in the [ADR-0124 amendment of 2026-11-18](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md#amendment-2026-11-18-the-read-route-read-authority-and-the-evidence-record). Two PRs build it, each from `main`:
 
-- One route decision for each read call, in the tool runtime. Its inputs are the effect authority, the output kind, and the approval. Discovery quotes it, dispatch and the broker enforce it, and the connected summary does not state a live policy. Today discovery, the registry, and dispatch each hold a copy, and they disagree on `fast_path` reads (`mcp.list_tools`, `mcp.inspect_tool`).
-- The read authority of an MCP tool. Today a `readOnlyHint` with no review that says otherwise is enough. A custom server can set the hint on a write. A pinned built-in, or an exact read policy, is independent authority.
-- The binary route (ADR-0124 decision 4). No route input says that a result is binary. Drive's pinned `download_file_content` returns base64 bytes, and it now goes to a script.
-- The sources of a script: a bounded field with whole URLs, kept for a failed script too.
-- The evidence record of each host read (function, arguments, and the ids read), for the memory check job (memory.md).
-- The default: every chat read in a script, or only fan-out. The single-read and Gated costs are not measured. The eval of the follow-up PR measures them.
+- **PR A: one route decision.** `tool-runtime/read-route.ts` holds the route table (`decideReadRoute`). Its inputs are the read facts of the call (`ReadFacts`: the read authority and the declared output kind) and the live approval (`callRequiresApproval`: the staging arm, the rule and the tier, and the thread's Full Autonomy). These callers use it, and none keeps a copy:
+  - The static gate (`staticReadRoute`) hides a declared read that never meets a card.
+  - Dispatch (`refuseMisroutedRead`) decides each call again. A direct call whose route is the script is refused. A script read whose route is direct returns a refusal that names the route: `not_a_read`, `binary_output`, `undeclared_output`, or `needs_approval`.
+  - Search quotes the route of each hit. One identity read gives the tier, the read facts, and the policy rule of an MCP hit (`resolveMcpCallRouteFacts`), so search makes no second connection query. A `fast_path` read such as `mcp.list_tools` quotes the script.
+  - The broker checks the live descriptor again (`requireScriptRead`, `mcpReadFacts`). A changed route fails with the code `route_changed`.
+  - The read authority of an MCP tool for the route (`mcpReadFacts`): an owner review of the exact descriptor decides alone. Otherwise the published `readOnlyHint` counts only with a code pin of the exact descriptor (Google Workspace) or a built-in read-only endpoint (GitHub). The hint of a custom server alone confirms nothing. The health mapping, the finalize guard, and the Google write refusal keep their own hint rule, because they are not route inputs.
+  - The output kind: `codeModeRead` declares a structured read. A built-in pin carries its kind (`builtInOutputKind`). Drive's `download_file_content` is `binary`, so it runs direct. A GitHub read is `structured`, and a binary block in its response fails by name (`binary_output`). Its declaration still routes a direct call to the script, so the model tells the user that the item is binary. A custom tool has no declaration yet, so its reads run direct.
+  - The connected summary drops the MCP route claim from the run-start policy. The approval labels stay as confirmation hints (ADR-0069). In a `code_run` run, they cover only the direct calls, because a label on a declared script read would pick its route.
+- **PR B: the evidence record and the sources field.** Not started.
+
+These stay open after PR B: the paired evaluation on the production path, the first-turn surface budget, the two checks of #535, and a browsing card for each web read of a script.
 
 ### The honest envelope and the ledger
 

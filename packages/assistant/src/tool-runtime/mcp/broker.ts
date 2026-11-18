@@ -47,6 +47,7 @@ import {
 import {
   findUnresolvedBarrier,
   isReadOnlyMcpToolIdentity,
+  mcpReadFacts,
   mcpToolEffectClass,
   readInvocationByStagingId,
   resolveMcpToolIdentity,
@@ -54,6 +55,7 @@ import {
   type OwnedMcpConnectionRef,
 } from "./invocations";
 import { effectiveMcpRiskTier } from "./risk";
+import { decideReadRoute, NOT_A_CONFIRMED_READ, readRouteReasonText } from "../read-route";
 import {
   hasMcpBrokerAdmissionCapacity,
   MCP_SETTLEMENT_REPAIR_BATCH_SIZE,
@@ -96,12 +98,12 @@ export interface McpBrokerCallInput {
    */
   serverScope: McpServerScope;
   /**
-   * A read of a `system.code_run` script (ADR-0124). The host checked the selected descriptor
-   * before dispatch, and the owner can change a review after that check. So the broker checks the
-   * live descriptor and review again, with the same rule, and refuses a call that is not a read.
-   * Separate from the approval tier: a read can still need a card.
+   * A read of a `system.code_run` script (ADR-0124 amendment 2026-11-18). Dispatch decided the
+   * route, and a review or the catalog can change after that. So the broker checks the live
+   * descriptor again with `mcpReadFacts`: a confirmed read with structured output, or a refusal.
+   * Separate from the approval tier: dispatch decided that already.
    */
-  requireRead?: true;
+  requireScriptRead?: true;
   /** Run trace id. Observability only; ledger correlation still copies the staging row. */
   traceId?: string;
   signal?: AbortSignal;
@@ -1417,11 +1419,17 @@ export class McpExecutionBroker {
     const liveIdentity =
       identity.status === "resolved" && hash === identity.descriptorHash ? identity : undefined;
 
-    if (input.requireRead && !(liveIdentity && isReadOnlyMcpToolIdentity(liveIdentity))) {
-      throw new McpClientError(
-        "write_tool",
-        `${ref.remoteName} is not a read now, so a script cannot call it. Its descriptor or its review changed.`,
-      );
+    if (input.requireScriptRead) {
+      const facts = liveIdentity ? mcpReadFacts(liveIdentity) : NOT_A_CONFIRMED_READ;
+      const route = decideReadRoute(facts, false);
+
+      if (route.route !== "script") {
+        throw new McpClientError(
+          "route_changed",
+          `${ref.remoteName} cannot run in a script now: its descriptor or its review changed. ` +
+            `${readRouteReasonText(route)} Call it through mcp.call.`,
+        );
+      }
     }
 
     const policy = liveIdentity?.policy;
