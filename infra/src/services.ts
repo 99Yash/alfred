@@ -78,6 +78,9 @@ export const Server = Railway.Service("Server", {
   dockerfilePath: "docker/server.Dockerfile",
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=server",
+  // Same rationale as the web service: declare the patterns, or the leftover
+  // dashboard watch config skips builds whose changes it does not name.
+  watchPatterns: ["**"],
   startCommand: "node apps/server/dist/index.js",
   healthcheck: "/health",
   // Upsert-only (`syncEnv` never deletes an undeclared variable), applied
@@ -99,5 +102,11 @@ export const Web = Railway.Service("Web", {
   dockerfilePath: "docker/web.Dockerfile",
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=web",
+  // Railway's watch patterns survive the dashboard's old GitHub-trigger config
+  // unless the program declares them. A deploy is SKIPPED when no watched file
+  // changed — `docker/` was not watched, so the Dockerfile fix deployed nothing.
+  // `**` matches every uploaded change, which is the ADR's accepted cost: every
+  // push to main redeploys.
+  watchPatterns: ["**"],
   publicDomain: false,
 });
