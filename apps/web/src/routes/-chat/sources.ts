@@ -40,13 +40,19 @@ export function toSource(citation: unknown): Source | null {
   };
 }
 
-/** Every web-search citation in a turn, deduped by publisher in first-seen order. Best-effort. */
+/**
+ * Every web page in a turn, deduped by publisher in first-seen order. Best-effort. A
+ * `system.code_run` script's pages come from `scriptSources`, which the preview does not prune
+ * (ADR-0124). The host sets it only for reads that executed, so a failed script keeps them. A
+ * direct web read's pages come from its parsed result, and only when it succeeded.
+ */
 export function collectSources(tools: readonly ResolvedToolCall[]): Source[] {
   const byKey = new Map<string, Source>();
 
   for (const tool of tools) {
-    if (tool.status !== "succeeded") continue;
-    const citations = tool.result?.citations;
+    const citations =
+      tool.scriptSources?.sources ??
+      (tool.status === "succeeded" ? tool.result?.citations : undefined);
 
     if (!Array.isArray(citations)) continue;
 

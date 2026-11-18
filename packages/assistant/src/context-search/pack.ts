@@ -54,6 +54,8 @@ export interface PackEvidenceOptions {
 export interface PackedEvidence {
   readonly text: string;
   readonly includedIds: readonly string[];
+  /** Each included card with the block of `text` that renders it: the item that the read delivered. */
+  readonly included: readonly { readonly card: EvidenceCard; readonly block: string }[];
   /** Cards dropped by the budget or by the read's own `limit`. */
   readonly omittedCount: number;
   readonly truncated: boolean;
@@ -74,6 +76,7 @@ export function packEvidenceCards(
   const noteLength = notes.text.length > 0 ? notes.text.length + separator.length : 0;
 
   const blocks: string[] = [];
+  const included: { card: EvidenceCard; block: string }[] = [];
   let used = 0;
   let cardTruncated = false;
 
@@ -84,6 +87,7 @@ export function packEvidenceCards(
     if (used + added + noteLength > maxChars) break;
 
     blocks.push(block.text);
+    included.push({ card, block: block.text });
     used += added;
 
     if (block.truncated) cardTruncated = true;
@@ -101,7 +105,8 @@ export function packEvidenceCards(
 
   return {
     text,
-    includedIds: cards.slice(0, blocks.length).map((card) => card.id),
+    includedIds: included.map(({ card }) => card.id),
+    included,
     omittedCount: budgetOmitted + limitOmitted,
     truncated:
       budgetOmitted > 0 ||

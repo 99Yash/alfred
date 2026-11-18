@@ -24,6 +24,7 @@ import {
   type SystemToolTaskAdapter,
   type SystemToolWebSearchAdapter,
   type SystemToolWorkflowAdapter,
+  readResult,
 } from "../../src/tool-runtime";
 
 function adapter(
@@ -254,15 +255,20 @@ describe("runtime adapter lifecycle", () => {
 
       const knowledge: SystemToolKnowledgeAdapter = {
         readUserContext: () =>
-          Promise.resolve({
-            profile: null,
-            activeIntegrations: [],
-            confirmedFacts: [],
-            preferences: [],
-            entities: [],
-            relations: [],
-            recentMemory: [],
-          } as const),
+          Promise.resolve(
+            readResult(
+              {
+                profile: null,
+                activeIntegrations: [],
+                confirmedFacts: [],
+                preferences: [],
+                entities: [],
+                relations: [],
+                recentMemory: [],
+              } as const,
+              { refs: [] },
+            ),
+          ),
       };
 
       const instructions: SystemToolInstructionAdapter = {

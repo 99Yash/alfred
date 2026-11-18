@@ -3,6 +3,7 @@ import { route } from "@alfred/ai";
 import {
   CODE_RUN_TOOL,
   codeRunInput,
+  type HostReadRefusal,
   type JsonValue,
   mcpCallInput,
   parseIanaTimezone,
@@ -18,13 +19,12 @@ import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/groundin
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
-import {
-  runReadProgram,
-  type ReadProgramLedgerEntry,
-} from "../src/tool-runtime/code-mode/run-read-program";
+import { runReadProgram } from "../src/tool-runtime/code-mode/run-read-program";
+import { newHostCallLedger } from "../src/tool-runtime/internal/dispatch/host-call-ledger";
 import {
   getTool,
   listRegisteredTools,
+  type HostCallEntry,
   type HostReadOutcome,
   type HostReadRequest,
 } from "../src/tool-runtime/internal/registry";
@@ -325,11 +325,32 @@ function readIssue(rawArgs: unknown, record: HostRecord): JsonValue {
   });
 }
 
-/** The fake `hostRead`: what the nested dispatch of each read would return for these fixtures. */
-async function fakeHostRead(
+/** A fixture outcome, before {@link withCallFacts} adds what dispatch sets. */
+type FakeOutcome =
+  | { kind: "executed"; value: JsonValue }
+  | { kind: "refused"; refusal: HostReadRefusal; message: string };
+
+/** The call facts and evidence that dispatch sets. The eval grades the script, not the record. */
+async function withCallFacts(
   request: HostReadRequest,
-  record: HostRecord,
+  outcome: Promise<FakeOutcome>,
 ): Promise<HostReadOutcome> {
+  const call = {
+    callId: `eval#${request.requestIndex}`,
+    toolName: request.toolName,
+    input: null,
+    stagingId: null,
+  };
+
+  const settled = await outcome;
+
+  return settled.kind === "executed"
+    ? { ...settled, call, evidence: undefined }
+    : { ...settled, call };
+}
+
+/** The fake `hostRead`: what the nested dispatch of each read would return for these fixtures. */
+async function fakeHostRead(request: HostReadRequest, record: HostRecord): Promise<FakeOutcome> {
   if (request.toolName === "system.read_user_context") {
     return { kind: "executed", value: USER_CONTEXT };
   }
@@ -369,7 +390,7 @@ async function fakeHostRead(
   };
 }
 
-const NOT_IN_CATALOG: HostReadOutcome = {
+const NOT_IN_CATALOG: FakeOutcome = {
   kind: "refused",
   refusal: "invalid_input",
   message: "This MCP tool is not in the catalog.",
@@ -377,7 +398,7 @@ const NOT_IN_CATALOG: HostReadOutcome = {
 
 const inspectToolArgs = z.object({ ref: z.object({ remoteName: z.string() }) });
 
-function inspectTool(input: unknown): HostReadOutcome {
+function inspectTool(input: unknown): FakeOutcome {
   const parsed = inspectToolArgs.safeParse(input);
   const remoteName = parsed.success ? parsed.data.ref.remoteName : null;
   const descriptor = GITHUB_DESCRIPTORS.find((candidate) => candidate.name === remoteName);
@@ -395,7 +416,7 @@ function inspectTool(input: unknown): HostReadOutcome {
   };
 }
 
-function callGithub(input: unknown, record: HostRecord): HostReadOutcome {
+function callGithub(input: unknown, record: HostRecord): FakeOutcome {
   const call = mcpCallInput.safeParse(input);
 
   if (
@@ -425,7 +446,7 @@ interface TaskOutput {
   toolNames: string[];
   steps: number;
   inputTokensPerStep: number[];
-  ledger: ReadProgramLedgerEntry[];
+  ledger: HostCallEntry[];
   scripts: ScriptRecord[];
   bodiesRead: number[];
   text: string;
@@ -447,12 +468,12 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
   if (!CODE_RUN_DESCRIPTION) throw new Error("system.code_run is not registered");
 
   const record: HostRecord = { bodiesRead: new Set() };
-  const ledger: ReadProgramLedgerEntry[] = [];
+  const ledger: HostCallEntry[] = [];
   const scripts: ScriptRecord[] = [];
 
   const hosts = readHostBindings({
     readTools: READ_TOOLS,
-    hostRead: (request) => fakeHostRead(request, record),
+    hostRead: (request) => withCallFacts(request, fakeHostRead(request, record)),
   });
 
   const result = await generateText({
@@ -469,7 +490,12 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
         description: CODE_RUN_DESCRIPTION,
         inputSchema: codeRunInput,
         execute: async ({ source }) => {
-          const outcome = await runReadProgram({ source, hosts, runId: "run_code_mode_eval" });
+          const outcome = await runReadProgram({
+            source,
+            hosts,
+            ledger: newHostCallLedger(),
+            runId: "run_code_mode_eval",
+          });
 
           // Each script numbers its reads from 1, so the eval keeps its own order.
           ledger.push(

@@ -4,7 +4,7 @@
  */
 
 import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
-import type { ChatConnectNudge } from "@alfred/contracts";
+import type { ChatConnectNudge, ScriptSources } from "@alfred/contracts";
 import { preview } from "./tool-preview";
 
 export interface ToolEventOutcome {
@@ -23,6 +23,11 @@ export interface ToolEventOutcome {
    * preview, so a card never names an operation that did not run.
    */
   argsPreview?: string | undefined;
+  /**
+   * The web pages of a `system.code_run` script (ADR-0124). Outside `resultPreview`, because the
+   * preview prunes long arrays and cuts long strings, and a cut URL does not resolve.
+   */
+  scriptSources?: ScriptSources | undefined;
 }
 
 export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcome {
@@ -37,5 +42,6 @@ export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcom
     connectNudge: completion.connectNudge,
     argsPreview:
       completion.executedInput === undefined ? undefined : preview(completion.executedInput).text,
+    scriptSources: completion.effects.scriptSources,
   };
 }

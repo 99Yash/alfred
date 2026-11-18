@@ -10,6 +10,8 @@ export * from "./schema/agent";
 
 export * from "./schema/action-policies";
 
+export * from "./schema/code-run";
+
 export * from "./schema/metering";
 
 export * from "./schema/integrations";

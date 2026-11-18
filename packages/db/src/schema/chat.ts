@@ -3,6 +3,7 @@ import type {
   ChatConnectNudge,
   ChatErrorKind,
   ChatMessageUsage,
+  ScriptSources,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
@@ -44,6 +45,11 @@ export interface ChatMessageToolCall {
    * A newer build can store a slug this enum lacks. Only `syncedChatToolCallSchema` checks it.
    */
   connectNudge?: ChatConnectNudge | undefined;
+  /**
+   * The web pages of a `system.code_run` script (ADR-0124). The preview prunes them, so a reload
+   * reads them here. The turn log (`toolCallLogSchema`) and `syncedChatToolCallSchema` parse it.
+   */
+  scriptSources?: ScriptSources | undefined;
 }
 
 /** The line the model wrote before a tool step. The final answer is in `content`, not here. */

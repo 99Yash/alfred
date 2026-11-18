@@ -72,5 +72,5 @@ function refused(
   refusal: Extract<HostReadOutcome, { kind: "refused" }>["refusal"],
   message: string,
 ): HostReadOutcome {
-  return { kind: "refused", refusal, message };
+  return { kind: "refused", refusal, message, call: undefined };
 }

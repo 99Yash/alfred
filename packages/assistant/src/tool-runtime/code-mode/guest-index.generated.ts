@@ -41,5 +41,5 @@ export const GUEST_OUTPUT_TYPES = {
   "mcp.inspect_tool":
     '{ status: "tool"; ref: { kind: "mcp"; connectionId: string; remoteName: string; catalogRevision: string }; connection: { id: string; instanceKey: string; label: string }; tool: { [x: string]: JsonValue } } | { status: "not_found"; ref: { kind: "mcp"; connectionId: string; remoteName: string; catalogRevision: string }; message: string } | { status: "catalog_stale"; ref: { kind: "mcp"; connectionId: string; remoteName: string; catalogRevision: string }; message: string }',
   "mcp.read":
-    '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true }',
+    '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true; truncation?: { handleEligible: true; originalBytesApprox: number; returnedBytes: number; causes: ({ kind: "string_chars"; droppedApprox: number } | { kind: "array_items"; droppedApprox: number } | { kind: "body_bytes"; droppedApprox: number })[] } }',
 } as const;

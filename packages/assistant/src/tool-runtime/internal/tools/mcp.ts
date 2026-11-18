@@ -9,8 +9,12 @@ import {
   mcpCallInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
+  truncatedCoverage,
   unknownEffectEnvelopeSchema,
+  type PassthroughTruncation,
+  type ReadEvidenceRefDraft,
 } from "@alfred/contracts";
+import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import {
@@ -52,6 +56,8 @@ export interface McpBrokerToolResult {
   message?: string;
   /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
   hasBinaryContent?: true;
+  /** Set when the response bounds cut the payload (`withResponseFacts`). */
+  truncation?: PassthroughTruncation;
 }
 
 /** The MCP catalog reads, named so the Code Mode index reads their types (ADR-0124). */
@@ -237,6 +243,27 @@ export const mcpTools: readonly RegisteredTool[] = [
 
       return brokerResult(outcome);
     },
+    // The evidence record (ADR-0124): the response is opaque, so the item is the whole result,
+    // and its id is the remote tool at its catalog revision. The host-call row keeps the
+    // arguments, and the `mcp_invocation` row of the nested staging row keeps the call.
+    readEvidence: (output, input) =>
+      output.ok === false || output.result === undefined
+        ? itemEvidence([])
+        : itemEvidence(
+            [
+              {
+                ref: {
+                  kind: "record",
+                  store: "mcp_call",
+                  id: `${input.connectionId}/${input.remoteName}`,
+                  depth: "body",
+                  version: input.catalogRevision,
+                },
+                item: output.result,
+              },
+            ],
+            truncatedCoverage(output.truncation !== undefined),
+          ),
   }),
   liveTool({
     integration: "mcp",
@@ -264,6 +291,11 @@ export const mcpTools: readonly RegisteredTool[] = [
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
         ...input,
       }),
+    readEvidence: (output) =>
+      itemEvidence(
+        output.tools.map((hit) => mcpToolItem(hit.ref, "hit", hit)),
+        output.nextCursor ? { morePages: true, returned: output.tools.length } : undefined,
+      ),
   }),
   liveTool({
     integration: "mcp",
@@ -289,5 +321,25 @@ export const mcpTools: readonly RegisteredTool[] = [
         ref: input.ref,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
       }),
+    readEvidence: (output) =>
+      itemEvidence(output.status === "tool" ? [mcpToolItem(output.ref, "body", output)] : []),
   }),
 ];
+
+/** One MCP tool descriptor in the evidence record (ADR-0124), at its catalog revision. */
+function mcpToolItem(
+  ref: ExternalToolRef,
+  depth: ReadEvidenceRefDraft["depth"],
+  item: unknown,
+): DeliveredItem {
+  return {
+    ref: {
+      kind: "record",
+      store: "mcp_tool",
+      id: `${ref.connectionId}/${ref.remoteName}`,
+      depth,
+      version: ref.catalogRevision,
+    },
+    item,
+  };
+}

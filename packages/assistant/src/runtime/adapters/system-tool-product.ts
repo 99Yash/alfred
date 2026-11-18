@@ -7,7 +7,7 @@ import {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  readUserContext as readUserContextFromKnowledge,
+  readUserContextItems,
   runWebSearch,
   saveStandingInstruction,
 } from "@alfred/assistant/knowledge";
@@ -16,6 +16,8 @@ import {
   threadsWhereInstructionBlocksTodo,
 } from "@alfred/assistant/triage";
 import {
+  itemEvidence,
+  readResult,
   registerSystemToolInstructionAdapter,
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
@@ -164,12 +166,23 @@ export const rememberInstructionAndDismissTodos = createRememberInstructionCoord
 });
 
 const knowledgeAdapter: SystemToolKnowledgeAdapter = {
-  readUserContext({ input, context }) {
-    return readUserContextFromKnowledge(context.userId, {
+  async readUserContext({ input, context }) {
+    const read = await readUserContextItems(context.userId, {
       subjectEmail: input.subjectEmail,
       query: input.query,
       include: input.include,
     });
+
+    // Each delivered row by its id, for the evidence record of a script read (ADR-0124).
+    return readResult(
+      read.context,
+      itemEvidence(
+        read.items.map(({ store, id, depth, version, item }) => ({
+          ref: { kind: "record", store, id, depth, ...(version ? { version } : {}) },
+          item,
+        })),
+      ),
+    );
   },
 };
 

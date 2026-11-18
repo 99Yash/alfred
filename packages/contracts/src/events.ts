@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { approvalKindSchema } from "./agent";
 import { chatConnectNudgeSchema } from "./chat";
+import { scriptSourcesSchema } from "./read-evidence";
 import { keyGuard } from "./guards";
 import { typedKeys } from "./records";
 import { sanitizeErrorMessage } from "./sanitize";
@@ -175,6 +176,11 @@ export const chatToolSchema = z.object({
    * and the retraction still lands.
    */
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
+  /**
+   * The web pages of a `system.code_run` script, for the sources strip (ADR-0124). The preview
+   * prunes them, so they ride here. `.catch` keeps the frame when the value does not parse.
+   */
+  scriptSources: scriptSourcesSchema.optional().catch(undefined),
   /** The narration segment this call follows (see `chatDeltaSchema.segmentIndex`). */
   segmentIndex: z.number().int().nonnegative().default(0),
   /**

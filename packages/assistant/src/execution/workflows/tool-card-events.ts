@@ -134,6 +134,7 @@ export function toolCardTerminal(
     ...(outcome.sanitized ? { sanitized: outcome.sanitized } : {}),
     ...(outcome.nonExecution ? { nonExecution: outcome.nonExecution } : {}),
     ...(outcome.connectNudge ? { connectNudge: outcome.connectNudge } : {}),
+    ...(outcome.scriptSources ? { scriptSources: outcome.scriptSources } : {}),
     ...(opts.artifactId ? { artifactId: opts.artifactId } : {}),
     segmentIndex: opts.segmentIndex,
     ...(target.subAgent ? { subAgent: target.subAgent } : {}),

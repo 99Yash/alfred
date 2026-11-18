@@ -3,31 +3,33 @@
  *
  * The deep module of the read path: a script, a table of host reads, and the limits go in. The
  * honest outcome and the host-side call ledger come out. Each `RunError` code maps to one named
- * outcome, so no failure reaches the model as a generic message. The ledger is written here, on
- * the host side, so guest code cannot change it.
+ * outcome, so no failure reaches the model as a generic message. Dispatch owns the ledger, and the
+ * host writes it here, so guest code cannot change it.
  */
 
 import { getHostFunctionContext, run, RunError, type HostFunctions, type RunLimits } from "run";
-import { isJsonObject, isRecord, toJsonValue, type JsonValue } from "@alfred/contracts";
+import {
+  isJsonObject,
+  isRecord,
+  sanitizeErrorMessage,
+  toJsonValue,
+  type JsonValue,
+} from "@alfred/contracts";
+import { sha256Canonical } from "@alfred/db/hash";
 import { logger } from "@alfred/logging";
-import type { HostReadOutcome, HostReadRefusal } from "../internal/registry";
+import { SCRIPT_FAILURE_MESSAGE_MAX_CHARS, SCRIPT_VALUE_MAX_BYTES } from "./result-budget";
+import type {
+  HostCallEntry,
+  HostCallLedger,
+  HostCallSettlement,
+  HostReadOutcome,
+} from "../internal/registry";
 
 /** One host function: its guest path (`contacts.search`) and the read behind it. */
 export interface HostBinding {
   /** `<group>.<name>`. The guest calls it as `group.name(...args)`. */
   path: string;
   read: (args: readonly unknown[], requestIndex: number) => Promise<HostReadOutcome>;
-}
-
-/**
- * One host call, as the host saw it. `tool_error`: it executed and returned `ok: false` (an MCP
- * `isError`, a provider failure the tool reports in its value).
- */
-export interface ReadProgramLedgerEntry {
-  index: number;
-  path: string;
-  kind: "executed" | "tool_error" | HostReadRefusal;
-  ms: number;
 }
 
 /**
@@ -47,16 +49,17 @@ export type ReadProgramFailure =
   | "internal";
 
 export type ReadProgramOutcome =
-  | { status: "completed"; value: JsonValue; ledger: readonly ReadProgramLedgerEntry[] }
+  | { status: "completed"; value: JsonValue; ledger: readonly HostCallEntry[] }
   | {
       status: ReadProgramFailure;
       message: string;
-      ledger: readonly ReadProgramLedgerEntry[];
+      ledger: readonly HostCallEntry[];
     };
 
 /**
  * The read path's limits. The wall clock stays under the 180 s chat turn ceiling. The result cap
- * is far below `run`'s 1 MiB: only the return value reaches the model, so a script trims first.
+ * is far below `run`'s 1 MiB: the value goes to the model inside the `system.code_run` result
+ * budget (`result-budget.ts`), so a script trims first.
  *
  * `run` ends the whole script when its in-flight limit is reached, and a guest `catch` cannot
  * stop that (measured on run@2.1.13: the ninth of nine parallel reads ended the script). So
@@ -67,10 +70,19 @@ export const READ_PROGRAM_LIMITS = {
   timeoutMs: 90_000,
   cpuTimeoutMs: 10_000,
   memoryLimitBytes: 64 * 1024 * 1024,
-  maxResultBytes: 64 * 1024,
+  maxResultBytes: SCRIPT_VALUE_MAX_BYTES,
   maxBridgeRequests: 256,
   maxInFlightBridgeRequests: 256,
+  // `run`'s default, stated here because the host's delivery cap must stay below it.
+  maxHostFunctionOutputBytes: 4 * 1024 * 1024,
 } as const satisfies RunLimits;
+
+/**
+ * The largest value that the host gives the guest, in JSON bytes. The bridge measures its own
+ * encoding, so this cap stays well below its limit: a value under it always reaches the guest, and
+ * the record marks a read `executed` only then.
+ */
+export const HOST_READ_DELIVERY_MAX_BYTES = 1024 * 1024;
 
 /** Host reads that dispatch at once. One `Promise.all` cannot open 32 dispatches; the rest wait. */
 export const HOST_READS_IN_FLIGHT = 8;
@@ -78,33 +90,31 @@ export const HOST_READS_IN_FLIGHT = 8;
 export async function runReadProgram(args: {
   source: string;
   hosts: readonly HostBinding[];
+  /** Dispatch's ledger of this call. It freezes when `run` returns. */
+  ledger: HostCallLedger;
   /** For the log line of an `internal` failure only. */
   runId: string;
 }): Promise<ReadProgramOutcome> {
-  const ledger: ReadProgramLedgerEntry[] = [];
   const slots = new HostReadSlots(HOST_READS_IN_FLIGHT);
 
   // After `run` returns, no queued read may start: the script that asked for it has ended.
-  const outcome = await runScript(args, ledger, slots).finally(() => slots.close());
-
-  // A read in flight at that time can still settle and push to `ledger`. Dispatch takes no
-  // abort signal, so it runs to its own deadline. The outcome keeps the ledger as at return.
-  return { ...outcome, ledger: [...ledger] };
+  // A read in flight at that time stays `unfinished`: dispatch takes no abort signal, so it runs
+  // to its own deadline, and the frozen ledger ignores its late settlement.
+  return runScript(args, slots).finally(() => slots.close());
 }
 
 async function runScript(
-  args: { source: string; hosts: readonly HostBinding[]; runId: string },
-  ledger: ReadProgramLedgerEntry[],
+  args: { source: string; hosts: readonly HostBinding[]; ledger: HostCallLedger; runId: string },
   slots: HostReadSlots,
 ): Promise<ReadProgramOutcome> {
   const limits = READ_PROGRAM_LIMITS;
+  // Outside the `try`: a bad host path is a boot fault, not a run outcome.
+  const functions = hostFunctions(args.hosts, args.ledger, slots);
 
   try {
-    const result = await run({
-      source: args.source,
-      hostFunctions: hostFunctions(args.hosts, ledger, slots),
-      limits,
-    });
+    const result = await run({ source: args.source, hostFunctions: functions, limits });
+
+    const ledger = args.ledger.freeze();
 
     // No host function interrupts, so `run` can only complete.
     if (result.status !== "completed") {
@@ -114,16 +124,25 @@ async function runScript(
     // `run-js-v1` carries `Date`, `Map`, and `undefined`; the model reads their JSON form.
     return { status: "completed", value: toJsonValue(result.value), ledger };
   } catch (error) {
-    if (!RunError.isInstance(error)) throw error;
+    const ledger = args.ledger.freeze();
 
-    return failureFromRunError(error, limits, ledger, args.runId);
+    if (RunError.isInstance(error)) return failureFromRunError(error, limits, ledger, args.runId);
+
+    // A sandbox fault. Return it as an outcome, so the caller still writes the record of the
+    // reads that ran (ADR-0124 amendment: failed runs keep a record too).
+    logger.error(
+      { err: error, event: "code_run_internal_failure", runId: args.runId },
+      "Code Mode run threw outside the sandbox's error codes",
+    );
+
+    return failure("internal", "The sandbox failed. This is not a fault of the script.", ledger);
   }
 }
 
 /** Group the bindings into `run`'s `{ group: { name } }` shape, each wrapped by the ledger. */
 function hostFunctions(
   bindings: readonly HostBinding[],
-  ledger: ReadProgramLedgerEntry[],
+  ledger: HostCallLedger,
   slots: HostReadSlots,
 ): HostFunctions {
   const groups = new Map<string, Map<string, (...guestArgs: never[]) => Promise<JsonValue>>>();
@@ -139,9 +158,13 @@ function hostFunctions(
       groups.get(group) ?? new Map<string, (...guestArgs: never[]) => Promise<JsonValue>>();
 
     groups.set(group, members);
-    members.set(name, async (...guestArgs: unknown[]) =>
-      slots.run(() => callHost(binding, guestArgs, ledger)),
-    );
+    members.set(name, async (...guestArgs: unknown[]) => {
+      // The entry exists from the request, also for a read that waits for a slot.
+      const { requestIndex } = getHostFunctionContext();
+      const settle = ledger.begin(requestIndex, binding.path);
+
+      return slots.run(() => callHost(binding, guestArgs, requestIndex, settle));
+    });
   }
 
   return Object.fromEntries(
@@ -196,24 +219,64 @@ function scriptEnded(): RunError {
 async function callHost(
   binding: HostBinding,
   guestArgs: readonly unknown[],
-  ledger: ReadProgramLedgerEntry[],
+  requestIndex: number,
+  settle: (settlement: HostCallSettlement) => void,
 ): Promise<JsonValue> {
-  const { requestIndex } = getHostFunctionContext();
-  const started = performance.now();
-  const outcome = await binding.read(guestArgs, requestIndex);
-  const ms = Math.round(performance.now() - started);
+  let outcome: HostReadOutcome;
+
+  try {
+    outcome = await binding.read(guestArgs, requestIndex);
+  } catch (error) {
+    // A dispatch fault, not a reader outcome. The record keeps the call as failed, with no
+    // call facts. The guest gets "Host function failed." (measured on run@2.1.13).
+    settle({
+      kind: "failed",
+      call: undefined,
+      message: "The read failed inside the host.",
+      evidence: undefined,
+      contentHash: null,
+    });
+    throw error;
+  }
 
   if (outcome.kind === "refused") {
-    ledger.push({ index: requestIndex, path: binding.path, kind: outcome.refusal, ms });
+    settle({
+      kind: outcome.refusal,
+      call: outcome.call,
+      message: outcome.message,
+      evidence: undefined,
+      contentHash: null,
+    });
     // Only a `RunError` reaches the guest with its message and code; any other throw arrives
     // as "Host function failed." (measured on run@2.1.13).
     throw new RunError(`${binding.path}: ${outcome.message}`, outcome.refusal);
   }
 
-  const kind =
-    isJsonObject(outcome.value) && outcome.value.ok === false ? "tool_error" : "executed";
+  // The record says `executed` only for a value that the bridge delivers.
+  const bytes = Buffer.byteLength(JSON.stringify(outcome.value));
 
-  ledger.push({ index: requestIndex, path: binding.path, kind, ms });
+  if (bytes > HOST_READ_DELIVERY_MAX_BYTES) {
+    const message =
+      `The read returned ${Math.round(bytes / 1024)} KiB, above the ` +
+      `${HOST_READ_DELIVERY_MAX_BYTES / 1024} KiB that a script can receive. Ask for fewer items.`;
+
+    settle({
+      kind: "output_too_large",
+      call: outcome.call,
+      message,
+      evidence: undefined,
+      contentHash: null,
+    });
+    throw new RunError(`${binding.path}: ${message}`, "output_too_large");
+  }
+
+  settle({
+    kind: isJsonObject(outcome.value) && outcome.value.ok === false ? "tool_error" : "executed",
+    call: outcome.call,
+    message: undefined,
+    evidence: outcome.evidence,
+    contentHash: sha256Canonical(outcome.value),
+  });
 
   return outcome.value;
 }
@@ -221,7 +284,7 @@ async function callHost(
 function failureFromRunError(
   error: RunError,
   limits: RunLimits,
-  ledger: readonly ReadProgramLedgerEntry[],
+  ledger: readonly HostCallEntry[],
   runId: string,
 ): ReadProgramOutcome {
   // `run` mints only `RUN_*` codes. Any other code is a refused read that the script did not
@@ -311,15 +374,21 @@ function bridgeLimitMessage(error: RunError, limits: RunLimits): string {
 function failure(
   status: ReadProgramFailure,
   message: string,
-  ledger: readonly ReadProgramLedgerEntry[],
+  ledger: readonly HostCallEntry[],
 ): ReadProgramOutcome {
-  return { status, message, ledger };
+  // A guest error message has no length limit of its own (ADR-0124: the result budget).
+  return {
+    status,
+    message: sanitizeErrorMessage(message, SCRIPT_FAILURE_MESSAGE_MAX_CHARS),
+    ledger,
+  };
 }
 
 /** The last refused read, so an uncaught failure names its cause. */
-function lastRefusal(ledger: readonly ReadProgramLedgerEntry[]): string {
+function lastRefusal(ledger: readonly HostCallEntry[]): string {
   const refused = ledger.findLast(
-    (entry) => entry.kind !== "executed" && entry.kind !== "tool_error",
+    (entry) =>
+      entry.kind !== "executed" && entry.kind !== "tool_error" && entry.kind !== "unfinished",
   );
 
   return refused ? ` (${refused.path} #${refused.index}: ${refused.kind})` : "";

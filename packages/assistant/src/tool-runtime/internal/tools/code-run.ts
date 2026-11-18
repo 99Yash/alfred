@@ -6,67 +6,36 @@
 
 import {
   codeRunInput,
-  getStringPath,
-  isJsonObject,
   type JsonValue,
-  type ToolName,
+  type ReadEvidenceRef,
+  type ScriptSource,
 } from "@alfred/contracts";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import type { HostCallEntry } from "../registry";
 import { readHostBindings } from "../../code-mode/host-bindings";
 import { codeRunDescription } from "../../code-mode/index-text";
 import {
   runReadProgram,
   type ReadProgramFailure,
-  type ReadProgramLedgerEntry,
   type ReadProgramOutcome,
 } from "../../code-mode/run-read-program";
+import { scriptSources } from "../../code-mode/script-sources";
 
 /**
  * What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results.
- * `citations` are the web pages that the script's reads returned, collected on the host side, so
- * the chat sources strip shows them. The guest value cannot add to them or remove them.
+ * `sources` are the web pages that the script's reads returned, taken from the evidence record on
+ * the host side, so the guest value cannot add to them or remove them. They do not depend on the
+ * script's status: a later failure keeps the pages of the reads that succeeded.
  */
-export type CodeRunResult =
-  | { status: "completed"; value: JsonValue; reads: ReadCounts; citations?: ScriptCitation[] }
-  | {
-      status: ReadProgramFailure;
-      message: string;
-      reads: ReadCounts;
-      citations?: ScriptCitation[];
-    };
-
-/** One web page that a host read returned. The shape of a `system.web_search` citation. */
-interface ScriptCitation {
-  url: string;
-  title?: string;
-}
-
-const WEB_SEARCH_TOOL = "system.web_search" satisfies ToolName;
-
-const FETCH_URL_TOOL = "system.fetch_url" satisfies ToolName;
-
-/** The pages of one executed web read: a search's citations, or the page that a fetch read. */
-function citationsOf(toolName: ToolName, value: JsonValue): ScriptCitation[] {
-  if (!isJsonObject(value) || value.ok !== true) return [];
-
-  if (toolName === WEB_SEARCH_TOOL && Array.isArray(value.citations)) {
-    return value.citations.flatMap((citation) => {
-      const url = getStringPath(citation, "url");
-      const title = getStringPath(citation, "title");
-
-      return url ? [title ? { url, title } : { url }] : [];
-    });
-  }
-
-  if (toolName === FETCH_URL_TOOL) {
-    const url = getStringPath(value, "finalUrl") ?? getStringPath(value, "url");
-    const title = getStringPath(value, "title");
-
-    return url ? [title ? { url, title } : { url }] : [];
-  }
-
-  return [];
-}
+export type CodeRunResult = (
+  | { status: "completed"; value: JsonValue }
+  | { status: ReadProgramFailure; message: string }
+) & {
+  reads: ReadCounts;
+  sources?: ScriptSource[];
+  /** Pages left out above the count or byte cap of `sources`. */
+  omittedSources?: number;
+};
 
 interface ReadCounts {
   total: number;
@@ -90,33 +59,33 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
     },
     inputSchema: codeRunInput,
     execute: async (input, ctx): Promise<CodeRunResult> => {
-      const { hostRead } = ctx;
+      const { hostRead, hostCalls } = ctx;
 
-      // Dispatch sets it on every call it runs. A direct `execute` has no gate to nest under.
-      if (!hostRead) throw new Error("[code-mode] system.code_run ran outside dispatch");
+      // Dispatch sets both on every call it runs. A direct `execute` has no gate to nest under,
+      // and no commit to save the record with.
+      if (!hostRead || !hostCalls) {
+        throw new Error("[code-mode] system.code_run ran outside dispatch");
+      }
 
-      const citations: ScriptCitation[] = [];
-
+      // Dispatch saves the ledger with this call's result (ADR-0124 amendment 2026-11-18).
       const outcome = await runReadProgram({
         source: input.source,
-        hosts: readHostBindings({
-          readTools,
-          hostRead: async (request) => {
-            const read = await hostRead(request);
-
-            if (read.kind === "executed")
-              citations.push(...citationsOf(request.toolName, read.value));
-
-            return read;
-          },
-        }),
+        hosts: readHostBindings({ readTools, hostRead }),
+        ledger: hostCalls,
         runId: ctx.runId,
       });
 
-      const result = codeRunResult(outcome);
-
-      return citations.length > 0 ? { ...result, citations } : result;
+      return codeRunResult(outcome);
     },
+    effects: (output) =>
+      output.sources
+        ? {
+            scriptSources: {
+              sources: output.sources,
+              ...(output.omittedSources ? { omitted: output.omittedSources } : {}),
+            },
+          }
+        : {},
     // ADR-0124 instrumentation: script success, and failed reads in scripts that returned.
     spanFacts: (output) => ({
       metadata: {
@@ -130,13 +99,38 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
 
 function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   const reads = readCounts(outcome.ledger);
+  const { sources, omitted: aboveCaps } = scriptSources(webRefsOf(outcome.ledger));
+  // Pages whose reference did not fit its schema (a URL above the cap) are omitted too.
+  const omitted = aboveCaps + omittedPagesOf(outcome.ledger);
 
-  if (outcome.status === "completed") return { status: "completed", value: outcome.value, reads };
+  const pages = {
+    ...(sources.length > 0 ? { sources } : {}),
+    ...(omitted > 0 ? { omittedSources: omitted } : {}),
+  };
 
-  return { status: outcome.status, message: outcome.message, reads };
+  if (outcome.status === "completed") {
+    return { status: "completed", value: outcome.value, reads, ...pages };
+  }
+
+  return { status: outcome.status, message: outcome.message, reads, ...pages };
 }
 
-function readCounts(ledger: readonly ReadProgramLedgerEntry[]): ReadCounts {
+/** The web references of the reads that executed, in request order. */
+function webRefsOf(ledger: readonly HostCallEntry[]): Extract<ReadEvidenceRef, { kind: "web" }>[] {
+  return ledger
+    .filter((entry) => entry.kind === "executed")
+    .toSorted((a, b) => a.index - b.index)
+    .flatMap((entry) => entry.evidence?.refs ?? [])
+    .filter((ref) => ref.kind === "web");
+}
+
+function omittedPagesOf(ledger: readonly HostCallEntry[]): number {
+  return ledger
+    .filter((entry) => entry.kind === "executed")
+    .reduce((sum, entry) => sum + (entry.evidence?.omittedPages ?? 0), 0);
+}
+
+function readCounts(ledger: readonly HostCallEntry[]): ReadCounts {
   return {
     total: ledger.length,
     failed: ledger.filter((entry) => entry.kind !== "executed").length,

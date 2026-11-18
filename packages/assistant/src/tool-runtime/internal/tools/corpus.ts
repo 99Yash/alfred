@@ -2,6 +2,7 @@ import { corpusSearchInput } from "@alfred/contracts";
 import type { Corpus } from "@alfred/corpus";
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { liveTool } from "@alfred/assistant/tool-runtime";
+import { itemEvidence } from "../../item-evidence";
 
 /** `system.corpus_search` result. Named so the Code Mode index reads its type (ADR-0124). */
 export interface CorpusSearchToolResult {
@@ -31,5 +32,13 @@ export const corpusTools: readonly RegisteredTool[] = [
 
       return { ok: true, query: input.query, hits };
     },
+    // The evidence record (ADR-0124): each hit is a passage of one document, not its body.
+    readEvidence: (output) =>
+      itemEvidence(
+        output.hits.map((hit) => ({
+          ref: { kind: "record", store: "document", id: hit.documentId, depth: "hit" },
+          item: hit,
+        })),
+      ),
   }),
 ];

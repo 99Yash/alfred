@@ -6,7 +6,9 @@ import {
   contactsListInput,
   contactsSearchInput,
   type ContactSource,
+  type ReadEvidenceRefDraft,
 } from "@alfred/contracts";
+import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import {
   AppError,
   publicAppError,
@@ -88,6 +90,7 @@ export const contactsTools: readonly RegisteredTool[] = [
 
       return { contacts, ...(failures.length > 0 ? { failures } : {}) };
     },
+    readEvidence: (output) => itemEvidence(output.contacts.map((c) => contactItem(c, "hit"))),
   }),
   liveTool({
     integration: "contacts",
@@ -108,6 +111,17 @@ export const contactsTools: readonly RegisteredTool[] = [
         pageToken: input.pageToken,
       });
     },
+    readEvidence: (output) =>
+      itemEvidence(
+        output.contacts.map((c) => contactItem(c, "hit")),
+        output.nextPageToken
+          ? {
+              morePages: true,
+              returned: output.contacts.length,
+              ...(output.total === undefined ? {} : { total: output.total }),
+            }
+          : undefined,
+      ),
   }),
   liveTool({
     integration: "contacts",
@@ -126,5 +140,21 @@ export const contactsTools: readonly RegisteredTool[] = [
         resourceName: input.resourceName,
       });
     },
+    readEvidence: (output) => itemEvidence([contactItem(output, "body")]),
   }),
 ];
+
+/** A Google contact in the evidence record (ADR-0124). A search or a list gives a summary. */
+function contactItem(
+  contact: { resourceName: string },
+  depth: ReadEvidenceRefDraft["depth"],
+): DeliveredItem {
+  return {
+    ref: {
+      kind: "object",
+      object: { provider: "google", kind: "contact", externalId: contact.resourceName },
+      depth,
+    },
+    item: contact,
+  };
+}

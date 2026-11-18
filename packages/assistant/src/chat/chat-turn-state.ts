@@ -3,6 +3,7 @@ import { ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
   chatConnectNudgeSchema,
+  scriptSourcesSchema,
   chatModelTierSchema,
   ianaTimezoneSchema,
   type ToolReadPath,
@@ -51,6 +52,8 @@ const toolCallLogSchema = z.object({
   // Connection-health rejection only (#378). `.catch`: a slug this build does not
   // know reads as no nudge instead of failing the whole state parse.
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
+  // The web pages of a `code_run` script (ADR-0124). The preview prunes them, so they ride apart.
+  scriptSources: scriptSourcesSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),
 } satisfies Record<keyof ChatMessageToolCall | "nonExecution" | "verifiedRead", z.ZodType>);
 

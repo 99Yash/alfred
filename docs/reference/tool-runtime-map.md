@@ -49,6 +49,15 @@ calls the tool depends on the read path that the chat run pinned at its start
 
 The pin rules the run. A flag change applies only to the next chat run.
 
+Each script keeps an evidence record (ADR-0124 amendment 2026-11-18): one
+`code_run_host_calls` row for each host call, linked to the `system.code_run`
+staging row and to the nested staging row. Dispatch owns the host-call ledger and
+writes it in the transaction of the guarded parent commit, so the tool module has no
+database import. Each script read declares `readEvidence`: a reference and a hash
+for each delivered item (`itemEvidence`), and the coverage. A replay keeps the
+references of its saved result. The sources strip reads `scriptSources`, a field
+outside the pruned preview.
+
 Google follows the same rule (ADR-0126, amended 2026-11-15: Alfred makes Gmail drafts
 only). The six Google Workspace MCP servers are the Google tool surface, and their rows
 borrow the Google credential's token. Three REST tools stay, because no server covers

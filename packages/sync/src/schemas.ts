@@ -33,6 +33,7 @@ import {
   triageCategorySchema,
   workflowBlockedSchema,
   chatConnectNudgeSchema,
+  scriptSourcesSchema,
   type IntegrationRule,
   type IntegrationRules,
   type MemorySource,
@@ -311,6 +312,11 @@ export const syncedChatToolCallSchema = z.object({
    * `null` means an unreadable nudge. The `catch` stops it from dropping the whole message.
    */
   connectNudge: chatConnectNudgeSchema.nullable().optional().catch(null),
+  /**
+   * The web pages of a `system.code_run` script (ADR-0124). The preview prunes them, so they ride
+   * apart. The `catch` stops a bad value from dropping the whole message.
+   */
+  scriptSources: scriptSourcesSchema.optional().catch(undefined),
 });
 
 export type SyncedChatToolCall = z.infer<typeof syncedChatToolCallSchema>;

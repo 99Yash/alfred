@@ -30,13 +30,15 @@ import {
   chatThreads,
   type ActionStaging,
   type NewActionStaging,
+  codeRunHostCalls,
+  type NewCodeRunHostCall,
 } from "@alfred/db/schemas";
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import { dispatchLease, type DispatchStepLease } from "@alfred/assistant/tool-runtime";
 
-import type { ToolEffects } from "../registry";
+import type { HostCallEntry, ToolEffects } from "../registry";
 
 /** The columns the gate reads. A column absent here is one it cannot branch on. */
 export type StagingRow = Pick<
@@ -165,7 +167,17 @@ export type InterruptedRestageResult =
  * confirmation. `refused`: the gate did not call the provider for this decision. A row with
  * `dispatch_claimed_at` set may still have reached it in an earlier, interrupted attempt.
  */
-export type StagingCommit =
+/**
+ * The host calls of a `system.code_run` call (ADR-0124 amendment 2026-11-18). The commit writes
+ * them in its own transaction, only when it wins, so the record belongs to the saved result.
+ */
+export interface HostCallRecord {
+  userId: string;
+  runId: string;
+  entries: readonly HostCallEntry[];
+}
+
+export type StagingCommit = (
   | { status: "failed"; outcome: "failed" | "refused"; error: PublicAppError; executedAt: Date }
   | {
       status: "executed";
@@ -176,7 +188,8 @@ export type StagingCommit =
       /** Written with `result`, so a replay returns the effects of the live call. */
       effects: ToolEffects;
       executedAt: Date;
-    };
+    }
+) & { hostCalls?: HostCallRecord | undefined };
 
 export interface StagingStore {
   /** Match the first proposal or its edit. A claimed expiry also suppresses an identical retry. */
@@ -627,38 +640,84 @@ export const postgresStagingStore: StagingStore = {
   },
 
   async commitStaging(stagingId, expected, commit) {
-    const [updated] = await db()
-      .update(actionStagings)
-      .set({
-        ...commitColumns(commit),
-        rowVersion: sql`${actionStagings.rowVersion} + 1`,
-      })
-      .where(
-        and(
-          eq(actionStagings.id, stagingId),
-          expected.dispatchClaimedAt === null
-            ? isNull(actionStagings.dispatchClaimedAt)
-            : eq(actionStagings.dispatchClaimedAt, expected.dispatchClaimedAt),
-          or(
-            and(
-              eq(actionStagings.status, expected.status),
-              eq(actionStagings.outcome, expected.outcome),
-            ),
-            and(
-              eq(actionStagings.status, commit.status),
-              eq(actionStagings.outcome, commit.outcome),
-              commit.status === "executed"
-                ? isNull(actionStagings.executeResult)
-                : isNull(actionStagings.executeError),
-            ),
-          ),
-        ),
-      )
-      .returning({ id: actionStagings.id });
+    const { hostCalls } = commit;
 
-    return Boolean(updated);
+    if (!hostCalls || hostCalls.entries.length === 0) {
+      return commitStagingRow(db(), stagingId, expected, commit);
+    }
+
+    // The record and the result land together, or neither does.
+    return db().transaction(async (tx) => {
+      if (!(await commitStagingRow(tx, stagingId, expected, commit))) return false;
+
+      await tx.insert(codeRunHostCalls).values(hostCallRows(stagingId, hostCalls));
+
+      return true;
+    });
   },
 };
+
+/** The guarded update of a commit. True when this attempt's commit won. */
+async function commitStagingRow(
+  executor: Pick<DbTransaction, "update">,
+  stagingId: string,
+  expected: Pick<StagingRow, "status" | "outcome" | "dispatchClaimedAt">,
+  commit: StagingCommit,
+): Promise<boolean> {
+  const [updated] = await executor
+    .update(actionStagings)
+    .set({
+      ...commitColumns(commit),
+      rowVersion: sql`${actionStagings.rowVersion} + 1`,
+    })
+    .where(
+      and(
+        eq(actionStagings.id, stagingId),
+        expected.dispatchClaimedAt === null
+          ? isNull(actionStagings.dispatchClaimedAt)
+          : eq(actionStagings.dispatchClaimedAt, expected.dispatchClaimedAt),
+        or(
+          and(
+            eq(actionStagings.status, expected.status),
+            eq(actionStagings.outcome, expected.outcome),
+          ),
+          and(
+            eq(actionStagings.status, commit.status),
+            eq(actionStagings.outcome, commit.outcome),
+            commit.status === "executed"
+              ? isNull(actionStagings.executeResult)
+              : isNull(actionStagings.executeError),
+          ),
+        ),
+      ),
+    )
+    .returning({ id: actionStagings.id });
+
+  return Boolean(updated);
+}
+
+function hostCallRows(parentStagingId: string, record: HostCallRecord): NewCodeRunHostCall[] {
+  return record.entries.map(
+    (entry): NewCodeRunHostCall => ({
+      userId: record.userId,
+      runId: record.runId,
+      parentStagingId,
+      requestIndex: entry.index,
+      path: entry.path,
+      toolName: entry.call?.toolName ?? null,
+      callId: entry.call?.callId ?? null,
+      arguments: entry.call?.input ?? null,
+      nestedStagingId: entry.call?.stagingId ?? null,
+      outcome: entry.kind,
+      refusalMessage: entry.message ?? null,
+      evidence: entry.evidence?.refs ?? [],
+      omittedEvidence: entry.evidence?.omittedRefs ?? 0,
+      contentHash: entry.contentHash,
+      coverage: entry.evidence?.coverage ?? null,
+      durationMs: entry.ms,
+    }),
+  );
+}
 
 let activeStagingStore: StagingStore = postgresStagingStore;
 
