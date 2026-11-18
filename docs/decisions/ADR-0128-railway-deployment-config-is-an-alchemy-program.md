@@ -1,6 +1,6 @@
 # ADR-0128 — The Railway deployment config is an Alchemy program (ACCEPTED — 2026-11-18)
 
-**Status.** Accepted, staged. Amends [ADR-0007](./ADR-0007-hosting-railway.md) (hosting stays Railway), relates to [ADR-0114](./ADR-0114-effect-runs-the-mcp-connection-lifecycle-and-nothing-else.md) (the Effect-island rule), and leaves [ADR-0108](./ADR-0108-infrastructure-cost-is-a-memory-shape-problem-not-a-platform-problem.md) untouched.
+**Status.** Accepted, staged. Amends [ADR-0007](./ADR-0007-hosting-railway.md) (hosting stays Railway), relates to [ADR-0114](./ADR-0114-effect-runs-the-mcp-connection-lifecycle-and-nothing-else.md) and [ADR-0129](./ADR-0129-effect-is-an-allowed-dependency-and-the-migration-is-gradual.md) (Effect adoption), and leaves [ADR-0108](./ADR-0108-infrastructure-cost-is-a-memory-shape-problem-not-a-platform-problem.md) untouched.
 
 **Problem.** The deployment topology — server, web, Railway-managed Postgres with pgvector, Redis, private networking — exists only in the Railway dashboard plus an implicit Nixpacks build. The repo states none of it, nothing checks it, and ADR-0007's one-dashboard ergonomics have a cost the record never priced: the topology is memory, and memory is exactly what a platform switch burns. The owner's stated hedge — "if Railway is down, we might switch" — is not served by anything that exists today; leaving Railway would be a manual rebuild from recollection.
 
@@ -8,10 +8,10 @@
 
 **Evidence.** Full probe round-trip on 2026-11-18 against a scratch project (measured numbers and every friction in [`docs/research/alchemy-railway-probe.md`](../research/alchemy-railway-probe.md); working probe in `references/scratch/alchemy-railway-probe/`): plan of 6 resources + 3 bindings in ~0.9 s; deploy in 2m02s with the service shipped as an uploaded build context (no Docker daemon, no git); live `/health`, Redis write+read, volume persistence, and a private Postgres URI that Alchemy itself secret-redacts; a second deploy proving **`Plan: no changes` in 7 ms**; and a destroy that removed 6/6 resources in 22.7 s with nothing left in the workspace. The type checker caught three real API mismatches in the docs' own example before anything deployed — the compiler carries the proof, which is the house style for gates.
 
-## D1 — The infra program is an island, outside app code
+## D1 — The infra program is its own program, outside app code
 
-- One program (`alchemy.run.ts` + resource modules, e.g. under `infra/`) declares the topology. It may import `effect` — Alchemy v2 is Effect-native and its resources are typed through it. The app (`apps/server`, Elysia) never imports `effect`.
-- This applies the ADR-0114 pattern one level up: a second Effect island whose public interface is a CLI, not app types. A third island still needs its own ADR with its own evidence.
+- One program (`alchemy.run.ts` + resource modules, e.g. under `infra/`) declares the topology. It imports `effect` — Alchemy v2 is Effect-native and its resources are typed through it.
+- This is the first Effect use outside the ADR-0114 island. ADR-0129 (2026-11-18) opens Effect adoption generally at a gradual pace, so no adoption ADR was needed; the program follows the same per-module discipline — its public interface is a CLI, not app types.
 - The program carries no business logic. Infrastructure binds to the app through environment variables only. If a resource seems to need app wiring inside the infra program, that is a smell to raise, not a capability to extend.
 
 ## D2 — The deploy trigger changes, and the memory ingest must follow (gating criterion)
