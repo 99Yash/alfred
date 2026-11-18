@@ -21,7 +21,7 @@ import {
   routeEffort,
   type ModelRouteHandle,
 } from "@alfred/ai";
-import { _setRouteOverrideForTests, probeOpenAiLeg } from "@alfred/ai/test-support";
+import { _setRouteOverrideForTests, openAiLeg } from "@alfred/ai/test-support";
 import { serverEnv } from "@alfred/env/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { config as loadEnv } from "dotenv";
@@ -115,8 +115,8 @@ const PAIRED_MODELS = {
   luna: null,
   // The chat route's own reasoning level.
   haiku: () => probeRoute(anthropicLeg("claude-haiku-5-5"), routeEffort("standard")),
-  // Not in the SDK's known OpenAI ids yet (2026-11-17), so it takes the probe leg.
-  sol62: () => probeRoute(probeOpenAiLeg("gpt-6.2-sol"), "medium"),
+  // `gpt-6.2-sol` gets a 401 from the gateway (2026-11-18), so the eval uses 6.1 at the same price.
+  sol61: () => probeRoute(openAiLeg("gpt-6.1-sol"), "medium"),
 } as const satisfies Record<string, (() => ModelRouteHandle) | null>;
 
 type PairedModel = keyof typeof PAIRED_MODELS;

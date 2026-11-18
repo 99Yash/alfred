@@ -4,4 +4,4 @@
  */
 export { _setRouteOverrideForTests } from "./provider";
 
-export { probeOpenAiLeg } from "./provider-adapter";
+export { openAiLeg } from "./provider-adapter";

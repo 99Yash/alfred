@@ -63,7 +63,7 @@ it.
   verdict of the owner's rule to `references/scratch/code-mode-paired/`. Deterministic only.
   `CODE_MODE_PAIRED_MODEL` sets the chat model for the whole run: `luna` (the default, the
   product route), `haiku` (`claude-haiku-5-5` at the chat route's reasoning level), or
-  `sol62` (`gpt-6.2-sol` at reasoning `medium`). The report names the model in its title
+  `sol61` (`gpt-6.1-sol` at reasoning `medium`; the gateway refuses `gpt-6.2-sol`). The report names the model in its title
   and in its file name. Each run records its total cost in USD and its largest call input.
   Tokenizers differ, so compare two models by cost, not by tokens. The verdict always
   compares the two read modes on one model.

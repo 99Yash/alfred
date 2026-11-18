@@ -295,19 +295,6 @@ const nonStrictToolsMiddleware: LanguageModelV4Middleware = {
  * so replaying a reasoning item by `rs_…` id returns 400.
  */
 export function openAiLeg(modelId: OpenAiModelId): RouteLeg {
-  return buildOpenAiLeg(modelId);
-}
-
-/**
- * An OpenAI leg for a model id that the SDK does not list yet, for probes and evals only.
- * A production route uses `openAiLeg`, so a typo in a route id still fails to compile.
- * Same gateway and same wrapping as `openAiLeg`, `store: false` included.
- */
-export function probeOpenAiLeg(modelId: string): RouteLeg {
-  return buildOpenAiLeg(modelId);
-}
-
-function buildOpenAiLeg(modelId: string): RouteLeg {
   const leg = adaptProviderModel("openai", activeGateway().createOpenAI().responses(modelId));
 
   const model = wrapLanguageModel({
