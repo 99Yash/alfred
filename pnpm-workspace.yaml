@@ -141,3 +141,6 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider@4.0.37"
   - ai@7.0.165
   - zod@4.6.5
+
+patchedDependencies:
+  "@alchemy.run/railway": patches/@alchemy.run__railway.patch

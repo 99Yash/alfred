@@ -1,0 +1,11 @@
+# Serves the built SPA on Railway's injected `PORT`, with SPA fallback so
+# TanStack Router's deep links resolve.
+:{$PORT}
+
+root * /srv
+
+encode zstd gzip
+
+try_files {path} /index.html
+
+file_server

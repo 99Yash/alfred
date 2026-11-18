@@ -1,0 +1,207 @@
+diff --git a/lib/local-context.js b/lib/local-context.js
+index 24403a5bd306abf1f277c5cbd59942e227101db3..751e9d485de11519628ab8dae910d9d6fab7641d 100644
+--- a/lib/local-context.js
++++ b/lib/local-context.js
+@@ -1,4 +1,5 @@
+ import { hashDockerBuildInputs, selectDockerBuildContext } from "@alchemy.run/docker/BuildHash";
++import { listFileSystemDirectory, noIgnoreRules, parseIgnoreRules, walkIgnoring } from "alchemy/Util/Ignore";
+ import { initialCwd } from "alchemy/Util/Node";
+ import { sha256Object } from "alchemy/Util/sha256";
+ import { tarGzipDirectory } from "alchemy/Util/tarGzip";
+@@ -163,23 +164,48 @@ const checkContextLimit = (size, entries) => size > MAX_CONTEXT_BYTES || entries
+         size,
+     }))
+     : Effect.void;
++const dockerIgnorePath = (fs, path, context, dockerfilePath) => Effect.gen(function* () {
++    for (const candidate of [`${dockerfilePath}.dockerignore`, ".dockerignore"]) {
++        if (yield* fs.exists(path.resolve(context, candidate)))
++            return candidate;
++    }
++    return undefined;
++});
++const dockerIgnoreRules = (fs, path, context, dockerfilePath) => Effect.gen(function* () {
++    const ignorePath = yield* dockerIgnorePath(fs, path, context, dockerfilePath);
++    if (ignorePath === undefined)
++        return noIgnoreRules("dockerignore");
++    const content = yield* fs.readFileString(path.resolve(context, ignorePath));
++    return parseIgnoreRules(content, "dockerignore");
++});
+ const selectedEntries = Effect.fn(function* (selected) {
+     const fs = yield* FileSystem.FileSystem;
+     const path = yield* Path.Path;
+     const entries = [];
+     let size = 2 * TAR_BLOCK_BYTES;
+     let entryCount = 0;
+-    for (const entry of (yield* fs.readDirectory(selected.context, {
+-        recursive: true,
+-    })).sort()) {
+-        const relative = entry.replaceAll("\\", "/");
++    // PATCH(alchemy#context-walk): `readDirectory(recursive)` follows symlinked
++    // directories and prunes nothing, so a pnpm workspace's cyclic
++    // `node_modules` symlinks OOM the walk before any `.dockerignore` filter
++    // runs. Use alchemy's own pruning walker (the one `@alchemy.run/docker`
++    // hashing already uses): it never follows symlinked directories and never
++    // descends into ignored ones.
++    const list = yield* listFileSystemDirectory(selected.context);
++    const ignorePath = yield* dockerIgnorePath(fs, path, selected.context, selected.dockerfilePath);
++    const walked = yield* walkIgnoring({
++        list,
++        rules: yield* dockerIgnoreRules(fs, path, selected.context, selected.dockerfilePath),
++        force: ignorePath === undefined ? [selected.dockerfilePath] : [selected.dockerfilePath, ignorePath],
++    });
++    for (const walkedEntry of walked) {
++        const relative = walkedEntry.path;
+         if (!selected.includes(relative))
+             continue;
+-        const sourcePath = path.join(selected.context, entry);
++        const sourcePath = path.join(selected.context, relative);
+         if (/[^\x20-\x7e]/.test(relative)) {
+             return yield* new ServiceContextPathUnsupported({ path: sourcePath });
+         }
+-        if (Result.isSuccess(yield* Effect.result(fs.readLink(sourcePath)))) {
++        if (walkedEntry.type === "SymbolicLink") {
+             return yield* new ServiceContextSymlinkUnsupported({ path: sourcePath });
+         }
+         const info = yield* fs.stat(sourcePath);
+@@ -189,7 +215,7 @@ const selectedEntries = Effect.fn(function* (selected) {
+         size += tarEntryBytes(relative, info.type, Number(info.size));
+         yield* checkContextLimit(size, entryCount);
+         entries.push({
+-            entry,
++            entry: relative,
+             sourcePath,
+             type: info.type,
+             mode: info.mode & 0o7777,
+@@ -210,7 +236,7 @@ const codeHash = Effect.fn(function* (input) {
+ });
+ export const hashRailwayLocalContext = Effect.fn(function* (source) {
+     const { build, selected } = yield* resolveBuild(source);
+-    yield* selectedEntries(selected);
++    yield* selectedEntries({ ...selected, dockerfilePath: selected.dockerfilePath });
+     return yield* codeHash({
+         context: build.context,
+         dockerfilePath: selected.dockerfilePath,
+@@ -223,7 +249,7 @@ export const prepareRailwayLocalContext = Effect.fn(function* (source) {
+     const snapshot = yield* fs.makeTempDirectoryScoped({
+         prefix: "alchemy-railway-context-",
+     });
+-    const entries = yield* selectedEntries(selected);
++    const entries = yield* selectedEntries({ ...selected, dockerfilePath: selected.dockerfilePath });
+     let copiedSize = 2 * TAR_BLOCK_BYTES;
+     let copiedEntries = 0;
+     for (const entry of entries) {
+diff --git a/src/local-context.ts b/src/local-context.ts
+index 3e6a6d640a3d4f1b66841602516e12c141b9a0e3..91ac094d974721004d93504a7590b1a92cc0ad9d 100644
+--- a/src/local-context.ts
++++ b/src/local-context.ts
+@@ -1,4 +1,10 @@
+ import { hashDockerBuildInputs, selectDockerBuildContext } from "@alchemy.run/docker/BuildHash";
++import {
++  listFileSystemDirectory,
++  noIgnoreRules,
++  parseIgnoreRules,
++  walkIgnoring,
++} from "alchemy/Util/Ignore";
+ import { initialCwd } from "alchemy/Util/Node";
+ import { sha256Object } from "alchemy/Util/sha256";
+ import { tarGzipDirectory } from "alchemy/Util/tarGzip";
+@@ -214,8 +220,38 @@ const checkContextLimit = (size: number, entries: number) =>
+       )
+     : Effect.void;
+ 
++/**
++ * PATCH(alchemy#context-walk) helpers: mirror `@alchemy.run/docker`'s
++ * `resolveDockerIgnore` precedence — a `Dockerfile.dockerignore` beside the
++ * Dockerfile, then a `.dockerignore` at the context root.
++ */
++const dockerIgnorePath = Effect.fn(function* (
++  fs: FileSystem.FileSystem,
++  path: Path.Path,
++  context: string,
++  dockerfilePath: string,
++) {
++  for (const candidate of [`${dockerfilePath}.dockerignore`, ".dockerignore"]) {
++    if (yield* fs.exists(path.resolve(context, candidate))) return candidate;
++  }
++  return undefined;
++});
++
++const dockerIgnoreRules = Effect.fn(function* (
++  fs: FileSystem.FileSystem,
++  path: Path.Path,
++  context: string,
++  dockerfilePath: string,
++) {
++  const ignorePath = yield* dockerIgnorePath(fs, path, context, dockerfilePath);
++  if (ignorePath === undefined) return noIgnoreRules("dockerignore");
++  const content = yield* fs.readFileString(path.resolve(context, ignorePath));
++  return parseIgnoreRules(content, "dockerignore");
++});
++
+ const selectedEntries = Effect.fn(function* (selected: {
+   context: string;
++  dockerfilePath: string;
+   includes: (relativePath: string) => boolean;
+ }) {
+   const fs = yield* FileSystem.FileSystem;
+@@ -228,16 +264,27 @@ const selectedEntries = Effect.fn(function* (selected: {
+   }> = [];
+   let size = 2 * TAR_BLOCK_BYTES;
+   let entryCount = 0;
+-  for (const entry of (yield* fs.readDirectory(selected.context, {
+-    recursive: true,
+-  })).sort()) {
+-    const relative = entry.replaceAll("\\", "/");
++  // PATCH(alchemy#context-walk): `readDirectory(recursive)` follows symlinked
++  // directories and prunes nothing, so a pnpm workspace's cyclic
++  // `node_modules` symlinks OOM the walk before any `.dockerignore` filter
++  // runs. Use alchemy's own pruning walker (the one `@alchemy.run/docker`
++  // hashing already uses): it never follows symlinked directories and never
++  // descends into ignored ones.
++  const list = yield* listFileSystemDirectory(selected.context);
++  const ignorePath = yield* dockerIgnorePath(fs, path, selected.context, selected.dockerfilePath);
++  const walked = yield* walkIgnoring({
++    list,
++    rules: yield* dockerIgnoreRules(fs, path, selected.context, selected.dockerfilePath),
++    force: ignorePath === undefined ? [selected.dockerfilePath] : [selected.dockerfilePath, ignorePath],
++  });
++  for (const walkedEntry of walked) {
++    const relative = walkedEntry.path;
+     if (!selected.includes(relative)) continue;
+-    const sourcePath = path.join(selected.context, entry);
++    const sourcePath = path.join(selected.context, relative);
+     if (/[^\x20-\x7e]/.test(relative)) {
+       return yield* new ServiceContextPathUnsupported({ path: sourcePath });
+     }
+-    if (Result.isSuccess(yield* Effect.result(fs.readLink(sourcePath)))) {
++    if (walkedEntry.type === "SymbolicLink") {
+       return yield* new ServiceContextSymlinkUnsupported({ path: sourcePath });
+     }
+     const info = yield* fs.stat(sourcePath);
+@@ -246,7 +293,7 @@ const selectedEntries = Effect.fn(function* (selected: {
+     size += tarEntryBytes(relative, info.type, Number(info.size));
+     yield* checkContextLimit(size, entryCount);
+     entries.push({
+-      entry,
++      entry: relative,
+       sourcePath,
+       type: info.type,
+       mode: info.mode & 0o7777,
+@@ -272,7 +319,7 @@ const codeHash = Effect.fn(function* (input: { context: string; dockerfilePath:
+ 
+ export const hashRailwayLocalContext = Effect.fn(function* (source: RailwayLocalContextSource) {
+   const { build, selected } = yield* resolveBuild(source);
+-  yield* selectedEntries(selected);
++  yield* selectedEntries({ ...selected, dockerfilePath: selected.dockerfilePath! });
+   return yield* codeHash({
+     context: build.context,
+     dockerfilePath: selected.dockerfilePath!,
+@@ -286,7 +333,7 @@ export const prepareRailwayLocalContext = Effect.fn(function* (source: RailwayLo
+   const snapshot = yield* fs.makeTempDirectoryScoped({
+     prefix: "alchemy-railway-context-",
+   });
+-  const entries = yield* selectedEntries(selected);
++  const entries = yield* selectedEntries({ ...selected, dockerfilePath: selected.dockerfilePath! });
+   let copiedSize = 2 * TAR_BLOCK_BYTES;
+   let copiedEntries = 0;
+   for (const entry of entries) {

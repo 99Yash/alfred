@@ -1,0 +1,66 @@
+# The production deploy (ADR-0128). The Railway services take an uploaded
+# build context, not a GitHub source, so `alchemy deploy` is the only
+# redeploy path: one run per push to main.
+#
+# Runners hold no local state, so the job runs the `adopt` script
+# (`alchemy deploy --stage live --adopt --yes`): the apply-time ownership
+# probe finds the existing services by id and updates them in place, never
+# duplicating. The databases are lookup references — read-only, never
+# created — and the `VerifyDatabases` action fails the deploy loud if one is
+# missing.
+#
+# Auth: the CLI reads environment credentials whenever the provider's
+# declared contract is fully present (RAILWAY_API_TOKEN), so no profile
+# setup is needed. The token is a workspace token; a project token cannot
+# reach workspace-wide operations.
+#
+# The commit attribution is `GITHUB_SHA` (set on push events), which the
+# program writes into the server environment as `ALFRED_DEPLOYED_COMMIT_SHA`
+# for the Sentry release chain and the memory producer (ADR-0128 D2).
+name: deploy-production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        run: echo "PNPM_STORE_PATH=$(corepack pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-store-
+
+      # The infra program needs only its own deps; the filtered install skips
+      # the app workspace's dev tooling.
+      - name: Install infra dependencies
+        run: corepack pnpm install --frozen-lockfile --filter @alfred/infra...
+
+      - name: Deploy (adopt in place — runner state is always empty)
+        run: corepack pnpm --filter @alfred/infra adopt
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}

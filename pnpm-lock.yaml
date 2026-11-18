@@ -147,6 +147,9 @@ overrides:
   '@types/pg': ^8.23.1
   exact-mirror: 1.0.0
 
+patchedDependencies:
+  '@alchemy.run/railway': df59dad9d33558d6deaae967acdfee52d26c379b71409e16a26b8fda753f5646
+
 importers:
 
   .:
@@ -479,7 +482,7 @@ importers:
     dependencies:
       '@alchemy.run/railway':
         specifier: 'catalog:'
-        version: 2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)
+        version: 2.0.0-beta.87(patch_hash=df59dad9d33558d6deaae967acdfee52d26c379b71409e16a26b8fda753f5646)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)
       '@effect/platform-bun':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)
@@ -8093,7 +8096,7 @@ snapshots:
       chokidar: 5.0.0
       rolldown: 1.2.16
 
-  '@alchemy.run/railway@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)':
+  '@alchemy.run/railway@2.0.0-beta.87(patch_hash=df59dad9d33558d6deaae967acdfee52d26c379b71409e16a26b8fda753f5646)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)':
     dependencies:
       '@alchemy.run/docker': 2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)
       '@alchemy.run/redis': 2.0.0-beta.87(effect@4.1.4)
