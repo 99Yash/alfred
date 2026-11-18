@@ -6,8 +6,8 @@ import {
   getStringPath,
   isRecord,
   type JsonValue,
-  type McpCallInput,
-  mcpCallInput,
+  type McpCallModelInput,
+  mcpCallModelInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
   parseIanaTimezone,
@@ -56,8 +56,6 @@ const MCP_CALL_TOOL = "mcp.call";
 // GitHub is a read-only MCP built-in (ADR-0094, ADR-0125). The model finds its tools in the
 // catalog and calls them through mcp.call, so the eval names the remote tools.
 const GITHUB_CONNECTION = { id: "mcp_conn_github", instanceKey: "github", label: "GitHub" };
-
-const GITHUB_CATALOG_REVISION = "rev_github_eval";
 
 const GITHUB_SEARCH_REMOTE = "search_pull_requests";
 
@@ -111,8 +109,6 @@ const CALENDAR_CONNECTION = {
   label: "Google Calendar",
 };
 
-const GOOGLE_CATALOG_REVISION = "rev_google_eval";
-
 const GMAIL_SEARCH_REMOTE = "search_threads";
 
 const GMAIL_READ_THREAD_REMOTE = "get_thread";
@@ -139,16 +135,15 @@ const GITHUB_INVESTIGATION_TOOLS = new Set<string>([
 const DISCOVERY_TOOLS = new Set<string>([READ_CONTEXT_TOOL, MCP_LIST_TOOLS_TOOL, MCP_INSPECT_TOOL]);
 
 /**
- * Why production would refuse this call, or `null` when it would send it: the connection and
- * revision from the catalog ref, and arguments that pass the captured schema of the remote tool.
+ * Why production would refuse this call, or `null` when it would send it: the connection from the
+ * catalog ref, and arguments that pass the captured schema of the remote tool.
  */
 function githubCallRejection(input: unknown, remoteName: string): string | null {
   if (
     getStringPath(input, "remoteName") !== remoteName ||
-    getStringPath(input, "connectionId") !== GITHUB_CONNECTION.id ||
-    getStringPath(input, "catalogRevision") !== GITHUB_CATALOG_REVISION
+    getStringPath(input, "connectionId") !== GITHUB_CONNECTION.id
   ) {
-    return "The ref does not match the catalog. Use the exact ref from mcp.list_tools.";
+    return "The ref does not match the catalog. Use the ref from mcp.list_tools.";
   }
 
   const validate = GITHUB_ARGUMENT_VALIDATORS.get(remoteName);
@@ -188,7 +183,6 @@ function googleMcpHit(connection: McpConnection, remoteName: string, description
       kind: "mcp",
       connectionId: connection.id,
       remoteName,
-      catalogRevision: GOOGLE_CATALOG_REVISION,
     },
     namespace: connection.instanceKey,
     connection,
@@ -240,7 +234,7 @@ const MCP_LIST_TOOLS_DESCRIPTION =
   "Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. Scope with `namespace` or `connectionId`.";
 
 const MCP_CALL_DESCRIPTION =
-  "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
+  "Invoke a tool on a connected MCP server. Supply the `connectionId` and `remoteName` of the ref returned by mcp.list_tools, plus `arguments` matching the tool schema.";
 
 function mcpServerLine(connection: McpConnection, toolCount: number): string {
   return `- ${JSON.stringify(connection.label)} MCP server (connectionId ${connection.id}) — ${toolCount} tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`;
@@ -411,7 +405,7 @@ function toolSurface(): Record<string, Tool> {
     // No `execute`: the run stops at the remote call, and the scorer reads its target.
     [MCP_CALL_TOOL]: tool({
       description: MCP_CALL_DESCRIPTION,
-      inputSchema: mcpCallInput,
+      inputSchema: mcpCallModelInput,
     }),
   };
 
@@ -522,7 +516,7 @@ function thinGmailMcpResult(remoteName: string) {
     };
   }
 
-  return { error: `Unknown tool ${remoteName} in catalog ${GOOGLE_CATALOG_REVISION}.` };
+  return { error: `Unknown tool ${remoteName} in the catalog.` };
 }
 
 async function runThinPersonResearchReplay(
@@ -563,7 +557,7 @@ async function runThinPersonResearchReplay(
       }),
       [MCP_CALL_TOOL]: tool({
         description: MCP_CALL_DESCRIPTION,
-        inputSchema: mcpCallInput,
+        inputSchema: mcpCallModelInput,
         execute: async ({ remoteName }) => thinGmailMcpResult(remoteName),
       }),
       [WEB_SEARCH_TOOL]: tool({
@@ -862,7 +856,6 @@ function githubRef(remoteName: string) {
     kind: "mcp" as const,
     connectionId: GITHUB_CONNECTION.id,
     remoteName,
-    catalogRevision: GITHUB_CATALOG_REVISION,
   };
 }
 
@@ -920,7 +913,7 @@ const PULL_REQUEST_READ_PAYLOADS = new Map<string, JsonValue>([
  * The production path for an `mcp.call` to the GitHub MCP: a refused ref or invalid arguments
  * never reach GitHub, and a valid call returns only the record that it names.
  */
-function githubMcpResult(input: McpCallInput) {
+function githubMcpResult(input: McpCallModelInput) {
   const { remoteName } = input;
   const rejection = githubCallRejection(input, remoteName);
 
@@ -1041,11 +1034,10 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
       }),
       [MCP_INSPECT_TOOL]: tool({
         description:
-          "Inspect one connected MCP tool by the exact ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
+          "Inspect one connected MCP tool by the ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
         inputSchema: mcpToolInspectInputSchema,
         execute: async ({ ref }) =>
           ref.connectionId === GITHUB_CONNECTION.id &&
-          ref.catalogRevision === GITHUB_CATALOG_REVISION &&
           GITHUB_DESCRIPTORS.some((d) => d.name === ref.remoteName)
             ? {
                 status: "tool",
@@ -1057,7 +1049,7 @@ async function runSubAgentInvestigation(brief: string): Promise<TaskOutput> {
       }),
       [MCP_CALL_TOOL]: tool({
         description: MCP_CALL_DESCRIPTION,
-        inputSchema: mcpCallInput,
+        inputSchema: mcpCallModelInput,
         execute: async (input) => githubMcpResult(input),
       }),
       [READ_CONTEXT_TOOL]: tool({

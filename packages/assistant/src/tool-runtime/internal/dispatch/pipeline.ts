@@ -338,6 +338,11 @@ interface ResolvedDispatch {
   workflowCapabilities: NonNullable<ToolCallDispatchArgs["requiredCapabilities"]>;
   /** Return `deferred` instead of a write that would stage a card. Only the round sets it. */
   deferIfGated: boolean;
+  /**
+   * `args.input` is the saved input of an approved staging row, not the caller's input. Its
+   * server fields are already bound, so `bindServerFields` does not run again.
+   */
+  savedInput?: true;
 }
 
 interface ValidatedDispatch extends ResolvedDispatch {
@@ -623,6 +628,8 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
 
       return continueWith({
         ...resolved,
+        // The question tool keeps the model's input; every other tool runs the saved one.
+        ...(tool.staging === "question" ? {} : { savedInput: true as const }),
         args: {
           ...args,
           // The question's model input excludes answers; its approved row supplies them later.
@@ -868,6 +875,28 @@ function directCallHint(toolName: ToolName): string {
     : `Call ${toolName} as a direct tool call with the same input.`;
 }
 
+/**
+ * Bind the fields that only the server writes (ADR-0088 amendment 2026-11-18), before every
+ * decision. A saved staging input already holds them: its approval binds to them, so a resume
+ * keeps them and never binds again.
+ */
+async function bindServerFields(
+  resolved: ResolvedDispatch,
+  call: BoundToolCall,
+  ctx: ToolExecuteContext,
+): Promise<BoundToolCall> {
+  if (call.bindServerFields === null || resolved.savedInput === true) return call;
+
+  const bound = await call.bindServerFields(ctx);
+
+  // The tool built the value from its own parsed input, so a parse failure is a wiring bug.
+  if (!bound.success) {
+    throw new Error(`[dispatch] ${resolved.toolName} bound server fields that do not parse`);
+  }
+
+  return bound.call;
+}
+
 /** Stage 2: validate input, then run `join` and `fast_path` tools inline. */
 const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = async (resolved) => {
   const { args, toolName, tool, integration, workflowCapabilities } = resolved;
@@ -912,7 +941,8 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     };
   }
 
-  const { call } = binding;
+  const ctx = dispatchContext(resolved);
+  const call = await bindServerFields(resolved, binding.call, ctx);
   const input = call.input;
   const approvedResourceScope = workflowCapabilities[0]?.resourceScope;
 
@@ -925,8 +955,6 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
       result: { status: "capability_mismatch", toolName, integration, message },
     };
   }
-
-  const ctx = dispatchContext(resolved);
 
   // A refusal that depends on the caller, which the schema cannot express. Its owner decides it.
   const refusal = call.refusal(ctx);

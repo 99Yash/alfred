@@ -35,3 +35,16 @@ The clamp moved from the dispatcher into `BoundToolCall.effectiveRiskTier` in `t
 ## Amendment — 2026-11-13: a code-owned entry is a third authority ([ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md))
 
 `mcp_tool_policy` stays the store of the owner's reviews. A built-in read can also have a code-owned entry with the same fields, bound to the exact descriptor hash (ADR-0096 amendment, 2026-11-13). `resolveMcpToolIdentity` returns it as `codePolicy`, beside `policy`, and only when no review of the tool exists. The fail-closed rule does not change: a hash miss, a stale revision, or a missing `readOnlyHint` keeps the `high` floor. `mcp.call` names the entry in its `riskTierDowngradeReason`. Residual (1) grows: the staging row now hides which of three authorities waived the floor.
+
+## Amendment — 2026-11-18: the server binds the catalog revision, not the model
+
+**Why.** The paired evaluation of ADR-0124 (PR #1784) found that the model copies the 64-character `catalogRevision` incorrectly. In 12 of 30 runs, it sent a short prefix. The broker then said "the tool list changed", but the catalog had not changed. In the direct mode, the unresolved revision also kept the call on the `high` floor, so a card came first and the call failed after the approval.
+
+**The decision (owner, 2026-11-18).** The model selects a tool with `{ connectionId, remoteName }`. The server owns the revision. This replaces "the echoed `catalogRevision` is the connection's current one" in the decision above. These guarantees stay:
+
+- **Bind before the approval decision.** When a call is proposed, the server resolves the descriptor, the schema, the read authority, and the risk tier from one revision: the current revision of the connection. It saves that revision with the proposal.
+- **Execution uses the saved revision.** If the descriptor of the saved revision is no longer current, execution refuses on drift with a named failure. It does not select the newest descriptor.
+- **The approval binds to the saved revision.** A call that resumes after a card, or in another process, uses the saved revision. The broker checks it again, as `expectedCall.catalogRevision` does now.
+- The fail-closed rule does not change: a hash miss, a missing revision, or a missing `readOnlyHint` keeps the `high` floor.
+
+**The accepted trade-off.** The model can call a descriptor that is different from the one that it saw, if that descriptor is authorized when the call is proposed. A changed descriptor loses its review and its code pin, because both bind to the descriptor hash. But the structural branch of ADR-0096 does not bind to a hash. On a built-in read-only endpoint, a changed read with `readOnlyHint` can therefore run with no card.

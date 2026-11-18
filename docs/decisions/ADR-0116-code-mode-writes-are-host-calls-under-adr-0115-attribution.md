@@ -49,14 +49,14 @@ A workflow run or the background boss has no user message. It cannot use `user_r
 
 ### What can go wrong, and what the user sees
 
-| Case | Result |
-| --- | --- |
-| A todo changes between the plan and the apply (the user completes one). | The apply write has a new request hash or the drift guard sees a new `row_version`. The program stops before that write. The boss reports which writes applied. |
-| The program writes something that is not in the plan (its reads returned new data). | The program stops before the first write that is not in the plan. No new approval is implied. |
-| The approval expires. | The `staging-expire` worker rejects it. No write applies. |
-| A capability is off in settings. | The plan pass returns a `capability_off` rejection for that write at once, so the boss can tell the user which setting to turn on. |
-| The plan pass hits a `run` limit (30 s, 256 bridge requests). | `RunError` maps to an honest outcome (plan, "Errors"). No write has applied, because the plan pass never writes. |
-| The program plans more autonomous writes than the cap. | The whole plan needs approval. See "The gate", rule 4. |
+| Case                                                                                | Result                                                                                                                                                          |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A todo changes between the plan and the apply (the user completes one).             | The apply write has a new request hash or the drift guard sees a new `row_version`. The program stops before that write. The boss reports which writes applied. |
+| The program writes something that is not in the plan (its reads returned new data). | The program stops before the first write that is not in the plan. No new approval is implied.                                                                   |
+| The approval expires.                                                               | The `staging-expire` worker rejects it. No write applies.                                                                                                       |
+| A capability is off in settings.                                                    | The plan pass returns a `capability_off` rejection for that write at once, so the boss can tell the user which setting to turn on.                              |
+| The plan pass hits a `run` limit (30 s, 256 bridge requests).                       | `RunError` maps to an honest outcome (plan, "Errors"). No write has applied, because the plan pass never writes.                                                |
+| The program plans more autonomous writes than the cap.                              | The whole plan needs approval. See "The gate", rule 4.                                                                                                          |
 
 ## The design
 
@@ -96,12 +96,11 @@ The cap in rule 4 limits the case that ADR-0115 names as its honest limit: a pro
 - `mcp.read(ref, args)` uses the `result: "structured"` option, so a program gets the whole `structuredContent`. This is a facade over the same broker read that `mcp.call` uses, with the same gate. `ref` is the same `ExternalToolRef` that `mcp.call` takes, so a ref from `mcp.search` goes into `mcp.read` without a change.
 - **Catalog discovery inside the program** (owner decision of 2026-11-02). Without it, the boss must call `mcp.list_tools` and `mcp.inspect_tool` before `code.run`, and then copy each ref and schema into the source. Each hit and each descriptor (up to 128 KB) then goes into the transcript. Cloudflare's code mode gives the program `search()` and `describe()` in the sandbox, so only the return value of the program goes into the model context. Alfred adds three read host functions in the `mcp` group. Each one is a facade over the function that the chat tool already calls, with the user id of the run:
 
-  | Host function         | Facade over                                              | Returns                                                                     |
-  | --------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
-  | `mcp.servers()`       | `listOwnedConnections` (`connections/mcp/persistence.ts`) | One entry for each connection: `id`, `label`, `instanceKey`, `status`, `toolCount` |
-  | `mcp.search(input)`   | `searchMcpToolsLocal`, the `mcp.list_tools` read          | The same `McpToolDiscoveryPage`: hits with an exact `ref`, and `nextCursor` |
-  | `mcp.describe(ref)`   | `inspectMcpToolLocal`, the `mcp.inspect_tool` read        | The same `McpToolInspectionResult`, with the full input schema              |
-
+  | Host function       | Facade over                                               | Returns                                                                            |
+  | ------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+  | `mcp.servers()`     | `listOwnedConnections` (`connections/mcp/persistence.ts`) | One entry for each connection: `id`, `label`, `instanceKey`, `status`, `toolCount` |
+  | `mcp.search(input)` | `searchMcpToolsLocal`, the `mcp.list_tools` read          | The same `McpToolDiscoveryPage`: hits with an exact `ref`, and `nextCursor`        |
+  | `mcp.describe(ref)` | `inspectMcpToolLocal`, the `mcp.inspect_tool` read        | The same `McpToolInspectionResult`, with the full input schema                     |
   - These are local reads of Alfred's stored catalog. They never call a live MCP client, and they have the same `#540` policy-gate waiver as the chat tools. They are on with `code.run` and need no capability.
   - The host parses the guest input with `mcpToolSearchInputSchema` and `mcpToolInspectInputSchema`, because guest data is `unknown`. The page limit (50), the scan budget, and the cursor stay as they are. A program that pages through all catalogs pays one bridge request for each page, under the 256-request cap.
   - In the apply pass, these reads come from the replay ledger, as other reads do. So the apply pass sees the same refs as the plan pass.
@@ -114,6 +113,7 @@ The cap in rule 4 limits the case that ADR-0115 names as its honest limit: a pro
     const spec = await mcp.describe(tools[0].ref);
     return { ref: tools[0].ref, required: spec.tool.inputSchema?.required ?? [] };
     ```
+
 - **One prepared catalog for each server in a program** (owner decision of 2026-10-29). The first `mcp.read` on a connection prepares its catalog, and each later `mcp.read` on that connection in the same pass uses that prepared catalog. The broker read prepares the catalog before each call, and a server that sends `ttlMs: 0` made each call list the catalog again (GitHub: 9-17 s for each call). The 5-minute catalog TTL floor in `connections/mcp/protocol.ts` removes most of that cost, but a program must not pay it N times when the floor expires or a list-change event arrives. One catalog also gives one tool revision to the whole pass. If the server rejects a stale descriptor, the read fails with `descriptor_mismatch`, and the program gets a `RunError`. The program does not prepare the catalog again in the same pass.
 
 ### What this ADR does not adopt from the article
@@ -127,11 +127,11 @@ The cap in rule 4 limits the case that ADR-0115 names as its honest limit: a pro
 
 v1 includes only writes on Alfred entities that have an ADR-0115 event table, because only those have provenance and undo.
 
-| Capability | Host functions | Tool | Needs |
-| --- | --- | --- | --- |
-| (read, always on with `code.run`) | `todos.list` | a new `system.list_todos` read | a new tool |
-| `code.todos` | `todos.dismiss` | `system.resolve_todo` with a new `kind: "todo_ids"` input arm | ADR-0115 slice 1, a new input arm |
-| `code.todos` | `todos.suggest` | `system.suggest_todo` | ADR-0115 slice 1 |
+| Capability                        | Host functions  | Tool                                                          | Needs                             |
+| --------------------------------- | --------------- | ------------------------------------------------------------- | --------------------------------- |
+| (read, always on with `code.run`) | `todos.list`    | a new `system.list_todos` read                                | a new tool                        |
+| `code.todos`                      | `todos.dismiss` | `system.resolve_todo` with a new `kind: "todo_ids"` input arm | ADR-0115 slice 1, a new input arm |
+| `code.todos`                      | `todos.suggest` | `system.suggest_todo`                                         | ADR-0115 slice 1                  |
 
 Two tool changes come first, and both are useful without Code Mode. **`system.list_todos`** does not exist: no chat tool reads the user's todos today (`docs/theory/product-flow.md` §5, "Gaps"). **`system.resolve_todo` takes no todo id**: its input has one arm, `kind: "gmail_sender"`, which matches by sender, thread, or account (`contracts/src/tool-schemas.ts:1545`). A program that filters todos by a field needs to name the ids it chose.
 
@@ -160,6 +160,17 @@ These start with the first slice, not after it:
 - **(c) A free `tools.call(name, args)` host function.** Rejected. It turns every tool into a Code Mode write, and the settings toggle loses its meaning.
 - **(d) Provenance autonomy with no cap.** Rejected. It lets a program that read hostile content hide any number of agent-created records without a card.
 - **(e) Keep Code Mode read-only (ADR-0087 as written).** Rejected by the owner on 2026-10-22.
+
+## Amendment 2026-11-18: a ref has no catalog revision, and the server pins the pass
+
+**Why.** The paired evaluation of ADR-0124 (PR #1784) found that the model copies the 64-character `catalogRevision` of a ref incorrectly in 12 of 30 runs. A script read then failed with `catalog_stale`, although the catalog had not changed.
+
+**The decision (owner, 2026-11-18).** This replaces "A ref carries its `catalogRevision`" in "Read host functions that this ADR adds".
+
+- A ref that the model or a program sees is `{ connectionId, remoteName }`. Search, `mcp.describe`, and the index give no revision.
+- The first read on a connection in a pass prepares its catalog and pins its revision on the server. Each later read on that connection in the same pass uses the pinned revision. This keeps the owner decision of 2026-10-29: one prepared catalog and one tool revision for each server in a pass.
+- If the catalog changes during the pass, the read fails with a named failure, and the program gets a `RunError`. The host does not refresh the catalog silently.
+- Each nested call saves the pinned revision with its proposal, so the rules of the ADR-0088 amendment of 2026-11-18 apply to it.
 
 ## Cross-ref
 

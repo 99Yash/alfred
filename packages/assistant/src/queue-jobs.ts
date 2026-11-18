@@ -221,6 +221,11 @@ interface ConsumerSpec<C extends Catalog> {
   readonly stall?: Pick<WorkerOptions, "stalledInterval" | "maxStalledCount">;
   readonly handlers: Handlers<C>;
   readonly schedules?: ReadonlyArray<Schedule<SignalKind<C>>>;
+  /**
+   * The schedules register even when scheduled jobs are off (dev). Only for a job that spends no
+   * money and sends no mail, for example the price sync.
+   */
+  readonly ungated?: boolean;
   readonly alongside?: readonly Companion[];
 }
 
@@ -233,6 +238,8 @@ export interface BackgroundWorker {
   readonly stop: () => Promise<void>;
   readonly close: () => Promise<void>;
   readonly repeatable?: {
+    /** True when the schedules register even with scheduled jobs off. */
+    readonly ungated: boolean;
     /** Write this queue's schedulers. Idempotent. */
     readonly schedule: () => Promise<void>;
     /** Remove every scheduler on this queue, so a boot with scheduled jobs off fires none. */
@@ -382,6 +389,7 @@ export function defineQueue<const C extends Catalog>(spec: QueueSpec<C>): QueueH
 
         ...(schedules && {
           repeatable: {
+            ungated: consumer.ungated ?? false,
             async schedule() {
               for (const s of schedules) {
                 await open().upsertJobScheduler(s.kind, s.repeat, {

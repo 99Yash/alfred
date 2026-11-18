@@ -8,7 +8,10 @@ import { z } from "zod";
 import { identifyLanguageModel } from "../models";
 import type { CallUsage } from "./metered";
 
-/** Price cache TTL. A `db:sync-prices` run reaches running workers within minutes. */
+/**
+ * Price cache TTL. A price sync (the daily job or `db:sync-prices`) reaches a running process
+ * within this TTL. A miss is not cached, so a new model's first row is read on the next lookup.
+ */
 const TTL_MS = 5 * 60_000;
 
 interface CachedPrice {

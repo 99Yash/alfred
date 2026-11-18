@@ -84,3 +84,11 @@ Only `high` gates, so `low` is already approval-free and costs the user exactly 
 **The effect class.** This closes the residual risk "a structurally downgraded tool still pays the recovery cost of an effectful call" for the pinned reads. `mcpToolEffectClass` returns the review's class, else the code entry's class, else `unknown`. The broker, the recovery successor check, and the settlement check read it. A pinned read takes the read path: no ambiguity barrier, so a failed read does not block the run. A completed pinned read gets its audit row with `policy_revision` null, so the provenance guard (ADR-0125, decision 7) sees it. The structural branch keeps its residual risk: a GitHub read still takes the effectful path.
 
 **Residual risk.** No test proves the branch order. The proof is the compiler and the local probe that ADR-0126 names. The pins hold Developer Preview descriptors, so drift is likely, and each drift costs an approval card until the pins change. Nothing runs the drift script on a schedule.
+
+## Amendment, 2026-11-18 — the structural branch has the `read` effect class
+
+**Why.** The residual risk above says: "The structural branch keeps its residual risk: a GitHub read still takes the effectful path." The paired evaluation of ADR-0124 (PR #1784) hit it. A GitHub MCP read has no review and no code pin, so `mcpToolEffectClass` returns `unknown`. The broker then sends the read through the write ledger. A tool error on the read becomes "the remote MCP write may have completed", and the retry is blocked. But the read route of ADR-0124 (`mcpReadFacts`) already counts the same call as a confirmed read.
+
+**The decision (2026-11-18).** `mcpToolEffectClass` uses the read authority of `mcpReadFacts`. The order is: the owner's review, then the code-owned entry, then the structural branch (a built-in read-only endpoint and the tool's published `readOnlyHint`), then `unknown`. A review that drifted still gives `unknown`, as it gives the `high` floor for the tier.
+
+**Why this is safe.** The structural branch already removes the approval card. A retry of a failed read is a smaller grant than a read with no card. One rule now decides "is this a read" for the route, the tier, and the recovery path, so the three cannot disagree.

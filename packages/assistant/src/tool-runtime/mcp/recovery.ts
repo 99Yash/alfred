@@ -11,7 +11,7 @@ import {
   MCP_RECOVERY_PAGE_SIZE,
   hashToolInput,
   jsonValueSchema,
-  mcpCallInput,
+  mcpBoundCallInput,
   mcpRecoveryOperationSchema,
   mcpRecoveryOperationsPageInputSchema,
   mcpRecoveryOperationsPageSchema,
@@ -375,7 +375,7 @@ async function reserveMcpRecoverySuccessor(
       throw Errors.ConflictError("MCP recovery barriers are not aligned");
     }
 
-    const call = mcpCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
+    const call = mcpBoundCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
 
     if (!call.success) throw Errors.ConflictError("Stored MCP recovery input is invalid");
 

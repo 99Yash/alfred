@@ -29,12 +29,12 @@ Decided with the owner after two reviews of #1776. The route had three patches, 
 
 **One route decision for each call.** After the existing checks, the tool runtime decides the route of each call with this table:
 
-| Call | Route |
-|---|---|
-| A write, or a call whose effect is not confirmed | Direct, through the existing approval |
-| A confirmed read with binary output | Direct |
-| A confirmed read that requires approval | Direct, with its card |
-| A confirmed read with structured output and no approval | Script |
+| Call                                                    | Route                                 |
+| ------------------------------------------------------- | ------------------------------------- |
+| A write, or a call whose effect is not confirmed        | Direct, through the existing approval |
+| A confirmed read with binary output                     | Direct                                |
+| A confirmed read that requires approval                 | Direct, with its card                 |
+| A confirmed read with structured output and no approval | Script                                |
 
 - The approval input includes the staging arm and the thread's Full Autonomy. Thus a local `fast_path` catalog read is a script read.
 - Search reports the current decision. Dispatch decides again. The broker checks the current descriptor and the read authority before delivery.
@@ -62,6 +62,22 @@ The hint of a custom server alone leaves the effect unknown. A change of the des
 **The default stays an experiment.** Every eligible read goes to a script while the flag is off. A paired evaluation decides the production default: the same tasks and provider responses in both modes. It covers single lookups, large single results, fan-out, dependent reads, and Gated reads. It measures answer quality, latency, total tokens, model steps, and approval effort. A route chosen from the expected fan-out is rejected, because it adds a judgment to the runtime.
 
 **A saved program for reuse is a separate feature.** A completed run proves only that the program ran. A saved skill also needs evidence that it does the intended job, and rules for selection, version changes, and new approval checks. It waits until repeated tasks show a need.
+
+## Amendment 2026-11-18 (b): the findings of the paired evaluation
+
+The first paired evaluation (PR #1784; receipt in `docs/plans/code-mode-object-handles-v1.md`) found four product faults. The owner settled them on 2026-11-18. Findings 2 and 3 amend ADR-0096, ADR-0088, and ADR-0116. This amendment holds findings 1 and 4.
+
+**Gated reads stay direct.** A Gated integration asks for approval before each action, and reads too. The read route sends a read that waits for a card to the direct path. Thus Code Mode helps only on an Auto integration. This is a limit of the design, not a fault. The evaluation uses the owner's production rule.
+
+**The size bound applies at the boundary of the recipient.** ADR-0074 bounds an untrusted provider body "before the model sees it". The MCP client applied the bound to each call, so a script got a string of at most 8,000 characters. Thus no script could read a large single result. The decision:
+
+- The MCP client still sanitizes the content (it removes NUL and lone surrogates).
+- A direct `mcp.call` keeps all the ADR-0074 bounds before the model sees the result: 8,000 characters for each string, 50 items for each array, and 32 KiB for the body.
+- A script read gets the full sanitized response, up to 1 MiB (`HOST_READ_DELIVERY_MAX_BYTES`). The check runs before the nested result is saved. A larger response saves the named failure `output_too_large`, so a replay returns the same failure.
+- The content hash covers the sanitized value that the script gets. Provider pagination and provider truncation are recorded separately. Alfred's own cut is gone, but that does not prove that the provider returned everything.
+- The full model-facing `system.code_run` envelope (the value, the sources, the counts, and the messages) is checked against its 64 KiB budget. `boundToolResult` clips only strings, so it is not that check.
+
+**The storage bound.** One script can make 256 host calls (`maxBridgeRequests`). Thus one script can save about 256 MiB of accepted responses, before database overhead. The evidence record keeps the saved bytes of each host call, so the real size is measured.
 
 ## Instrumentation
 

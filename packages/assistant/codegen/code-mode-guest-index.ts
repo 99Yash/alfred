@@ -28,11 +28,8 @@ import type {
 } from "../src/tool-runtime/internal/tools/contacts";
 import type { CorpusSearchToolResult } from "../src/tool-runtime/internal/tools/corpus";
 import type { FetchUrlResult } from "../src/tool-runtime/internal/tools/fetch-url";
-import type {
-  McpBrokerToolResult,
-  McpInspectToolResult,
-  McpListToolsResult,
-} from "../src/tool-runtime/internal/tools/mcp";
+import type { McpInspectToolResult, McpListToolsResult } from "../src/connections/mcp/list-tools";
+import type { McpBrokerToolResult } from "../src/tool-runtime/internal/tools/mcp";
 import type { ReadScratchResult } from "../src/tool-runtime/internal/tools/system";
 import type {
   VercelListDeploymentsResult,

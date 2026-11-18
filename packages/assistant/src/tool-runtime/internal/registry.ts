@@ -388,6 +388,15 @@ export interface ToolArgsCommon<
    */
   resolveReadFacts?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<ReadFacts>;
   /**
+   * The fields that only the server writes, bound when the call is proposed (`mcp.call` binds its
+   * catalog revision, ADR-0088 amendment 2026-11-18). Dispatch runs it on the caller's input after
+   * the parse and before every decision, so the refusals, the tier, the read facts, the hashes,
+   * and the staging row all read the one bound input. A saved staging input already holds the
+   * fields, so a resume does not run it. The result must parse against `inputSchema`. A
+   * `modelInputSchema` must leave the fields out, so the model never writes them.
+   */
+  bindServerFields?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<z.infer<S>>;
+  /**
    * Scrub secrets before the input reaches a trace or a staging row (#293).
    * Must be pure and keep the shape. The hash and `execute` see the raw input.
    */
@@ -482,6 +491,11 @@ export interface BoundToolCall {
   input: unknown;
   /** See {@link LiveToolArgs.refuseInput}. `null` when the tool declares no refusal. */
   refusal: (ctx: ToolExecuteContext) => string | null;
+  /**
+   * See {@link ToolArgsCommon.bindServerFields}: this call with its server fields bound, parsed
+   * again. `null` when the tool declares no bind.
+   */
+  bindServerFields: ((ctx: ToolExecuteContext) => Promise<ToolInputBinding>) | null;
   /**
    * The effect and output facts of the route decision (ADR-0124 amendment 2026-11-18): a
    * `codeModeRead` tool's declaration, else {@link LiveToolArgs.resolveReadFacts}, else no
@@ -884,6 +898,7 @@ export function liveTool<
     refuseInput,
     refuseProposal,
     resolveReadFacts,
+    bindServerFields,
   } = args;
 
   if (resolveReadFacts && args.codeModeRead) {
@@ -900,6 +915,11 @@ export function liveTool<
     !args.readEvidence
   ) {
     throw new Error(`[tools] '${name}' is a script read, so it must declare readEvidence`);
+  }
+
+  // The model must not write a server field, so the schema it sees must leave the fields out.
+  if (bindServerFields && !args.modelInputSchema) {
+    throw new Error(`[tools] '${name}' declares bindServerFields without a modelInputSchema`);
   }
 
   // Only a gated call writes a staging row, so on any other policy the check would never run.
@@ -990,6 +1010,9 @@ export function liveTool<
           tool,
           input,
           refusal: (ctx) => refuseInput?.(input, ctx) ?? null,
+          bindServerFields: bindServerFields
+            ? async (ctx) => tool.bind(await bindServerFields(input, ctx))
+            : null,
           readFacts: async (ctx) => {
             if (args.codeModeRead === true) return DECLARED_STRUCTURED_READ;
 

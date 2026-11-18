@@ -3,7 +3,7 @@ import { route } from "@alfred/ai";
 import {
   getStringPath,
   isRecord,
-  mcpCallInput,
+  mcpCallModelInput,
   mcpToolSearchInputSchema,
   parseIanaTimezone,
 } from "@alfred/contracts";
@@ -40,8 +40,6 @@ const CALENDAR_CONNECTION = {
   label: "Google Calendar",
 };
 
-const CALENDAR_CATALOG_REVISION = "rev_google_calendar_eval";
-
 const CALENDAR_LIST_REMOTE = "list_events";
 
 const CALENDAR_LIST_HIT = {
@@ -49,7 +47,6 @@ const CALENDAR_LIST_HIT = {
     kind: "mcp",
     connectionId: CALENDAR_CONNECTION.id,
     remoteName: CALENDAR_LIST_REMOTE,
-    catalogRevision: CALENDAR_CATALOG_REVISION,
   },
   namespace: CALENDAR_CONNECTION.instanceKey,
   connection: CALENDAR_CONNECTION,
@@ -178,8 +175,8 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
         }),
         [MCP_CALL_TOOL]: tool({
           description:
-            "Invoke a tool on a connected MCP server. Supply the `connectionId`, remote `remoteName`, and `catalogRevision` from the exact ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
-          inputSchema: mcpCallInput,
+            "Invoke a tool on a connected MCP server. Supply the `connectionId` and `remoteName` of the ref returned by mcp.list_tools, plus `arguments` matching the tool schema.",
+          inputSchema: mcpCallModelInput,
         }),
       },
     });

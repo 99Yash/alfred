@@ -54,6 +54,7 @@ export {
   stagedAction,
   approvalExpiryWorker,
   approvalNotificationWorker,
+  priceSyncWorker,
   isTerminalChildStatus,
   listSpawnedChildRuns,
   EFFECT_RECEIPT_CAP,

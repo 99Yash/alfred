@@ -66,7 +66,7 @@ type _NoIdentityOnConnections = ConnectionsDoor["resolveMcpToolIdentity"];
 type _NoReconcileOnConnections = ConnectionsDoor["reconcileInflightInvocations"];
 
 // @ts-expect-error - the reviewed-downgrade risk resolver belongs to `tool-runtime/mcp`.
-type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallRiskTier"];
+type _NoRiskOnConnections = ConnectionsDoor["resolveMcpCallProposalFacts"];
 
 // ---------------------------------------------------------------------------
 // Four names sit behind `test-support`, not the product doors.

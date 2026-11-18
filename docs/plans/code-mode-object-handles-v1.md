@@ -200,7 +200,7 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 
 **Before owner enablement (follow-up PR).** These findings of the review stay open, and the flag stays off until they close:
 
-- The eval must run the production surface resolution and dispatch with fake provider responses (ADR-0055 decision 2). Today it copies the summary and the envelope and supplies its own surface.
+- The eval must run the production surface resolution and dispatch with fake provider responses (ADR-0055 decision 2). Today it copies the summary and the envelope and supplies its own surface. See [The paired evaluation](#the-paired-evaluation-settled-2026-11-18).
 - The benchmark must compare both modes on the same captured descriptor and representative results. GitHub's `list_issues` includes bodies by default, so the 41-read fixture is not fair. Score the substance of each gist, and measure end-to-end latency.
 - Budget the effective first-turn surface. The full read index ships on each flagged turn (about 3,149 to 5,096 schema tokens). The 3,300-token check measures only the static kernel.
 - The two checks of #535: the sandbox smoke on Railway's own container, and the fork-or-not decision.
@@ -245,6 +245,93 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
   - A passthrough tool states evidence for each call. The passthrough gate admits only reads (ADR-0074), so no write gets read evidence.
 
 These stay open after PR B: the paired evaluation on the production path, the first-turn surface budget, the two checks of #535, and a browsing card for each web read of a script.
+
+### The paired evaluation (settled 2026-11-18)
+
+ADR-0124 says that a paired evaluation decides the default read path. The review of #1776 found that the first eval copied the connected summary and supplied its own surface. This section states how the paired evaluation runs the production path.
+
+**Owner decisions (2026-11-18).**
+
+1. **The rule: quality, then cost.** Code Mode becomes the default only when all of these are true:
+   - On each case kind, its answer quality is not lower than the direct mode.
+   - Its approval cards are not more than the direct mode.
+   - On fan-out and on dependent reads, its median total tokens or its median latency is lower.
+   - On a single lookup, its median tokens and its median latency are at most 20% worse.
+2. **Three runs for each case in each mode.** The report gives the median of each measure.
+
+**Decided from ADR-0055 and ADR-0124.**
+
+- **The loop is the production loop.** The eval starts each turn with `startChatTurn` and runs it with `runOnce` in the eval process, until the run stops. Thus the prompt, the pinned read path, the preload, the tool surface, dispatch, staging, and the approval park are the production code. The eval does not copy the chat loop.
+- **The two modes.** Each run has a new eval user on the local database, and the eval deletes the user at the end. The direct mode has no `feature.internal.code_mode_read_path` row. The Code Mode mode has the row set to on.
+- **The fake provider.** The GitHub MCP server is fake at the protocol client (`McpProtocolClient`), as in `mcp-seam.test.ts`. The connection uses the real GitHub read-only endpoint, so the read authority and the output kind come from production code. The catalog, the broker, the policy, and the evidence record are real.
+- **The descriptors.** The catalog is the captured GitHub read-only catalog of 2026-11-08, with its 28 descriptors as the server sent them (`evals/fixtures/github-mcp-catalog.json`). `list_issues` returns the bodies when the call does not name `fields`, as the real server does.
+- **The results.** The issue content is synthetic, so no private data goes into the repo. The result shapes follow the GitHub MCP server. No real GitHub issue result was captured, so this is a limit of the eval.
+- **The case kinds.** Single lookup, large single result, fan-out (the driver run `run_s7yi1ymxakcj`), dependent reads, and a gated read. The gated read is a GitHub read that an owner review puts on the `high` tier, so it waits for a card in both modes. The eval approves each card through `stagedAction(...).decide` and counts it.
+- **Answer quality.** Each item that a case needs holds one planted fact: a code identifier or a token that has no paraphrase. A deterministic scorer counts the planted facts in the answer (ADR-0055 decision 3).
+- **The measures.** Answer quality, end-to-end latency, total tokens (`api_call_log` for the run), model steps, approval cards, and the schema tokens of the first model step.
+- **The first-turn surface budget.** The eval reports the schema tokens of the first step in both modes. The budget number and its gate come after the first measurement.
+- **The policy.** Each eval user gets the owner's production rule, `github: autonomy`. A new user's default is `gated`, and `toolRequiresApproval` then gates each GitHub read. Thus no read could run in a script (finding 1 below).
+
+**Paired evaluation receipt (2026-11-18).** `packages/assistant/evals/code-mode-paired.eval.ts` ran 30 runs on `gpt-6-luna`: five case kinds, two modes, three runs each. The table gives the medians.
+
+| Case kind           | Mode      | Quality | Latency | Tokens  | Steps | Cards | First-step schema tokens |
+| ------------------- | --------- | ------- | ------- | ------- | ----- | ----- | ------------------------ |
+| single lookup       | direct    | 1.00    | 26 s    | 73,819  | 8     | 0     | 3,183                    |
+| single lookup       | Code Mode | 0.00    | 39 s    | 124,111 | 9     | 0     | 5,219                    |
+| large single result | direct    | 0.00    | 111 s   | 345,780 | 20    | 0     | 3,183                    |
+| large single result | Code Mode | 0.00    | 93 s    | 369,750 | 19    | 0     | 5,219                    |
+| fan-out             | direct    | 1.00    | 128 s   | 425,104 | 17    | 2     | 4,362                    |
+| fan-out             | Code Mode | 1.00    | 98 s    | 383,721 | 17    | 0     | 6,398                    |
+| dependent reads     | direct    | 1.00    | 64 s    | 157,903 | 13    | 0     | 3,183                    |
+| dependent reads     | Code Mode | 1.00    | 20 s    | 97,160  | 7     | 0     | 5,219                    |
+| gated read          | direct    | 1.00    | 13 s    | 43,189  | 5     | 1     | 4,037                    |
+| gated read          | Code Mode | 1.00    | 12 s    | 58,998  | 5     | 1     | 5,989                    |
+
+**Verdict: Code Mode does not meet the owner's rule.** The single lookup fails on quality (two of three Code Mode answers missed the fact) and on cost (68% more tokens, 50% more latency). Fan-out and dependent reads pass. On dependent reads, Code Mode used 38% fewer tokens and 69% less time. The large single result and the gated read pass, because quality and cards are equal. Code Mode adds about 2,000 schema tokens to the first step of each case. The flag stays off.
+
+The verdict is not yet a fair test of the read path. Finding 3 hit 12 of the 30 runs in both modes, and finding 4 hit all six large-result runs. A new run is necessary after the owner settles findings 2 to 4.
+
+1. **The default policy blocks Code Mode.** A new user's GitHub policy is `gated`. `toolRequiresApproval` (`tool-runtime/approval-rule.ts`) then gates each GitHub read, so no read can run in a script.
+2. **A GitHub read goes through the write ledger.** A GitHub MCP read has no owner review and no code pin, so `mcpToolEffectClass` (`tool-runtime/mcp/invocations.ts`) returns `unknown`. The broker then sends the read through the write ledger. A tool error on a read becomes "the remote MCP write may have completed", and retry is blocked. One Code Mode run hit this.
+3. **The model copies the catalog revision incorrectly.** Each ref holds a 64-character `catalogRevision` hash, and the model must copy it exactly. In 12 of 30 runs, the model sent a short prefix. The catalog did not change during the run, but the error said "the tool list changed". In the direct mode, `resolveMcpCallRiskTier` keeps such a call on the `high` tier, so it first raises a card and then fails. The direct-mode cards on fan-out came only in the runs with this fault. In Code Mode, the script read fails with no card. After the failure, the model often read the web in place of GitHub.
+4. **No mode can read a large single result.** `boundPassthroughBody` cuts each string at 8,000 characters in the MCP client, before a model or a script sees the result. The crash log of issue #1299 is about 140 KB, and its first throw is at 55%. Each answer said that the log stops at 02:01:32. Thus a script cannot read the full result and return only the part that it needs.
+
+One fault came from the eval, not the product. The fixture used the owner's public repo `99Yash/alfred`. After a failed GitHub read, two single-lookup answers in Code Mode described the real PR #1201, not the planted issue. The fixture now uses a made-up repo, `quillmoor-labs/tidewater`. The receipt above comes from the run before this change.
+
+**Second receipt: Haiku 5.5 and Sol 6.1 (2026-11-18).** The second run used the branch with the fixes for findings 2 to 4 (#1789, #1790, #1791) and the made-up repo. The owner chose `claude-haiku-5-5` and a stronger OpenAI model, because Luna is too weak. The gateway refuses `gpt-6.2-sol` with a 401, so the run used `gpt-6.1-sol` at reasoning `medium`, at the same price. `CODE_MODE_PAIRED_MODEL` selects the model. Each model had 30 runs. The table gives the medians. Cost is the sum of `api_call_log.cost_usd`, and tokenizers differ, so compare the two models by cost.
+
+| Model   | Case kind           | Mode      | Quality | Latency | Tokens  | Cost    | Largest call input | Steps | Cards |
+| ------- | ------------------- | --------- | ------- | ------- | ------- | ------- | ------------------ | ----- | ----- |
+| Haiku   | single lookup       | direct    | 1.00    | 10 s    | 66,441  | $0.0044 | 14,963             | 5     | 0     |
+| Haiku   | single lookup       | Code Mode | 1.00    | 7 s     | 50,983  | $0.0029 | 18,296             | 3     | 0     |
+| Haiku   | large single result | direct    | 0.00    | 15 s    | 98,303  | $0.0063 | 20,027             | 6     | 0     |
+| Haiku   | large single result | Code Mode | 1.00    | 16 s    | 132,057 | $0.0050 | 22,979             | 6     | 0     |
+| Haiku   | fan-out             | direct    | 1.00    | 34 s    | 208,457 | $0.0164 | 45,151             | 9     | 0     |
+| Haiku   | fan-out             | Code Mode | 1.00    | 22 s    | 134,465 | $0.0071 | 27,773             | 6     | 0     |
+| Haiku   | dependent reads     | direct    | 1.00    | 32 s    | 247,486 | $0.0204 | 59,197             | 9     | 0     |
+| Haiku   | dependent reads     | Code Mode | 1.00    | 14 s    | 132,934 | $0.0050 | 21,831             | 6     | 0     |
+| Haiku   | gated read          | direct    | 1.00    | 7 s     | 57,134  | $0.0037 | 14,991             | 4     | 1     |
+| Haiku   | gated read          | Code Mode | 1.00    | 9 s     | 73,288  | $0.0042 | 19,079             | 4     | 1     |
+| Sol 6.1 | single lookup       | direct    | 1.00    | 26 s    | 63,658  | $0.0491 | 8,967              | 8     | 0     |
+| Sol 6.1 | single lookup       | Code Mode | 1.00    | 32 s    | 99,521  | $0.0564 | 16,811             | 8     | 0     |
+| Sol 6.1 | large single result | direct    | 0.00    | 91 s    | 234,169 | $0.2261 | 18,639             | 17    | 0     |
+| Sol 6.1 | large single result | Code Mode | 1.00    | 28 s    | 88,773  | $0.0564 | 16,774             | 7     | 0     |
+| Sol 6.1 | fan-out             | direct    | 1.00    | 115 s   | 499,139 | $0.2778 | 47,793             | 16    | 0     |
+| Sol 6.1 | fan-out             | Code Mode | 1.00    | 65 s    | 237,176 | $0.1340 | 32,214             | 11    | 0     |
+| Sol 6.1 | dependent reads     | direct    | 1.00    | 77 s    | 213,226 | $0.1880 | 34,626             | 14    | 0     |
+| Sol 6.1 | dependent reads     | Code Mode | 1.00    | 30 s    | 93,876  | $0.0602 | 18,261             | 7     | 0     |
+| Sol 6.1 | gated read          | direct    | 1.00    | 14 s    | 31,150  | $0.0425 | 8,095              | 4     | 1     |
+| Sol 6.1 | gated read          | Code Mode | 1.00    | 15 s    | 55,462  | $0.0618 | 12,055             | 5     | 1     |
+
+**Verdicts.**
+
+- **Haiku: Code Mode meets the owner's rule.** Quality and cards are equal or better on each case kind. The single lookup is cheaper in Code Mode. On fan-out and dependent reads, Code Mode costs 57% and 75% less.
+- **Sol 6.1: Code Mode does not meet the owner's rule.** Only the single lookup fails: Code Mode used 56% more tokens and 23% more time, above the 20% limit. Its cost was 15% more. All other checks pass. On the large single result, fan-out, and dependent reads, Code Mode costs 52% to 75% less.
+- **The large single result.** In both models, only Code Mode found the planted fact (finding 4 fixed at the recipient). The direct mode still gets the bounded result, as ADR-0074 says.
+- **The first step.** Code Mode still adds about 2,000 schema tokens to the first step. On a single lookup, this cost comes back on each step.
+- **The cost of a run.** Haiku spent $0.23 for 30 runs. Sol 6.1 spent $3.82, about 17 times more.
+
+Limits: the Luna receipt above came before the fixes for findings 2 to 4, so a comparison with Luna mixes the model change with the fixes. Luna was not run again. The flag stays off. The default read path is the owner's decision.
 
 ### The honest envelope and the ledger
 

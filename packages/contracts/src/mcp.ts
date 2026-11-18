@@ -479,20 +479,40 @@ export const mcpResultProvenanceSchema = z.object({
 
 export type McpResultProvenance = z.infer<typeof mcpResultProvenanceSchema>;
 
-// The remote tool ref rides in the args, not in `ToolName`, so it is part of the staging
-// input hash and a call under a new catalog revision stages again.
-// `McpRawClient.callTool` validates `arguments`; this file does not.
-export const mcpExternalToolRefSchema = z
+/**
+ * The remote tool that the model or a program selects (ADR-0088 amendment 2026-11-18). It has no
+ * catalog revision: the server binds the revision when the call is proposed, so the model never
+ * copies a hash. `kind` marks a connected hit in a search result.
+ */
+export const mcpToolRefSchema = z
   .object({
     kind: z.literal("mcp"),
     connectionId: z.string().min(1),
     remoteName: z.string().min(1),
-    /** The revision the model saw. A mismatch throws `catalog_stale`. */
+  })
+  .strict();
+
+export type McpToolRef = z.infer<typeof mcpToolRefSchema>;
+
+/**
+ * A remote tool at one catalog revision. The server and the owner's settings page use it; the
+ * model never sees it. On `mcp.call` the revision is the one that the server bound to the
+ * proposal, so it is part of the staging input hash. A mismatch throws `catalog_stale`.
+ * `McpRawClient.callTool` validates `arguments`; this file does not.
+ */
+export const mcpExternalToolRefSchema = z
+  .object({
+    ...mcpToolRefSchema.shape,
     catalogRevision: z.string().min(1),
   })
   .strict();
 
 export type ExternalToolRef = z.infer<typeof mcpExternalToolRefSchema>;
+
+/** The model-facing form of a ref: the revision stays on the server. */
+export function toMcpToolRef(ref: McpToolRef): McpToolRef {
+  return { kind: "mcp", connectionId: ref.connectionId, remoteName: ref.remoteName };
+}
 
 /** The tool a `/connections/:id/tools/*` route names. The path owns the connection. */
 export const mcpConnectionToolTargetSchema = mcpExternalToolRefSchema.pick({
@@ -502,15 +522,38 @@ export const mcpConnectionToolTargetSchema = mcpExternalToolRefSchema.pick({
 
 export type McpConnectionToolTarget = z.infer<typeof mcpConnectionToolTargetSchema>;
 
+const mcpCallFields = {
+  connectionId: mcpToolRefSchema.shape.connectionId,
+  remoteName: mcpToolRefSchema.shape.remoteName,
+  /** Passed through unchanged. A record schema keeps every key on re-parse. */
+  arguments: jsonObjectSchema,
+};
+
+/** What the model sends to `mcp.call`: the tool by connection and name, and its arguments. */
+export const mcpCallModelInput = z.object(mcpCallFields).strict();
+
+export type McpCallModelInput = z.infer<typeof mcpCallModelInput>;
+
+/**
+ * The runtime input of `mcp.call`. Only the server writes `catalogRevision`: dispatch binds it
+ * before the approval decision (ADR-0088 amendment 2026-11-18), and the staging row saves it.
+ * It is absent only on a call that the server did not bind yet.
+ */
 export const mcpCallInput = z
-  .object({
-    ...mcpExternalToolRefSchema.omit({ kind: true }).shape,
-    /** Passed through unchanged. A record schema keeps every key on re-parse. */
-    arguments: jsonObjectSchema,
-  })
+  .object({ ...mcpCallFields, catalogRevision: z.string().min(1).optional() })
   .strict();
 
 export type McpCallInput = z.infer<typeof mcpCallInput>;
+
+/**
+ * A saved `mcp.call` input with its bound revision. The broker and recovery parse a staging row
+ * with it, so a row with no revision never runs. A row from before the amendment has one too.
+ */
+export const mcpBoundCallInput = z
+  .object({ ...mcpCallFields, catalogRevision: z.string().min(1) })
+  .strict();
+
+export type McpBoundCallInput = z.infer<typeof mcpBoundCallInput>;
 
 /**
  * A remote tool name as words a person reads: `list_deployments`, `list-deployments`, and
@@ -556,7 +599,7 @@ export type McpToolSearchInput = z.infer<typeof mcpToolSearchInputSchema>;
 
 export const mcpToolInspectInputSchema = z
   .object({
-    ref: mcpExternalToolRefSchema,
+    ref: mcpToolRefSchema,
   })
   .strict();
 

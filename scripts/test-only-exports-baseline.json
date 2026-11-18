@@ -121,8 +121,6 @@
     "RUNTIME_QUEUE_LEASE",
     "RUNTIME_SUB_AGENT_WAIT",
     "RUNTIME_TOOL_PRELOAD",
-    "RUNTIME_TOOL_SURFACE",
-    "_setRuntimeSpanStarterForTests",
     "buildApprovalWaitSpanInput",
     "buildQueueLeaseSpanInput",
     "buildSubAgentWaitSpanInput",
@@ -253,7 +251,6 @@
   "packages/assistant/src/tool-runtime/mcp/broker-policy.ts": ["MCP_BROKER_ADMISSION_CAPACITY"],
   "packages/assistant/src/tool-runtime/mcp/invocations.ts": ["readToolPolicy"],
   "packages/assistant/src/tool-runtime/mcp/risk.ts": ["MCP_CALL_RISK_FLOOR"],
-  "packages/assistant/src/tool-runtime/mcp/runtime.ts": ["_setMcpExecutionBrokerForTests"],
   "packages/assistant/src/triage/classify.ts": [
     "SYSTEM_PROMPT",
     "TriageClassifierOutput",

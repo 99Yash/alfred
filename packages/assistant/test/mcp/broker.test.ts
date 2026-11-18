@@ -11,7 +11,7 @@ import {
   user,
   type NewActionStaging,
 } from "@alfred/db/schemas";
-import type { McpCallInput } from "@alfred/contracts";
+import type { McpBoundCallInput } from "@alfred/contracts";
 import { ProtocolError, SdkErrorCode, SdkHttpError, type Tool } from "@modelcontextprotocol/client";
 import { eq, inArray, like } from "drizzle-orm";
 
@@ -129,7 +129,10 @@ async function seedUser(): Promise<string> {
 }
 
 /** The exact `mcp.call` input a staging row stores. The strict schema omits `kind`, so do not spread `ExternalToolRef`. */
-function stagedCallInput(ref: ExternalToolRef, args: McpCallInput["arguments"]): McpCallInput {
+function stagedCallInput(
+  ref: ExternalToolRef,
+  args: McpBoundCallInput["arguments"],
+): McpBoundCallInput {
   return {
     connectionId: ref.connectionId,
     remoteName: ref.remoteName,

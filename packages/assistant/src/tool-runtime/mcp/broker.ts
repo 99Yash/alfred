@@ -6,9 +6,9 @@
  */
 
 import {
-  mcpCallInput,
+  mcpBoundCallInput,
   mcpHealthMappingDefinitionSchema,
-  type McpCallInput,
+  type McpBoundCallInput,
   type McpEffectClass,
   type McpResultProvenance,
   unrefTimer,
@@ -626,9 +626,9 @@ async function readReservedMcpSuccessor(input: {
 async function claimReservedMcpSuccessorDelivery(input: {
   userId: string;
   invocationId: string;
-  expectedCall: McpCallInput;
+  expectedCall: McpBoundCallInput;
   liveDescriptorHash: string;
-}): Promise<{ invocation: McpInvocation; call: McpCallInput } | undefined> {
+}): Promise<{ invocation: McpInvocation; call: McpBoundCallInput } | undefined> {
   return runAtomic(db(), async (tx) => {
     const [lockedConnection] = await tx
       .select({ id: mcpConnections.id })
@@ -686,7 +686,7 @@ async function claimReservedMcpSuccessorDelivery(input: {
       );
     }
 
-    const parsed = mcpCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
+    const parsed = mcpBoundCallInput.safeParse(staging.decidedInput ?? staging.proposedInput);
 
     if (!parsed.success) {
       throw new McpClientError("invalid_arguments", "Stored MCP recovery input is invalid.");
@@ -968,7 +968,7 @@ export class McpExecutionBroker {
     if (prepared.catalog.revision !== input.ref.catalogRevision) {
       throw new McpClientError(
         "catalog_stale",
-        "The MCP catalog changed after this tool was selected; refresh and reselect it",
+        "The MCP catalog changed after this call was bound to its revision",
       );
     }
 
@@ -1208,7 +1208,7 @@ export class McpExecutionBroker {
       };
     }
 
-    const parsed = mcpCallInput.safeParse(reserved.effectiveInput);
+    const parsed = mcpBoundCallInput.safeParse(reserved.effectiveInput);
 
     if (!parsed.success) {
       throw new McpClientError("invalid_arguments", "Stored MCP recovery input is invalid.");

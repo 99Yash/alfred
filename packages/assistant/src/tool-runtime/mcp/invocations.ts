@@ -127,11 +127,18 @@ function readOnlyClaimHolds(readOnly: boolean, effectClass: string | undefined):
 }
 
 /**
- * The effect class of a resolved tool: the owner's review, else the code-owned entry, else
- * `unknown`, which the broker treats as effectful.
+ * The effect class of a resolved tool: the owner's review, else the code-owned entry, else the
+ * structural branch, else `unknown`, which the broker treats as effectful. The structural branch
+ * is the read authority of the read route and of the tier: a built-in read-only endpoint and the
+ * tool's published `readOnlyHint` (ADR-0096 amendment 2026-11-18). A drifted review gives
+ * `unknown`, as it gives the `high` floor.
  */
 export function mcpToolEffectClass(identity: ResolvedMcpToolIdentity): McpEffectClass {
-  return identity.policy?.effectClass ?? identity.codePolicy?.effectClass ?? "unknown";
+  if (identity.policy !== undefined) return identity.policy.effectClass;
+
+  if (identity.codePolicy !== undefined) return identity.codePolicy.effectClass;
+
+  return !identity.reviewed && identity.readOnly && identity.readOnlyResource ? "read" : "unknown";
 }
 
 /** The exact descriptor/policy pair that may authorize a fixed read. */
@@ -206,6 +213,30 @@ export async function isSelectedMcpToolReadOnly(
   if (!row) return false;
 
   return readOnlyClaimHolds(row.readOnly === true, row.effectClass ?? undefined);
+}
+
+/**
+ * The current catalog revision of one owned connection, or `null` when the user does not own it
+ * or it has no published catalog. The server binds a call to this revision when the call is
+ * proposed (ADR-0088 amendment 2026-11-18), and a Code Mode pass pins it (ADR-0116 amendment
+ * 2026-11-18). A `null` bind leaves the call with no revision, so it keeps the `high` floor and
+ * never runs.
+ */
+export async function readCurrentMcpCatalogRevision(
+  input: { userId: string; connectionId: string },
+  runner: DbRunner = db(),
+): Promise<string | null> {
+  const [row] = await runner
+    .select({ revisionHash: mcpCatalogRevisions.revisionHash })
+    .from(mcpConnections)
+    .innerJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .limit(1);
+
+  return row?.revisionHash ?? null;
 }
 
 /**
