@@ -298,6 +298,41 @@ The verdict is not yet a fair test of the read path. Finding 3 hit 12 of the 30 
 
 One fault came from the eval, not the product. The fixture used the owner's public repo `99Yash/alfred`. After a failed GitHub read, two single-lookup answers in Code Mode described the real PR #1201, not the planted issue. The fixture now uses a made-up repo, `quillmoor-labs/tidewater`. The receipt above comes from the run before this change.
 
+**Second receipt: Haiku 5.5 and Sol 6.1 (2026-11-18).** The second run used the branch with the fixes for findings 2 to 4 (#1789, #1790, #1791) and the made-up repo. The owner chose `claude-haiku-5-5` and a stronger OpenAI model, because Luna is too weak. The gateway refuses `gpt-6.2-sol` with a 401, so the run used `gpt-6.1-sol` at reasoning `medium`, at the same price. `CODE_MODE_PAIRED_MODEL` selects the model. Each model had 30 runs. The table gives the medians. Cost is the sum of `api_call_log.cost_usd`, and tokenizers differ, so compare the two models by cost.
+
+| Model   | Case kind           | Mode      | Quality | Latency | Tokens  | Cost    | Largest call input | Steps | Cards |
+| ------- | ------------------- | --------- | ------- | ------- | ------- | ------- | ------------------ | ----- | ----- |
+| Haiku   | single lookup       | direct    | 1.00    | 10 s    | 66,441  | $0.0044 | 14,963             | 5     | 0     |
+| Haiku   | single lookup       | Code Mode | 1.00    | 7 s     | 50,983  | $0.0029 | 18,296             | 3     | 0     |
+| Haiku   | large single result | direct    | 0.00    | 15 s    | 98,303  | $0.0063 | 20,027             | 6     | 0     |
+| Haiku   | large single result | Code Mode | 1.00    | 16 s    | 132,057 | $0.0050 | 22,979             | 6     | 0     |
+| Haiku   | fan-out             | direct    | 1.00    | 34 s    | 208,457 | $0.0164 | 45,151             | 9     | 0     |
+| Haiku   | fan-out             | Code Mode | 1.00    | 22 s    | 134,465 | $0.0071 | 27,773             | 6     | 0     |
+| Haiku   | dependent reads     | direct    | 1.00    | 32 s    | 247,486 | $0.0204 | 59,197             | 9     | 0     |
+| Haiku   | dependent reads     | Code Mode | 1.00    | 14 s    | 132,934 | $0.0050 | 21,831             | 6     | 0     |
+| Haiku   | gated read          | direct    | 1.00    | 7 s     | 57,134  | $0.0037 | 14,991             | 4     | 1     |
+| Haiku   | gated read          | Code Mode | 1.00    | 9 s     | 73,288  | $0.0042 | 19,079             | 4     | 1     |
+| Sol 6.1 | single lookup       | direct    | 1.00    | 26 s    | 63,658  | $0.0491 | 8,967              | 8     | 0     |
+| Sol 6.1 | single lookup       | Code Mode | 1.00    | 32 s    | 99,521  | $0.0564 | 16,811             | 8     | 0     |
+| Sol 6.1 | large single result | direct    | 0.00    | 91 s    | 234,169 | $0.2261 | 18,639             | 17    | 0     |
+| Sol 6.1 | large single result | Code Mode | 1.00    | 28 s    | 88,773  | $0.0564 | 16,774             | 7     | 0     |
+| Sol 6.1 | fan-out             | direct    | 1.00    | 115 s   | 499,139 | $0.2778 | 47,793             | 16    | 0     |
+| Sol 6.1 | fan-out             | Code Mode | 1.00    | 65 s    | 237,176 | $0.1340 | 32,214             | 11    | 0     |
+| Sol 6.1 | dependent reads     | direct    | 1.00    | 77 s    | 213,226 | $0.1880 | 34,626             | 14    | 0     |
+| Sol 6.1 | dependent reads     | Code Mode | 1.00    | 30 s    | 93,876  | $0.0602 | 18,261             | 7     | 0     |
+| Sol 6.1 | gated read          | direct    | 1.00    | 14 s    | 31,150  | $0.0425 | 8,095              | 4     | 1     |
+| Sol 6.1 | gated read          | Code Mode | 1.00    | 15 s    | 55,462  | $0.0618 | 12,055             | 5     | 1     |
+
+**Verdicts.**
+
+- **Haiku: Code Mode meets the owner's rule.** Quality and cards are equal or better on each case kind. The single lookup is cheaper in Code Mode. On fan-out and dependent reads, Code Mode costs 57% and 75% less.
+- **Sol 6.1: Code Mode does not meet the owner's rule.** Only the single lookup fails: Code Mode used 56% more tokens and 23% more time, above the 20% limit. Its cost was 15% more. All other checks pass. On the large single result, fan-out, and dependent reads, Code Mode costs 52% to 75% less.
+- **The large single result.** In both models, only Code Mode found the planted fact (finding 4 fixed at the recipient). The direct mode still gets the bounded result, as ADR-0074 says.
+- **The first step.** Code Mode still adds about 2,000 schema tokens to the first step. On a single lookup, this cost comes back on each step.
+- **The cost of a run.** Haiku spent $0.23 for 30 runs. Sol 6.1 spent $3.82, about 17 times more.
+
+Limits: the Luna receipt above came before the fixes for findings 2 to 4, so a comparison with Luna mixes the model change with the fixes. Luna was not run again. The flag stays off. The default read path is the owner's decision.
+
 ### The honest envelope and the ledger
 
 `runReadProgram` is the deep module: it receives the source, the host functions, and the limits, and it returns the outcome and the ledger. It catches each `RunError` and maps its code to one outcome. The model sees this:
