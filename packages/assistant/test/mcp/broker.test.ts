@@ -1451,7 +1451,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       outputSchemaValidated: false,
       contentBlockCount: 1,
       contentKinds: { text: 1 },
-      truncated: false,
     });
   });
 
@@ -1538,7 +1537,6 @@ describe("mcp execution broker (DB-backed, offline)", { skip: SKIP }, () => {
       outputSchemaValidated: false,
       contentBlockCount: 1,
       contentKinds: { text: 1 },
-      truncated: false,
     });
 
     const errProtocol = new FakeProtocol([tool("create_issue")]);
