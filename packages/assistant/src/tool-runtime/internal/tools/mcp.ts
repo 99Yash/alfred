@@ -253,7 +253,8 @@ export const mcpTools: readonly RegisteredTool[] = [
       // The server bound no revision: the connection had no published catalog when the call was
       // proposed. Execution never selects a descriptor on its own, so the call does not run.
       if (input.catalogRevision === undefined) {
-        throw new AppError(scriptRead ? "mcp_catalog_changed" : "mcp_catalog_stale");
+        if (scriptRead) throw new AppError("mcp_catalog_changed");
+        throw new AppError("mcp_catalog_stale");
       }
 
       // The saved revision of the proposal. The broker refuses on drift, and never selects the
@@ -292,9 +293,8 @@ export const mcpTools: readonly RegisteredTool[] = [
           // again. A script read failed against its pass pin, so the script must run again
           // (ADR-0116 amendment 2026-11-18): the host never refreshes the pin silently.
           if (error.code === "catalog_stale") {
-            throw new AppError(scriptRead ? "mcp_catalog_changed" : "mcp_catalog_stale", {
-              cause: error,
-            });
+            if (scriptRead) throw new AppError("mcp_catalog_changed", { cause: error });
+            throw new AppError("mcp_catalog_stale", { cause: error });
           }
 
           if (error.code === "arguments_rejected") {
