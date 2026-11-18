@@ -4,7 +4,7 @@ import { z } from "zod";
 import { parseIanaTimezone, type ToolRiskTier } from "@alfred/contracts";
 
 import { toolExecuteContext } from "@alfred/assistant/tool-runtime/context";
-import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { itemEvidence, liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { asContractViolation } from "../../support/contract-violation";
 import type { BoundToolCall } from "../../../src/tool-runtime/internal/registry";
 
@@ -43,6 +43,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       inputSchema: z.object({ n: z.coerce.number() }),
       resolveRiskTier: async () => "low",
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     assert.equal(tool.riskTier, "high");
@@ -57,6 +58,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       description: "t",
       inputSchema: z.object({ n: z.coerce.number() }),
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     assert.equal(tool.resolvesRiskTier, false);
@@ -79,6 +81,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       },
       riskTierDowngradeReason: "reviewed test policy",
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     const tier = await bound(tool, { n: "3" }).effectiveRiskTier(ctx);
@@ -96,6 +99,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       inputSchema: z.object({ n: z.number() }),
       resolveRiskTier: async () => "low",
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "high");
@@ -112,6 +116,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       resolveRiskTier: async () => "low",
       riskTierDowngradeReason: "reviewed test policy",
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "low");
@@ -129,6 +134,7 @@ describe("liveTool resolveRiskTier wiring", () => {
       resolveRiskTier: async () => asContractViolation<ToolRiskTier>("not_a_tier"),
       riskTierDowngradeReason: "reviewed test policy",
       execute: async () => ({ ok: true }),
+      readEvidence: () => itemEvidence([]),
     });
 
     assert.equal(await bound(tool, { n: 3 }).effectiveRiskTier(ctx), "high");
