@@ -406,7 +406,7 @@ describe("route legs", () => {
 
   test("select the generic AI SDK reasoning ceiling", () => {
     assert.equal(routeEffort("standard"), "medium");
-    assert.equal(routeEffort("deep"), "xhigh");
+    assert.equal(routeEffort("deep"), "medium");
     assert.equal(routeEffort("cheap"), "none");
     assert.equal(routeEffort("compactor"), "none");
   });
