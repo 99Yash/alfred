@@ -17,7 +17,12 @@ import {
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 import { logger } from "@alfred/logging";
-import { SCRIPT_FAILURE_MESSAGE_MAX_CHARS, SCRIPT_VALUE_MAX_BYTES } from "./result-budget";
+import {
+  HOST_READ_DELIVERY_MAX_BYTES,
+  SCRIPT_FAILURE_MESSAGE_MAX_CHARS,
+  SCRIPT_VALUE_MAX_BYTES,
+  scriptReadTooLarge,
+} from "./result-budget";
 import type {
   HostCallEntry,
   HostCallLedger,
@@ -76,13 +81,6 @@ export const READ_PROGRAM_LIMITS = {
   // `run`'s default, stated here because the host's delivery cap must stay below it.
   maxHostFunctionOutputBytes: 4 * 1024 * 1024,
 } as const satisfies RunLimits;
-
-/**
- * The largest value that the host gives the guest, in JSON bytes. The bridge measures its own
- * encoding, so this cap stays well below its limit: a value under it always reaches the guest, and
- * the record marks a read `executed` only then.
- */
-export const HOST_READ_DELIVERY_MAX_BYTES = 1024 * 1024;
 
 /** Host reads that dispatch at once. One `Promise.all` cannot open 32 dispatches; the rest wait. */
 export const HOST_READS_IN_FLIGHT = 8;
@@ -235,6 +233,7 @@ async function callHost(
       message: "The read failed inside the host.",
       evidence: undefined,
       contentHash: null,
+      savedBytes: null,
     });
     throw error;
   }
@@ -246,19 +245,18 @@ async function callHost(
       message: outcome.message,
       evidence: undefined,
       contentHash: null,
+      savedBytes: null,
     });
     // Only a `RunError` reaches the guest with its message and code; any other throw arrives
     // as "Host function failed." (measured on run@2.1.13).
     throw new RunError(`${binding.path}: ${outcome.message}`, outcome.refusal);
   }
 
-  // The record says `executed` only for a value that the bridge delivers.
-  const bytes = Buffer.byteLength(JSON.stringify(outcome.value));
-
-  if (bytes > HOST_READ_DELIVERY_MAX_BYTES) {
-    const message =
-      `The read returned ${Math.round(bytes / 1024)} KiB, above the ` +
-      `${HOST_READ_DELIVERY_MAX_BYTES / 1024} KiB that a script can receive. Ask for fewer items.`;
+  // The record says `executed` only for a value that the bridge delivers. Dispatch refuses a
+  // staged read above the cap before it saves it, so this catches a `fast_path` read, which saves
+  // nothing, and a row saved before that check existed.
+  if (outcome.bytes > HOST_READ_DELIVERY_MAX_BYTES) {
+    const { message } = scriptReadTooLarge(outcome.bytes);
 
     settle({
       kind: "output_too_large",
@@ -266,6 +264,7 @@ async function callHost(
       message,
       evidence: undefined,
       contentHash: null,
+      savedBytes: outcome.call.stagingId === null ? null : outcome.bytes,
     });
     throw new RunError(`${binding.path}: ${message}`, "output_too_large");
   }
@@ -275,7 +274,10 @@ async function callHost(
     call: outcome.call,
     message: undefined,
     evidence: outcome.evidence,
+    // The value that the guest gets, whole and sanitized: no bound of Alfred's cut it (ADR-0124
+    // amendment 2026-11-18 (b)). A provider's own cut stays in the evidence's coverage.
     contentHash: sha256Canonical(outcome.value),
+    savedBytes: outcome.call.stagingId === null ? null : outcome.bytes,
   });
 
   return outcome.value;

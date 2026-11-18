@@ -77,6 +77,11 @@ export const codeRunHostCalls = pgTable(
     contentHash: text("content_hash"),
     /** Null when the reader states no coverage gap. */
     coverage: jsonb("coverage").$type<ReadCoverage>(),
+    /**
+     * The JSON bytes of the result that the nested staging row saved, so the storage of a script
+     * is measured (ADR-0124 amendment 2026-11-18 (b)). Null when the read saved no result.
+     */
+    savedBytes: integer("saved_bytes"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

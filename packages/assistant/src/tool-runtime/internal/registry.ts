@@ -195,6 +195,8 @@ export type HostReadOutcome =
   | {
       kind: "executed";
       value: JsonValue;
+      /** The UTF-8 bytes of `value`'s JSON, measured one time for the delivery cap and the record. */
+      bytes: number;
       call: HostReadCall;
       evidence: ReadEvidence | undefined;
     }
@@ -225,6 +227,12 @@ export interface HostCallEntry {
   evidence: ReadEvidence | undefined;
   /** `sha256Canonical` of the value that the guest got. Null when the read did not deliver. */
   contentHash: string | null;
+  /**
+   * The JSON bytes of the result that the nested staging row saved (ADR-0124 amendment 2026-11-18
+   * (b): the storage bound is measured). Null when the read saved no result: a `fast_path` read,
+   * or a refusal.
+   */
+  savedBytes: number | null;
 }
 
 /** How a host call settled. The ledger adds the index, the path, and the duration. */

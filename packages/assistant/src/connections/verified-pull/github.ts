@@ -107,7 +107,7 @@ async function readGithubMergedPullRequests(args: {
     { result: "structured", signal: deadline },
   );
 
-  if (envelope.outcome !== "completed" || envelope.truncation) return { status: "truncated" };
+  if (envelope.outcome !== "completed") return { status: "truncated" };
 
   const parsed = parseMcpToolResult(envelope.result, searchResultSchema);
 

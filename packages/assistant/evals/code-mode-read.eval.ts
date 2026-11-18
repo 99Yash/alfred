@@ -20,6 +20,7 @@ import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/groundin
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
+import { jsonBytes } from "../src/tool-runtime/code-mode/result-budget";
 import { runReadProgram } from "../src/tool-runtime/code-mode/run-read-program";
 import { newHostCallLedger } from "../src/tool-runtime/internal/dispatch/host-call-ledger";
 import {
@@ -343,7 +344,7 @@ async function withCallFacts(
   const settled = await outcome;
 
   return settled.kind === "executed"
-    ? { ...settled, call, evidence: undefined }
+    ? { ...settled, bytes: jsonBytes(settled.value), call, evidence: undefined }
     : { ...settled, call };
 }
 

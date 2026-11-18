@@ -8,6 +8,7 @@
 
 import {
   assertNever,
+  boundPassthroughBody,
   mcpCallInput,
   mcpCallModelInput,
   mcpToolInspectInputSchema,
@@ -69,7 +70,7 @@ export interface McpBrokerToolResult {
   message?: string;
   /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
   hasBinaryContent?: true;
-  /** Set when the response bounds cut the payload (`withResponseFacts`). */
+  /** Set when the ADR-0074 bounds of a direct call cut the payload (`withResponseFacts`). */
   truncation?: PassthroughTruncation;
 }
 
@@ -122,19 +123,23 @@ function proposalFacts(input: McpCallInput, userId: string): Promise<McpCallProp
   return facts;
 }
 
-function brokerResult(outcome: McpBrokerOutcome): McpBrokerToolResult {
+/**
+ * Who receives the result (ADR-0124 amendment 2026-11-18 (b)). `model`: a direct call, so the
+ * ADR-0074 bounds apply before the model sees it. `script`: a script read gets the whole sanitized
+ * response, and dispatch refuses one above the host's delivery cap before it saves it.
+ */
+type McpResultRecipient = "model" | "script";
+
+function brokerResult(
+  outcome: McpBrokerOutcome,
+  recipient: McpResultRecipient,
+): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
-      return withResponseFacts(
-        { status: "completed", result: outcome.envelope.result },
-        outcome.envelope,
-      );
+      return withResponseFacts({ status: "completed" }, outcome.envelope, recipient);
     case "tool_error":
       // Only idempotent reads reach here. MCP `isError` does not prove no effect occurred.
-      return withResponseFacts(
-        { ok: false, status: "tool_error", result: outcome.envelope.result },
-        outcome.envelope,
-      );
+      return withResponseFacts({ ok: false, status: "tool_error" }, outcome.envelope, recipient);
     case "blocked":
       return {
         ok: false,
@@ -174,11 +179,23 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
-function withResponseFacts<T extends object>(result: T, envelope: McpCallEnvelope): T {
+/** The response for its recipient. The one size bound is `boundPassthroughBody`, never a copy. */
+function withResponseFacts(
+  head: Pick<McpBrokerToolResult, "ok" | "status">,
+  envelope: McpCallEnvelope,
+  recipient: McpResultRecipient,
+): McpBrokerToolResult {
+  const binary = envelope.hasBinaryContent ? { hasBinaryContent: true as const } : {};
+
+  if (recipient === "script") return { ...head, result: envelope.result, ...binary };
+
+  const bounded = boundPassthroughBody(envelope.result);
+
   return {
-    ...result,
-    ...(envelope.hasBinaryContent ? { hasBinaryContent: true } : {}),
-    ...(envelope.truncation ? { truncation: envelope.truncation } : {}),
+    ...head,
+    result: bounded.value,
+    ...binary,
+    ...(bounded.truncation ? { truncation: bounded.truncation } : {}),
   };
 }
 
@@ -309,11 +326,16 @@ export const mcpTools: readonly RegisteredTool[] = [
         throw error;
       }
 
-      return brokerResult(outcome);
+      return brokerResult(
+        outcome,
+        ctx.runContext.readPath === "code_run_host" ? "script" : "model",
+      );
     },
     // The evidence record (ADR-0124): the response is opaque, so the item is the whole result,
     // and its id is the remote tool at its catalog revision. The host-call row keeps the
-    // arguments, and the `mcp_invocation` row of the nested staging row keeps the call.
+    // arguments, and the `mcp_invocation` row of the nested staging row keeps the call. A script
+    // read is never cut by Alfred, so `truncation` marks only a direct call's ADR-0074 cut. An MCP
+    // response states no pagination of its own, so no provider gap is recorded here.
     readEvidence: (output, input) =>
       output.ok === false || output.result === undefined
         ? itemEvidence([])

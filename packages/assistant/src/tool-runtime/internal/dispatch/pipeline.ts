@@ -58,6 +58,11 @@ import {
   type StagingRow,
 } from "./staging-store";
 import { newHostCallLedger } from "./host-call-ledger";
+import {
+  HOST_READ_DELIVERY_MAX_BYTES,
+  jsonBytes,
+  scriptReadTooLarge,
+} from "../../code-mode/result-budget";
 import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
 import type {
   DeferredDispatch,
@@ -76,6 +81,7 @@ import {
   publicAppError,
   publicAppErrorFromStored,
   toPublicAppError,
+  type AppErrorCode,
 } from "@alfred/contracts/app-errors";
 import { logger, safeErrorDiagnostic } from "@alfred/logging";
 import { mcpResultHasBinaryContent } from "../tools/mcp-binary-content";
@@ -804,7 +810,13 @@ function hostReadOutcome(
         };
       }
 
-      return { kind: "executed", value, call, evidence: result.effects.evidence };
+      return {
+        kind: "executed",
+        value,
+        bytes: jsonBytes(value),
+        call,
+        evidence: result.effects.evidence,
+      };
     }
 
     case "direct_route":
@@ -827,7 +839,7 @@ function hostReadOutcome(
     case "failed":
       return {
         kind: "refused",
-        refusal: result.error.code === "mcp_read_route_changed" ? "route_changed" : "failed",
+        refusal: failedHostRefusalOf(result.error.code),
         message: result.error.message,
         call,
       };
@@ -851,6 +863,15 @@ function hostReadOutcome(
     default:
       return assertNever(result, "host read dispatch result");
   }
+}
+
+/** The refusal code of a host read whose dispatch failed with a named failure. */
+function failedHostRefusalOf(code: AppErrorCode): HostReadRefusal {
+  if (code === "mcp_read_route_changed") return "route_changed";
+
+  if (code === "script_read_output_too_large") return "output_too_large";
+
+  return "failed";
 }
 
 /** The refusal code of a host read that runs direct now. A card keeps `needs_approval`. */
@@ -2103,6 +2124,27 @@ async function executeAndCommit(
         `${sanitizedResult.collisions > 0 ? `, ${sanitizedResult.collisions} key collision(s)` : ""}` +
         ` from ${call.tool.name} result`,
     );
+  }
+
+  // ADR-0124 amendment 2026-11-18 (b): a script read gets the whole sanitized response, up to the
+  // host's delivery cap. The check runs before the commit, so the row saves the named failure,
+  // not a result that the guest never gets, and a replay returns the same failure.
+  if (ctx.runContext.readPath === "code_run_host") {
+    const bytes = jsonBytes(persistedResult);
+
+    if (bytes > HOST_READ_DELIVERY_MAX_BYTES) {
+      const error = scriptReadTooLarge(bytes);
+
+      await commitAndPoke(runRow, ctx, {
+        status: "failed",
+        outcome: "failed",
+        error,
+        executedAt: now,
+        hostCalls: hostCallRecord(ctx),
+      });
+
+      return { kind: "failed", stagingId: row.id, error };
+    }
   }
 
   // Possibly delivered without confirmation, so the repeat barrier must see `unknown`. A result that

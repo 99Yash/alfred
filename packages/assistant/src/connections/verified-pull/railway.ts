@@ -106,7 +106,7 @@ async function readRailwayTool<Schema extends z.ZodType>(
     { result: "structured", ...(read.signal ? { signal: read.signal } : {}) },
   );
 
-  if (envelope.outcome !== "completed" || envelope.truncation) return null;
+  if (envelope.outcome !== "completed") return null;
 
   const parsed = schema.safeParse(envelope.result.structuredContent);
 

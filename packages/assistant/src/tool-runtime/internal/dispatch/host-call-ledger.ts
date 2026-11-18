@@ -25,6 +25,7 @@ export function newHostCallLedger(): HostCallLedger {
           message: undefined,
           evidence: undefined,
           contentHash: null,
+          savedBytes: null,
           started,
         });
       }

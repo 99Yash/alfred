@@ -1,6 +1,5 @@
 import {
   assertNever,
-  boundPassthroughBody,
   canonicalJson,
   enumGuard,
   isIndexable,
@@ -8,13 +7,13 @@ import {
   isRecord,
   jsonObjectSchema,
   mcpContentKindValues,
+  sanitizeToolResult,
   toMessage,
   type ExternalToolRef,
   type JsonObject,
   type JsonValue,
   type McpContentKind,
   type McpResultProvenance,
-  type PassthroughTruncation,
 } from "@alfred/contracts";
 import { sha256Canonical } from "@alfred/db/hash";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -76,10 +75,12 @@ interface McpCallEnvelopeFields {
   hasBinaryContent?: true;
 }
 
-/** A result the bounds left whole stays typed. A clipped result is `unknown` and carries `truncation`. */
-export type McpCallEnvelope =
-  | (McpCallEnvelopeFields & { result: McpProtocolCallResult; truncation?: undefined })
-  | (McpCallEnvelopeFields & { result: unknown; truncation: PassthroughTruncation });
+/**
+ * The whole sanitized response. The client does not bound its size: the recipient does (ADR-0124
+ * amendment 2026-11-18 (b)). A direct `mcp.call` applies the ADR-0074 bounds before the model
+ * sees the result, and a script read gets the value up to the host's delivery cap.
+ */
+export type McpCallEnvelope = McpCallEnvelopeFields & { result: McpProtocolCallResult };
 
 interface McpToolCallOptions {
   signal?: AbortSignal;
@@ -783,11 +784,7 @@ export class McpRawClient {
           "invalid_output",
           `Result from MCP tool '${tool.name}' failed its declared output schema: ${output.errorMessage}`,
           {
-            provenance: resultProvenance(result, {
-              isToolError,
-              outputSchemaValidated: false,
-              truncated: false,
-            }),
+            provenance: resultProvenance(result, { isToolError, outputSchemaValidated: false }),
           },
         );
       }
@@ -795,7 +792,7 @@ export class McpRawClient {
       outputSchemaValidated = true;
     }
 
-    // The kind must survive bounds that can drop a whole block or the blob field of a resource.
+    // Computed here, so the kind survives a later bound that drops a block or a resource's blob.
     const hasBinaryContent = result.content.some(
       (block) =>
         block.type === "image" ||
@@ -808,7 +805,9 @@ export class McpRawClient {
         ? { ...result, content: [] }
         : result;
 
-    const bounded = boundPassthroughBody(kept);
+    // Sanitize only (NUL, lone surrogates). The size bound is at the recipient (ADR-0124
+    // amendment 2026-11-18 (b)), so a script can read a large single result.
+    const sanitized = sanitizeToolResult(kept).value;
 
     const fields: McpCallEnvelopeFields = {
       connectionId: this.#options.connectionId,
@@ -816,16 +815,10 @@ export class McpRawClient {
       catalogRevision: catalog.revision,
       outcome: isToolError ? "tool_error" : "completed",
       ...(hasBinaryContent ? { hasBinaryContent: true } : {}),
-      provenance: resultProvenance(result, {
-        isToolError,
-        outputSchemaValidated,
-        truncated: bounded.truncation !== undefined,
-      }),
+      provenance: resultProvenance(result, { isToolError, outputSchemaValidated }),
     };
 
-    return bounded.truncation === undefined
-      ? { ...fields, result: bounded.value }
-      : { ...fields, result: bounded.value, truncation: bounded.truncation };
+    return { ...fields, result: sanitized };
   }
 
   #requireGeneration(): McpClientGeneration {
@@ -1004,7 +997,7 @@ function contentKindOf(block: McpProtocolCallResult["content"][number]): McpCont
 /** Count content blocks by `type` and record validity. Never stores content or follows a resource link. */
 function resultProvenance(
   result: McpProtocolCallResult,
-  facts: { isToolError: boolean; outputSchemaValidated: boolean; truncated: boolean },
+  facts: { isToolError: boolean; outputSchemaValidated: boolean },
 ): McpResultProvenance {
   const content = result.content;
   const contentKinds: Partial<Record<McpContentKind, number>> = {};
@@ -1020,7 +1013,6 @@ function resultProvenance(
     outputSchemaValidated: facts.outputSchemaValidated,
     contentBlockCount: content.length,
     contentKinds,
-    truncated: facts.truncated,
   };
 }
 
