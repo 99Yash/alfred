@@ -20,9 +20,13 @@ const org = process.env.SENTRY_ORG;
 
 const project = process.env.SENTRY_PROJECT;
 
-// Match the runtime release (Sentry.init({ release })). SENTRY_RELEASE is set in
-// prod to ${{ RAILWAY_GIT_COMMIT_SHA }}; fall back to Railway's raw commit var.
-const release = process.env.SENTRY_RELEASE || process.env.RAILWAY_GIT_COMMIT_SHA;
+// Match the runtime release (Sentry.init({ release })). Chain: SENTRY_RELEASE
+// pins if set, then Railway's git-trigger commit, then the commit the infra
+// program writes at deploy time (ADR-0128; present on context-upload deploys).
+const release =
+  process.env.SENTRY_RELEASE ||
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.ALFRED_DEPLOYED_COMMIT_SHA;
 
 if (!authToken) {
   console.log("[sentry-release] SENTRY_AUTH_TOKEN unset - skipping.");
@@ -76,7 +80,7 @@ if (release) {
   run(["releases", "finalize", release]);
 } else {
   console.warn(
-    "[sentry-release] no SENTRY_RELEASE / RAILWAY_GIT_COMMIT_SHA - " +
+    "[sentry-release] no SENTRY_RELEASE / RAILWAY_GIT_COMMIT_SHA / ALFRED_DEPLOYED_COMMIT_SHA - " +
       "uploaded source maps but skipped commit association.",
   );
 }

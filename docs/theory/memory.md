@@ -48,13 +48,13 @@ A claim row holds:
 - **A value, and its validity:** the time when it became true and the time when it stopped. An unknown start stays unknown. Alfred does not use the write time in its place.
 - **Evidence links.** Each link points to one item in the raw record: a chat message, a mail, an activity event, an object-state fact, or a page snapshot. No claim exists without evidence.
 - **The author.** One of two values: the user said it (user-asserted), or the agent concluded it (agent-concluded).
-- **The producer.** The pipeline that wrote it, the deployed commit, and the model. On Railway the deployed commit comes from `RAILWAY_GIT_COMMIT_SHA`.
+- **The producer.** The pipeline that wrote it, the deployed commit, and the model. On Railway the deployed commit comes from `RAILWAY_GIT_COMMIT_SHA` on a git-triggered deploy, and from `ALFRED_DEPLOYED_COMMIT_SHA` — written by the infra program at `alchemy deploy` time — on an Alchemy context-upload deploy (ADR-0128).
 
 A new value supersedes the old row. Alfred never deletes the history.
 
 **Name link.** The name that the user or a source uses for a thing, linked to that thing. A name is not unique: "Alfred" is the assistant and also the repository `99Yash/alfred`. A name link has the same shape as a claim: evidence, author, producer, validity, and the check. Chat, mail, activity, object state, and the runtime config write name links.
 
-**Alfred itself is a thing.** It has names ("Alfred", its hosts) and links from the runtime config. The prod server has `RAILWAY_GIT_REPO_OWNER` and `RAILWAY_GIT_REPO_NAME`, so "the code of Alfred is `99Yash/alfred`" is evidence from config, not a rule for one kind. Then "alfred's issues" resolves through the self to its repository.
+**Alfred itself is a thing.** It has names ("Alfred", its hosts) and links from the runtime config. The prod server has `ALFRED_DEPLOYED_REPO_OWNER` and `ALFRED_DEPLOYED_REPO_NAME`, written by the infra program at deploy time (ADR-0128; Railway's own `RAILWAY_GIT_REPO_OWNER`/`RAILWAY_GIT_REPO_NAME` are empty on a context-upload deploy), so "the code of Alfred is `99Yash/alfred`" is evidence from config, not a rule for one kind. Then "alfred's issues" resolves through the self to its repository.
 
 **The observation log stays the activity record.** It records what the user and each source did (ADR-0118). It is evidence for claims. It is not the authority for a claim. ADR-0123 records this change.
 
