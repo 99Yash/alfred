@@ -176,6 +176,7 @@ export function applyStreamingToolEvent(
     resultTruncated: event.resultTruncated ?? previous?.resultTruncated,
     sanitized: event.sanitized ?? previous?.sanitized,
     segmentIndex: event.segmentIndex,
+    scriptSources: event.scriptSources ?? previous?.scriptSources,
   };
 
   tools.set(event.toolCallId, {
@@ -868,7 +869,8 @@ function toolListsEqual(a: StreamingToolCall[], b: StreamingToolCall[]): boolean
       left.resultPreview === right.resultPreview &&
       left.resultTruncated === right.resultTruncated &&
       left.sanitized === right.sanitized &&
-      left.segmentIndex === right.segmentIndex
+      left.segmentIndex === right.segmentIndex &&
+      left.scriptSources === right.scriptSources
     );
   });
 }

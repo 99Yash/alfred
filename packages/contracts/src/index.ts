@@ -113,6 +113,8 @@ export * from "./context-search";
 
 export * from "./evidence-card";
 
+export * from "./read-evidence";
+
 export * from "./mime";
 
 export * from "./source-manifest";

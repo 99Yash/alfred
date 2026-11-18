@@ -86,7 +86,12 @@ export {
 
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
-export { readUserContext, type UserContext } from "./user-context";
+export {
+  readUserContext,
+  readUserContextItems,
+  type UserContext,
+  type UserContextItem,
+} from "./user-context";
 
 export { readUserLocation, type StatedPlace, type UserLocation } from "./location";
 

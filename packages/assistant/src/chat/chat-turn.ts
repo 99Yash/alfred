@@ -896,6 +896,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             sanitized,
             nonExecution,
             connectNudge,
+            scriptSources,
           } = outcome;
 
           // A live artifact stream is keyed by toolCallId; this lets it adopt the synced row.
@@ -916,6 +917,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(completion.verifiedRead ? { verifiedRead: completion.verifiedRead } : {}),
             // Keep the repair hint on the durable trail (#378).
             ...(connectNudge ? { connectNudge } : {}),
+            ...(scriptSources ? { scriptSources } : {}),
             segmentIndex: call.segmentIndex,
           });
 

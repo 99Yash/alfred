@@ -44,6 +44,7 @@ import type {
   ListTodosResult,
   LiveChatToolExecuteContext,
   ReadUserContextResult,
+  ReadResult,
   SystemToolScratchpad,
   ToolExecuteContext,
   WebSearchToolResult,
@@ -73,6 +74,14 @@ import {
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
 import { redactCredentialUrl, runFetchUrl, type FetchUrlResult } from "./fetch-url";
+import {
+  chatHistoryEvidence,
+  fetchUrlEvidence,
+  listInstructionsEvidence,
+  listTodosEvidence,
+  readScratchEvidence,
+  webSearchEvidence,
+} from "./system-read-evidence";
 import { liveTool, NO_TOOL_EFFECTS, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import {
   resolveExactToolLoad,
@@ -339,6 +348,7 @@ export const systemTools: readonly RegisteredTool[] = [
     inputSchema: readChatHistoryInput,
     execute: async (input, ctx): Promise<ChatHistoryToolResult> =>
       readChatHistory({ userId: ctx.userId, threadId: ctx.chat.threadId, input }),
+    readEvidence: chatHistoryEvidence,
   }),
   liveTool({
     integration: "system",
@@ -445,7 +455,9 @@ export const systemTools: readonly RegisteredTool[] = [
     // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
     availability: { surface: "kernel" },
     inputSchema: readUserContextInput,
-    execute: async (input, ctx): Promise<ReadUserContextResult> => {
+    // The adapter states one reference for each delivered row beside the context.
+    readEvidence: "returned_by_execute",
+    execute: async (input, ctx): Promise<ReadResult<ReadUserContextResult>> => {
       return await readUserContext({
         input,
         context: {
@@ -475,6 +487,7 @@ export const systemTools: readonly RegisteredTool[] = [
 
       return { ok: true, key: input.key, found: true, entry };
     },
+    readEvidence: readScratchEvidence,
   }),
   liveTool({
     integration: "system",
@@ -593,6 +606,7 @@ export const systemTools: readonly RegisteredTool[] = [
         },
       });
     },
+    readEvidence: listInstructionsEvidence,
   }),
   liveTool({
     integration: "system",
@@ -666,6 +680,7 @@ export const systemTools: readonly RegisteredTool[] = [
         },
       });
     },
+    readEvidence: listTodosEvidence,
   }),
   liveTool({
     integration: "system",
@@ -736,6 +751,7 @@ export const systemTools: readonly RegisteredTool[] = [
         },
       });
     },
+    readEvidence: webSearchEvidence,
   }),
   liveTool({
     integration: "system",
@@ -752,6 +768,7 @@ export const systemTools: readonly RegisteredTool[] = [
     },
     // Scrub credential values from the URL before it reaches a trace or a staging row.
     redactInput: (input) => ({ ...input, url: redactCredentialUrl(input.url) }),
+    readEvidence: fetchUrlEvidence,
   }),
   liveTool({
     integration: "system",

@@ -6,12 +6,15 @@
 
 import type {
   ActionSlug,
+  HostCallOutcome,
+  HostReadRefusal,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
   JsonValue,
   PassthroughResult,
   PassthroughTruncation,
+  ReadEvidence,
   RiskTierCounts,
   ToolName,
   ToolRunContext,
@@ -30,6 +33,8 @@ import {
   isSupportedPassthroughSlug,
   isToolRiskTier,
   joinToolInput,
+  readEvidenceSchema,
+  scriptSourcesSchema,
   toolNameSchema,
 } from "@alfred/contracts";
 import type { RedactedToolInput } from "@alfred/ai";
@@ -44,7 +49,7 @@ import {
   questionToolInput,
 } from "../question-contract";
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
-import { passthroughSpanFacts } from "./tools/passthrough/telemetry";
+import { passthroughEvidence, passthroughSpanFacts } from "./tools/passthrough/telemetry";
 import {
   DECLARED_STRUCTURED_READ,
   decideReadRoute,
@@ -154,6 +159,8 @@ export interface ToolExecuteContext {
    * this call (ADR-0124). Every other tool ignores it.
    */
   hostRead?: HostReadDispatcher | undefined;
+  /** Set only by dispatch, beside `hostRead`: the record of this call's host reads. */
+  hostCalls?: HostCallLedger | undefined;
   // TODO(#286): no abort signal yet, so a network tool outlives a stopped turn until its own timeout.
 }
 
@@ -169,33 +176,71 @@ export interface HostReadRequest {
 }
 
 /**
- * Why a host read did not execute. The first four name a direct route (ADR-0124 amendment
- * 2026-11-18): `needs_approval`, the gate would show a card, and a script cannot show one;
- * `not_a_read`, no authority confirms the read; `binary_output`, the output is declared binary or
- * the response held bytes; `undeclared_output`, no trusted declaration says the output is
- * structured; `route_changed`, the broker refused the live route before delivery.
- * The rest are the dispatch result kinds.
+ * The nested call behind a host read, for the evidence record. `input` is the parsed input with
+ * the tool's secret redaction, or null when the input did not parse.
  */
-export type HostReadRefusal =
-  | "needs_approval"
-  | "not_a_read"
-  | "binary_output"
-  | "undeclared_output"
-  | "route_changed"
-  | "failed"
-  | "rejected"
-  | "blocked"
-  | "fenced"
-  | "invalid_input"
-  | "unknown_tool"
-  | "not_allowed"
-  | "feature_disabled";
+export interface HostReadCall {
+  callId: string;
+  toolName: ToolName;
+  input: JsonValue | null;
+  /** The nested staging row, when the call wrote one. */
+  stagingId: string | null;
+}
 
+/**
+ * `call` is absent only when the request did not reach dispatch (bad guest arguments).
+ * `evidence` is the reader's own statement, live or replayed from its staging row.
+ */
 export type HostReadOutcome =
-  | { kind: "executed"; value: JsonValue }
-  | { kind: "refused"; refusal: HostReadRefusal; message: string };
+  | {
+      kind: "executed";
+      value: JsonValue;
+      call: HostReadCall;
+      evidence: ReadEvidence | undefined;
+    }
+  | {
+      kind: "refused";
+      refusal: HostReadRefusal;
+      message: string;
+      call: HostReadCall | undefined;
+    };
 
 export type HostReadDispatcher = (request: HostReadRequest) => Promise<HostReadOutcome>;
+
+/**
+ * One host call of a `system.code_run` script, as the record keeps it (ADR-0124 amendment
+ * 2026-11-18). `unfinished`: the read had not settled when the script ended. `tool_error`: it
+ * executed and returned `ok: false`.
+ */
+export interface HostCallEntry {
+  index: number;
+  path: string;
+  kind: HostCallOutcome;
+  ms: number;
+  /** The nested call. Absent when the request did not reach dispatch, or dispatch threw. */
+  call: HostReadCall | undefined;
+  /** The refusal text that the guest got, or the host's note for a read that threw. */
+  message: string | undefined;
+  /** The reader's references and coverage. Absent when the read did not deliver a value. */
+  evidence: ReadEvidence | undefined;
+  /** `sha256Canonical` of the value that the guest got. Null when the read did not deliver. */
+  contentHash: string | null;
+}
+
+/** How a host call settled. The ledger adds the index, the path, and the duration. */
+export type HostCallSettlement = Omit<HostCallEntry, "index" | "path" | "ms">;
+
+/**
+ * The host calls of one `system.code_run` call. Dispatch makes it and commits its rows with the
+ * parent result, so only the execution whose result wins keeps its record. The sandbox host adds
+ * an entry when the guest asks for a read and settles it when the read ends.
+ */
+export interface HostCallLedger {
+  /** Add an `unfinished` entry. The returned function settles it one time. */
+  begin(index: number, path: string): (settlement: HostCallSettlement) => void;
+  /** Stop the ledger and return its entries in request order. A later settlement is ignored. */
+  freeze(): readonly HostCallEntry[];
+}
 
 /** The call's `action_stagings.provider_ref`. It outlives a crash, so a rerun reads it. */
 export interface ProviderRefSlot {
@@ -227,6 +272,14 @@ export const toolEffectsSchema = z.object({
     .optional(),
   /** The artifact an `artifact_mutation` call wrote. */
   artifactId: z.string().min(1).optional(),
+  /**
+   * What a read delivered, as the reader states it: its evidence references and its coverage
+   * (ADR-0124 amendment 2026-11-18). A Code Mode script's evidence record reads it, and a replay
+   * keeps the references of the saved result.
+   */
+  evidence: readEvidenceSchema.optional(),
+  /** The web pages of a `system.code_run` script, for the chat sources strip. */
+  scriptSources: scriptSourcesSchema.optional(),
 });
 
 export type ToolEffects = Readonly<z.infer<typeof toolEffectsSchema>>;
@@ -368,6 +421,29 @@ export interface LiveToolArgs<
   effects?: (output: O) => ToolEffects;
   /** Live-only span metadata from the typed output. Pure. Never persisted or replayed. */
   spanFacts?: (output: O) => ToolSpanFacts;
+  /**
+   * What one read delivered: a reference and a hash for each item, and the coverage (ADR-0124
+   * amendment 2026-11-18). A `codeModeRead` tool and `mcp.call` must declare it, and `liveTool`
+   * throws without it. A reader with no item returns `itemEvidence([])`. Pure. Build it with
+   * `itemEvidence`. `"returned_by_execute"`: `execute` returns `readResult(output, evidence)`,
+   * because the ids are not in the model-facing output.
+   */
+  readEvidence?: ((output: O, input: z.infer<S>) => ReadEvidence) | "returned_by_execute";
+}
+
+/**
+ * A reader's output and its evidence, for a reader whose ids are not in the model-facing output.
+ * `bind()` gives `output` to the model and `evidence` to the record.
+ */
+export class ReadResult<O = unknown> {
+  constructor(
+    readonly output: O,
+    readonly evidence: ReadEvidence,
+  ) {}
+}
+
+export function readResult<O>(output: O, evidence: ReadEvidence): ReadResult<O> {
+  return new ReadResult(output, evidence);
 }
 
 /**
@@ -698,6 +774,9 @@ function isPassthroughToolArgs<
   return args.availability?.passthrough === true;
 }
 
+/** `mcp.call` is not a `codeModeRead` tool (it also writes), but a script reads through it. */
+const MCP_CALL_TOOL_NAME = "mcp.call" satisfies ToolName;
+
 const TOOL_RISK_RANK = {
   no_risk: 0,
   low: 1,
@@ -813,6 +892,16 @@ export function liveTool<
     );
   }
 
+  // A script read with no evidence declaration would run with no references, coverage, or
+  // stated reason. A passthrough read gets its evidence from `bind()`.
+  if (
+    (args.codeModeRead || name === MCP_CALL_TOOL_NAME) &&
+    !isPassthroughToolArgs(args) &&
+    !args.readEvidence
+  ) {
+    throw new Error(`[tools] '${name}' is a script read, so it must declare readEvidence`);
+  }
+
   // Only a gated call writes a staging row, so on any other policy the check would never run.
   if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
     throw new Error(
@@ -863,16 +952,34 @@ export function liveTool<
 
           return {
             output,
-            effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+            effects: {
+              ...args.effects?.(output),
+              evidence: passthroughEvidence(name, input, output),
+            },
             spanFacts: passthroughSpanFacts(output),
           };
         }
 
         const output = await args.execute(input, ctx);
+        const declared = args.readEvidence;
+
+        if (declared === "returned_by_execute") {
+          if (!(output instanceof ReadResult)) {
+            throw new Error(`[tools] '${name}' declares returned evidence, and execute gave none`);
+          }
+
+          return {
+            output: output.output,
+            effects: { ...args.effects?.(output), evidence: output.evidence },
+            spanFacts: args.spanFacts?.(output) ?? {},
+          };
+        }
+
+        const effects = args.effects?.(output) ?? NO_TOOL_EFFECTS;
 
         return {
           output,
-          effects: args.effects?.(output) ?? NO_TOOL_EFFECTS,
+          effects: declared ? { ...effects, evidence: declared(output, input) } : effects,
           spanFacts: args.spanFacts?.(output) ?? {},
         };
       };

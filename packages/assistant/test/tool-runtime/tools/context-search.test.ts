@@ -141,7 +141,7 @@ describe("system.search_context", () => {
       }),
     );
 
-    const result = await runContextSearch(seamRequest("contract clause"));
+    const { output: result } = await runContextSearch(seamRequest("contract clause"));
 
     assert.equal(result.ok, true);
     assert.equal(result.includedCount, 1);
@@ -158,7 +158,7 @@ describe("system.search_context", () => {
       }),
     );
 
-    const result = await runContextSearch(seamRequest("nothing matches"));
+    const { output: result } = await runContextSearch(seamRequest("nothing matches"));
 
     assert.equal(result.ok, true);
     assert.equal(result.includedCount, 0);
@@ -173,7 +173,7 @@ describe("system.search_context", () => {
       }),
     );
 
-    const result = await runContextSearch(seamRequest("anything"));
+    const { output: result } = await runContextSearch(seamRequest("anything"));
 
     assert.equal(result.ok, true);
     assert.match(result.text, /unavailable/);

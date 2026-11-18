@@ -1,5 +1,9 @@
 import { searchContextInput } from "@alfred/contracts";
-import type { ContextSearchToolResult, RegisteredTool } from "@alfred/assistant/tool-runtime";
+import type {
+  ContextSearchToolResult,
+  ReadResult,
+  RegisteredTool,
+} from "@alfred/assistant/tool-runtime";
 import { liveTool, runContextSearch } from "@alfred/assistant/tool-runtime";
 
 /**
@@ -20,7 +24,7 @@ export const contextSearchTools: readonly RegisteredTool[] = [
     description:
       "One bounded read across Alfred's evidence sources at once: your memory of the user, their ingested documents and attachments, known work-object state, and live Drive files. Use it as the first pass for a question that may need evidence assembled across sources — 'what do we know about X', 'what did Y change last week'. It returns bounded, cited snippets with a note for any source that had nothing, failed, or was not consulted for this question (a source that only answers a different kind of question is skipped, which is different from finding nothing); never full documents or media bytes. For an action, use the provider-specific tools (an MCP server's tools, such as the Gmail, Google Drive, or Google Calendar server, …). An empty or thin result is a real answer, not a dead end: drill into a provider or the live web next.",
     inputSchema: searchContextInput,
-    execute: async (input, ctx): Promise<ContextSearchToolResult> => {
+    execute: async (input, ctx): Promise<ReadResult<ContextSearchToolResult>> => {
       return await runContextSearch({
         input,
         context: {
@@ -31,5 +35,8 @@ export const contextSearchTools: readonly RegisteredTool[] = [
         },
       });
     },
+    // The evidence record (ADR-0124): the result is packed text, so the adapter states one
+    // reference for each included card beside it.
+    readEvidence: "returned_by_execute",
   }),
 ];

@@ -285,10 +285,30 @@ function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
  * Alfred's compact, bounded user context. Entities rank by significance
  * (ADR-0057), and a `subjectEmail` or `query` focus is always included.
  */
+/**
+ * One row that the user-context read delivered, for the evidence record of a script read
+ * (ADR-0124 amendment 2026-11-18). `item` is the row as the context gives it.
+ */
+export interface UserContextItem {
+  store: string;
+  id: string;
+  depth: "hit" | "body";
+  version?: string;
+  item: unknown;
+}
+
 export async function readUserContext(
   userId: string,
   options: ReadUserContextOptions = {},
 ): Promise<UserContext> {
+  return (await readUserContextItems(userId, options)).context;
+}
+
+/** {@link readUserContext}, with the id of each row that it delivered. */
+export async function readUserContextItems(
+  userId: string,
+  options: ReadUserContextOptions = {},
+): Promise<{ context: UserContext; items: UserContextItem[] }> {
   const now = new Date();
 
   const wants = (section: UserContextSection): boolean =>
@@ -312,6 +332,7 @@ export async function readUserContext(
     wants("integrations")
       ? db()
           .select({
+            id: integrationCredentials.id,
             provider: integrationCredentials.provider,
             accountLabel: integrationCredentials.accountLabel,
           })
@@ -375,7 +396,7 @@ export async function readUserContext(
       : Promise.resolve([] as EntityRow[]),
     wants("recent_memory")
       ? db()
-          .select({ kind: memoryChunks.kind, content: memoryChunks.content })
+          .select({ id: memoryChunks.id, kind: memoryChunks.kind, content: memoryChunks.content })
           .from(memoryChunks)
           .where(
             and(
@@ -432,6 +453,7 @@ export async function readUserContext(
     wants("relationships") && entityIds.length > 0
       ? await db()
           .select({
+            id: entityRelations.id,
             relation: entityRelations.relation,
             fromEntityId: entityRelations.fromEntityId,
             toEntityId: entityRelations.toEntityId,
@@ -467,42 +489,112 @@ export async function readUserContext(
     })),
   };
 
+  const activeIntegrations = integrationRows.map((row) => ({
+    provider: row.provider,
+    accountLabel: row.accountLabel,
+  }));
+
+  const confirmedFacts = mergedFacts.map((row) => ({
+    key: row.key,
+    value: row.value,
+    confidence: row.confidence,
+  }));
+
+  const preferences = prefRows.map((row) => ({ key: row.key, value: row.value }));
+
+  const entityItems = wants("entities")
+    ? mergedEntities.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        canonicalName: row.canonicalName,
+        aliases: row.aliases,
+        metadata: row.metadata,
+      }))
+    : [];
+
+  const relations = relationRows.map((row) => ({
+    relation: row.relation,
+    fromEntityId: row.fromEntityId,
+    from: entityNameById.get(row.fromEntityId) ?? null,
+    toEntityId: row.toEntityId,
+    to: entityNameById.get(row.toEntityId) ?? null,
+    metadata: row.metadata,
+  }));
+
+  const recentMemory = memoryRows.map((row) => ({
+    kind: row.kind,
+    preview:
+      row.content.length > MEMORY_PREVIEW_CHARS
+        ? `${row.content.slice(0, MEMORY_PREVIEW_CHARS - 3)}...`
+        : row.content,
+  }));
+
+  // Each delivered row by its id, with the same value the context gives.
+  const { identityFacts: _identityFacts, ...profileFields } = profile;
+
+  const items: UserContextItem[] = [
+    { store: "user", id: userId, depth: "body", item: profileFields },
+    ...profileIdentityRows.map(
+      (row, i): UserContextItem => ({
+        store: "user_fact",
+        id: row.id,
+        depth: "body",
+        ...(row.updatedAt ? { version: row.updatedAt.toISOString() } : {}),
+        item: profile.identityFacts[i],
+      }),
+    ),
+    ...integrationRows.map(
+      (row, i): UserContextItem => ({
+        store: "integration_credential",
+        id: row.id,
+        depth: "body",
+        item: activeIntegrations[i],
+      }),
+    ),
+    ...mergedFacts.map(
+      (row, i): UserContextItem => ({
+        store: "user_fact",
+        id: row.id,
+        depth: "body",
+        ...(row.updatedAt ? { version: row.updatedAt.toISOString() } : {}),
+        item: confirmedFacts[i],
+      }),
+    ),
+    ...preferences.map(
+      (row): UserContextItem => ({ store: "user_setting", id: row.key, depth: "body", item: row }),
+    ),
+    ...entityItems.map(
+      (row): UserContextItem => ({ store: "entity", id: row.id, depth: "body", item: row }),
+    ),
+    ...relationRows.map(
+      (row, i): UserContextItem => ({
+        store: "entity_relation",
+        id: row.id,
+        depth: "body",
+        item: relations[i],
+      }),
+    ),
+    ...memoryRows.map(
+      (row, i): UserContextItem => ({
+        store: "memory_chunk",
+        id: row.id,
+        depth: row.content.length > MEMORY_PREVIEW_CHARS ? "hit" : "body",
+        item: recentMemory[i],
+      }),
+    ),
+  ];
+
   return {
-    profile,
-    activeIntegrations: integrationRows.map((row) => ({
-      provider: row.provider,
-      accountLabel: row.accountLabel,
-    })),
-    confirmedFacts: mergedFacts.map((row) => ({
-      key: row.key,
-      value: row.value,
-      confidence: row.confidence,
-    })),
-    preferences: prefRows.map((row) => ({ key: row.key, value: row.value })),
-    entities: wants("entities")
-      ? mergedEntities.map((row) => ({
-          id: row.id,
-          kind: row.kind,
-          canonicalName: row.canonicalName,
-          aliases: row.aliases,
-          metadata: row.metadata,
-        }))
-      : [],
-    relations: relationRows.map((row) => ({
-      relation: row.relation,
-      fromEntityId: row.fromEntityId,
-      from: entityNameById.get(row.fromEntityId) ?? null,
-      toEntityId: row.toEntityId,
-      to: entityNameById.get(row.toEntityId) ?? null,
-      metadata: row.metadata,
-    })),
-    recentMemory: memoryRows.map((row) => ({
-      kind: row.kind,
-      preview:
-        row.content.length > MEMORY_PREVIEW_CHARS
-          ? `${row.content.slice(0, MEMORY_PREVIEW_CHARS - 3)}...`
-          : row.content,
-    })),
+    context: {
+      profile,
+      activeIntegrations,
+      confirmedFacts,
+      preferences,
+      entities: entityItems,
+      relations,
+      recentMemory,
+    },
+    items,
   };
 }
 

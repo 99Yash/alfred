@@ -4,12 +4,17 @@
  */
 
 import {
+  canonicalJson,
   integrationFromToolName,
   isToolName,
+  restPassthroughRequestSchema,
+  truncatedCoverage,
   type PassthroughResult,
   type PassthroughTruncation,
+  type ReadEvidence,
 } from "@alfred/contracts";
 import type { ToolSpanFacts } from "../../registry";
+import { itemEvidence } from "../../../item-evidence";
 
 export interface PassthroughTruncationTelemetry {
   handleEligible: true;
@@ -69,4 +74,33 @@ function integrationFromToolNameSafe(toolName: string): string {
   if (isToolName(toolName)) return integrationFromToolName(toolName);
 
   return toolName.slice(0, toolName.indexOf(".")) || toolName;
+}
+
+/**
+ * The evidence of a passthrough read (ADR-0124 evidence record). The response is opaque, so the
+ * item is the whole body, and its id is the request: the tool, the method, the path, and the query.
+ * It states its coverage gap when the bounds cut the body. `bind()` derives it, so a passthrough
+ * tool has no hook to forget.
+ */
+export function passthroughEvidence(
+  toolName: string,
+  input: unknown,
+  output: PassthroughResult,
+): ReadEvidence {
+  if (output.outcome !== "http" || !output.succeeded) return itemEvidence([]);
+
+  const request = restPassthroughRequestSchema.safeParse(input);
+
+  const id = request.success
+    ? [
+        request.data.method.toUpperCase(),
+        request.data.path,
+        ...(request.data.query ? [canonicalJson(request.data.query)] : []),
+      ].join(" ")
+    : "request";
+
+  return itemEvidence(
+    [{ ref: { kind: "record", store: toolName, id, depth: "body" }, item: output.body }],
+    truncatedCoverage(output.truncation !== undefined),
+  );
 }

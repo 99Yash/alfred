@@ -31,7 +31,7 @@ import type { DbTransaction } from "@alfred/db";
 import type { z } from "zod";
 import { bootPort } from "@alfred/assistant/boot-port";
 import type { ToolCallRoundAdapter } from "./internal/adapter";
-import type { ChatTurnAddress, ToolEffects } from "./internal/registry";
+import type { ChatTurnAddress, ReadResult, ToolEffects } from "./internal/registry";
 import { runToolCallRound } from "./internal/tool-call-round";
 
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
@@ -41,6 +41,8 @@ export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contrac
 export {
   chatTurnAddressSchema,
   liveTool,
+  readResult,
+  ReadResult,
   registerTool,
   registerTools,
   clearToolRegistryForTests,
@@ -54,6 +56,8 @@ export {
 } from "./internal/registry";
 
 export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans";
+
+export { itemEvidence, type DeliveredItem } from "./item-evidence";
 
 export {
   registerWorkflowToolCatalogSource,
@@ -720,9 +724,10 @@ export type EditInstructionResult =
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
 export interface SystemToolKnowledgeAdapter {
+  /** The context, with one evidence reference for each delivered row (ADR-0124 amendment). */
   readUserContext(
     args: SystemToolRequest<"system.read_user_context">,
-  ): Promise<ReadUserContextResult>;
+  ): Promise<ReadResult<ReadUserContextResult>>;
 }
 
 /**
@@ -880,7 +885,7 @@ export function registerSystemToolTaskAdapter(adapter: SystemToolTaskAdapter): (
 
 export function readUserContext(
   args: SystemToolRequest<"system.read_user_context">,
-): Promise<ReadUserContextResult> {
+): Promise<ReadResult<ReadUserContextResult>> {
   return systemToolKnowledgeAdapterPort.read().readUserContext(args);
 }
 
@@ -958,9 +963,10 @@ export interface ContextSearchToolResult {
  */
 export interface SystemToolContextSearchAdapter {
   /** Not `searchContext`: that name is the read verb itself (ADR-0101). */
+  /** The result, with one evidence reference for each included card (ADR-0124 amendment). */
   runContextSearch(
     args: SystemToolRequest<"system.search_context">,
-  ): Promise<ContextSearchToolResult>;
+  ): Promise<ReadResult<ContextSearchToolResult>>;
 }
 
 const systemToolContextSearchAdapterPort = bootPort<SystemToolContextSearchAdapter>(
@@ -975,7 +981,7 @@ export function registerSystemToolContextSearchAdapter(
 
 export function runContextSearch(
   args: SystemToolRequest<"system.search_context">,
-): Promise<ContextSearchToolResult> {
+): Promise<ReadResult<ContextSearchToolResult>> {
   return systemToolContextSearchAdapterPort.read().runContextSearch(args);
 }
 

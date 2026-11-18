@@ -7,8 +7,10 @@
 import type {
   AskUserUnansweredReason,
   DirectRouteReason,
+  HostReadRefusal,
   IntegrationAvailabilitySnapshot,
   IntegrationSlug,
+  JsonValue,
   ToolName,
 } from "@alfred/contracts";
 import {
@@ -49,11 +51,13 @@ import {
   isInterruptedClaim,
   stagingMayHaveRun,
   stagingStore,
+  type HostCallRecord,
   type InterruptedRestageResult,
   type PriorRejectionStatus,
   type StagingCommit,
   type StagingRow,
 } from "./staging-store";
+import { newHostCallLedger } from "./host-call-ledger";
 import { STAGING_ARM, type GatedArmPolicy } from "./staging-arm";
 import type {
   DeferredDispatch,
@@ -104,8 +108,8 @@ import {
   resolveToolAvailability,
   toolEffectsSchema,
   type BoundToolCall,
+  type HostReadCall,
   type HostReadOutcome,
-  type HostReadRefusal,
   type HostReadDispatcher,
   type HostReadRequest,
   type RegisteredTool,
@@ -655,7 +659,18 @@ function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
     hostRead: hostReadDispatcher(args),
+    hostCalls: newHostCallLedger(),
   });
+}
+
+/**
+ * The record of a `system.code_run` call's host reads, frozen now, for the staged commit. Absent
+ * for a call that made no host read.
+ */
+function hostCallRecord(ctx: ToolExecuteContext): HostCallRecord | undefined {
+  const entries = ctx.hostCalls?.freeze() ?? [];
+
+  return entries.length > 0 ? { userId: ctx.userId, runId: ctx.runId, entries } : undefined;
 }
 
 /**
@@ -698,11 +713,19 @@ async function dispatchHostRead(
 ): Promise<HostReadOutcome> {
   const tool = getTool(request.toolName);
 
+  const call: HostReadCall = {
+    callId: toolCallId,
+    toolName: request.toolName,
+    input: hostReadInput(tool, request.input),
+    stagingId: null,
+  };
+
   if (!tool || !(tool.codeModeRead || request.toolName === MCP_CALL_TOOL)) {
     return {
       kind: "refused",
       refusal: "not_a_read",
       message: `'${request.toolName}' is not a read that a script can run.`,
+      call,
     };
   }
 
@@ -719,7 +742,25 @@ async function dispatchHostRead(
     true,
   );
 
-  return hostReadOutcome(result, request);
+  return hostReadOutcome(result, request, {
+    ...call,
+    stagingId: "stagingId" in result ? result.stagingId : null,
+  });
+}
+
+/**
+ * The input of a host read for the evidence record: parsed, with the tool's secret redaction.
+ * Null when it does not parse, so a value that may hold a secret is not kept.
+ */
+function hostReadInput(tool: RegisteredTool | undefined, input: unknown): JsonValue | null {
+  if (!tool) return null;
+
+  const redacted = storedTraceInput(
+    tool,
+    normalizeToolInputKeys(input, tool.modelInputSchema).input,
+  );
+
+  return jsonValueSchema.safeParse(redacted).data ?? null;
 }
 
 /**
@@ -736,6 +777,7 @@ function hostReadActor(parent: ToolCallActor): ToolCallActor {
 function hostReadOutcome(
   result: DispatchResult | DeferredDispatch | DirectRouteHostRead,
   request: HostReadRequest,
+  call: HostReadCall,
 ): HostReadOutcome {
   switch (result.kind) {
     case "executed": {
@@ -751,10 +793,11 @@ function hostReadOutcome(
             "This read returned binary content (an image, audio, or file bytes), and this chat " +
             "cannot read binary content. Tell the user that the item is binary, or read a text " +
             "form of it with another tool.",
+          call,
         };
       }
 
-      return { kind: "executed", value };
+      return { kind: "executed", value, call, evidence: result.effects.evidence };
     }
 
     case "direct_route":
@@ -762,6 +805,7 @@ function hostReadOutcome(
         kind: "refused",
         refusal: hostRefusalOf(result.route.reason),
         message: `${request.toolName} runs as a direct call now, not in a script. ${readRouteReasonText(result.route)} ${directCallHint(request.toolName)}`,
+        call,
       };
     case "deferred":
       return {
@@ -771,25 +815,27 @@ function hostReadOutcome(
           "This read waits for the user's approval, and a script cannot show the approval card. " +
           `Call ${request.toolName} as a direct tool call with the same input: the user sees ` +
           "the card there.",
+        call,
       };
     case "failed":
       return {
         kind: "refused",
         refusal: result.error.code === "mcp_read_route_changed" ? "route_changed" : "failed",
         message: result.error.message,
+        call,
       };
     case "rejected":
-      return { kind: "refused", refusal: "rejected", message: result.result.reason };
+      return { kind: "refused", refusal: "rejected", message: result.result.reason, call };
     case "blocked":
     case "fenced":
     case "invalid_input":
     case "unknown_tool":
     case "not_allowed":
     case "feature_disabled":
-      return { kind: "refused", refusal: result.kind, message: result.result.message };
+      return { kind: "refused", refusal: result.kind, message: result.result.message, call };
     // The read is in `activeTools`, so this is a dispatch fault, not a model fault.
     case "inactive_tool":
-      return { kind: "refused", refusal: "not_allowed", message: result.result.message };
+      return { kind: "refused", refusal: "not_allowed", message: result.result.message, call };
     // `deferIfGated` returns before a card, and no read parks or asks.
     case "staged":
     case "parked":
@@ -2005,6 +2051,7 @@ async function executeAndCommit(
       outcome: "failed",
       error,
       executedAt: new Date(),
+      hostCalls: hostCallRecord(ctx),
     });
 
     return {
@@ -2040,6 +2087,7 @@ async function executeAndCommit(
     sanitized: didSanitize,
     effects: execution.effects,
     executedAt: now,
+    hostCalls: hostCallRecord(ctx),
   });
 
   return {
@@ -2061,6 +2109,12 @@ async function executeFastPath(
 
   try {
     const execution = await executeToolWithSpan(call, ctx);
+
+    // A host-read record has no row to hang off without a staging row, so it fails closed.
+    if (hostCallRecord(ctx)) {
+      throw new Error(`[dispatch] ${tool.name} made host reads on the fast path`);
+    }
+
     // ADR-0070 §1.1: the fast path result also reaches the transcript.
     const sanitized = sanitizeToolResult(execution.output);
     const jsonResult = toJsonValue(sanitized.value);

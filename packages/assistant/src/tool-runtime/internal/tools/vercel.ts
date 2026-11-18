@@ -6,6 +6,7 @@ import {
   vercelListProjectsInput,
   vercelRedeployInput,
 } from "@alfred/contracts";
+import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { runRestPassthrough } from "./passthrough";
 import type { Integrations } from "@alfred/integrations";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
@@ -34,6 +35,8 @@ export const vercelTools: readonly RegisteredTool[] = [
     execute: async (input, ctx): Promise<VercelListProjectsResult> => ({
       projects: await ctx.integrations.vercel.projects({ limit: input.limit }),
     }),
+    readEvidence: (output) =>
+      itemEvidence(output.projects.map((p) => vercelItem("project", p.id, p))),
   }),
   liveTool({
     integration: "vercel",
@@ -50,6 +53,8 @@ export const vercelTools: readonly RegisteredTool[] = [
         limit: input.limit,
       }),
     }),
+    readEvidence: (output) =>
+      itemEvidence(output.deployments.map((d) => vercelItem("deployment", d.uid, d))),
   }),
   liveTool({
     integration: "vercel",
@@ -86,3 +91,18 @@ export const vercelTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => runRestPassthrough(ctx.integrations.vercel.passthrough, input),
   }),
 ];
+
+/**
+ * A Vercel object in the evidence record (ADR-0124). A list gives a summary. The client drops
+ * Vercel's pagination, so a list states no coverage gap that it cannot see.
+ */
+function vercelItem(
+  kind: "project" | "deployment",
+  externalId: string,
+  item: unknown,
+): DeliveredItem {
+  return {
+    ref: { kind: "object", object: { provider: "vercel", kind, externalId }, depth: "hit" },
+    item,
+  };
+}

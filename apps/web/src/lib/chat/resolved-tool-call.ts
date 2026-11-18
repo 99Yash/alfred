@@ -23,6 +23,7 @@ export type RawToolCall = Pick<
   | "resultTruncated"
   | "sanitized"
   | "segmentIndex"
+  | "scriptSources"
 >;
 
 /**

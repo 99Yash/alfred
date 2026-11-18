@@ -19,6 +19,7 @@ import {
   type SystemToolRequest,
   type SystemToolTaskAdapter,
   type SystemToolWebSearchAdapter,
+  readResult,
 } from "@alfred/assistant/tool-runtime";
 
 const context = {
@@ -151,7 +152,7 @@ describe("system-tool product seams with registered adapters", () => {
       readUserContext: (args) => {
         calls.push({ name: "read", args });
 
-        return Promise.resolve(results.read);
+        return Promise.resolve(readResult(results.read, { refs: [] }));
       },
     };
 
@@ -207,7 +208,7 @@ describe("system-tool product seams with registered adapters", () => {
     unregisterWebSearch = registerSystemToolWebSearchAdapter(search);
     unregisterTasks = registerSystemToolTaskAdapter(tasks);
 
-    assert.equal(await readUserContext(requests.read), results.read);
+    assert.equal((await readUserContext(requests.read)).output, results.read);
     assert.equal(await rememberInstructionAndDismissTodos(requests.remember), results.remember);
     assert.equal(await listInstructions(requests.list), results.list);
     assert.equal(await forgetInstruction(requests.forget), results.forget);
