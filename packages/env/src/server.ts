@@ -142,8 +142,16 @@ const serverEnvSchema = z
       .string()
       .optional()
       .transform((s) => s === "true"),
-    /** Pins the Sentry release. Unset uses `RAILWAY_GIT_COMMIT_SHA`. */
+    /**
+     * Pins the Sentry release. Unset falls to the deploy-commit chain:
+     * `RAILWAY_GIT_COMMIT_SHA` (Railway's git-trigger deploys) then
+     * `ALFRED_DEPLOYED_COMMIT_SHA` (written by the infra program at
+     * `alchemy deploy` time, ADR-0128 — the only source on a context-upload
+     * deploy, where Railway sets no git variables).
+     */
     SENTRY_RELEASE: z.string().optional(),
+    RAILWAY_GIT_COMMIT_SHA: z.string().optional(),
+    ALFRED_DEPLOYED_COMMIT_SHA: z.string().optional(),
     /**
      * Sentry trace sample rate. Unset is `0` in production (tracing costs egress
      * and quota) and `1` elsewhere. Errors are reported at any rate.
