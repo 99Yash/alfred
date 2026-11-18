@@ -1,0 +1,72 @@
+# The Alchemy Railway context upload reads `.dockerignore` (after
+# `Dockerfile.dockerignore`, if present) — it never reads `.railwayignore`,
+# which stays for manual `railway up` runs. The upload caps the tar at
+# 32 MiB and 10,000 entries, and rejects symlinks anywhere it includes, so
+# everything the Railpack build of `apps/server` and `apps/web` does not
+# read stays out: local-only dirs, build outputs, secrets, and the drizzle
+# snapshot history (drizzle-kit migrate reads the journal, which stays;
+# the per-migration snapshots serve generate/check on a full checkout).
+
+# Version control, CI, agent machinery
+.git
+.github
+.agents
+AGENTS.md
+**/CLAUDE.md
+.claude
+.codex
+.warden
+.wayfinder
+.teach
+.campaign
+.loop
+.artifacts
+.jscpd
+.vscode
+
+# Local-only content
+docs
+references
+archive
+.handoff
+.lessons
+.tmp-screens
+.tmp
+.scratch-*
+.vsnap*
+teaching
+logs
+*.log
+PRD.md
+plan.md
+progress.txt
+*-plan.md
+*-progress.txt
+*-loop.sh
+ralph.sh
+
+# Dependencies and build outputs
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.turbo
+**/*.tsbuildinfo
+.pnpm-store
+coverage
+.nyc_output
+.cache
+tmp
+temp
+*.tgz
+
+# Secrets never ride the upload
+**/.env
+**/.env.*
+!**/.env.example
+
+# Drizzle snapshot history (the journal stays)
+packages/db/src/migrations/meta/*_snapshot.json
+
+# OS noise
+.DS_Store

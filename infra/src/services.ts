@@ -5,6 +5,15 @@
 // attributes into the update, so nothing is duplicated (probe evidence:
 // docs/research/alchemy-railway-probe.md, "Cutover gate experiments").
 //
+// The deploy trigger is the context upload: Railway builds the repo root
+// (filtered by the root `.dockerignore`) when `alchemy deploy` runs — the
+// deploy GitHub Action on push to main (ADR-0128). There is no GitHub
+// trigger on the Railway side; `alchemy deploy` is the only redeploy path.
+//
+// CI runners hold no local state, so every CI deploy re-adopts the services
+// in place (`deploy --adopt`); ownership probes at apply time find the
+// existing service by id and update it, never duplicating.
+//
 // `publicDomain: false` on purpose: it never deletes a domain this program
 // does not own, so the existing generated domains
 // (server-production-c138.up.railway.app, web-production-125ee.up.railway.app)
@@ -19,30 +28,40 @@ const REGION = "asia-southeast1-eqsg3a";
 
 const REPO = "99Yash/alfred";
 
-const BRANCH = "main";
-
-// The program runs from `infra/`; the git worktree is its parent.
+// The program runs from `infra/`; the git worktree is its parent. The
+// absolute path doubles as the uploaded build context (absolute paths
+// ignore the caller's cwd).
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
 /**
  * The commit and repo identity written into the server environment at deploy
  * time (ADR-0128 D2). Railway's git integration injects `RAILWAY_GIT_COMMIT_SHA`
- * only on git-triggered deploys; a context-upload deploy sets nothing, so the
- * consumers re-source to these variables and the program rewrites them on every
- * deploy. CI supplies `GITHUB_SHA`; a local deploy falls back to HEAD. (A
- * dirty-tree gate belongs to the trigger-switch slice: only when the uploaded
- * working tree is what ships must it match the SHA.)
- *
- * The raw `process.env` read is deliberate: `serverEnv()` validates the server's
- * whole environment (app secrets, DB URL), which the infra program must not
- * require — the program binds to the app through environment variables only
- * (ADR-0128 D1).
+ * only on git-triggered deploys — gone now the source is a context upload — so
+ * the consumers re-source to these variables and the program rewrites them on
+ * every deploy. CI supplies `GITHUB_SHA` (and its checkout is clean by
+ * definition); a local deploy falls back to HEAD and refuses a dirty tree:
+ * the uploaded working tree is what ships, so uncommitted changes would ship
+ * unnamed by the written commit.
  */
 function deployedCommitSha(): string {
-  return (
-    process.env.GITHUB_SHA ?? // drift-ok: the infra program is outside app code (ADR-0128 D1)
-    execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim()
-  );
+  const fromCi = process.env.GITHUB_SHA; // drift-ok: the infra program is outside app code (ADR-0128 D1)
+
+  if (fromCi) return fromCi;
+
+  const status = execFileSync("git", ["status", "--porcelain"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+
+  if (status.trim() !== "") {
+    throw new Error(
+      "Deploy from a clean tree, or set GITHUB_SHA: the uploaded context is the " +
+        "working tree, so uncommitted changes would ship without the written " +
+        "commit naming them.",
+    );
+  }
+
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
 }
 
 const [REPO_OWNER, REPO_NAME] = REPO.split("/");
@@ -52,8 +71,7 @@ export const Server = Railway.Service("Server", {
   environment: { environmentId: PRODUCTION_ENVIRONMENT_ID },
   name: "server",
   region: REGION,
-  repo: REPO,
-  branch: BRANCH,
+  context: REPO_ROOT,
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=server",
   startCommand: "node apps/server/dist/index.js",
@@ -73,8 +91,7 @@ export const Web = Railway.Service("Web", {
   environment: { environmentId: PRODUCTION_ENVIRONMENT_ID },
   name: "web",
   region: REGION,
-  repo: REPO,
-  branch: BRANCH,
+  context: REPO_ROOT,
   builder: "RAILPACK",
   buildCommand: "pnpm install --frozen-lockfile && pnpm turbo run build --filter=web",
   publicDomain: false,
