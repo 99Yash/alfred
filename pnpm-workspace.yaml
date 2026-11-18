@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - infra
 
 # Keep pnpm settings here, not in package.json#pnpm. pnpm 11 ignores the
 # package.json location, so Corepack/global pnpm must see the same overrides.
@@ -26,6 +27,11 @@ allowBuilds:
   protobufjs: false
 
 catalog:
+  # Alchemy and its Railway provider pin together with `effect` (ADR-0128 D4):
+  # the Railway docs' `effect@rc` is stale and breaks the CLI boot; this triple
+  # is the probe-proven set (deploy round-trip, 2026-11-18). Bump the three
+  # deliberately, together, and re-run `alchemy plan` against the real project.
+  "@alchemy.run/railway": 2.0.0-beta.87
   "@ai-sdk/anthropic": ^4.0.99
   "@ai-sdk/google": ^4.0.114
   "@ai-sdk/openai": ^4.0.111
@@ -42,6 +48,12 @@ catalog:
   "@elysiajs/cors": 1.4.2
   "@elysiajs/eden": 1.4.9
   "@elysiajs/node": 1.4.5
+  # Effect platform layers for the ADR-0128 infra program. They are peer
+  # dependencies of `alchemy` (see the triple note at the top of this catalog)
+  # and carry no direct import in our code, so they are declared to pin their
+  # resolution next to `effect`.
+  "@effect/platform-bun": ^4.1.4
+  "@effect/platform-node": ^4.1.4
   # Exact pin, and catalogued so the pin has ONE home. `@alfred/extraction`
   # tells an encrypted PDF from a corrupt one by a substring of the vendor's
   # error message, and its fixtures assert that against this exact build; the
@@ -76,6 +88,9 @@ catalog:
   # `withFallback` in packages/ai/src/provider.ts). Same version warden
   # runs on the identical ai@7 / @ai-sdk/provider@4 resolution.
   ai-retry: ^2.4.0
+  # The ADR-0128 infra program. Pinned with @alchemy.run/railway and effect —
+  # see the triple note at the top of this catalog.
+  alchemy: 2.0.0-beta.87
   # Floor is 1.6.11, not the older ^1.3.28, because every release below it
   # carries CVE-2026-53516: the OAuth callback auto-linked an account when the
   # *provider* asserted `email_verified: true` without checking the *local*
@@ -84,7 +99,12 @@ catalog:
   bullmq: ^5.81.5
   clsx: ^2.1.1
   dotenv: ^17.4.2
-  effect: 4.0.6
+  # Bumped 2026-11-18 from 4.0.6 with owner approval ("we can upgrade the
+  # deps"): the ADR-0128 infra program's alchemy@2.0.0-beta.87 peers on
+  # effect@^4.1.4, and the ADR-0114 island (mcp/manager.ts) compiles and tests
+  # green on the bump. `alchemy` + `@alchemy.run/railway` + `effect` move as
+  # one pin — see the triple note at the top of this catalog.
+  effect: 4.1.4
   elysia: 1.4.28 # exact pin — see @elysiajs/* note above
   ioredis: ^5.11.1
   lucide-react: ^1.45.0

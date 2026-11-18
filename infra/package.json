@@ -1,0 +1,23 @@
+{
+  "name": "@alfred/infra",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "plan": "alchemy plan --stage live",
+    "deploy": "alchemy deploy --stage live --yes",
+    "adopt": "alchemy deploy --stage live --adopt --yes",
+    "destroy": "alchemy destroy --stage live --yes",
+    "state": "alchemy state list --stage live"
+  },
+  "dependencies": {
+    "@alchemy.run/railway": "catalog:",
+    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "alchemy": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

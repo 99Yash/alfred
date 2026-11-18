@@ -12,6 +12,14 @@
 - The D6 lint fence stays where it is today. Each adoption adjusts the fence for its own files in the same change, so the fence never lies about what is allowed. The fence's message (not "never Effect", but "Effect only where adopted") is updated by the first adoption after this one.
 - `effect` stays pinned exactly in the pnpm catalog and server-only until a web adoption argues otherwise with its own evidence, so the web bundle does not change until then.
 
+## Amendment 2026-11-18 — the first post-ADR adoption, and the catalog bump
+
+The first adoption after this ADR is the [ADR-0128](./ADR-0128-railway-deployment-config-is-an-alchemy-program.md) infra program (`infra/`), and the owner approved the dependency upgrade it needed ("we can upgrade the deps"):
+
+- The catalog `effect` pin moves 4.0.6 → 4.1.4. Alchemy 2.0.0-beta.87 peers on `effect@^4.1.4` (the Railway docs' `effect@rc` is stale and breaks the CLI boot — probe finding), so the two cannot resolve from one catalog entry at 4.0.6. The ADR-0114 island (`mcp/manager.ts`) compiles and its MCP test surface passes 190/190 on the bump; `alchemy`, `@alchemy.run/railway`, and `effect` are pinned together as one catalog triple (ADR-0128 D4).
+- "Server-only" now reads "server and the infra program". The infra program is its own workspace package with no `@alfred/*` dependency, so the web bundle is still untouched; a web adoption still needs its own evidence.
+- The D6 fence message changed with this adoption, and an `infra/**` allowlist override (with a declared omission) joined the fence — the fence no longer lies about what is allowed.
+
 ## Why not islands-only, and why not a rewrite
 
 - **Islands-only.** Rejected by owner correction. The gate now adds friction without protection: the runtime, its patterns, and its costs are settled, and the next honest use is exactly the kind ADR-0128 just made (an infra program).
