@@ -14,6 +14,12 @@ WORKDIR /app
 
 COPY . .
 
+# Railway's service variables reach a Dockerfile build only through `ARG`
+# (docs.railway.com/builds/dockerfiles). `VITE_API_URL` is baked into the SPA
+# bundle at build time; without this line the bundle falls back to the dev
+# default `http://localhost:3001` and prod calls nothing.
+ARG VITE_API_URL
+
 RUN --mount=type=cache,id=s/2155bb3b-873d-49c2-a690-e2d58f67dc90-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile && pnpm turbo run build --filter=web
 
