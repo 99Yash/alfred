@@ -4,7 +4,7 @@ This page states what email triage is for and the rules that follow from that. I
 
 Each triage ADR, plan, and prompt change must agree with this page. If a change does not agree, update this page first, or do not make the change.
 
-Last verified: 2026-11-17 (the engagement-nudge decided case from the slice-3 deck gate; previous: 2026-11-15).
+Last verified: 2026-11-19 (the newsletter-shape decided case from the DeepInfra scoped-keys mail; previous: 2026-11-17).
 
 ---
 
@@ -50,6 +50,7 @@ Triage judges a thread when a mail arrives, when a new mail arrives in the threa
 
 - A failed payment, a card that expired, or a service that will stop is **Action**, or **Urgent** when access stops today. It is never Receipt.
 - An engagement nudge — a game streak, an unread count, a profile-view count — sells engagement. Nothing stops and nobody waits, so it is **Promo** or **FYI**, never Action, however near its deadline sits. A service that will stop is different: that is Action. (Owner decision, 2026-11-07, the chess.com streak cases.)
+- **A newsletter-shaped mail is quiet.** A `newsletter@`-style address, a list-unsubscribe header, and a last line like "You are receiving this because you signed up" are evidence that the mail is subscribed content, not a person who waits or a system that bills. The sender's shape never decides by itself: a real matter — a payment that fails, access that stops, a breach — still asks the loud question. A date in the copy does not make the mail loud by itself: the question stays what stops. The end of a convenience default — a request format that will be rejected — stops nothing Yash runs today, because his existing access keeps working. An instruction written to a mailing list's whole audience, "update your integration now", is a task for nobody in particular. A general fact about Yash — that he builds software, that he has side projects — is not evidence that he uses the changed feature: loud needs the named thing of Yash's that breaks, and a loud label without it is the false alarm. Whether a change breaks something Yash runs is a question for knowledge of his own use (the gather's activity record), not for the sender's shape. When triage can neither confirm nor rule out that use, the label stays quiet, and an ask asks Yash. (Owner decision, 2026-11-19, the DeepInfra scoped-keys mail.)
 - Meeting is a meeting with you that specific people arranged — confirmed, proposed, or arranged by a scheduling service for you and one person. An event with an open audience — a webinar, a seminar, a cohort session, a conference — is never Meeting, even when you registered for it and the invite sits on your calendar. The other attendees decide, not the calendar object.
 - Webinars, AGMs, e-voting notices, investor calls, and earnings calls are never Meeting.
 - When triage is not sure, the label is **FYI**. FYI never hides a mail and never raises a false alarm.
@@ -170,7 +171,7 @@ The limit is a daily amount of money, not a model tier. A decision has the shape
 
 ## The prompt
 
-The prompt contains only this page in prompt form: the job, the labels, precedence, the evidence principles, the triage profile, and the instructions. A past error does not become a new prompt rule. It becomes an **eval case**, with the label that this page gives it, and Yash checks it.
+The prompt contains only this page in prompt form: the job, the labels, precedence, the evidence principles, the triage profile, and the instructions. The prompt states principles, not cases: a decided case names its principle once, in general words, and never grows into a list of mail shapes. The decided cases below stay on this page as the record, and the deck checks each one. A past error does not become a new prompt rule. It becomes an **eval case**, with the label that this page gives it, and Yash checks it. (Owner decision, 2026-11-19, after the DeepInfra scoped-keys wording attempts: the cheap first pass took the case line as one more rule to weigh, not as the principle.)
 
 ## Outside triage
 
