@@ -1233,6 +1233,13 @@
       "when": 1795010135144,
       "tag": "0175_code_run_host_calls_saved_bytes",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1795077261145,
+      "tag": "0176_mcp_tool_policy_read_class",
+      "breakpoints": true
     }
   ]
 }

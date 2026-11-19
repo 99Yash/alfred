@@ -1,6 +1,6 @@
 # ADR-0130 — Chat reads ask only for secrets, with one size rule and discovery in the sandbox (ACCEPTED — 2026-11-19)
 
-**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
+**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that it confirms. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
 
 Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
 
@@ -43,6 +43,21 @@ Live runs on 2026-11-19 used Haiku 5.5 with Code Mode on. Prod and dev each had 
   - Each curated read has a field for the class. The compiler requires the field.
   - An MCP tool with no integration default has no class. Thus it asks until code classifies it.
 - **Wrong texts.** ADR-0096:52 and `mcp/risk.ts:22` say that `low` reads already run with no card. That was false. The change that builds this decision corrects both texts.
+
+#### Amendment 2026-11-19 (a): the source that confirms a read sets its class and its output
+
+Owner decision, 2026-11-19 (#1799 part 2). Decision 1 says "Code owns the class". That holds only for a read that code confirms. On a server that the owner added, for example Railway or Sentry, only the owner's review confirms a read (ADR-0096). Before this amendment, a review cancelled the code class and held no class of its own. It also held no output kind. Thus a reviewed read always asked under `gated`, and it could never run in a script (`undeclared_output`).
+
+- **The rule:** the source that confirms the read sets its class and its output.
+  - Code confirms a read with a code pin or a built-in read-only endpoint, for example GitHub and Google. Code sets the class (decision 1) and the output (`builtInOutputKind`).
+  - The owner's review of one exact descriptor confirms a read on any server. The review then also sets the class and the output.
+- **The review form** on the integrations page gets two fields: the read class (`secret` or `ordinary`) and the output kind (`structured` or `binary`). `mcp_tool_policy` gets two nullable columns, `read_class` and `output_kind` (migration 0176). The contract accepts the two fields only on a review with the effect `read`.
+- **An empty field changes nothing:**
+  - An empty class gives no class, so the read asks under `gated`. The integration default does not fill it.
+  - An empty output falls back to code's output. A server that the owner added has none, so the read stays direct (`undeclared_output`).
+- **One floor stays with code:** a read in code's secret list (`BUILT_IN_SECRET_READS`, for example GitHub's `run_secret_scanning`) is `secret` under any review.
+- **Drift:** a review under another descriptor hash confirms nothing, and it cancels the code class and the code pin, as before.
+- **Residual risk:** the owner can mark a read `ordinary` that can show a secret. That read then sends the secret to the model with no card under `gated`. The owner owns this choice for a server that the owner added.
 
 ### 2. `system.*` tools run with no card (settled)
 

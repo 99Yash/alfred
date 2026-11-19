@@ -8,6 +8,8 @@ import type {
   McpRetryContract,
   McpRetryDisposition,
   McpServerIdentity,
+  ToolOutputKind,
+  ToolReadClass,
   ToolRiskTier,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
@@ -294,6 +296,13 @@ export const mcpToolPolicy = pgTable(
     /** `unknown` is treated as effectful. */
     effectClass: text("effect_class").$type<McpEffectClass>().notNull().default("unknown"),
     retryContract: text("retry_contract").$type<McpRetryContract>().notNull().default("never"),
+    /**
+     * The owner's read class of a reviewed read (ADR-0130 amendment 2026-11-19). `null`: no
+     * class, so the read asks under `gated`.
+     */
+    readClass: text("read_class").$type<ToolReadClass>(),
+    /** The owner's output kind of a reviewed read. `null`: undeclared, so the read stays direct. */
+    outputKind: text("output_kind").$type<ToolOutputKind>(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedNote: text("reviewed_note"),
     ...lifecycle_dates,

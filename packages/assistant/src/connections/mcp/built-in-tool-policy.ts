@@ -30,6 +30,8 @@ export interface BuiltInToolPolicy {
   readonly retryContract: McpRetryContract;
   /** Alfred's declaration of the output (ADR-0124 amendment 2026-11-18). */
   readonly outputKind: ToolOutputKind;
+  /** A pin is code's review of one exact descriptor, so its read is `ordinary` (ADR-0130 decision 1). */
+  readonly readClass: ToolReadClass;
 }
 
 /**
@@ -42,6 +44,7 @@ const BUILT_IN_READ_POLICY: BuiltInToolPolicy = {
   effectClass: "read",
   retryContract: "never",
   outputKind: "structured",
+  readClass: "ordinary",
 };
 
 /**
@@ -62,6 +65,18 @@ export const BUILT_IN_SECRET_READS: ReadonlyMap<BuiltInProvider, readonly string
   BuiltInProvider,
   readonly string[]
 >([["github", ["run_secret_scanning"]]]);
+
+/**
+ * Whether code lists this read of a built-in as `secret`. The list holds under any descriptor and
+ * under any owner review (ADR-0130 amendment 2026-11-19).
+ */
+export function isBuiltInSecretRead(endpointUrl: string, remoteName: string): boolean {
+  const provider = builtInProviderForEndpoint(endpointUrl);
+
+  return (
+    provider !== undefined && BUILT_IN_SECRET_READS.get(provider)?.includes(remoteName) === true
+  );
+}
 
 /** The read pins of one built-in, or `undefined` when it has none. */
 export function builtInReadToolPinsOf(
@@ -114,9 +129,9 @@ export function builtInOutputKind(
 /**
  * The read class of one exact descriptor of a built-in (ADR-0130 decision 1), or `undefined`
  * when no code classifies it. A name in `BUILT_IN_SECRET_READS` is `secret`. A pinned descriptor
- * is `ordinary`, because a pin is code's review of that exact descriptor. Any other descriptor
- * gets its integration's default, so a drifted GitHub pin is `secret` and asks. A user-added
- * server has no class. The class matters only for a confirmed read.
+ * takes its entry's class. Any other descriptor gets its integration's default, so a drifted
+ * GitHub pin is `secret` and asks. A user-added server has no class. The class matters only for
+ * a confirmed read.
  */
 export function builtInReadClass(
   endpointUrl: string,
@@ -127,9 +142,11 @@ export function builtInReadClass(
 
   if (provider === undefined) return undefined;
 
-  if (BUILT_IN_SECRET_READS.get(provider)?.includes(remoteName)) return "secret";
+  if (isBuiltInSecretRead(endpointUrl, remoteName)) return "secret";
 
-  if (builtInToolPolicy(endpointUrl, remoteName, descriptorHash) !== undefined) return "ordinary";
+  const entry = builtInToolPolicy(endpointUrl, remoteName, descriptorHash);
+
+  if (entry !== undefined) return entry.readClass;
 
   return INTEGRATIONS[BUILT_IN_MCP_CATALOG[provider].slug].readClassDefault ?? undefined;
 }

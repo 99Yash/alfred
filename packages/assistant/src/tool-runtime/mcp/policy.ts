@@ -9,6 +9,8 @@ import type {
   ExternalToolRef,
   McpEffectClass,
   McpRetryContract,
+  ToolOutputKind,
+  ToolReadClass,
   ToolRiskTier,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -87,6 +89,9 @@ export async function reviewMcpToolPolicy(
     riskTier: ToolRiskTier;
     effectClass: McpEffectClass;
     retryContract: McpRetryContract;
+    /** Only a `read` review sets it. The contract refuses it on any other effect. */
+    readClass: ToolReadClass | null;
+    outputKind: ToolOutputKind | null;
     note: string | null;
   },
   runner: DbRunner = db(),
@@ -107,6 +112,8 @@ export async function reviewMcpToolPolicy(
         riskTier: input.riskTier,
         effectClass: input.effectClass,
         retryContract: input.retryContract,
+        readClass: input.readClass,
+        outputKind: input.outputKind,
         reviewedAt: new Date(),
         reviewedNote: input.note,
       },

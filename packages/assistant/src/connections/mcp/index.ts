@@ -60,6 +60,7 @@ export {
   builtInReadClass,
   builtInReadToolPinsOf,
   builtInToolPolicy,
+  isBuiltInSecretRead,
   type BuiltInToolPolicy,
 } from "./built-in-tool-policy";
 

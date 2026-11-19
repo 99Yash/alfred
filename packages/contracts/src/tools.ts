@@ -98,7 +98,9 @@ export type RiskTierCounts = Record<ToolRiskTier, number>;
  * The declared output of a confirmed read (ADR-0124 amendment 2026-11-18). Only a `structured`
  * read can enter a script. `binary` is file content, for example base64 bytes, so it runs direct.
  */
-export type ToolOutputKind = "structured" | "binary";
+export const TOOL_OUTPUT_KINDS = ["structured", "binary"] as const;
+
+export type ToolOutputKind = (typeof TOOL_OUTPUT_KINDS)[number];
 
 /** Why a call stays direct, also carried by a public route-change error (ADR-0124). */
 export const directReadRouteReasonSchema = z.enum([
