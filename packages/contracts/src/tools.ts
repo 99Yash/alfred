@@ -147,7 +147,7 @@ export interface IntegrationRule {
 
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>; // drift-ok: sparse per-user overrides; absence is the default mode
 
-/** The per-integration mode for the policy editor. Ignores per-tool overrides (see `resolvePolicyMode`). */
+/** The per-integration mode for the policy editor. Ignores per-tool overrides (see `resolveToolModeDecision`). */
 export function resolveIntegrationMode(
   rules: IntegrationRules,
   slug: IntegrationSlug,
@@ -156,18 +156,41 @@ export function resolveIntegrationMode(
   return rules[slug]?.mode ?? defaultMode;
 }
 
-/** One tool's mode: its override, then its integration's mode, then the user default. `resolvePolicyMode` adds the `system.*` floor. */
+/**
+ * One tool's mode, and the setting that set it (ADR-0130 decision 4).
+ * - `tool_override`: the tool's own "Always allow" override.
+ * - `integration`: the integration's mode, or the user default when the integration has none.
+ *   A mode on the integration page replaces the default, so both name that one setting.
+ */
+export interface ToolModeDecision {
+  mode: PolicyMode;
+  source: "tool_override" | "integration";
+}
+
+/**
+ * One tool's mode: its override, then its integration's mode, then the user default. The server's
+ * `resolvePolicyDecision` adds the `system.*` floor and the rule of a built-in `mcp.call`.
+ */
+export function resolveToolModeDecision(
+  rules: IntegrationRules,
+  toolName: ToolName,
+  defaultMode: PolicyMode,
+): ToolModeDecision {
+  const integration = integrationFromToolName(toolName);
+  const override = rules[integration]?.toolOverrides?.[toolName];
+
+  if (override !== undefined) return { mode: override, source: "tool_override" };
+
+  return { mode: resolveIntegrationMode(rules, integration, defaultMode), source: "integration" };
+}
+
+/** The mode of `resolveToolModeDecision`, for a caller that does not name the setting. */
 export function resolveToolMode(
   rules: IntegrationRules,
   toolName: ToolName,
   defaultMode: PolicyMode,
 ): PolicyMode {
-  const integration = integrationFromToolName(toolName);
-
-  return (
-    rules[integration]?.toolOverrides?.[toolName] ??
-    resolveIntegrationMode(rules, integration, defaultMode)
-  );
+  return resolveToolModeDecision(rules, toolName, defaultMode).mode;
 }
 
 /**

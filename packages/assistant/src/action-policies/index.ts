@@ -18,7 +18,9 @@ import { defaultActionPolicy } from "./resolve";
 export {
   defaultActionPolicy,
   getResolvedPolicy,
+  resolvePolicyDecision,
   resolvePolicyMode,
+  type PolicyDecision,
   resolveApprovalNotifyDelayMs,
   bustPolicyCache,
   publishPolicyBust,

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { isHttpError } from "../errors";
 import { enumGuard, isRecord } from "../guards";
 import { typedKeys } from "../records";
+import type { ApprovalSetting } from "../approval-cause";
 import { DIRECT_READ_ROUTE_REASON_TEXT, directReadRouteReasonSchema } from "../tools";
 import {
   INTEGRATION_DISPLAY_NAMES,
@@ -25,6 +26,8 @@ export type Fix =
   | { kind: "retry"; afterSeconds?: number }
   | { kind: "correct_input" }
   | { kind: "start_new_thread" }
+  /** A setting blocks the call. Each listed setting removes the block (ADR-0130 decision 4). */
+  | { kind: "change_setting"; settings: readonly ApprovalSetting[] }
   | { kind: "none" };
 
 // A record, not an array, so a missing or an extra kind fails to compile.
@@ -34,6 +37,7 @@ const FIX_KIND_SET = {
   retry: true,
   correct_input: true,
   start_new_thread: true,
+  change_setting: true,
   none: true,
 } satisfies Record<Fix["kind"], true>;
 

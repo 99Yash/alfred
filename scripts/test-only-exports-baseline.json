@@ -278,7 +278,6 @@
     "APP_ERROR_REGISTRY",
     "FALLBACK_APP_ERROR_CODE",
     "FIX_KINDS",
-    "Fix",
     "isFixKind"
   ],
   "packages/contracts/src/attachments.ts": [

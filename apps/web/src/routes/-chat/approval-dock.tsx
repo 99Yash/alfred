@@ -1,4 +1,4 @@
-import type { ToolRiskTier } from "@alfred/contracts";
+import type { ApprovalSetting, IntegrationSlug, ToolRiskTier } from "@alfred/contracts";
 import { assertNever, humanizeToolName, isLoadableIntegrationSlug } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -473,6 +473,8 @@ function DockApprovalCard({
   );
 
   const approved = decisionKind === "approve";
+  // Only the settings that remove this card (ADR-0130 decision 4). The server lists them.
+  const { integrationSetting, toolSetting, fullAutonomySetting } = cardSettings(staging);
   // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
   // proposal: an edit that picks another server changes what Approve runs.
   const mcpServer = useMcpCallServer(staging.toolName, draftInput);
@@ -518,19 +520,32 @@ function DockApprovalCard({
         ) : (
           <>
             {renderPager(busy)}
-            {canAlwaysAllow(staging) ? (
+            {integrationSetting || toolSetting || fullAutonomySetting ? (
               <PermissionsAffordance
                 staging={staging}
-                integrationAllowed={modeFor(staging.integration) === "autonomy"}
+                integration={integrationSetting?.integration}
+                integrationAllowed={
+                  integrationSetting !== undefined &&
+                  modeFor(integrationSetting.integration) === "autonomy"
+                }
+                showTool={toolSetting !== undefined}
                 toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
+                showFullAutonomy={fullAutonomySetting !== undefined}
                 onFlipIntegration={(autonomy) => {
-                  if (!isLoadableIntegrationSlug(staging.integration)) return;
+                  if (
+                    !integrationSetting ||
+                    !isLoadableIntegrationSlug(integrationSetting.integration)
+                  ) {
+                    return;
+                  }
+
                   setError(null);
-                  setIntegrationMode(staging.integration, autonomy ? "autonomy" : "gated").catch(
-                    (err: unknown) => {
-                      setError(err instanceof Error ? err.message : "Failed to update policy");
-                    },
-                  );
+                  setIntegrationMode(
+                    integrationSetting.integration,
+                    autonomy ? "autonomy" : "gated",
+                  ).catch((err: unknown) => {
+                    setError(err instanceof Error ? err.message : "Failed to update policy");
+                  });
                 }}
                 onFlipTool={(autonomy) => {
                   setError(null);
@@ -852,19 +867,29 @@ function DockQuestionCard({
  */
 function PermissionsAffordance({
   staging,
+  integration,
   integrationAllowed,
+  showTool,
   toolAllowed,
+  showFullAutonomy,
   onFlipIntegration,
   onFlipTool,
 }: {
   staging: SyncedActionStaging;
+  /** The integration whose mode removes the card, or `undefined` when its mode does not. */
+  integration: IntegrationSlug | undefined;
   integrationAllowed: boolean;
+  showTool: boolean;
   toolAllowed: boolean;
+  showFullAutonomy: boolean;
   onFlipIntegration: (autonomy: boolean) => void;
   onFlipTool: (autonomy: boolean) => void;
 }) {
   const popoverId = useId();
-  const integrationName = getIntegrationPage(staging.integration)?.name ?? staging.integration;
+
+  const integrationName =
+    integration === undefined ? undefined : (getIntegrationPage(integration)?.name ?? integration);
+
   const toolTitle = humanizeToolName(staging.toolName);
 
   // The popover portals out of `.app`, so stamp the resolved theme on the content.
@@ -903,29 +928,38 @@ function PermissionsAffordance({
           <p className="text-[11px] font-medium tracking-tight text-app-fg-2">
             Default permissions
           </p>
-          <PermissionSwitch
-            id={`permissions-tool-${staging.id}`}
-            checked={toolAllowed}
-            onCheckedChange={onFlipTool}
-            label="Always allow this action"
-            hint={
-              toolAllowed
-                ? `Alfred can ${toolTitle} without asking.`
-                : `Alfred asks before it can ${toolTitle}.`
-            }
-          />
-          <PermissionSwitch
-            id={`permissions-integration-${staging.id}`}
-            checked={integrationAllowed}
-            onCheckedChange={onFlipIntegration}
-            label={`Always allow ${integrationName}`}
-            hint={
-              integrationAllowed
-                ? `Alfred acts without asking for ${integrationName} actions like this.`
-                : `Alfred asks before every ${integrationName} action.`
-            }
-          />
-          {!toolAllowed ? (
+          {showTool ? (
+            <PermissionSwitch
+              id={`permissions-tool-${staging.id}`}
+              checked={toolAllowed}
+              onCheckedChange={onFlipTool}
+              label="Always allow this action"
+              hint={
+                toolAllowed
+                  ? `Alfred can ${toolTitle} without asking.`
+                  : `Alfred asks before it can ${toolTitle}.`
+              }
+            />
+          ) : null}
+          {integrationName !== undefined ? (
+            <PermissionSwitch
+              id={`permissions-integration-${staging.id}`}
+              checked={integrationAllowed}
+              onCheckedChange={onFlipIntegration}
+              label={`Always allow ${integrationName}`}
+              hint={
+                integrationAllowed
+                  ? `Alfred acts without asking for ${integrationName} actions like this.`
+                  : `Alfred asks before every ${integrationName} action.`
+              }
+            />
+          ) : null}
+          {showFullAutonomy ? (
+            <p className="text-[11.5px] leading-snug text-app-fg-2">
+              Full Autonomy in the mode menu skips every card in this chat.
+            </p>
+          ) : null}
+          {showTool || integrationName !== undefined ? (
             <p className="text-[11.5px] leading-snug text-app-fg-2">
               Applies from Alfred's next action. This one still needs your approval.
             </p>
@@ -991,21 +1025,25 @@ function ResolvedCopy({
   }
 }
 
+interface CardSettings {
+  integrationSetting: Extract<ApprovalSetting, { kind: "integration_mode" }> | undefined;
+  toolSetting: Extract<ApprovalSetting, { kind: "always_allow" }> | undefined;
+  fullAutonomySetting: Extract<ApprovalSetting, { kind: "full_autonomy" }> | undefined;
+}
+
 /**
- * Only where it can take effect: high-tier actions confirm even under autonomy.
- * System tools never gate.
+ * The settings that remove this card, from the row's cause (ADR-0130 decision 4). A `high` card
+ * lists only Full Autonomy. An `mcp.call` names its provider's mode, not an override on `mcp.call`.
+ * A row with no cause shows no switch: no setting removes its card.
  */
-/**
- * `mcp.call` takes the rule of its connection's provider (the `github` rule for the GitHub MCP),
- * which this row does not name. A switch here would change the `mcp` rule and leave that call
- * gated, so the provider page owns it.
- */
-function canAlwaysAllow(staging: SyncedActionStaging): boolean {
-  return (
-    staging.toolName !== "mcp.call" &&
-    staging.riskTier !== "high" &&
-    isLoadableIntegrationSlug(staging.integration)
-  );
+function cardSettings(staging: SyncedActionStaging): CardSettings {
+  const settings = staging.approvalCause?.settings ?? [];
+
+  return {
+    integrationSetting: settings.find((setting) => setting.kind === "integration_mode"),
+    toolSetting: settings.find((setting) => setting.kind === "always_allow"),
+    fullAutonomySetting: settings.find((setting) => setting.kind === "full_autonomy"),
+  };
 }
 
 function policyCopy(riskTier: ToolRiskTier): string {

@@ -8,13 +8,21 @@
  */
 
 import {
+  integrationFromToolName,
+  isLoadableIntegrationSlug,
   isToolName,
+  type ApprovalCause,
+  type ApprovalCauseKind,
+  type ApprovalSetting,
+  type IntegrationSlug,
   type PolicyMode,
   type ToolName,
   type ToolReadClass,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import { resolvePolicyMode } from "@alfred/assistant/action-policies";
+import type { Fix } from "@alfred/contracts/app-errors";
+import { resolvePolicyMode, type PolicyDecision } from "@alfred/assistant/action-policies";
+import type { ReadFacts } from "./read-route";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
 import { getTool, type ToolStagingPolicy } from "./internal/registry";
 
@@ -55,6 +63,91 @@ export function callRequiresApproval(args: {
   if (arm.forcesApproval) return true;
 
   return toolRequiresApproval(args.policyMode, args.riskTier, args.readClass) && !args.fullAutonomy;
+}
+
+/**
+ * `mcp.call` reaches every server, so one override on it would cover each server at once. Its
+ * card names the integration mode of the server's provider instead.
+ */
+const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
+
+/** The facts of one call that waits on a card, for `approvalCause`. */
+export interface ApprovalCauseFacts {
+  staging: ToolStagingPolicy;
+  toolName: ToolName;
+  /** The mode and the setting that set it (`resolvePolicyDecision`). */
+  policy: PolicyDecision;
+  /** The integration whose rule governs the call: the provider of a built-in `mcp.call`. */
+  policyIntegration: IntegrationSlug;
+  riskTier: ToolRiskTier;
+  /** The read facts of the call. Dispatch reads them under `gated` below `high`, else `undefined`. */
+  readFacts: Pick<ReadFacts, "read" | "readClass"> | undefined;
+  /** The run has a chat thread, so Full Autonomy for the thread can remove the card. */
+  onThread: boolean;
+}
+
+/**
+ * Why a call waits on a card, and the closed list of settings that remove the card (ADR-0130
+ * decision 4). It follows `toolRequiresApproval`, so a listed setting removes the card for the
+ * same call. `null` when the call does not wait, or when no listed setting removes the card: a
+ * forced arm (`confirm`, `question`), a `high` call outside a chat thread, or a call on a server
+ * that the owner added outside a chat thread.
+ */
+export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
+  const arm = STAGING_ARM[facts.staging];
+
+  if (arm === null || arm.forcesApproval) return null;
+
+  const readClass = facts.readFacts?.readClass;
+
+  if (!toolRequiresApproval(facts.policy.mode, facts.riskTier, readClass)) return null;
+
+  const fullAutonomy: ApprovalSetting[] = facts.onThread ? [{ kind: "full_autonomy" }] : [];
+
+  if (facts.riskTier === "high") {
+    return fullAutonomy.length > 0 ? { cause: "high_risk", settings: fullAutonomy } : null;
+  }
+
+  const alwaysAllow: ApprovalSetting = { kind: "always_allow", toolName: facts.toolName };
+
+  // An override on the tool beats the integration mode, so only "Always allow" changes it.
+  // Overrides apply only under the tool's own integration (`resolvePolicyDecision`).
+  const policySettings: ApprovalSetting[] =
+    facts.policy.source === "tool_override"
+      ? [alwaysAllow]
+      : [
+          // Only a mode that a page can set. A server that the owner added has the internal
+          // `mcp` slug, and no page sets its mode.
+          ...(isLoadableIntegrationSlug(facts.policyIntegration)
+            ? [{ kind: "integration_mode", integration: facts.policyIntegration } as const]
+            : []),
+          ...(facts.policyIntegration === integrationFromToolName(facts.toolName) &&
+          facts.toolName !== MCP_CALL_TOOL
+            ? [alwaysAllow]
+            : []),
+        ];
+
+  const settings = [...policySettings, ...fullAutonomy];
+
+  return settings.length > 0 ? { cause: causeOfGatedCall(facts.readFacts), settings } : null;
+}
+
+/** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
+export interface ApprovalCauseFact {
+  cause: ApprovalCauseKind;
+  fix: Extract<Fix, { kind: "change_setting" }>;
+}
+
+export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
+  return { cause: cause.cause, fix: { kind: "change_setting", settings: cause.settings } };
+}
+
+function causeOfGatedCall(
+  readFacts: ApprovalCauseFacts["readFacts"],
+): Exclude<ApprovalCauseKind, "high_risk"> {
+  if (readFacts?.read !== true) return "may_write";
+
+  return readFacts.readClass === "secret" ? "secret_read" : "unclassified_read";
 }
 
 /**

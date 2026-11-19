@@ -5,6 +5,7 @@
  */
 
 import type {
+  ApprovalCause,
   AskUserUnansweredReason,
   DirectRouteReason,
   HostReadRefusal,
@@ -88,7 +89,10 @@ import { mcpResultHasBinaryContent } from "../tools/mcp-binary-content";
 import { enrichInvalidInputMessage } from "./invalid-input";
 import { normalizeToolInputKeys } from "./normalize-keys";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import { resolveApprovalNotifyDelayMs, resolvePolicyMode } from "@alfred/assistant/action-policies";
+import {
+  resolveApprovalNotifyDelayMs,
+  resolvePolicyDecision,
+} from "@alfred/assistant/action-policies";
 import {
   resolveAwaitSubAgent,
   scheduleApprovalExpiryJob,
@@ -103,6 +107,8 @@ import {
 import { toolExecuteContext } from "../../context";
 import { executedResultOutcome } from "../result-routing";
 import {
+  approvalCause,
+  approvalCauseFact,
   callRequiresApproval,
   forecastToolApproval,
   toolRequiresApproval,
@@ -136,7 +142,9 @@ export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAda
 
 type DispatchResult = ToolCallDispatchResult;
 
-const DEFERRED: DeferredDispatch = { kind: "deferred" };
+function deferred(approvalCause: ApprovalCause | null): DeferredDispatch {
+  return { kind: "deferred", approvalCause };
+}
 
 /**
  * A script read whose route is direct now, for a reason other than a card (ADR-0124 amendment
@@ -600,8 +608,8 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
   if (unavailableRun) return unavailableRun;
 
   if (isInterruptedClaim(row)) {
-    // A restage can write a card, so the serial lane owns it.
-    if (resolved.deferIfGated) return DEFERRED;
+    // A restage can write a card, so the serial lane owns it. No setting removes that card.
+    if (resolved.deferIfGated) return deferred(null);
 
     // The claim itself proves that a write may have started, even if replay classification changed.
     const restage = await restageInterruptedCall(row, resolved);
@@ -628,14 +636,18 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
   switch (row.status) {
     case "pending":
       if (row.requiresApproval) {
-        return resolved.deferIfGated ? DEFERRED : waitForStagingApproval(row, args, arm, false);
+        return resolved.deferIfGated
+          ? deferred(row.approvalCause)
+          : waitForStagingApproval(row, args, arm, false);
       }
 
       return continueWith(resolved);
     case "approved": {
       const binding = tool.bind(row.decidedInput ?? row.proposedInput);
 
-      if (!binding.success) return failApprovedInput(row, resolved, binding.error.issues);
+      if (!binding.success) {
+        return withApprovalCause(row, await failApprovedInput(row, resolved, binding.error.issues));
+      }
 
       return continueWith({
         ...resolved,
@@ -653,7 +665,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     case "expired":
     case "executed":
     case "failed":
-      return replaySettledStaging(row, resolved);
+      return withApprovalCause(row, replaySettledStaging(row, resolved));
     default:
       return assertNever(row.status, "saved staging status");
   }
@@ -839,7 +851,7 @@ function hostReadOutcome(
         message:
           "This read waits for the user's approval, and a script cannot show the approval card. " +
           `Call ${request.toolName} as a direct tool call with the same input: the user sees ` +
-          "the card there.",
+          `the card there.${approvalCauseSuffix(result.approvalCause)}`,
         call,
       };
     case "failed":
@@ -869,6 +881,16 @@ function hostReadOutcome(
     default:
       return assertNever(result, "host read dispatch result");
   }
+}
+
+/**
+ * The guest gets only a message and a code from a refused read, so the cause goes in the message
+ * as JSON facts, the same shape as a direct call's `approvalCause` (ADR-0130 decision 4).
+ */
+function approvalCauseSuffix(cause: ApprovalCause | null): string {
+  if (cause === null) return "";
+
+  return ` approvalCause: ${JSON.stringify(approvalCauseFact(cause))}`;
 }
 
 /** The refusal code of a host read whose dispatch failed with a named failure. */
@@ -1244,8 +1266,7 @@ async function refuseMisroutedRead(
  * executes, approved executes the decided input, and settled rows replay.
  */
 const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (suppressed) => {
-  const { args, tool, toolName, integration, call, ctx, arm, proposedInputHash, requestHash } =
-    suppressed;
+  const { args, tool, toolName, call, ctx, arm, proposedInputHash, requestHash } = suppressed;
 
   const input = call.input;
 
@@ -1281,11 +1302,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const riskTier = await call.effectiveRiskTier(ctx);
 
   // A built-in `mcp.call` reads its provider's rule, so the GitHub setting governs GitHub reads.
-  const policyMode = await resolvePolicyMode(
-    args.userId,
-    toolName,
-    await call.policyIntegration(ctx),
-  );
+  const policyIntegration = await call.policyIntegration(ctx);
+  const policy = await resolvePolicyDecision(args.userId, toolName, policyIntegration);
+  const policyMode = policy.mode;
 
   // Read once, and only when a caller needs them: the rule under `gated` and below `high`, or the
   // read route. A `mcp.call` read resolves the tool's identity.
@@ -1293,8 +1312,10 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const readFacts = (): Promise<ReadFacts> => (cachedReadFacts ??= call.readFacts(ctx));
 
   // The class decides only under `gated` and below `high` (ADR-0130 decision 1).
-  const readClass =
-    policyMode === "gated" && riskTier !== "high" ? (await readFacts()).readClass : undefined;
+  const ruleReadFacts =
+    policyMode === "gated" && riskTier !== "high" ? await readFacts() : undefined;
+
+  const readClass = ruleReadFacts?.readClass;
 
   const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier, readClass);
 
@@ -1311,12 +1332,25 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     fullAutonomy,
   });
 
+  // The row keeps the cause, so a replay and the card read the facts of this decision.
+  const cause = requiresApproval
+    ? approvalCause({
+        staging: tool.staging,
+        toolName,
+        policy,
+        policyIntegration,
+        riskTier,
+        readFacts: ruleReadFacts,
+        onThread: args.approvalThreadId !== undefined,
+      })
+    : null;
+
   const misrouted = await refuseMisroutedRead(suppressed, requiresApproval, readFacts);
 
   if (misrouted) return misrouted;
 
   // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
-  if (requiresApproval && suppressed.deferIfGated) return DEFERRED;
+  if (requiresApproval && suppressed.deferIfGated) return deferred(cause);
 
   if (fullAutonomy) {
     logger.info(
@@ -1343,13 +1377,15 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     stepId: args.stepId,
     toolCallId: args.toolCallId,
     toolName,
-    integration,
+    // The provider, not `mcp`, so the card and the cause name it (ADR-0130 decision 4).
+    integration: policyIntegration,
     riskTier,
     proposedInput: persistedProposedInput,
     displayInput: persistedDisplayInput,
     proposedInputHash,
     requestHash,
     requiresApproval,
+    approvalCause: cause,
     status: "pending",
     notifyAfterAt,
     expiresAt,
@@ -1371,6 +1407,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   // A pending row may gain a gate after a mode change, but it must never lose one.
   if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
     const promoted = await stagingStore().promotePendingApproval(row.id, {
+      approvalCause: cause,
       riskTier,
       proposedInput: persistedProposedInput,
       displayInput: persistedDisplayInput,
@@ -1412,26 +1449,34 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       // A user edit may break the schema. Fail the row instead of throwing.
       const rebound = tool.bind(useInput);
 
-      if (!rebound.success) return failApprovedInput(row, suppressed, rebound.error.issues);
+      if (!rebound.success) {
+        return withApprovalCause(
+          row,
+          await failApprovedInput(row, suppressed, rebound.error.issues),
+        );
+      }
 
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
 
-        if (exhausted) return exhausted;
+        if (exhausted) return withApprovalCause(row, exhausted);
       }
 
-      return executeAndCommit(row, rebound.call, ctx, {
-        lease: stepLease(args),
-        editedByUser,
-        ...(editedByUser ? { executedInput: rebound.call.input } : {}),
-      });
+      return withApprovalCause(
+        row,
+        await executeAndCommit(row, rebound.call, ctx, {
+          lease: stepLease(args),
+          editedByUser,
+          ...(editedByUser ? { executedInput: rebound.call.input } : {}),
+        }),
+      );
     }
 
     case "rejected":
     case "expired":
     case "executed":
     case "failed":
-      return replaySettledStaging(row, suppressed);
+      return withApprovalCause(row, replaySettledStaging(row, suppressed));
 
     default: {
       // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
@@ -1485,6 +1530,21 @@ async function failApprovedInput(
     stagingId: row.id,
     error,
   };
+}
+
+/**
+ * The result of a call that waited on a card carries the row's cause, so the model can name the
+ * setting that removes the card (ADR-0130 decision 4). A replay reads the same row, so it gives
+ * the same cause. A row with no cause, or a result of another kind, passes through.
+ */
+function withApprovalCause(row: StagingRow, result: DispatchResult): DispatchResult {
+  if (row.approvalCause === null) return result;
+
+  if (result.kind === "executed" || result.kind === "failed" || result.kind === "rejected") {
+    return { ...result, approvalCause: row.approvalCause };
+  }
+
+  return result;
 }
 
 function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): DispatchResult {

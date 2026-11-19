@@ -1,6 +1,6 @@
 # ADR-0130 — Chat reads ask only for secrets, with one size rule and discovery in the sandbox (ACCEPTED — 2026-11-19)
 
-**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
+**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
 
 Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
 
@@ -87,6 +87,20 @@ Owner decision, 2026-11-19 (#1799 part 2). On a server that the owner added, for
 - One function, `approvalCause`, sits beside the approval rule. For each card or refusal, it returns the cause and a closed list of the settings that remove it. The list holds the mode on the integration page, Full Autonomy for the thread, and "Always allow" for the tool.
 - A new `Fix` kind, `change_setting`, carries the list to the model and to the web. The web shows the links. The model writes the words. No prompt rule is added. This follows "code supplies the facts, the model writes the copy".
 - The staging row stores the real provider, for example `github`, not `mcp`. Then the card and the cause can name the provider.
+
+#### Amendment 2026-11-19 (b): where the model gets the cause
+
+Owner decision, 2026-11-19 (#1800). In chat, a card stops the turn, so the model cannot write while the card waits.
+
+- **The rule:** the tool result of a card that the user approved, rejected, or let expire carries the cause (`approvalCause`). The script refusal `needs_approval` carries it too. The model then writes one line about the setting.
+- **The web:** the card head shows a switch for the integration mode and for "Always allow" when the list holds them. For Full Autonomy, it shows a line that names the mode menu beside the card. The saved reply shows the setting links under the reply.
+- **The list:** it holds only the settings that remove the card for this call.
+  - A `high` card lists only Full Autonomy. Outside a chat thread, no setting removes it, so it has no cause.
+  - A tool override that asks beats the integration mode, so only "Always allow" is listed.
+  - The integration mode is listed only when a page can set it. A server that the owner added has the internal `mcp` slug, and no page sets its mode. Outside a chat thread, such a card thus has no cause.
+  - "Always allow" is not listed for `mcp.call`. One override on it would cover every server, and it has no effect on a built-in provider.
+  - A `confirm` card, a question, and a restaged card that may have run have no cause.
+- **The row:** `action_stagings.approval_cause` keeps the cause (migration 0177). A replay reads the same row, so it gives the same cause.
 
 ### 5. One size rule: a result is bounded by its structure where it goes to the model (settled)
 

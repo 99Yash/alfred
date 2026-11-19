@@ -10,7 +10,8 @@ import type { IntegrationSlug, PolicyMode, ToolName } from "@alfred/contracts";
 import {
   integrationFromToolName,
   resolveIntegrationMode,
-  resolveToolMode,
+  resolveToolModeDecision,
+  type ToolModeDecision,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies, type UserActionPolicy } from "@alfred/db/schemas";
@@ -97,6 +98,15 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
 }
 
 /**
+ * The mode of one call, and the setting that set it (ADR-0130 decision 4). `system`: a
+ * `system.*` tool, which no setting gates. Else the `source` of `resolveToolModeDecision`.
+ */
+export interface PolicyDecision {
+  mode: PolicyMode;
+  source: "system" | ToolModeDecision["source"];
+}
+
+/**
  * Read order: `system.*`, then tool override, then integration mode, then user default (ADR-0034).
  * `system.*` returns `autonomy` before the row is read (ADR-0040 D5), so no data bug
  * or user toggle can gate it. The seeded `integrationRules.system` is only a second line.
@@ -105,22 +115,32 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
  * (`BoundToolCall.policyIntegration`): `mcp.call` on the GitHub MCP reads the `github` rule.
  * The tool overrides of the tool's own integration do not apply then.
  */
+export async function resolvePolicyDecision(
+  userId: string,
+  toolName: ToolName,
+  policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
+): Promise<PolicyDecision> {
+  if (integrationFromToolName(toolName) === "system") return { mode: "autonomy", source: "system" };
+
+  const policy = await getResolvedPolicy(userId);
+
+  if (policyIntegration !== integrationFromToolName(toolName)) {
+    return {
+      mode: resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode),
+      source: "integration",
+    };
+  }
+
+  return resolveToolModeDecision(policy.integrationRules, toolName, policy.defaultMode);
+}
+
+/** The mode of `resolvePolicyDecision`, for a caller that does not name the setting. */
 export async function resolvePolicyMode(
   userId: string,
   toolName: ToolName,
   policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
 ): Promise<PolicyMode> {
-  const integration = integrationFromToolName(toolName);
-
-  if (integration === "system") return "autonomy";
-
-  const policy = await getResolvedPolicy(userId);
-
-  if (policyIntegration !== integration) {
-    return resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode);
-  }
-
-  return resolveToolMode(policy.integrationRules, toolName, policy.defaultMode);
+  return (await resolvePolicyDecision(userId, toolName, policyIntegration)).mode;
 }
 
 export async function resolveApprovalNotifyDelayMs(userId: string): Promise<number> {
