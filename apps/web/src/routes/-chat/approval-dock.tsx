@@ -1,5 +1,10 @@
 import type { ApprovalSetting, IntegrationSlug, ToolRiskTier } from "@alfred/contracts";
-import { assertNever, humanizeToolName, isLoadableIntegrationSlug } from "@alfred/contracts";
+import {
+  APPROVAL_CONTROL_LABELS,
+  assertNever,
+  humanizeToolName,
+  isLoadableIntegrationSlug,
+} from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
@@ -908,7 +913,7 @@ function PermissionsAffordance({
           )}
         >
           <ShieldCheck size={12} className="shrink-0" />
-          <span className="hidden sm:inline">Permissions</span>
+          <span className="hidden sm:inline">{APPROVAL_CONTROL_LABELS.permissions}</span>
           <ChevronDown size={12} className="shrink-0 text-app-fg-2" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -933,7 +938,7 @@ function PermissionsAffordance({
               id={`permissions-tool-${staging.id}`}
               checked={toolAllowed}
               onCheckedChange={onFlipTool}
-              label="Always allow this action"
+              label={APPROVAL_CONTROL_LABELS.alwaysAllowAction}
               hint={
                 toolAllowed
                   ? `Alfred can ${toolTitle} without asking.`

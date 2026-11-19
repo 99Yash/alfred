@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  APPROVAL_CONTROL_LABELS,
   assertNever,
   humanizeToolName,
   integrationFromToolName,
@@ -132,7 +133,7 @@ function SettingRows({
       ))}
       {offersFullAutonomy ? (
         <SettingButton
-          label="Full Autonomy for this chat"
+          label={APPROVAL_CONTROL_LABELS.fullAutonomyButton}
           onClick={() =>
             void threadActions.setApprovalMode(threadId, "full").catch(() => {
               toast.error("Couldn't turn on Full Autonomy. Please try again.");

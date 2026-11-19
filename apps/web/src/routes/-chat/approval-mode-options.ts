@@ -1,5 +1,6 @@
 import { Eye, ShieldOff, Zap } from "lucide-react";
 import type { ComponentType } from "react";
+import { APPROVAL_CONTROL_LABELS } from "@alfred/contracts";
 import type { ChatApprovalMode } from "@alfred/sync";
 
 export interface ModeOption {
@@ -25,7 +26,7 @@ const AUTO_OPTION: ModeOption = {
 
 const FULL_OPTION: ModeOption = {
   value: "full",
-  label: "Full autonomy",
+  label: APPROVAL_CONTROL_LABELS.fullAutonomy,
   description: "This chat never asks. Sends, invites, and deploys run at once.",
   Icon: ShieldOff,
 };
