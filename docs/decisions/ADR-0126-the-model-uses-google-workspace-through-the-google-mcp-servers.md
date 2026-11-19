@@ -85,3 +85,7 @@ The retirement rule: name the failure that each deleted curated tool stopped.
 ## Cross-ref
 
 Amends ADR-0068, ADR-0074, ADR-0088, ADR-0093, ADR-0096, and ADR-0114. Builds on ADR-0125 and ADR-0094. Keeps ADR-0044 (the Google connect flow) and ADR-0104 (the Drive context search source) as they are. Theory: [docs/theory/README.md](../theory/README.md).
+
+## Amendment 2026-11-19 — Gated does not ask for a pinned Google read ([ADR-0130](./ADR-0130-chat-reads-ask-only-for-secrets-with-one-size-rule-and-discovery-in-the-sandbox.md) decision 1)
+
+Decision 4 said that the Gmail Gated setting controls a `low` Gmail read. Now the Google integrations have the default class `ordinary`, so with Gated, a pinned Google read runs with no card. A write still follows the setting, and a `high` write always asks.

@@ -55,7 +55,9 @@ export {
 } from "./built-ins";
 
 export {
+  BUILT_IN_SECRET_READS,
   builtInOutputKind,
+  builtInReadClass,
   builtInReadToolPinsOf,
   builtInToolPolicy,
   type BuiltInToolPolicy,
@@ -65,7 +67,11 @@ export { readLiveGoogleWorkspaceCatalogs } from "./built-in-policy-drift";
 
 export { syncGoogleWorkspaceConnections } from "./google-workspace";
 
-export { RAILWAY_MCP_ENDPOINT_HREF, RAILWAY_MCP_STORED_ISSUER } from "./constants";
+export {
+  GITHUB_MCP_ENDPOINT_HREF,
+  RAILWAY_MCP_ENDPOINT_HREF,
+  RAILWAY_MCP_STORED_ISSUER,
+} from "./constants";
 
 export {
   mcpConnectionUsesOAuth,

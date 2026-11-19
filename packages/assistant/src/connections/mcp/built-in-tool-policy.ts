@@ -1,18 +1,23 @@
 /**
  * Code-owned `mcp_tool_policy` entries for built-in read tools (ADR-0096 amendment, 2026-11-13).
- * An entry binds one remote tool to one descriptor hash and grants the `low` tier and the `read`
- * effect class. A changed descriptor misses its entry, so the tool goes back to the `high` floor
- * and the effectful ledger path (fail closed). The gate also needs the published `readOnlyHint`.
+ * An entry binds one remote tool to one descriptor hash and grants the `low` tier, the `read`
+ * effect class, and the `ordinary` read class (ADR-0130 decision 1). A changed descriptor misses
+ * its entry, so the tool goes back to the `high` floor and the effectful ledger path, or for a
+ * read-only endpoint to its integration's default class (fail closed). The gate also needs the
+ * published `readOnlyHint`.
  * An owner review of the tool, under any hash, wins over the entry (ADR-0096 sub-decisions 1, 2).
  * The pins live in `built-in-tool-pins.ts`. `pnpm --filter @alfred/assistant mcp:policy-drift`
  * lists the drift, and `--write` refreshes the pins for a review of the diff.
  */
 
-import type {
-  McpEffectClass,
-  McpRetryContract,
-  ToolOutputKind,
-  ToolRiskTier,
+import {
+  BUILT_IN_MCP_CATALOG,
+  INTEGRATIONS,
+  type McpEffectClass,
+  type McpRetryContract,
+  type ToolOutputKind,
+  type ToolReadClass,
+  type ToolRiskTier,
 } from "@alfred/contracts";
 import { builtInProviderForEndpoint, builtInReadOnlyResource } from "./built-ins";
 import { BUILT_IN_READ_TOOL_PINS, type BuiltInReadToolPins } from "./built-in-tool-pins";
@@ -28,8 +33,9 @@ export interface BuiltInToolPolicy {
 }
 
 /**
- * Every entry is a read. `low` is approval-free, as for the ADR-0096 structural branch. A read
- * skips the ambiguity barrier, so the retry contract is not read; `never` is the row default.
+ * Every entry is a read. `low` is the tier of the ADR-0096 structural branch. `low` alone is not
+ * approval-free: under `gated` the read class decides (ADR-0130 decision 1). A read skips the
+ * ambiguity barrier, so the retry contract is not read; `never` is the row default.
  */
 const BUILT_IN_READ_POLICY: BuiltInToolPolicy = {
   riskTier: "low",
@@ -46,6 +52,16 @@ const BUILT_IN_BINARY_READS: ReadonlyMap<BuiltInProvider, readonly string[]> = n
   BuiltInProvider,
   readonly string[]
 >([["drive", ["download_file_content"]]]);
+
+/**
+ * The reads of a built-in that can return a secret (ADR-0130 decision 1), by name under any
+ * descriptor. Such a read is `secret` even with a pin, and the drift tool never pins it.
+ * GitHub's `run_secret_scanning` returns the secrets that it finds.
+ */
+export const BUILT_IN_SECRET_READS: ReadonlyMap<BuiltInProvider, readonly string[]> = new Map<
+  BuiltInProvider,
+  readonly string[]
+>([["github", ["run_secret_scanning"]]]);
 
 /** The read pins of one built-in, or `undefined` when it has none. */
 export function builtInReadToolPinsOf(
@@ -93,4 +109,27 @@ export function builtInOutputKind(
   if (entry !== undefined) return entry.outputKind;
 
   return builtInReadOnlyResource(endpointUrl) ? "structured" : undefined;
+}
+
+/**
+ * The read class of one exact descriptor of a built-in (ADR-0130 decision 1), or `undefined`
+ * when no code classifies it. A name in `BUILT_IN_SECRET_READS` is `secret`. A pinned descriptor
+ * is `ordinary`, because a pin is code's review of that exact descriptor. Any other descriptor
+ * gets its integration's default, so a drifted GitHub pin is `secret` and asks. A user-added
+ * server has no class. The class matters only for a confirmed read.
+ */
+export function builtInReadClass(
+  endpointUrl: string,
+  remoteName: string,
+  descriptorHash: string,
+): ToolReadClass | undefined {
+  const provider = builtInProviderForEndpoint(endpointUrl);
+
+  if (provider === undefined) return undefined;
+
+  if (BUILT_IN_SECRET_READS.get(provider)?.includes(remoteName)) return "secret";
+
+  if (builtInToolPolicy(endpointUrl, remoteName, descriptorHash) !== undefined) return "ordinary";
+
+  return INTEGRATIONS[BUILT_IN_MCP_CATALOG[provider].slug].readClassDefault ?? undefined;
 }

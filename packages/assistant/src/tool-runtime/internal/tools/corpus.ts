@@ -21,7 +21,7 @@ export const corpusTools: readonly RegisteredTool[] = [
     action: "corpus_search",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     staging: "fast_path",

@@ -19,7 +19,8 @@ import {
 export const MCP_CALL_RISK_FLOOR: ToolRiskTier = "high";
 
 /**
- * Tier for a structural read-only downgrade (ADR-0096). `low` is already approval-free.
+ * Tier for a structural read-only downgrade (ADR-0096). `low` is not approval-free by itself:
+ * under `gated`, the read class decides (ADR-0130 decision 1).
  * Not `no_risk`: the server, not Alfred, wrote the schema the model fills.
  */
 export const MCP_READ_ONLY_STRUCTURAL_TIER: ToolRiskTier = "low";

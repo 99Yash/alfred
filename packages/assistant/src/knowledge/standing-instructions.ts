@@ -221,7 +221,7 @@ async function readStandingInstructionSetRevision(userId: string): Promise<numbe
 
 // ─── Capture (v2, ADR-0113) ─────────────────────────────────────────────────
 
-/** The parsed `system.remember` input, after the user confirmed it on its card. */
+/** The parsed `system.remember` input. It saves with no card (ADR-0130 decision 2). */
 export type SaveStandingInstructionInput = Omit<z.infer<typeof rememberInput>, "kind">;
 
 /** An active instruction that shares a sender with the saved one (ADR-0060 micro-decision 6). */
@@ -601,7 +601,7 @@ function planCapture(
       expectedRevision: input.expectedRevision ?? null,
       currentRevision: previous.value.revision,
       message:
-        "Nothing was stored: the instruction changed after this card was proposed. List the " +
+        "Nothing was stored: the instruction changed after this call was proposed. List the " +
         "instructions, show the user the current one, and ask again.",
     };
   }
@@ -669,8 +669,8 @@ export async function checkStandingInstructionCapture(args: {
 }
 
 /**
- * Store a v2 standing instruction, or revise one (ADR-0113 capture). The user already
- * confirmed the input on its card. Code mints the instruction id; a revision keeps it and
+ * Store a v2 standing instruction, or revise one (ADR-0113 capture). It runs with no card
+ * (ADR-0130 decision 2). Code mints the instruction id; a revision keeps it and
  * adds 1 to `revision`. The `user_facts` trigger raises the set revision with the write.
  */
 export async function saveStandingInstruction(args: {
@@ -1042,7 +1042,7 @@ export async function listStandingInstructions(
 
 /**
  * Null for an unknown, foreign, non-instruction, or retired id. A v2 row is `v2`: only
- * `system.remember` revises it, behind the confirmation card.
+ * `system.remember` revises it.
  */
 async function loadOwnedStandingInstruction(
   userId: string,
@@ -1156,7 +1156,7 @@ export async function editStandingInstruction(
       instructionId: existing.instructionId,
       message:
         "This instruction is schemaVersion 2. Revise it with system.remember and this " +
-        "instructionId, so the user confirms the change on its card.",
+        "instructionId.",
     };
   }
 

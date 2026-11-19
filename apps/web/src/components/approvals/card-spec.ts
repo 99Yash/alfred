@@ -50,8 +50,6 @@ const APPROVE_VERBS = new Map<ToolName, string>([
   ["sheets.append_values", "Add rows"],
   ["vercel.redeploy", "Redeploy"],
   ["system.activate_workflow", "Activate"],
-  // A durable instruction, so "Allow once" would misstate it.
-  ["system.remember", "Save instruction"],
 ]);
 
 /**

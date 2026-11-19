@@ -76,7 +76,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
             <p className="mt-1 text-xs leading-5 text-app-fg-3">
               {mode === "autonomy"
                 ? `Alfred acts on ${provider.name} without pausing for approval. Risky actions still ask.`
-                : `Alfred pauses for your approval before any action on ${provider.name}, including reading messages beyond a short preview.`}
+                : `Alfred asks before it changes anything on ${provider.name}, and before a read that can show a secret, such as a key or a token.`}
             </p>
           </div>
           <AppSegmented<PolicyMode>

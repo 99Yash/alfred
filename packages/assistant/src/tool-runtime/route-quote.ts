@@ -1,9 +1,10 @@
 /**
  * The route quote of a discovery hit (ADR-0130 C1). `system.search_tools`, `mcp.list_tools`, and
- * `mcp.inspect_tool` each tell the model where a tool runs now and if it shows a card, so the
- * model does not learn the route from a refused call. Each quote uses the inputs and the two
- * rules that dispatch uses (`callRequiresApproval`, `decideReadRoute`): the staging arm, the
- * policy rule, the tier, the read facts, and Full Autonomy of `approvalThreadId`. Thus a hit
+ * `mcp.inspect_tool` each tell the model where a tool runs now, if it shows a card, and its read
+ * class, so the model does not learn the route from a refused call. Each quote uses the inputs
+ * and the two rules that dispatch uses (`callRequiresApproval`, `decideReadRoute`): the staging
+ * arm, the policy rule, the tier, the read facts with the class, and Full Autonomy of
+ * `approvalThreadId`. Thus a hit
  * quoted `script` is a call that a script can make. Dispatch decides again for each call, because
  * a policy can change between the two.
  */
@@ -21,7 +22,7 @@ import { callRequiresApproval, toolRequiresApproval } from "./approval-rule";
 import { stagingStore } from "./internal/dispatch/staging-store";
 import { getTool, type RegisteredTool, type ToolStagingPolicy } from "./internal/registry";
 import {
-  DECLARED_STRUCTURED_READ,
+  declaredStructuredRead,
   decideReadRoute,
   NOT_A_CONFIRMED_READ,
   type ReadFacts,
@@ -73,24 +74,39 @@ export function routeQuoteRun(args: {
 /** The live approval of one call, from the inputs that `stageOrResumeStage` reads. */
 async function requiresApproval(
   run: RouteQuoteRun,
-  call: { staging: ToolStagingPolicy; policyMode: PolicyMode; riskTier: ToolRiskTier },
+  call: {
+    staging: ToolStagingPolicy;
+    policyMode: PolicyMode;
+    riskTier: ToolRiskTier;
+    facts: ReadFacts;
+  },
 ): Promise<boolean> {
-  const gated = toolRequiresApproval(call.policyMode, call.riskTier);
+  const { staging, policyMode, riskTier } = call;
+  const readClass = call.facts.readClass;
+  const gated = toolRequiresApproval(policyMode, riskTier, readClass);
 
-  return callRequiresApproval({ ...call, fullAutonomy: gated && (await run.fullAutonomy()) });
+  return callRequiresApproval({
+    staging,
+    policyMode,
+    riskTier,
+    readClass,
+    fullAutonomy: gated && (await run.fullAutonomy()),
+  });
 }
 
 /** The quote from the approval of the call and its read facts. */
 function quote(run: RouteQuoteRun, facts: ReadFacts, requiresApproval: boolean): ToolRouteQuote {
   const approval = requiresApproval ? "card" : "none";
+  const readClass = facts.readClass;
+  const classField = readClass === undefined ? {} : { class: readClass };
 
-  if (!run.scriptReads) return { route: "direct", approval };
+  if (!run.scriptReads) return { route: "direct", approval, ...classField };
 
   const route = decideReadRoute(facts, requiresApproval);
 
   return route.route === "script"
-    ? { route: "script", approval: "none" }
-    : { route: "direct", directReason: route.reason, approval };
+    ? { route: "script", approval: "none", ...classField }
+    : { route: "direct", directReason: route.reason, approval, ...classField };
 }
 
 /**
@@ -112,6 +128,7 @@ export async function quoteMcpToolRoute(
     staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
     policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyIntegration),
     riskTier,
+    facts,
   });
 
   return { quote: quote(run, facts, approval), riskTier };
@@ -127,13 +144,17 @@ export async function quoteCuratedToolRoute(
 ): Promise<ToolRouteQuote | null> {
   if (tool.resolvesRiskTier || tool.resolvesPolicyIntegration) return null;
 
+  // The facts that dispatch reads for a call with no `resolveReadFacts`. Only `mcp.call` declares
+  // one, and the guard above returns for it, because it also resolves its tier.
+  const facts =
+    tool.readClass === undefined ? NOT_A_CONFIRMED_READ : declaredStructuredRead(tool.readClass);
+
   const approval = await requiresApproval(run, {
     staging: tool.staging,
     policyMode: await resolvePolicyMode(run.userId, tool.name),
     riskTier: tool.riskTier,
+    facts,
   });
 
-  // The facts that dispatch reads for a call with no `resolveReadFacts`. Only `mcp.call` declares
-  // one, and the guard above returns for it, because it also resolves its tier.
-  return quote(run, tool.codeModeRead ? DECLARED_STRUCTURED_READ : NOT_A_CONFIRMED_READ, approval);
+  return quote(run, facts, approval);
 }

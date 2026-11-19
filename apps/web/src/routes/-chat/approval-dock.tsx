@@ -1014,7 +1014,7 @@ function policyCopy(riskTier: ToolRiskTier): string {
   }
 
   if (riskTier === "low") {
-    return "This integration is set to ask first. Review the target before Alfred reads more context.";
+    return "This integration is set to ask first. Review the details before it runs.";
   }
 
   return "This action can change data outside Alfred. Review the details before it runs.";

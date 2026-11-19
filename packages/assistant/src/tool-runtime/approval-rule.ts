@@ -7,18 +7,32 @@
  * with Full Autonomy read live.
  */
 
-import { isToolName, type PolicyMode, type ToolName, type ToolRiskTier } from "@alfred/contracts";
+import {
+  isToolName,
+  type PolicyMode,
+  type ToolName,
+  type ToolReadClass,
+  type ToolRiskTier,
+} from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
 import { getTool, type ToolStagingPolicy } from "./internal/registry";
 
 /**
- * Approval is needed when policy is `gated` or the tier is `high`.
- * "Auto" must not authorize an irreversible action, such as a real email send.
+ * The approval rule (ADR-0130 decision 1). The `high` tier always asks: "Auto" must not authorize
+ * an irreversible action, such as a real email send. Under `gated`, a confirmed `ordinary` read
+ * runs with no card, and every other call asks: a write, a `secret` read, and a read with no
+ * class. `readClass` is `ReadFacts.readClass`: the class of a confirmed read, else `undefined`.
  * Dispatch, both predictors, and the route quote use this one gate.
  */
-export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
-  return policyMode === "gated" || riskTier === "high";
+export function toolRequiresApproval(
+  policyMode: PolicyMode,
+  riskTier: ToolRiskTier,
+  readClass: ToolReadClass | undefined,
+): boolean {
+  if (riskTier === "high") return true;
+
+  return policyMode === "gated" && readClass !== "ordinary";
 }
 
 /**
@@ -31,6 +45,7 @@ export function callRequiresApproval(args: {
   staging: ToolStagingPolicy;
   policyMode: PolicyMode;
   riskTier: ToolRiskTier;
+  readClass: ToolReadClass | undefined;
   fullAutonomy: boolean;
 }): boolean {
   const arm = STAGING_ARM[args.staging];
@@ -39,7 +54,7 @@ export function callRequiresApproval(args: {
 
   if (arm.forcesApproval) return true;
 
-  return toolRequiresApproval(args.policyMode, args.riskTier) && !args.fullAutonomy;
+  return toolRequiresApproval(args.policyMode, args.riskTier, args.readClass) && !args.fullAutonomy;
 }
 
 /**
@@ -81,7 +96,7 @@ export async function forecastToolApproval(
   // No validated input here, so assume a dynamic tier may gate.
   if (tool.resolvesRiskTier) return "waivable";
 
-  return toolRequiresApproval(policyMode, tool.riskTier) ? "waivable" : "none";
+  return toolRequiresApproval(policyMode, tool.riskTier, tool.readClass) ? "waivable" : "none";
 }
 
 /**
@@ -110,5 +125,5 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
   // A declared downgrade can take the tier below `high`. The bound call clamps an undeclared one.
   const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
 
-  return toolRequiresApproval(policyMode, lowestTier);
+  return toolRequiresApproval(policyMode, lowestTier, tool.readClass);
 }

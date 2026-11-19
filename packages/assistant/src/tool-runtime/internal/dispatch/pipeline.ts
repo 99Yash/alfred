@@ -107,7 +107,12 @@ import {
   forecastToolApproval,
   toolRequiresApproval,
 } from "../../approval-rule";
-import { decideReadRoute, readRouteReasonText, type ReadRoute } from "../../read-route";
+import {
+  decideReadRoute,
+  readRouteReasonText,
+  type ReadFacts,
+  type ReadRoute,
+} from "../../read-route";
 import {
   getTool,
   NO_TOOL_EFFECTS,
@@ -1186,12 +1191,13 @@ async function refuseUnavailableRun(
 async function refuseMisroutedRead(
   suppressed: SuppressedDispatch,
   requiresApproval: boolean,
+  readFacts: () => Promise<ReadFacts>,
 ): Promise<DispatchResult | DirectRouteHostRead | null> {
-  const { args, toolName, call, ctx } = suppressed;
+  const { args, toolName, call } = suppressed;
   const { readPath } = args.runContext;
 
   if (readPath === "code_run_host") {
-    const route = decideReadRoute(await call.readFacts(ctx), requiresApproval);
+    const route = decideReadRoute(await readFacts(), requiresApproval);
 
     if (route.route === "script" || route.reason === "needs_approval") return null;
 
@@ -1201,7 +1207,7 @@ async function refuseMisroutedRead(
   // A call that waits for a card is direct whatever its facts say.
   if (readPath !== "code_run" || requiresApproval) return null;
 
-  const route = decideReadRoute(await call.readFacts(ctx), requiresApproval);
+  const route = decideReadRoute(await readFacts(), requiresApproval);
 
   if (route.route !== "script") return null;
 
@@ -1281,7 +1287,16 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     await call.policyIntegration(ctx),
   );
 
-  const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier);
+  // Read once, and only when a caller needs them: the rule under `gated` and below `high`, or the
+  // read route. A `mcp.call` read resolves the tool's identity.
+  let cachedReadFacts: Promise<ReadFacts> | undefined;
+  const readFacts = (): Promise<ReadFacts> => (cachedReadFacts ??= call.readFacts(ctx));
+
+  // The class decides only under `gated` and below `high` (ADR-0130 decision 1).
+  const readClass =
+    policyMode === "gated" && riskTier !== "high" ? (await readFacts()).readClass : undefined;
+
+  const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier, readClass);
 
   // Read only when a card would stage, so the normal path makes no read. Never waives a question.
   const fullAutonomy =
@@ -1292,10 +1307,11 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     staging: tool.staging,
     policyMode,
     riskTier,
+    readClass,
     fullAutonomy,
   });
 
-  const misrouted = await refuseMisroutedRead(suppressed, requiresApproval);
+  const misrouted = await refuseMisroutedRead(suppressed, requiresApproval, readFacts);
 
   if (misrouted) return misrouted;
 

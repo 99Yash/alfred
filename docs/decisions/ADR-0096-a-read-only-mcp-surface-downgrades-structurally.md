@@ -49,6 +49,8 @@ The layering is the point of sub-decision 4. Admission runs in `McpRawClient`; t
 
 ## Why `low` and not `no_risk`
 
+> **Correction (2026-11-19, ADR-0130 decision 1).** The next sentence was false. Under `gated`, every call below `high` asked, so a `low` read was not approval-free. Now, under `gated`, a confirmed `ordinary` read runs with no card, and a `secret` read or a read with no class asks.
+
 Only `high` gates, so `low` is already approval-free and costs the user exactly what a curated read costs. It stops short of `no_risk`, which the curated reads carry, because the two are not the same claim: a curated read is an Alfred-authored call with a fixed shape, while an MCP read runs a server-authored schema against model-chosen arguments. The distinction changes nothing about the gate; it keeps the tier honest about what it is describing.
 
 ## Alternatives
@@ -92,3 +94,9 @@ Only `high` gates, so `low` is already approval-free and costs the user exactly 
 **The decision (2026-11-18).** `mcpToolEffectClass` uses the read authority of `mcpReadFacts`. The order is: the owner's review, then the code-owned entry, then the structural branch (a built-in read-only endpoint and the tool's published `readOnlyHint`), then `unknown`. A review that drifted still gives `unknown`, as it gives the `high` floor for the tier.
 
 **Why this is safe.** The structural branch already removes the approval card. A retry of a failed read is a smaller grant than a read with no card. One rule now decides "is this a read" for the route, the tier, and the recovery path, so the three cannot disagree.
+
+## Amendment 2026-11-19 — a `low` read is not approval-free by itself ([ADR-0130](./ADR-0130-chat-reads-ask-only-for-secrets-with-one-size-rule-and-discovery-in-the-sandbox.md) decision 1)
+
+- The section "Why `low` and not `no_risk`" said that `low` was approval-free. That was false under `gated`. The text now carries a correction.
+- Under `gated`, a structural or pinned read runs with no card only when its class is `ordinary`. A pin marks one exact descriptor `ordinary`. A read with no pin gets its integration's default class. GitHub's default is `secret`, so a drifted GitHub pin asks.
+- GitHub reads now have pins in `built-in-tool-pins.ts`. `run_secret_scanning` has no pin and is in `BUILT_IN_SECRET_READS`, so it always asks under `gated`.

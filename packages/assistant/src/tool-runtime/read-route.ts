@@ -9,24 +9,41 @@ import {
   DIRECT_READ_ROUTE_REASON_TEXT,
   type DirectRouteReason,
   type ToolOutputKind,
+  type ToolReadClass,
 } from "@alfred/contracts";
 
-/** What the runtime knows about the effect and the output of one call. */
-export interface ReadFacts {
-  /**
-   * A confirmed read: Alfred declares it, or an exact descriptor-bound policy or a built-in
-   * read-only endpoint confirms it. The read-only hint of a custom server alone is not enough.
-   */
-  read: boolean;
-  /** The trusted declaration of the output. `undefined`: no declaration, so no script. */
-  output: ToolOutputKind | undefined;
-}
+/** What the runtime knows about the effect, the output, and the class of one call. */
+export type ReadFacts =
+  | {
+      /**
+       * A confirmed read: Alfred declares it, or an exact descriptor-bound policy or a built-in
+       * read-only endpoint confirms it. The read-only hint of a custom server alone is not enough.
+       */
+      read: true;
+      /** The trusted declaration of the output. `undefined`: no declaration, so no script. */
+      output: ToolOutputKind | undefined;
+      /**
+       * The read class (ADR-0130 decision 1). `undefined`: no code classifies the read, so it asks
+       * under `gated` as a `secret` read does.
+       */
+      readClass: ToolReadClass | undefined;
+    }
+  | { read: false; output: undefined; readClass: undefined };
 
 /** The facts of a call that is not a confirmed read. */
-export const NOT_A_CONFIRMED_READ: ReadFacts = { read: false, output: undefined };
+export const NOT_A_CONFIRMED_READ: ReadFacts = {
+  read: false,
+  output: undefined,
+  readClass: undefined,
+};
 
-/** A curated read: `codeModeRead` declares the effect and the structured output together. */
-export const DECLARED_STRUCTURED_READ: ReadFacts = { read: true, output: "structured" };
+/**
+ * A curated read: `codeModeRead` declares the effect, the structured output, and the class
+ * together.
+ */
+export function declaredStructuredRead(readClass: ToolReadClass): ReadFacts {
+  return { read: true, output: "structured", readClass };
+}
 
 export type ReadRoute = { route: "script" } | { route: "direct"; reason: DirectRouteReason };
 

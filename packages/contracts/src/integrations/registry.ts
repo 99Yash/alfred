@@ -10,10 +10,26 @@ import { typedKeys } from "../records";
 
 // Hand-written on purpose: each `kind` arm's field set is the contract.
 
+/**
+ * The read class of a confirmed read (ADR-0130 decision 1). A secret is a value that gives
+ * access: an env var, an API key, a token, a password, a private key, a webhook secret, or a
+ * secret-scanning alert. Mail bodies, files, issue bodies, and titles are not secrets.
+ * - `secret`: for some valid input, the read can return a secret. It asks under `gated`.
+ * - `ordinary`: no valid input returns a secret. Under `gated` it runs with no card.
+ */
+export type ToolReadClass = "secret" | "ordinary";
+
 interface EntryBase {
   readonly displayName: string;
   /** The tool name is `${slug}.${action}`. */
   readonly actions: readonly string[];
+  /**
+   * The class of a confirmed read on this integration's MCP server when code pins no class for
+   * it (ADR-0130 decision 1). `secret` when the product stores credentials as a feature, so a
+   * code pin marks each of its other reads `ordinary`. `ordinary` when it does not. `null`: no
+   * default, so a read with no pin has no class and asks under `gated`.
+   */
+  readonly readClassDefault: ToolReadClass | null;
 }
 
 /** Alfred's own tools (`system`) and the MCP projection (`mcp`, ADR-0018). */
@@ -109,6 +125,7 @@ export const INTEGRATIONS = {
   system: {
     kind: "internal",
     displayName: "Alfred",
+    readClassDefault: null,
     actions: [
       "search_tools",
       "load_tool",
@@ -144,11 +161,17 @@ export const INTEGRATIONS = {
   },
   // All MCP connections behind fixed actions (ADR-0018). The remote tool goes in
   // the args. Not `system`, so the policy gate and ADR-0069 high-tier floor apply.
-  mcp: { kind: "internal", displayName: "MCP", actions: ["call", "list_tools", "inspect_tool"] },
+  mcp: {
+    kind: "internal",
+    displayName: "MCP",
+    readClassDefault: null,
+    actions: ["call", "list_tools", "inspect_tool"],
+  },
   gmail: {
     kind: "provider",
     status: "live",
     displayName: "Gmail",
+    readClassDefault: "ordinary",
     brand: "gmail",
     sourceRoutes: ["ingest"],
     credential: {
@@ -170,6 +193,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Calendar",
+    readClassDefault: "ordinary",
     brand: "google_calendar",
     // No ingest and no Context Search source yet. ADR-0118 plans ingest (past) and live (future).
     sourceRoutes: ["tools_only"],
@@ -190,6 +214,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Drive",
+    readClassDefault: "ordinary",
     brand: "google_drive",
     // The Drive Context Search source reads files at query time (ADR-0104).
     sourceRoutes: ["live"],
@@ -210,6 +235,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Docs",
+    readClassDefault: "ordinary",
     brand: "google_docs",
     sourceRoutes: ["tools_only"],
     credential: {
@@ -229,6 +255,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Sheets",
+    readClassDefault: "ordinary",
     brand: "google_sheets",
     sourceRoutes: ["tools_only"],
     credential: {
@@ -248,6 +275,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Slides",
+    readClassDefault: "ordinary",
     brand: "google_slides",
     sourceRoutes: ["tools_only"],
     credential: {
@@ -267,6 +295,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Contacts",
+    readClassDefault: "ordinary",
     brand: "google_contacts",
     sourceRoutes: ["tools_only"],
     credential: {
@@ -284,6 +313,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Slack",
+    readClassDefault: "ordinary",
     brand: "slack",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -292,6 +322,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Linear",
+    readClassDefault: "ordinary",
     brand: "linear",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -300,6 +331,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "GitHub",
+    readClassDefault: "secret",
     brand: "github",
     sourceRoutes: ["ingest"],
     credential: { shape: "github_app" },
@@ -314,6 +346,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "live",
     displayName: "Vercel",
+    readClassDefault: "secret",
     brand: "vercel",
     // Deployments arrive as a GitHub `repository_dispatch` push (#1167) and a pull (#1193).
     sourceRoutes: ["ingest"],
@@ -329,6 +362,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Sentry",
+    readClassDefault: "secret",
     brand: "sentry",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -337,6 +371,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Notion",
+    readClassDefault: "ordinary",
     brand: "notion",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -345,6 +380,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Railway",
+    readClassDefault: "secret",
     brand: "railway",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -353,6 +389,7 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "Polylane",
+    readClassDefault: null,
     brand: "polylane",
     sourceRoutes: ["tools_only"],
     actions: [],
@@ -361,11 +398,18 @@ export const INTEGRATIONS = {
     kind: "provider",
     status: "planned",
     displayName: "ClickUp",
+    readClassDefault: "ordinary",
     brand: "clickup",
     sourceRoutes: ["tools_only"],
     actions: [],
   },
-  imessage: { kind: "channel", displayName: "iMessage", sourceRoutes: ["tools_only"], actions: [] },
+  imessage: {
+    kind: "channel",
+    displayName: "iMessage",
+    readClassDefault: null,
+    sourceRoutes: ["tools_only"],
+    actions: [],
+  },
 } as const satisfies Record<string, IntegrationEntry>;
 
 export type IntegrationSlug = keyof typeof INTEGRATIONS;
