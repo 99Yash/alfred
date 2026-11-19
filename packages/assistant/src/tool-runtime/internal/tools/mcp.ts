@@ -260,6 +260,9 @@ export const mcpTools: readonly RegisteredTool[] = [
     // ADR-0124 amendment 2026-11-18: the read authority and the declared output of the bound
     // descriptor. The route decision reads them, and the broker checks them again before delivery.
     resolveReadFacts: async (input, ctx) => (await proposalFacts(input, ctx.userId)).facts,
+    // A confirmed read returns the server's text. A write can echo the model's input, so the
+    // fetch_url sources count only a call whose tier a confirmed read lowered (ADR-0130).
+    outsideText: true,
     riskTierDowngradeReason:
       "#541 reviewed policy binds the exact owned MCP descriptor and catalog revision and lowers only a readOnlyHint tool (ADR-0069 amendment); a code-owned built-in entry binds the exact descriptor the same way (ADR-0096 amendment 2026-11-13); ADR-0096 grants a read-only built-in endpoint plus a published readOnlyHint",
     execute: async (input, ctx) => {

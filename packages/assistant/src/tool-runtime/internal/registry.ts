@@ -359,6 +359,14 @@ export interface ToolArgsCommon<
    * `registerTool` checks the arms.
    */
   codeModeRead?: true;
+  /**
+   * The result of a read holds text from outside Alfred and the model: a connected service, the
+   * web, or the user's synced data. Only such a stored result is a source of a URL for
+   * `system.fetch_url` (ADR-0130 decision 3). Leave it out for a read of what Alfred or the
+   * model wrote: chat history, scratch, memory, todos, and a script's own return value.
+   * Requires a read: `codeModeRead`, or `resolveReadFacts` for a call that reads by its input.
+   */
+  outsideText?: true;
   /** Calls in the same live-chat lane execute in model order. */
   executionLane?: "artifact_mutation";
   /**
@@ -558,6 +566,8 @@ export interface RegisteredTool {
   replay: ToolReplay;
   /** See {@link ToolArgsCommon.codeModeRead}. */
   codeModeRead: boolean;
+  /** See {@link ToolArgsCommon.outsideText}. */
+  outsideText: boolean;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
   executionLane?: "artifact_mutation" | undefined;
   /** See {@link LiveToolArgs.artifactStream}. */
@@ -935,6 +945,11 @@ export function liveTool<
     throw new Error(`[tools] '${name}' declares bindServerFields without a modelInputSchema`);
   }
 
+  // Only a read result can be outside text. A write result can echo the model's own input.
+  if (args.outsideText && !args.codeModeRead && !resolveReadFacts) {
+    throw new Error(`[tools] '${name}' declares outsideText, but it is not a declared read`);
+  }
+
   // Only a gated call writes a staging row, so on any other policy the check would never run.
   if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
     throw new Error(
@@ -953,6 +968,7 @@ export function liveTool<
     staging: args.staging ?? "staged",
     replay: args.replay,
     codeModeRead: args.codeModeRead === true,
+    outsideText: args.outsideText === true,
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
     policyGateWaiver: args.policyGateWaiver,

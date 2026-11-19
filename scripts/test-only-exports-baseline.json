@@ -250,7 +250,6 @@
   "packages/assistant/src/tool-runtime/internal/tools/system.ts": ["currentTimeSnapshot"],
   "packages/assistant/src/tool-runtime/mcp/broker-policy.ts": ["MCP_BROKER_ADMISSION_CAPACITY"],
   "packages/assistant/src/tool-runtime/mcp/invocations.ts": ["readToolPolicy"],
-  "packages/assistant/src/tool-runtime/mcp/risk.ts": ["MCP_CALL_RISK_FLOOR"],
   "packages/assistant/src/triage/classify.ts": [
     "SYSTEM_PROMPT",
     "TriageClassifierOutput",
