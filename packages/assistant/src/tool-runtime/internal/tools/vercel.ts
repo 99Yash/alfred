@@ -28,7 +28,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     action: "list_projects",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:
@@ -45,7 +45,7 @@ export const vercelTools: readonly RegisteredTool[] = [
     action: "list_deployments",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:
@@ -80,7 +80,8 @@ export const vercelTools: readonly RegisteredTool[] = [
     action: "request",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    // A GET can return environment variable data, which gives access (ADR-0130 decision 1).
+    codeModeRead: "secret",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     availability: { passthrough: true },

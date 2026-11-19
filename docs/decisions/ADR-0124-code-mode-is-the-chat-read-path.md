@@ -115,3 +115,7 @@ The run `run_s7yi1ymxakcj` becomes an eval case: the same question must take few
 ## Cross-ref
 
 Amends ADR-0087 and ADR-0116. Serves ADR-0123 (the check job). Uses the lazy tool surface (#405). Issue: #535. Theory: [docs/theory/README.md](../theory/README.md#4-what-to-work-on-next-foundations-first).
+
+## Amendment 2026-11-19 (d): an `ordinary` read under `gated` is a script read ([ADR-0130](./ADR-0130-chat-reads-ask-only-for-secrets-with-one-size-rule-and-discovery-in-the-sandbox.md) decision 1)
+
+Amendment (b) found that a card sends each read under `gated` to the direct route. Now a confirmed `ordinary` read has no card under `gated`, so its route is the script. A `secret` read keeps the card and the direct route. A curated `ordinary` read that no call can gate is a static script read.

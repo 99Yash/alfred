@@ -50,17 +50,20 @@ describe("forecastToolApproval", () => {
   });
 });
 
-/** `high` always confirms, even under autonomy. Lower tiers follow the policy (ADR-0069). */
+/**
+ * `high` always confirms, even under autonomy. For a call that is not a confirmed read, lower
+ * tiers follow the policy (ADR-0069, ADR-0130 decision 1).
+ */
 describe("toolRequiresApproval", () => {
   test("high tier always confirms, regardless of policy mode", () => {
-    assert.equal(toolRequiresApproval("autonomy", "high"), true);
-    assert.equal(toolRequiresApproval("gated", "high"), true);
+    assert.equal(toolRequiresApproval("autonomy", "high", undefined), true);
+    assert.equal(toolRequiresApproval("gated", "high", undefined), true);
   });
 
   test("lower tiers follow the policy mode", () => {
     for (const tier of ["no_risk", "low", "medium"] as const) {
-      assert.equal(toolRequiresApproval("autonomy", tier), false, `autonomy/${tier}`);
-      assert.equal(toolRequiresApproval("gated", tier), true, `gated/${tier}`);
+      assert.equal(toolRequiresApproval("autonomy", tier, undefined), false, `autonomy/${tier}`);
+      assert.equal(toolRequiresApproval("gated", tier, undefined), true, `gated/${tier}`);
     }
   });
 });
@@ -100,6 +103,7 @@ describe("forecastToolApproval mirrors the dispatch gate for every registered to
                 toolRequiresApproval(
                   await resolvePolicyMode(MIRROR_USER_ID, tool.name),
                   tool.riskTier,
+                  tool.readClass,
                 )
               ? "waivable"
               : "none";

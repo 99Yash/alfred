@@ -369,7 +369,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "list_tools",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       'Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection ("railway" for Railway) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. Each hit gives `route`: `script` runs in a script as mcp.read(ref, args), and `direct` runs only as a direct mcp.call, with `directReason`. `approval: "card"` means the call shows the user an approval card. This is a local read.',
     discovery: {
@@ -412,7 +412,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     action: "inspect_tool",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "Inspect one connected MCP tool by the ref returned by mcp.list_tools or system.search_tools. Pass only `ref`. The result gives `route` and `approval`, as mcp.list_tools does.",
     discovery: {

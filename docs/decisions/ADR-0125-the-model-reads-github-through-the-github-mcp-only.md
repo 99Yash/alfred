@@ -45,3 +45,7 @@
 ## Cross-ref
 
 Amends ADR-0052, ADR-0068, ADR-0071, and ADR-0074. Builds on ADR-0093 (amendments of 2026-10-23 and 2026-11-12), ADR-0094, and ADR-0096. Keeps ADR-0097, ADR-0118, and ADR-0120 as they are. Theory: [docs/theory/README.md](../theory/README.md).
+
+## Amendment 2026-11-19 — Gated asks only for a GitHub secret read ([ADR-0130](./ADR-0130-chat-reads-ask-only-for-secrets-with-one-size-rule-and-discovery-in-the-sandbox.md) decision 1)
+
+Decision 2 said that with Gated, a GitHub read shows a card. Now, with Gated, a pinned GitHub read is `ordinary` and runs with no card. GitHub's default class is `secret`, so an unpinned or drifted read and `run_secret_scanning` still show a card.

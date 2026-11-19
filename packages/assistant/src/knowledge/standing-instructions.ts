@@ -221,7 +221,7 @@ async function readStandingInstructionSetRevision(userId: string): Promise<numbe
 
 // ─── Capture (v2, ADR-0113) ─────────────────────────────────────────────────
 
-/** The parsed `system.remember` input, after the user confirmed it on its card. */
+/** The parsed `system.remember` input. It saves with no card (ADR-0130 decision 2). */
 export type SaveStandingInstructionInput = Omit<z.infer<typeof rememberInput>, "kind">;
 
 /** An active instruction that shares a sender with the saved one (ADR-0060 micro-decision 6). */
@@ -1042,7 +1042,7 @@ export async function listStandingInstructions(
 
 /**
  * Null for an unknown, foreign, non-instruction, or retired id. A v2 row is `v2`: only
- * `system.remember` revises it, behind the confirmation card.
+ * `system.remember` revises it.
  */
 async function loadOwnedStandingInstruction(
   userId: string,

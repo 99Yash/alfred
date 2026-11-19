@@ -39,7 +39,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "search",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:
@@ -99,7 +99,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "list",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:
@@ -132,7 +132,7 @@ export const contactsTools: readonly RegisteredTool[] = [
     action: "get",
     riskTier: "low",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:

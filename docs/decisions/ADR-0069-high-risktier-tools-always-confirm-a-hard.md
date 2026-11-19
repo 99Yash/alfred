@@ -132,3 +132,7 @@ suppression, and the cancellation fence.
 
 **Audit.** The staging row is still written, with `requires_approval = false`. The dispatcher
 logs `[dispatch] full autonomy waived the approval card` with the run, tool, tier, and thread.
+
+## Amendment 2026-11-19 — the formula has a read class ([ADR-0130](./ADR-0130-chat-reads-ask-only-for-secrets-with-one-size-rule-and-discovery-in-the-sandbox.md) decision 1)
+
+The gate is now `riskTier === "high" || (policyMode === "gated" && readClass !== "ordinary")`. `readClass` is the class of a confirmed read, and it is absent for every other call. `high` still always asks. `toolRequiresApproval` in `packages/assistant/src/tool-runtime/approval-rule.ts` holds the one definition.

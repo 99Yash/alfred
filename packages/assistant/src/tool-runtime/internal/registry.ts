@@ -19,6 +19,7 @@ import type {
   ToolName,
   ToolRunContext,
   ToolAvailabilityResult,
+  ToolReadClass,
   ToolRiskTier,
 } from "@alfred/contracts";
 import {
@@ -51,7 +52,7 @@ import {
 import { deriveToolDiscovery, type ResolvedDiscovery } from "./metadata-defaults";
 import { passthroughEvidence, passthroughSpanFacts } from "./tools/passthrough/telemetry";
 import {
-  DECLARED_STRUCTURED_READ,
+  declaredStructuredRead,
   decideReadRoute,
   NOT_A_CONFIRMED_READ,
   readRouteReasonText,
@@ -356,9 +357,11 @@ export interface ToolArgsCommon<
    * A host function of `system.code_run` (ADR-0124). Alfred's declaration that the tool only
    * reads and that its output is structured data, the two route facts of the amendment of
    * 2026-11-18. `riskTier: "no_risk"` does not say this, because some `no_risk` tools write.
+   * The value is the read class (ADR-0130 decision 1): `secret` when some valid input can return
+   * a value that gives access, else `ordinary`. Under `gated`, an `ordinary` read has no card.
    * `registerTool` checks the arms.
    */
-  codeModeRead?: true;
+  codeModeRead?: ToolReadClass;
   /**
    * The result of a read holds text from outside Alfred and the model: a connected service, the
    * web, or the user's synced data. Only such a stored result is a source of a URL for
@@ -566,6 +569,8 @@ export interface RegisteredTool {
   replay: ToolReplay;
   /** See {@link ToolArgsCommon.codeModeRead}. */
   codeModeRead: boolean;
+  /** The class of a `codeModeRead` tool, else `undefined`. See {@link ToolArgsCommon.codeModeRead}. */
+  readClass: ToolReadClass | undefined;
   /** See {@link ToolArgsCommon.outsideText}. */
   outsideText: boolean;
   /** Shared-state lane that tool-runtime serializes during a live chat round. */
@@ -673,22 +678,25 @@ function evaluateReadPath(tool: RegisteredTool, context: ToolRunContext): ToolAv
  * read that never meets a card. `null` when dispatch must decide each call.
  */
 function staticReadRoute(tool: RegisteredTool): ReadRoute | null {
-  if (!tool.codeModeRead || toolCanWaitForApproval(tool)) return null;
+  if (tool.readClass === undefined || toolCanWaitForApproval(tool)) return null;
 
-  return decideReadRoute(DECLARED_STRUCTURED_READ, false);
+  return decideReadRoute(declaredStructuredRead(tool.readClass), false);
 }
 
 /**
  * Whether any call of `tool` can meet an approval card. `fast_path` and `join` return before the
- * gate. A `system` tool resolves to autonomy, so only the `high` tier or a dynamic tier or rule
- * can gate it. Every other integration has a policy rule that the user can set to Gated.
+ * gate. The `high` tier, a dynamic tier, and a dynamic rule can always gate. Otherwise a `system`
+ * tool resolves to autonomy, and an `ordinary` declared read runs with no card under `gated` too
+ * (ADR-0130 decision 1). Every other tool has a policy rule that the user can set to Gated.
  */
 export function toolCanWaitForApproval(tool: RegisteredTool): boolean {
   if (tool.staging === "fast_path" || tool.staging === "join") return false;
 
-  if (tool.integration !== "system") return true;
+  if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyIntegration) {
+    return true;
+  }
 
-  return tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyIntegration;
+  return tool.integration !== "system" && tool.readClass !== "ordinary";
 }
 
 /** Whether connection state can change this tool's availability result. */
@@ -924,7 +932,7 @@ export function liveTool<
     bindServerFields,
   } = args;
 
-  if (resolveReadFacts && args.codeModeRead) {
+  if (resolveReadFacts && args.codeModeRead !== undefined) {
     throw new Error(
       `[tools] '${name}' is a codeModeRead tool, so it must not declare resolveReadFacts`,
     );
@@ -933,7 +941,7 @@ export function liveTool<
   // A script read with no evidence declaration would run with no references, coverage, or
   // stated reason. A passthrough read gets its evidence from `bind()`.
   if (
-    (args.codeModeRead || name === MCP_CALL_TOOL_NAME) &&
+    (args.codeModeRead !== undefined || name === MCP_CALL_TOOL_NAME) &&
     !isPassthroughToolArgs(args) &&
     !args.readEvidence
   ) {
@@ -946,7 +954,7 @@ export function liveTool<
   }
 
   // Only a read result can be outside text. A write result can echo the model's own input.
-  if (args.outsideText && !args.codeModeRead && !resolveReadFacts) {
+  if (args.outsideText && args.codeModeRead === undefined && !resolveReadFacts) {
     throw new Error(`[tools] '${name}' declares outsideText, but it is not a declared read`);
   }
 
@@ -967,7 +975,8 @@ export function liveTool<
     resolvesPolicyIntegration: resolvePolicyIntegration !== undefined,
     staging: args.staging ?? "staged",
     replay: args.replay,
-    codeModeRead: args.codeModeRead === true,
+    codeModeRead: args.codeModeRead !== undefined,
+    readClass: args.codeModeRead,
     outsideText: args.outsideText === true,
     executionLane: args.executionLane,
     artifactStream: args.artifactStream,
@@ -1043,7 +1052,7 @@ export function liveTool<
             ? async (ctx) => tool.bind(await bindServerFields(input, ctx))
             : null,
           readFacts: async (ctx) => {
-            if (args.codeModeRead === true) return DECLARED_STRUCTURED_READ;
+            if (args.codeModeRead !== undefined) return declaredStructuredRead(args.codeModeRead);
 
             return resolveReadFacts ? resolveReadFacts(input, ctx) : NOT_A_CONFIRMED_READ;
           },

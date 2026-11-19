@@ -57,7 +57,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
               </p>
               <p className="mt-1 text-xs leading-5 text-pretty text-app-fg-3">
                 Every external write this workflow attempts waits here, unless you gave its
-                integration full autonomy. Reads never need approval.
+                integration full autonomy. A read waits only when it can show a secret.
               </p>
             </div>
           </div>

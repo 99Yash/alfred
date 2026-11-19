@@ -125,7 +125,7 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     availability: { surface: "kernel" },
     description:
-      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with a ref (connectionId, remoteName); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool. A hit named system.code_run is a read that runs inside a script: call its hostFunction there (mcp.read(ref, args) for a connected read). A runnable hit gives `route` (script or direct, with `directReason`) and `approval` (card: the call shows the user an approval card).",
+      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with a ref (connectionId, remoteName); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool. A hit named system.code_run is a read that runs inside a script: call its hostFunction there (mcp.read(ref, args) for a connected read). A runnable hit gives `route` (script or direct, with `directReason`) and `approval` (card: the call shows the user an approval card). A confirmed read also gives `class`: `secret` when it can return a key or a token, else `ordinary`.",
     discovery: {
       title: "Search tools",
       summary:
@@ -345,7 +345,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_chat_history",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
     // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
@@ -454,7 +454,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_user_context",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
     // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
@@ -479,7 +479,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "read_scratch",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "Read a value from the run scratchpad using shared.<path> or scratch.<subId>.<path>.",
     staging: "fast_path",
@@ -538,12 +538,12 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "remember",
     riskTier: "no_risk",
     replay: "unsafe",
-    // ADR-0113: the card is the one-line confirmation, also under full autonomy.
-    staging: "confirm",
+    // ADR-0130 decision 2: no card. It saves at once, and the reply states what it saved.
     availability: { requiresLiveChat: true },
     description:
-      "Store a standing instruction the user stated in chat (ADR-0113). The user confirms it on " +
-      "a card before it is stored, so do not ask again in text. Put the user's words in " +
+      "Store a standing instruction the user stated in chat (ADR-0113). It is stored at once, " +
+      "with no card, so do not ask again in text. In the reply, state what was stored, so the " +
+      "user can remove a wrong one. Put the user's words in " +
       "`phrasing`. When the words name a class of mail ('investment mail', 'Dependabot " +
       "alerts'), put that class in `scope`: triage matches it by meaning, so a new sender is " +
       "covered. Put a sender in `targets` only when the words name that sender; never expand " +
@@ -556,8 +556,8 @@ export const systemTools: readonly RegisteredTool[] = [
       "With no choice, the call stores nothing and returns `conflict`. Emails still arrive " +
       "in Gmail.",
     inputSchema: rememberInput,
-    // Refuse before the card, so the user never confirms an input that capture refuses.
-    // The write decides again under its lock. A failed check leaves that decision to the write.
+    // Refuse before the staging row, so a refused input leaves no row. The write decides again
+    // under its lock. A failed check leaves that decision to the write.
     refuseProposal: async (input, ctx) => {
       const refusal = await checkInstruction({
         input,
@@ -592,7 +592,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "list_instructions",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "List the user's active standing instructions (each with its `factId`, `instructionId`, " +
       "`schemaVersion`, scope, targets, effects, and directive). Call this before forgetting, " +
@@ -665,7 +665,7 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "list_todos",
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     description:
       "List the user's todos (each with its `id`, `name`, `status`, `dueDate`, `sources`, and " +
       "`creatorActor`). Never changes a todo. By default it returns the live todos in the rail " +
@@ -739,7 +739,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // Cost is logged under api_call_log.kind = 'web_search'.
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     // Kernel: a hot path for person and company research.
@@ -766,7 +766,7 @@ export const systemTools: readonly RegisteredTool[] = [
     // ADR-0071: text only, size-bounded, binary reported, host-guarded for SSRF.
     riskTier: "no_risk",
     replay: "safe",
-    codeModeRead: true,
+    codeModeRead: "ordinary",
     // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
     outsideText: true,
     description:

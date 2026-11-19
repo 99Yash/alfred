@@ -84,7 +84,7 @@ const RESOLVE_TODO_TOOL = "system.resolve_todo";
 const CONNECTED_SUMMARY = [
   "You are connected to these integrations right now — call each as integration.action (for example contacts.search), and an MCP server's tools through mcp.call. Treat this list as authoritative: do not offer or attempt an integration that is not on it.",
   `- ${JSON.stringify(GMAIL_CONNECTION.label)} MCP server (connectionId ${GMAIL_CONNECTION.id}) — 10 tools; find one with mcp.list_tools scoped to this connectionId, then call it through mcp.call`,
-  "- system.remember — store a standing instruction the user confirms on a card",
+  "- system.remember — store a standing instruction at once, with no card",
   "- system.resolve_todo — dismiss live todos by resolved Gmail sender",
 ].join("\n");
 

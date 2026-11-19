@@ -12,6 +12,7 @@ import type {
   IntegrationSlug,
   McpEffectClass,
   ToolOutputKind,
+  ToolReadClass,
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { requireRow, runAtomic, type DbRunner } from "@alfred/db/helpers";
@@ -29,6 +30,7 @@ import {
 } from "@alfred/db/schemas";
 import {
   builtInOutputKind,
+  builtInReadClass,
   builtInReadOnlyResource,
   integrationOfMcpEndpoint,
   builtInToolPolicy,
@@ -91,6 +93,11 @@ export type McpToolIdentityResolution =
       readOnly: boolean;
       /** Alfred's declaration of the output for this exact descriptor (`builtInOutputKind`). */
       output: ToolOutputKind | undefined;
+      /**
+       * The code's read class of this exact descriptor (`builtInReadClass`, ADR-0130 decision 1).
+       * Set only when the owner never reviewed the tool, as for `codePolicy`.
+       */
+      codeReadClass: ToolReadClass | undefined;
       /** The integration whose policy rule governs the call: a built-in's provider, else `mcp`. */
       policyIntegration: IntegrationSlug;
     }
@@ -165,7 +172,15 @@ export function mcpReadFacts(identity: McpToolIdentityResolution): ReadFacts {
         identity.readOnly &&
         (identity.codePolicy?.effectClass === "read" || identity.readOnlyResource);
 
-  return read ? { read, output: identity.output } : NOT_A_CONFIRMED_READ;
+  if (!read) return NOT_A_CONFIRMED_READ;
+
+  // An owner review decides alone, and it holds no class yet, so a reviewed read asks under
+  // `gated` (ADR-0130 decision 1).
+  return {
+    read,
+    output: identity.output,
+    readClass: identity.policy === undefined ? identity.codeReadClass : undefined,
+  };
 }
 
 /**
@@ -327,6 +342,9 @@ export async function resolveMcpToolIdentity(
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,
     output: builtInOutputKind(row.endpointUrl, input.remoteName, row.descriptorHash),
+    codeReadClass: reviewed
+      ? undefined
+      : builtInReadClass(row.endpointUrl, input.remoteName, row.descriptorHash),
     // A built-in follows its provider's rule. A user-added server keeps the `mcp` rule.
     policyIntegration: integrationOfMcpEndpoint(row.endpointUrl) ?? "mcp",
   };
