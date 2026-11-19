@@ -2,6 +2,8 @@
 
 export { runRestPassthrough } from "./rest-adapter";
 
+export { resultRecipientOf } from "./shaper";
+
 export {
   countRunPassthroughCalls,
   passthroughBudgetExhausted,

@@ -7,7 +7,7 @@ import {
   vercelRedeployInput,
 } from "@alfred/contracts";
 import { itemEvidence, type DeliveredItem } from "../../item-evidence";
-import { runRestPassthrough } from "./passthrough";
+import { resultRecipientOf, runRestPassthrough } from "./passthrough";
 import type { Integrations } from "@alfred/integrations";
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 
@@ -95,7 +95,12 @@ export const vercelTools: readonly RegisteredTool[] = [
       relatedTools: ["vercel.list_projects", "vercel.list_deployments"],
     },
     inputSchema: restPassthroughInput,
-    execute: async (input, ctx) => runRestPassthrough(ctx.integrations.vercel.passthrough, input),
+    execute: async (input, ctx) =>
+      runRestPassthrough(
+        ctx.integrations.vercel.passthrough,
+        input,
+        resultRecipientOf(ctx.runContext),
+      ),
   }),
 ];
 

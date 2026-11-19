@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { RegisteredTool } from "../internal/registry";
 import { GUEST_OUTPUT_TYPES } from "./guest-index.generated";
 import { MCP_READ_PATH } from "./host-bindings";
+import { HOST_READ_DELIVERY_MAX_BYTES } from "./result-budget";
 import { HOST_READS_IN_FLIGHT, READ_PROGRAM_LIMITS } from "./run-read-program";
 
 type GuestPath = keyof typeof GUEST_OUTPUT_TYPES;
@@ -46,8 +47,9 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
 
   return [
     "Read the user's data by running one JavaScript (or TypeScript) script. Every read is an async " +
-      "function below. The script gets each full result, and only the value the script returns " +
-      "comes back to you.",
+      "function below. The script gets each full result, up to " +
+      `${HOST_READ_DELIVERY_MAX_BYTES / 1024} KiB for one read, and only the value the script ` +
+      "returns comes back to you.",
     "",
     "How to write the script:",
     "- Top-level `await` and `return` work. Return plain JSON data under " +

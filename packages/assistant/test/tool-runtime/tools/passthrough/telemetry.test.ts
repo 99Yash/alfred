@@ -48,7 +48,7 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
     assert.equal(t.totalBytes, 100_000);
     assert.equal(t.droppedItems, 120);
     assert.equal(t.droppedChars, 3_500);
-    assert.equal(t.cuts, 2);
+    assert.equal(t.cutCount, 2);
   });
 
   test("carries succeeded:false through (a truncated error body is less interesting but still counted)", () => {

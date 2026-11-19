@@ -21,11 +21,14 @@ import {
   truncatedCoverage,
   unknownEffectEnvelopeSchema,
   type McpCallInput,
+  type JsonObject,
   type JsonValue,
   type McpToolRef,
   type ReadEvidenceRefDraft,
+  type ResultRecipient,
   type ResultTruncation,
 } from "@alfred/contracts";
+import { resultRecipientOf } from "./passthrough";
 import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -137,12 +140,8 @@ function proposalFacts(input: McpCallInput, userId: string): Promise<McpCallProp
  * ADR-0074 bounds apply before the model sees it. `script`: a script read gets the whole sanitized
  * response, and dispatch refuses one above the host's delivery cap before it saves it.
  */
-type McpResultRecipient = "model" | "script";
 
-function brokerResult(
-  outcome: McpBrokerOutcome,
-  recipient: McpResultRecipient,
-): McpBrokerToolResult {
+function brokerResult(outcome: McpBrokerOutcome, recipient: ResultRecipient): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
       return withResponseFacts({ status: "completed" }, outcome.envelope, recipient);
@@ -188,11 +187,15 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
-/** The response for its recipient. The one size bound is `boundPassthroughBody`, never a copy. */
+/**
+ * The response for its recipient. A script gets the whole result. The model gets the copy that the
+ * one size rule bounds (`boundPassthroughBody`), so the result fits and the chat boundary does not
+ * cut it again.
+ */
 function withResponseFacts(
   head: Pick<McpBrokerToolResult, "ok" | "status">,
   envelope: McpCallEnvelope,
-  recipient: McpResultRecipient,
+  recipient: ResultRecipient,
 ): McpBrokerToolResult {
   const binary = envelope.hasBinaryContent ? { hasBinaryContent: true as const } : {};
 
@@ -233,7 +236,7 @@ function withParsedJsonText(result: McpCallEnvelope["result"]): JsonValue {
 }
 
 /** The parsed text when it is a JSON object or list, else `null`. */
-function jsonContainerOf(text: string): JsonValue {
+function jsonContainerOf(text: string): JsonObject | readonly JsonValue[] | null {
   const start = text.trimStart()[0];
 
   if (start !== "{" && start !== "[") return null;
@@ -373,10 +376,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         throw error;
       }
 
-      return brokerResult(
-        outcome,
-        ctx.runContext.readPath === "code_run_host" ? "script" : "model",
-      );
+      return brokerResult(outcome, resultRecipientOf(ctx.runContext));
     },
     // The evidence record (ADR-0124): the response is opaque, so the item is the whole result,
     // and its id is the remote tool at its catalog revision. The host-call row keeps the

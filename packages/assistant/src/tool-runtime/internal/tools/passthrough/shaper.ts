@@ -1,6 +1,8 @@
 import {
   redactSecrets,
+  sanitizeToolResult,
   type PassthroughResult,
+  type ResultRecipient,
   type ReadGateResult,
   type TransportErrorKind,
 } from "@alfred/contracts";
@@ -23,11 +25,28 @@ export interface HttpResultArgs {
   body: unknown;
   /** A partial GraphQL response keeps its `data` but sets `succeeded: false`. */
   graphqlHasErrors?: boolean;
+  /** A script gets the whole sanitized body. Only the model's copy is bounded (ADR-0130 decision 5). */
+  recipient?: ResultRecipient;
+}
+
+/** The recipient of a tool's result: a read inside a `system.code_run` script, or the model. */
+export function resultRecipientOf(runContext: { readPath?: string | undefined }): ResultRecipient {
+  return runContext.readPath === "code_run_host" ? "script" : "model";
 }
 
 /** Any HTTP response, 4xx/5xx included. A clipped body carries `truncation`. */
 export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
   const succeeded = args.status >= 200 && args.status < 300 && args.graphqlHasErrors !== true;
+
+  if (args.recipient === "script") {
+    return {
+      outcome: "http",
+      status: args.status,
+      succeeded,
+      body: sanitizeToolResult(args.body).value,
+    };
+  }
+
   const bounded = boundPassthroughBody(args.body);
 
   return {

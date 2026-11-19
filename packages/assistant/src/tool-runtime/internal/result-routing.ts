@@ -108,7 +108,7 @@ function boundedWithApprovalCause(envelope: CardEnvelope, result: CardOutcome): 
 
 /**
  * The tool result under the one size rule (ADR-0130 decision 5), with its truncation note beside it.
- * The staging row keeps the whole result; only the model's copy is bounded.
+ * A direct MCP or passthrough read bounds its own result to fit, so this pass leaves it as it is.
  */
 function boundedResultFields(toolResult: unknown): {
   result: JsonValue;
@@ -125,9 +125,12 @@ function boundedResultFields(toolResult: unknown): {
 function boundedEnvelope(envelope: unknown): JsonValue {
   const bounded = boundForModel(toJsonValue(envelope));
 
-  if (!bounded.truncation || !isJsonObject(bounded.value)) return bounded.value;
+  if (!bounded.truncation) return bounded.value;
 
-  return toJsonValue({ ...bounded.value, truncation: bounded.truncation });
+  // A record carries the note as a field. Any other value goes under `value`, so the note stays.
+  return isJsonObject(bounded.value)
+    ? toJsonValue({ ...bounded.value, truncation: bounded.truncation })
+    : toJsonValue({ value: bounded.value, truncation: bounded.truncation });
 }
 
 const INCOMPLETE_ACTION_STATUSES = new Set([

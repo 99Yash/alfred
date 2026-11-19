@@ -19,27 +19,46 @@ import type { JsonPrimitive, JsonValue } from "./user-model";
  */
 export const MODEL_RESULT_MAX_BYTES = 64 * 1024;
 
-/** A string with fewer characters is never cut, so ids, cursors, and titles stay whole. */
+/** A string with fewer UTF-16 code units is never cut, so ids, cursors, and titles stay whole. */
 const MIN_CUT_STRING_CHARS = 512;
-
-/** Room for the truncation note beside the result, so the two together stay within the limit. */
-const NOTE_RESERVE_BYTES = 1024;
 
 /** The cuts that the note lists. A result with more cuts gives their count in `moreCuts`. */
 const MAX_LISTED_CUTS = 10;
 
-/** A guard on the loop. Each round removes a part, so a real result ends far below it. */
+/** The most characters of a listed path. A longer path keeps its start and ends in the cut mark. */
+const MAX_PATH_CHARS = 200;
+
+/**
+ * Room for the truncation note beside the result. The note is at most about 3 KB by construction:
+ * the fixed text, and {@link MAX_LISTED_CUTS} cuts with a path of at most {@link MAX_PATH_CHARS}.
+ * So the result and its note stay within the limit.
+ */
+const NOTE_RESERVE_BYTES = 4 * 1024;
+
+/**
+ * The rounds that may cut lists and strings. After them, a round cuts only object fields, so an
+ * object with many long strings still fits. Each round removes a part, so a real result ends early.
+ */
+const LEAF_ROUNDS = 500;
+
+/** A guard on the loop, after the field rounds too. */
 const MAX_ROUNDS = 1000;
 
 /** The text after a cut string, so the model sees the cut at its place. */
 const STRING_CUT_MARK = "…";
+
+/**
+ * Who reads a tool result. A script gets the full result, and only the model's copy is bounded
+ * (ADR-0130 decision 5).
+ */
+export type ResultRecipient = "model" | "script";
 
 /** One cut: where it is, and what it kept. */
 export interface ResultCut {
   /** The JSON path of the cut value, for example `$.issues` or `$.content[0].json.items`. */
   path: string;
   /**
-   * `items`: whole list items from the end. `chars`: string characters from the end. `fields`:
+   * `items`: whole list items from the end. `chars`: string UTF-16 code units from the end. `fields`:
    * object fields from the end, only when no list or long string is left to cut. `value`: the
    * whole result, only when no cut can make it fit.
    */
@@ -66,10 +85,14 @@ export interface BoundedResult {
 }
 
 const TRUNCATION_NOTE =
-  "This result is over the size limit, so each cut kept the start of the cut value. The cursor " +
+  "This result is over the size limit, so each cut kept the start of a list or a string. The cursor " +
   "of a cut list points after the whole page, so the cut items are not on the next page. To read " +
-  "them, read again with a smaller page or a filter, or read in a script and return only the " +
-  "fields that the answer needs.";
+  "them, read again with a smaller page or a filter, or read in a script and filter by known " +
+  "fields there.";
+
+const DROPPED_NOTE =
+  "This result is too large to show any part of it. Read it in a script and filter by known " +
+  "fields there.";
 
 const encoder = new TextEncoder();
 
@@ -189,15 +212,17 @@ function keptChildren(node: SizedNode): SizedNode[] {
  * whole items and the one long string of a single record is cut. An object loses fields only when
  * no list or long string is left, because its fields hold the cursor.
  */
-function nextCut(root: SizedNode): Cuttable | null {
+function nextCut(root: SizedNode, leaves: boolean): Cuttable | null {
   let best: ArrayNode | StringNode | null = null;
   let bestObject: ObjectNode | null = null;
   const stack: SizedNode[] = [root];
 
   for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
-    if (node.kind === "array" && node.kept > 1 && (!best || node.bytes > best.bytes)) best = node;
-
-    if (
+    if (!leaves) {
+      // Only fields from here: skip the lists and strings.
+    } else if (node.kind === "array" && node.kept > 1 && (!best || node.bytes > best.bytes)) {
+      best = node;
+    } else if (
       node.kind === "string" &&
       node.kept > MIN_CUT_STRING_CHARS &&
       (!best || node.bytes > best.bytes)
@@ -308,6 +333,13 @@ function emit(node: SizedNode, path: string, cuts: ResultCut[]): JsonValue {
   }
 }
 
+/** A cut as the note lists it, with a path of at most {@link MAX_PATH_CHARS}. */
+function listedCut(cut: ResultCut): ResultCut {
+  return cut.path.length > MAX_PATH_CHARS
+    ? { ...cut, path: `${cut.path.slice(0, MAX_PATH_CHARS)}${STRING_CUT_MARK}` }
+    : cut;
+}
+
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
 function childPath(path: string, key: string): string {
@@ -332,7 +364,7 @@ export function boundForModel(
   let bytes = totalBytes;
 
   for (let round = 0; bytes > target && round < MAX_ROUNDS; round++) {
-    const part = nextCut(root);
+    const part = nextCut(root, round < LEAF_ROUNDS);
 
     if (!part) break;
     cut(part, bytes - target);
@@ -346,7 +378,7 @@ export function boundForModel(
         limitBytes,
         totalBytes,
         cuts: [{ path: "$", unit: "value", kept: 0, total: 1 }],
-        note: TRUNCATION_NOTE,
+        note: DROPPED_NOTE,
       },
     };
   }
@@ -360,7 +392,7 @@ export function boundForModel(
     truncation: {
       limitBytes,
       totalBytes,
-      cuts: cuts.slice(0, MAX_LISTED_CUTS),
+      cuts: cuts.slice(0, MAX_LISTED_CUTS).map(listedCut),
       ...(more > 0 ? { moreCuts: more } : {}),
       note: TRUNCATION_NOTE,
     },

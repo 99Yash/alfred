@@ -24,11 +24,12 @@ export interface PassthroughTruncationTelemetry {
   succeeded: boolean;
   limitBytes: number;
   totalBytes: number;
-  /** The list items that the one size rule removed (ADR-0130 decision 5). */
+  /** The list items that the listed cuts removed (ADR-0130 decision 5). A note lists 10 cuts at most. */
   droppedItems: number;
-  /** The string characters that it removed. */
+  /** The string characters that the listed cuts removed. */
   droppedChars: number;
-  cuts: number;
+  /** All cuts, also the ones that the note does not list. */
+  cutCount: number;
 }
 
 /** Span facts for a passthrough tool: the truncation of an `http` outcome, if any. */
@@ -59,7 +60,7 @@ export function passthroughTruncationTelemetry(
     totalBytes: truncation.totalBytes,
     droppedItems: dropped("items"),
     droppedChars: dropped("chars"),
-    cuts: truncation.cuts.length + (truncation.moreCuts ?? 0),
+    cutCount: truncation.cuts.length + (truncation.moreCuts ?? 0),
   };
 }
 
