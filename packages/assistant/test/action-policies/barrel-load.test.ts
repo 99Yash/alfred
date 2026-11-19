@@ -13,6 +13,7 @@ const BARREL_EXPORTS = [
   "getResolvedPolicy",
   "publishPolicyBust",
   "resolveApprovalNotifyDelayMs",
+  "resolvePolicyDecision",
   "resolvePolicyMode",
   "startPolicyBustSubscriber",
   "stopPolicyBustSubscriber",
