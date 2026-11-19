@@ -240,10 +240,6 @@
     "htmlToText",
     "safeRequest"
   ],
-  "packages/assistant/src/tool-runtime/internal/tools/passthrough/bounds.ts": [
-    "PASSTHROUGH_MAX_ARRAY_ITEMS",
-    "PASSTHROUGH_MAX_BODY_BYTES"
-  ],
   "packages/assistant/src/tool-runtime/internal/tools/passthrough/gate.ts": [
     "assertReadableGraphqlRequest"
   ],
@@ -294,7 +290,6 @@
     "isLikelyBulkSender",
     "normalizeSubjectForRecurrence"
   ],
-  "packages/contracts/src/bound.ts": ["TOOL_RESULT_MAX_STRING_CHARS"],
   "packages/contracts/src/briefing-signals.ts": [
     "BRIEFING_CONTEXT_SIGNALS",
     "BRIEFING_CONTEXT_SIGNAL_KINDS",
@@ -333,10 +328,6 @@
   "packages/contracts/src/integrations/index.ts": ["SUPPORTED_REST_PASSTHROUGH_SLUGS"],
   "packages/contracts/src/integrations/slugs.ts": ["SUPPORTED_REST_PASSTHROUGH_SLUGS"],
   "packages/contracts/src/mcp.ts": ["mcpRecoveryDecisionSchema"],
-  "packages/contracts/src/passthrough-bounds.ts": [
-    "PASSTHROUGH_MAX_ARRAY_ITEMS",
-    "PASSTHROUGH_MAX_BODY_BYTES"
-  ],
   "packages/contracts/src/passthrough.ts": ["PASSTHROUGH_TOOL_ACTION", "passthroughPreferenceKey"],
   "packages/contracts/src/standing-instructions.ts": ["liftStandingInstructionV1"],
   "packages/contracts/src/todos.ts": ["TODO_SOURCES_MAX"],

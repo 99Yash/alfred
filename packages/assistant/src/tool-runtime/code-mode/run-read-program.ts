@@ -63,8 +63,8 @@ export type ReadProgramOutcome =
 
 /**
  * The read path's limits. The wall clock stays under the 180 s chat turn ceiling. The result cap
- * is far below `run`'s 1 MiB: the value goes to the model inside the `system.code_run` result
- * budget (`result-budget.ts`), so a script trims first.
+ * is `run`'s 1 MiB: the staging row keeps the whole value, and the model reads a copy that the one
+ * size rule bounds (ADR-0130 decision 5).
  *
  * `run` ends the whole script when its in-flight limit is reached, and a guest `catch` cannot
  * stop that (measured on run@2.1.13: the ninth of nine parallel reads ended the script). So
@@ -334,8 +334,8 @@ function failureFromRunError(
     case "RUN_SERIALIZATION_ERROR":
       return failure(
         "result_too_large_or_not_json",
-        `The return value must be plain JSON data under ${kib(limits.maxResultBytes)}. Return ` +
-          `only the fields the answer needs: ${error.message}`,
+        `The return value must be plain JSON data under ${kib(limits.maxResultBytes)}: ` +
+          error.message,
         ledger,
       );
     case "RUN_DETACHED_BRIDGE_REQUEST":

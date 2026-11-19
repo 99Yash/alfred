@@ -4,11 +4,12 @@
  * from the model-facing schema, and its output from the compiler (`guest-index.generated.ts`).
  */
 
-import { collapseWhitespace } from "@alfred/contracts";
+import { collapseWhitespace, MODEL_RESULT_MAX_BYTES } from "@alfred/contracts";
 import { z } from "zod";
 import type { RegisteredTool } from "../internal/registry";
 import { GUEST_OUTPUT_TYPES } from "./guest-index.generated";
 import { MCP_READ_PATH } from "./host-bindings";
+import { HOST_READ_DELIVERY_MAX_BYTES } from "./result-budget";
 import { HOST_READS_IN_FLIGHT, READ_PROGRAM_LIMITS } from "./run-read-program";
 
 type GuestPath = keyof typeof GUEST_OUTPUT_TYPES;
@@ -46,12 +47,17 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
 
   return [
     "Read the user's data by running one JavaScript (or TypeScript) script. Every read is an async " +
-      "function below, and only the value the script returns comes back to you, so read many items, " +
-      "keep the fields the answer needs, and return a small result.",
+      "function below. The script gets each full result, up to " +
+      `${HOST_READ_DELIVERY_MAX_BYTES / 1024} KiB for one read, and only the value the script ` +
+      "returns comes back to you.",
     "",
     "How to write the script:",
     "- Top-level `await` and `return` work. Return plain JSON data under " +
-      `${READ_PROGRAM_LIMITS.maxResultBytes / 1024} KiB.`,
+      `${READ_PROGRAM_LIMITS.maxResultBytes / 1024} KiB. You read at most ` +
+      `${MODEL_RESULT_MAX_BYTES / 1024} KiB of it: a larger value keeps whole list items from the ` +
+      "start, and its `truncation` names each cut with the kept and total counts.",
+    "- Code can filter by known fields (state, labels, dates, authors). Code cannot judge prose, " +
+      "so return the text that you must read to answer.",
     "- Wrap each read in try/catch. A failed read throws an Error whose `code` says why: " +
       "`needs_approval` (the read waits for the user's approval: call it directly instead), `not_a_read`, " +
       "`invalid_input`, `not_allowed`, `failed`, and others. Return what succeeded, and the failures.",

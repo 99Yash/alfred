@@ -1,4 +1,9 @@
-import { toMessage, type PassthroughResult, type RestPassthroughRequest } from "@alfred/contracts";
+import {
+  toMessage,
+  type PassthroughResult,
+  type RestPassthroughRequest,
+  type ResultRecipient,
+} from "@alfred/contracts";
 import { PassthroughUrlError, type RestPassthroughCapability } from "@alfred/integrations/shared";
 import { REST_GATE_CONFIG } from "./config";
 import { assertReadableRestRequest } from "./gate";
@@ -17,6 +22,7 @@ import { classifyTransportError } from "./transport";
 export async function runRestPassthrough(
   capability: RestPassthroughCapability,
   request: RestPassthroughRequest,
+  recipient: ResultRecipient = "model",
 ): Promise<PassthroughResult> {
   const gate = assertReadableRestRequest(REST_GATE_CONFIG[capability.slug], request);
 
@@ -47,5 +53,5 @@ export async function runRestPassthrough(
   const body =
     raw.redirectedTo !== undefined ? { redirect: true, location: raw.redirectedTo } : raw.body;
 
-  return passthroughHttpResult({ status: raw.status, body });
+  return passthroughHttpResult({ status: raw.status, body, recipient });
 }

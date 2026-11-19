@@ -120,6 +120,14 @@ export function isJsonObject(value: JsonValue | undefined): value is JsonObject 
 }
 
 /**
+ * The list branch of a `JsonValue`. `Array.isArray` does not narrow a `readonly` array out of a
+ * union, so a walker over a JSON tree uses this.
+ */
+export function isJsonArray(value: JsonValue | undefined): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+/**
  * True for any non-null object or function, so you can read a property off it.
  * Use it for errors and SDK instances, which `isRecord` rejects. Then use `Reflect.get`.
  */

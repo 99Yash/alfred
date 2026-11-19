@@ -48,8 +48,8 @@ function githubSearchDateTime(date: Date): string {
 const GITHUB_MERGED_READ_TIMEOUT_MS = 60_000;
 
 /**
- * The tool has no output schema, so the result is one text block of JSON. The 8,000-character
- * bound clips that block, so `fields` leaves out the body and one page stays under it.
+ * The tool has no output schema, so the result is one text block of JSON. `fields` leaves out the
+ * body, so one page stays small.
  */
 const SEARCH_PAGE_SIZE = 8;
 

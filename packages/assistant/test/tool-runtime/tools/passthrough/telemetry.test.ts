@@ -5,7 +5,7 @@ import { passthroughTruncationTelemetry } from "../../../../src/tool-runtime/int
 import { passthroughSpanFacts } from "../../../../src/tool-runtime/internal/tools/passthrough/telemetry";
 
 /**
- * Turns a clipped passthrough result's `handleEligible` marker into a span signal (ADR-0074).
+ * Turns a cut passthrough result's `truncation` note into a span signal (ADR-0130 decision 5).
  * Fires only on a truncated `http` outcome. The tool's typed output feeds `passthroughSpanFacts`,
  * so the telemetry reads no `unknown`.
  */
@@ -25,13 +25,13 @@ function truncatedResult(): PassthroughResult {
     succeeded: true,
     body: [{ id: 1 }],
     truncation: {
-      handleEligible: true,
-      originalBytesApprox: 10_000,
-      returnedBytes: 4_000,
-      causes: [
-        { kind: "array_items", droppedApprox: 120 },
-        { kind: "string_chars", droppedApprox: 3_500 },
+      limitBytes: 65_536,
+      totalBytes: 100_000,
+      cuts: [
+        { path: "$", unit: "items", kept: 30, total: 150 },
+        { path: "$[0].body", unit: "chars", kept: 500, total: 4_000 },
       ],
+      note: "cut",
     },
   };
 }
@@ -40,18 +40,15 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
   test("emits the full L0-trigger signal for a truncated http success", () => {
     const t = telemetryFor("vercel.request", truncatedResult());
     assert.ok(t, "a truncated http result must produce a signal");
-    assert.equal(t.handleEligible, true);
     assert.equal(t.integration, "vercel");
     assert.equal(t.toolName, "vercel.request");
     assert.equal(t.runId, RUN_ID);
     assert.equal(t.succeeded, true);
-    assert.equal(t.returnedBytes, 4_000);
-    assert.equal(t.originalBytesApprox, 10_000);
-    assert.equal(t.droppedBytesApprox, 6_000);
-    assert.equal(t.droppedArrayItemsApprox, 120);
-    assert.equal(t.droppedStringCharsApprox, 3_500);
-    assert.equal(t.droppedBodyBytesApprox, 0);
-    assert.equal(t.causes.length, 2);
+    assert.equal(t.limitBytes, 65_536);
+    assert.equal(t.totalBytes, 100_000);
+    assert.equal(t.droppedItems, 120);
+    assert.equal(t.droppedChars, 3_500);
+    assert.equal(t.cutCount, 2);
   });
 
   test("carries succeeded:false through (a truncated error body is less interesting but still counted)", () => {
@@ -61,10 +58,10 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
       succeeded: false,
       body: "x".repeat(100),
       truncation: {
-        handleEligible: true,
-        originalBytesApprox: 2_000,
-        returnedBytes: 500,
-        causes: [{ kind: "body_bytes", droppedApprox: 1_500 }],
+        limitBytes: 65_536,
+        totalBytes: 70_000,
+        cuts: [{ path: "$", unit: "chars", kept: 60_000, total: 70_000 }],
+        note: "cut",
       },
     };
 
@@ -72,7 +69,7 @@ describe("passthroughSpanFacts + passthroughTruncationTelemetry", () => {
     assert.ok(t);
     assert.equal(t.succeeded, false);
     assert.equal(t.integration, "vercel");
-    assert.equal(t.droppedBodyBytesApprox, 1_500);
+    assert.equal(t.droppedChars, 10_000);
   });
 
   test("returns null for a non-truncated http result", () => {

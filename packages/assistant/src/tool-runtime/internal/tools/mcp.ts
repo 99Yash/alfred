@@ -9,17 +9,26 @@
 import {
   assertNever,
   boundPassthroughBody,
+  getStringPath,
+  isJsonArray,
+  isJsonObject,
   mcpCallInput,
   mcpCallModelInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
+  safeJsonParse,
+  toJsonValue,
   truncatedCoverage,
   unknownEffectEnvelopeSchema,
   type McpCallInput,
+  type JsonObject,
+  type JsonValue,
   type McpToolRef,
-  type PassthroughTruncation,
   type ReadEvidenceRefDraft,
+  type ResultRecipient,
+  type ResultTruncation,
 } from "@alfred/contracts";
+import { resultRecipientOf } from "./passthrough";
 import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
@@ -73,8 +82,8 @@ export interface McpBrokerToolResult {
   message?: string;
   /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
   hasBinaryContent?: true;
-  /** Set when the ADR-0074 bounds of a direct call cut the payload (`withResponseFacts`). */
-  truncation?: PassthroughTruncation;
+  /** Set when the one size rule cut the payload of a direct call (`withResponseFacts`). */
+  truncation?: ResultTruncation;
 }
 
 /**
@@ -131,12 +140,8 @@ function proposalFacts(input: McpCallInput, userId: string): Promise<McpCallProp
  * ADR-0074 bounds apply before the model sees it. `script`: a script read gets the whole sanitized
  * response, and dispatch refuses one above the host's delivery cap before it saves it.
  */
-type McpResultRecipient = "model" | "script";
 
-function brokerResult(
-  outcome: McpBrokerOutcome,
-  recipient: McpResultRecipient,
-): McpBrokerToolResult {
+function brokerResult(outcome: McpBrokerOutcome, recipient: ResultRecipient): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
       return withResponseFacts({ status: "completed" }, outcome.envelope, recipient);
@@ -182,17 +187,21 @@ async function refuseGoogleWorkspaceWrite(
     : "Google writes are off in this environment (GMAIL_MAILBOX_WRITES_ENABLED), so this call did not run.";
 }
 
-/** The response for its recipient. The one size bound is `boundPassthroughBody`, never a copy. */
+/**
+ * The response for its recipient. A script gets the whole result. The model gets the copy that the
+ * one size rule bounds (`boundPassthroughBody`), so the result fits and the chat boundary does not
+ * cut it again.
+ */
 function withResponseFacts(
   head: Pick<McpBrokerToolResult, "ok" | "status">,
   envelope: McpCallEnvelope,
-  recipient: McpResultRecipient,
+  recipient: ResultRecipient,
 ): McpBrokerToolResult {
   const binary = envelope.hasBinaryContent ? { hasBinaryContent: true as const } : {};
 
   if (recipient === "script") return { ...head, result: envelope.result, ...binary };
 
-  const bounded = boundPassthroughBody(envelope.result);
+  const bounded = boundPassthroughBody(withParsedJsonText(envelope.result));
 
   return {
     ...head,
@@ -200,6 +209,41 @@ function withResponseFacts(
     ...binary,
     ...(bounded.truncation ? { truncation: bounded.truncation } : {}),
   };
+}
+
+/**
+ * The result with each text block that holds a JSON object or list parsed, so the size rule bounds
+ * it as structure: whole items, the cursor, and the count of cut items (ADR-0130 decision 5). The
+ * block keeps its place, with `json` in place of `text`. Other blocks stay as they are.
+ */
+function withParsedJsonText(result: McpCallEnvelope["result"]): JsonValue {
+  const value = toJsonValue(result);
+
+  if (!isJsonObject(value) || !isJsonArray(value.content)) return value;
+
+  const content = value.content.map((block) => {
+    const text = getStringPath(block, "text");
+    const json = text === undefined ? null : jsonContainerOf(text);
+
+    if (json === null || !isJsonObject(block) || block.type !== "text") return block;
+
+    const { text: _text, ...rest } = block;
+
+    return { ...rest, json };
+  });
+
+  return { ...value, content };
+}
+
+/** The parsed text when it is a JSON object or list, else `null`. */
+function jsonContainerOf(text: string): JsonObject | readonly JsonValue[] | null {
+  const start = text.trimStart()[0];
+
+  if (start !== "{" && start !== "[") return null;
+
+  const parsed = safeJsonParse(text);
+
+  return isJsonArray(parsed) || isJsonObject(parsed) ? parsed : null;
 }
 
 export const mcpTools: readonly RegisteredTool[] = [
@@ -332,15 +376,12 @@ export const mcpTools: readonly RegisteredTool[] = [
         throw error;
       }
 
-      return brokerResult(
-        outcome,
-        ctx.runContext.readPath === "code_run_host" ? "script" : "model",
-      );
+      return brokerResult(outcome, resultRecipientOf(ctx.runContext));
     },
     // The evidence record (ADR-0124): the response is opaque, so the item is the whole result,
     // and its id is the remote tool at its catalog revision. The host-call row keeps the
     // arguments, and the `mcp_invocation` row of the nested staging row keeps the call. A script
-    // read is never cut by Alfred, so `truncation` marks only a direct call's ADR-0074 cut. An MCP
+    // read is never cut by Alfred, so `truncation` marks only a direct call's size cut. An MCP
     // response states no pagination of its own, so no provider gap is recorded here.
     readEvidence: (output, input) =>
       output.ok === false || output.result === undefined

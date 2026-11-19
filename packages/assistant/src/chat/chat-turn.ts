@@ -199,7 +199,7 @@ const ARTIFACT_SYSTEM_GUIDANCE = [
 const CODE_RUN_READ_GUIDANCE = [
   "How you read in this chat:",
   "- Every read runs inside system.code_run: one script that calls read tools as async functions and returns only what the answer needs. Where these instructions name a read tool (system.read_user_context, system.search_context, system.read_chat_history, system.web_search, system.fetch_url, or a read of a connected service), call it inside the script by the same name. A direct call of a read that needs no approval is refused.",
-  "- Put the reads of one step in one script. Run reads that do not depend on each other together with Promise.all (the host runs at most 8 at a time and queues the rest), keep the fields you need, and return a small result. Never spend one model step on each item of a list.",
+  "- Put the reads of one step in one script. Run reads that do not depend on each other together with Promise.all (the host runs at most 8 at a time and queues the rest), and return the fields that the answer needs. Never spend one model step on each item of a list.",
   "- A read of a connected service is mcp.read(ref, args) inside the script. Find it with system.search_tools, or with mcp.list_tools inside the script. Each hit gives its route: script (a system.code_run host function) or direct (a direct call).",
   "- Writes stay direct tool calls, and so do sub-agents, questions, and artifacts. A write to a connected service still goes through mcp.call.",
   "- A read that waits for the user's approval is the exception: a script cannot show the approval card, so call that read directly, and the user approves it on the card. Its hit gives route direct and approval card, and a script read that fails with needs_approval names the direct call.",

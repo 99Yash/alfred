@@ -1,17 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { getPath, getStringPath } from "@alfred/contracts";
-import {
-  PASSTHROUGH_MAX_ARRAY_ITEMS,
-  PASSTHROUGH_MAX_BODY_BYTES,
-  boundPassthroughBody,
-} from "../../../../src/tool-runtime/internal/tools/passthrough/bounds";
-
-const encoder = new TextEncoder();
-
-// oxlint-disable-next-line typescript/no-unnecessary-condition -- JSON.stringify returns undefined for an undefined or function input; the lib type says string.
-const bytes = (v: unknown) => encoder.encode(JSON.stringify(v) ?? "").length;
+import { boundPassthroughBody } from "../../../../src/tool-runtime/internal/tools/passthrough/bounds";
 
 describe("boundPassthroughBody — clean path", () => {
   test("a small body passes through untouched with no truncation signal", () => {
@@ -22,87 +12,10 @@ describe("boundPassthroughBody — clean path", () => {
   });
 });
 
-describe("boundPassthroughBody — per-string cap", () => {
-  test("a string over 8000 chars is clipped and flagged string_chars", () => {
-    const long = "x".repeat(9000);
-    const r = boundPassthroughBody({ body: long });
-    assert.ok(r.truncation, "expected a truncation signal");
-    assert.equal(r.truncation.handleEligible, true);
-    const cause = r.truncation.causes.find((c) => c.kind === "string_chars");
-    assert.ok(cause, "expected a string_chars cause");
-    assert.equal(cause.droppedApprox, 1000);
-    const clipped = getStringPath(r.value, "body");
-    assert.ok(clipped !== undefined, "expected a string body");
-    assert.ok(clipped.length < 9000);
-    assert.match(clipped, /truncated/);
-  });
-});
-
-describe("boundPassthroughBody — array-item cap (any depth)", () => {
-  test("a top-level array over 50 items is capped and flagged", () => {
-    const items = Array.from({ length: 73 }, (_, i) => i);
-    const r = boundPassthroughBody(items);
-    const value = r.value;
-    assert.ok(Array.isArray(value));
-    assert.equal(value.length, PASSTHROUGH_MAX_ARRAY_ITEMS);
-    const cause = r.truncation?.causes.find((c) => c.kind === "array_items");
-    assert.equal(cause?.droppedApprox, 73 - PASSTHROUGH_MAX_ARRAY_ITEMS);
-  });
-
-  test("a NESTED array is capped — a top-level-only cap would miss it", () => {
-    const body = { data: { messages: Array.from({ length: 200 }, (_, i) => ({ i })) } };
-    const r = boundPassthroughBody(body);
-    const messages = getPath(r.value, "data", "messages");
-    assert.ok(Array.isArray(messages));
-    assert.equal(messages.length, PASSTHROUGH_MAX_ARRAY_ITEMS);
-    const cause = r.truncation?.causes.find((c) => c.kind === "array_items");
-    assert.equal(cause?.droppedApprox, 150);
-  });
-});
-
-describe("boundPassthroughBody — total byte cap", () => {
-  test("an oversized body is pruned to valid JSON under (approximately) 32 KiB", () => {
-    // 50 rows (the array cap) of ~2 KB each, about 100 KB.
-    const rows = Array.from({ length: 50 }, (_, i) => ({
-      id: i,
-      blob: "y".repeat(2000),
-    }));
-
-    const r = boundPassthroughBody({ rows });
-    assert.ok(bytes({ rows }) > PASSTHROUGH_MAX_BODY_BYTES, "fixture must exceed the cap");
-
-    const cause = r.truncation?.causes.find((c) => c.kind === "body_bytes");
-    assert.ok(cause, "expected a body_bytes cause");
-
-    assert.doesNotThrow(() => JSON.parse(JSON.stringify(r.value)));
-    // Small slack for sentinels.
-    assert.ok(r.truncation);
-    assert.ok(r.truncation.returnedBytes < r.truncation.originalBytesApprox);
-    assert.ok(bytes(r.value) <= PASSTHROUGH_MAX_BODY_BYTES + 1024);
-  });
-});
-
-describe("boundPassthroughBody — simultaneous causes", () => {
-  test("string, array, and byte caps can all fire in one PassthroughTruncation", () => {
-    // Over 50 rows, each with a string over 8,000 chars.
-    const rows = Array.from({ length: 60 }, (_, i) => ({
-      id: i,
-      note: "z".repeat(8500),
-    }));
-
-    const r = boundPassthroughBody({ rows });
-    assert.ok(r.truncation);
-    const kinds = new Set(r.truncation.causes.map((c) => c.kind));
-    assert.ok(kinds.has("string_chars"), "string cap should fire");
-    assert.ok(kinds.has("array_items"), "array cap should fire");
-    assert.ok(kinds.has("body_bytes"), "byte cap should fire");
-    assert.doesNotThrow(() => JSON.parse(JSON.stringify(r.value)));
-  });
-});
-
 describe("boundPassthroughBody — poison composition", () => {
   test("NUL bytes are stripped as part of the same pass", () => {
     const r = boundPassthroughBody({ text: `ab${String.fromCodePoint(0)}cd` });
-    assert.equal(getStringPath(r.value, "text"), "abcd");
+    assert.equal(r.truncation, undefined);
+    assert.equal(r.value.text, "abcd");
   });
 });

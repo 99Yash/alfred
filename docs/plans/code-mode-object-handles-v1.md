@@ -352,7 +352,7 @@ Facts measured on `run@2.1.13` while building 2a (2026-11-17):
 - **Only a thrown `RunError` reaches the guest with its message and `code`.** A plain `Error` arrives as "Host function failed.". Thus a refused read throws `RunError(message, refusal)`.
 - **A refused read that the script does not catch fails the run with the host's own code.** It does not fail with `RUN_HOST_FUNCTION_ERROR`. `run` mints only `RUN_*` codes, so any other code maps to `uncaught_read_failure`.
 - **A result that is too large or is not serializable fails with `RUN_SERIALIZATION_ERROR`.** That code is not in the list above. It maps to `result_too_large_or_not_json`.
-- **The read path has its own limits.** The full result cap is 64 KiB, not 1 MiB (`code-mode/result-budget.ts`: 55 KiB for the value, 8 KiB for the sources, 1 KiB for the rest), because the result reaches the model, and `boundToolResult` clips strings but not the total size. The wall clock is 90 s, under the 180 s turn ceiling, and at most 8 reads run at the same time.
+- **The read path has its own limits.** A script value can be up to 1 MiB (`run`'s cap, `code-mode/result-budget.ts`). The model reads a copy that the one size rule bounds to 64 KiB by structure (ADR-0130 decision 5, `boundForModel` in `packages/contracts/src/bound.ts`). The wall clock is 90 s, under the 180 s turn ceiling, and at most 8 reads run at the same time.
 
 ### Instrumentation (ADR-0124's three rows)
 
