@@ -17,7 +17,9 @@ import { typedKeys } from "../records";
  * - `secret`: for some valid input, the read can return a secret. It asks under `gated`.
  * - `ordinary`: no valid input returns a secret. Under `gated` it runs with no card.
  */
-export type ToolReadClass = "secret" | "ordinary";
+export const TOOL_READ_CLASSES = ["secret", "ordinary"] as const;
+
+export type ToolReadClass = (typeof TOOL_READ_CLASSES)[number];
 
 interface EntryBase {
   readonly displayName: string;

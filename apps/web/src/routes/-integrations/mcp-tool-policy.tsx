@@ -5,25 +5,31 @@ import {
   MCP_TOOL_POLICY_NOTE_MAX,
   mcpEffectClassValues,
   mcpRetryContractValues,
+  TOOL_OUTPUT_KINDS,
+  TOOL_READ_CLASSES,
   TOOL_RISK_TIERS,
   toMessage,
   type ExternalToolRef,
   type McpEffectClass,
   type McpRetryContract,
+  type ToolOutputKind,
+  type ToolReadClass,
   type ToolRiskTier,
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { AppButton, AppSelect, AppTextarea, type AppSelectOption } from "~/components/ui/v2";
+import { AppButton, AppSelect, useAppForm, type AppSelectOption } from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { MCP_TOOL_POLICY_QUERY_KEY, type McpToolPolicyState } from "./helpers";
 
-/** `note` is `null` when blank, as the contract expects. */
+/** `note`, `readClass`, and `outputKind` are `null` when blank, as the contract expects. */
 interface McpToolPolicyDraft {
   readonly riskTier: ToolRiskTier;
   readonly effectClass: McpEffectClass;
   readonly retryContract: McpRetryContract;
+  readonly readClass: ToolReadClass | null;
+  readonly outputKind: ToolOutputKind | null;
   readonly note: string | null;
 }
 
@@ -34,12 +40,18 @@ interface McpToolPolicyDraft {
 const MCP_TOOL_POLICY_CONSERVATIVE_DEFAULTS = {
   effectClass: "unknown",
   retryContract: "never",
+  readClass: null,
+  outputKind: null,
   note: null,
 } satisfies Omit<McpToolPolicyDraft, "riskTier">;
 
 const isEffectClass = enumGuard(mcpEffectClassValues);
 
 const isRetryContract = enumGuard(mcpRetryContractValues);
+
+const isReadClass = enumGuard(TOOL_READ_CLASSES);
+
+const isOutputKind = enumGuard(TOOL_OUTPUT_KINDS);
 
 const RISK_TIER_OPTIONS: ReadonlyArray<AppSelectOption> = TOOL_RISK_TIERS.map((tier) => ({
   value: tier,
@@ -54,6 +66,26 @@ const EFFECT_CLASS_OPTIONS: ReadonlyArray<AppSelectOption> = mcpEffectClassValue
 const RETRY_CONTRACT_OPTIONS: ReadonlyArray<AppSelectOption> = mcpRetryContractValues.map(
   (value) => ({ value, label: humanizeSlug(value) }),
 );
+
+const READ_CLASS_LABELS = {
+  secret: "Can show a secret",
+  ordinary: "Shows no secret",
+} satisfies Record<ToolReadClass, string>;
+
+const READ_CLASS_OPTIONS: ReadonlyArray<AppSelectOption> = TOOL_READ_CLASSES.map((value) => ({
+  value,
+  label: READ_CLASS_LABELS[value],
+}));
+
+const OUTPUT_KIND_LABELS = {
+  structured: "Structured data",
+  binary: "File content",
+} satisfies Record<ToolOutputKind, string>;
+
+const OUTPUT_KIND_OPTIONS: ReadonlyArray<AppSelectOption> = TOOL_OUTPUT_KINDS.map((value) => ({
+  value,
+  label: OUTPUT_KIND_LABELS[value],
+}));
 
 export interface McpToolPolicyController {
   readonly state: McpToolPolicyState | undefined;
@@ -114,6 +146,8 @@ function useMcpToolPolicy(connectionId: string, ref: ExternalToolRef): McpToolPo
         riskTier: draft.riskTier,
         effectClass: draft.effectClass,
         retryContract: draft.retryContract,
+        readClass: draft.readClass,
+        outputKind: draft.outputKind,
         note: draft.note,
       });
 
@@ -172,6 +206,8 @@ function draftFromPolicy(state: Extract<McpToolPolicyState, { status: "reviewed"
     riskTier: policy.riskTier,
     effectClass: policy.effectClass,
     retryContract: policy.retryContract,
+    readClass: policy.readClass,
+    outputKind: policy.outputKind,
     note: policy.note,
   };
 }
@@ -184,77 +220,164 @@ interface McpToolPolicyFormProps {
   onClear?: (() => void) | undefined;
 }
 
-/** Local state only. The container keys it by tool and state, so new server values remount it. */
+/** The form's own values. A select with no value holds `undefined`; the draft holds `null`. */
+interface McpToolPolicyFormValues {
+  riskTier: ToolRiskTier | undefined;
+  effectClass: McpEffectClass;
+  retryContract: McpRetryContract;
+  readClass: ToolReadClass | undefined;
+  outputKind: ToolOutputKind | undefined;
+  note: string;
+}
+
+/**
+ * Local form state only. The container keys it by tool and state, so new server values remount
+ * it. The read class and the output kind apply only to a read, so the contract refuses them on
+ * any other effect, and the submit drops them.
+ */
 function McpToolPolicyForm({ initial, pending, onSave, onClear }: McpToolPolicyFormProps) {
-  const [riskTier, setRiskTier] = useState<ToolRiskTier | undefined>(initial.riskTier);
-  const [effectClass, setEffectClass] = useState(initial.effectClass ?? "unknown");
-  const [retryContract, setRetryContract] = useState(initial.retryContract ?? "never");
-  const [note, setNote] = useState(initial.note ?? "");
+  const defaultValues: McpToolPolicyFormValues = {
+    riskTier: initial.riskTier,
+    effectClass: initial.effectClass ?? "unknown",
+    retryContract: initial.retryContract ?? "never",
+    readClass: initial.readClass ?? undefined,
+    outputKind: initial.outputKind ?? undefined,
+    note: initial.note ?? "",
+  };
+
+  const form = useAppForm({
+    defaultValues,
+    onSubmit: ({ value }) => {
+      if (value.riskTier === undefined) return;
+      const trimmed = value.note.trim();
+      const read = value.effectClass === "read";
+
+      onSave({
+        riskTier: value.riskTier,
+        effectClass: value.effectClass,
+        retryContract: value.retryContract,
+        readClass: read ? (value.readClass ?? null) : null,
+        outputKind: read ? (value.outputKind ?? null) : null,
+        note: trimmed.length > 0 ? trimmed : null,
+      });
+    },
+  });
 
   return (
     <form
       className="space-y-2"
       onSubmit={(event) => {
         event.preventDefault();
-
-        if (riskTier === undefined) return;
-        const trimmed = note.trim();
-
-        onSave({
-          riskTier,
-          effectClass,
-          retryContract,
-          note: trimmed.length > 0 ? trimmed : null,
-        });
+        void form.handleSubmit();
       }}
     >
       <div className="grid grid-cols-3 gap-2">
-        <AppSelect
-          label="Approval tier"
-          placeholder="Select a tier"
-          value={riskTier}
-          options={RISK_TIER_OPTIONS}
-          disabled={pending}
-          onChange={(value) => {
-            if (value !== undefined && isToolRiskTier(value)) setRiskTier(value);
-          }}
-        />
-        <AppSelect
-          label="Effect"
-          value={effectClass}
-          options={EFFECT_CLASS_OPTIONS}
-          disabled={pending}
-          onChange={(value) => {
-            if (value !== undefined && isEffectClass(value)) setEffectClass(value);
-          }}
-        />
-        <AppSelect
-          label="Retry"
-          value={retryContract}
-          options={RETRY_CONTRACT_OPTIONS}
-          disabled={pending}
-          onChange={(value) => {
-            if (value !== undefined && isRetryContract(value)) setRetryContract(value);
-          }}
-        />
+        <form.Field name="riskTier">
+          {(field) => (
+            <AppSelect
+              label="Approval tier"
+              placeholder="Select a tier"
+              value={field.state.value}
+              options={RISK_TIER_OPTIONS}
+              disabled={pending}
+              onChange={(value) => {
+                if (value !== undefined && isToolRiskTier(value)) field.handleChange(value);
+              }}
+            />
+          )}
+        </form.Field>
+        <form.Field name="effectClass">
+          {(field) => (
+            <AppSelect
+              label="Effect"
+              value={field.state.value}
+              options={EFFECT_CLASS_OPTIONS}
+              disabled={pending}
+              onChange={(value) => {
+                if (value !== undefined && isEffectClass(value)) field.handleChange(value);
+              }}
+            />
+          )}
+        </form.Field>
+        <form.Field name="retryContract">
+          {(field) => (
+            <AppSelect
+              label="Retry"
+              value={field.state.value}
+              options={RETRY_CONTRACT_OPTIONS}
+              disabled={pending}
+              onChange={(value) => {
+                if (value !== undefined && isRetryContract(value)) field.handleChange(value);
+              }}
+            />
+          )}
+        </form.Field>
       </div>
-      <AppTextarea
-        aria-label="Review note"
-        maxLength={MCP_TOOL_POLICY_NOTE_MAX}
-        placeholder="Why this tier?"
-        value={note}
-        disabled={pending}
-        onChange={(event) => setNote(event.target.value)}
-      />
+      <form.Subscribe selector={(state) => state.values.effectClass === "read"}>
+        {(read) => (
+          <div className="space-y-1">
+            <div className="grid grid-cols-2 gap-2">
+              <form.Field name="readClass">
+                {(field) => (
+                  <AppSelect
+                    label="Secrets"
+                    placeholder="Not set"
+                    clearable
+                    value={read ? field.state.value : undefined}
+                    options={READ_CLASS_OPTIONS}
+                    disabled={pending || !read}
+                    onChange={(value) => {
+                      field.handleChange(
+                        value !== undefined && isReadClass(value) ? value : undefined,
+                      );
+                    }}
+                  />
+                )}
+              </form.Field>
+              <form.Field name="outputKind">
+                {(field) => (
+                  <AppSelect
+                    label="Output"
+                    placeholder="Not set"
+                    clearable
+                    value={read ? field.state.value : undefined}
+                    options={OUTPUT_KIND_OPTIONS}
+                    disabled={pending || !read}
+                    onChange={(value) => {
+                      field.handleChange(
+                        value !== undefined && isOutputKind(value) ? value : undefined,
+                      );
+                    }}
+                  />
+                )}
+              </form.Field>
+            </div>
+            <p className="text-xs text-app-fg-3">
+              {read
+                ? "Under Gated, a read that shows no secret runs without asking. Structured output can run in a script."
+                : "Set the effect to Read to classify this tool."}
+            </p>
+          </div>
+        )}
+      </form.Subscribe>
+      <form.AppField name="note">
+        {(field) => (
+          <field.TextAreaField
+            aria-label="Review note"
+            maxLength={MCP_TOOL_POLICY_NOTE_MAX}
+            placeholder="Why this tier?"
+            disabled={pending}
+          />
+        )}
+      </form.AppField>
       <div className="flex items-center gap-1">
-        <AppButton
-          type="submit"
-          size="lg"
-          variant="primary"
-          disabled={pending || riskTier === undefined}
-        >
-          Save review
-        </AppButton>
+        <form.Subscribe selector={(state) => state.values.riskTier === undefined}>
+          {(noTier) => (
+            <AppButton type="submit" size="lg" variant="primary" disabled={pending || noTier}>
+              Save review
+            </AppButton>
+          )}
+        </form.Subscribe>
         {onClear ? (
           <AppButton type="button" size="lg" variant="ghost" disabled={pending} onClick={onClear}>
             Clear review

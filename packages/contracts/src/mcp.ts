@@ -10,7 +10,8 @@ import { integrationRoutePrefix } from "./integrations/slugs";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
 import { typedKeys } from "./records";
-import { TOOL_RISK_TIERS } from "./tools";
+import { TOOL_OUTPUT_KINDS, TOOL_RISK_TIERS } from "./tools";
+import { TOOL_READ_CLASSES } from "./integrations/registry";
 import { jsonObjectSchema, jsonValueSchema } from "./user-model";
 
 // Durable connection status (`mcp_connections.status`).
@@ -714,6 +715,16 @@ export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSche
 // The server derives `descriptorHash` and `policyRevision`, so the client cannot send them.
 export const MCP_TOOL_POLICY_NOTE_MAX = 500;
 
+/**
+ * The owner's read class and output kind of a reviewed read (ADR-0130 amendment (a)). They apply
+ * only when code does not own the read. `null`: no class, so the read asks under `gated`, and no
+ * output, so it stays direct. Only a `read` review can set them.
+ */
+const mcpToolPolicyReadFields = {
+  readClass: z.enum(TOOL_READ_CLASSES).nullable(),
+  outputKind: z.enum(TOOL_OUTPUT_KINDS).nullable(),
+};
+
 /** `catalogRevision` is the revision the owner saw. The server refuses a stale one. */
 export const mcpToolPolicyReviewInputSchema = z
   .object({
@@ -721,9 +732,15 @@ export const mcpToolPolicyReviewInputSchema = z
     riskTier: z.enum(TOOL_RISK_TIERS),
     effectClass: mcpEffectClassSchema,
     retryContract: mcpRetryContractSchema,
+    ...mcpToolPolicyReadFields,
     note: z.string().trim().max(MCP_TOOL_POLICY_NOTE_MAX).nullable(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (review) =>
+      review.effectClass === "read" || (review.readClass === null && review.outputKind === null),
+    { message: "Only a read review sets the read class and the output kind" },
+  );
 
 export type McpToolPolicyReviewInput = z.infer<typeof mcpToolPolicyReviewInputSchema>;
 
@@ -733,6 +750,7 @@ export const mcpToolPolicySchema = z
     riskTier: z.enum(TOOL_RISK_TIERS),
     effectClass: mcpEffectClassSchema,
     retryContract: mcpRetryContractSchema,
+    ...mcpToolPolicyReadFields,
     note: z.string().nullable(),
     policyRevision: z.number().int().positive(),
     reviewedAt: z.string().nullable(),

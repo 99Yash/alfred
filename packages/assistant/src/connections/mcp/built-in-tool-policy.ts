@@ -97,7 +97,6 @@ export function builtInToolPolicy(
  * Alfred's declaration of a built-in tool's output, or `undefined` when it has none. A pinned
  * descriptor carries it in its entry. A tool of a read-only built-in endpoint (GitHub) is
  * structured: a binary block in its response fails by name at the script's read boundary.
- * Independent of an owner review: the review decides the effect, not the output.
  */
 export function builtInOutputKind(
   endpointUrl: string,
@@ -109,6 +108,22 @@ export function builtInOutputKind(
   if (entry !== undefined) return entry.outputKind;
 
   return builtInReadOnlyResource(endpointUrl) ? "structured" : undefined;
+}
+
+/**
+ * Whether code owns the class and the output of one exact descriptor (ADR-0130 amendment (a)):
+ * a code pin of the descriptor, or a built-in read-only endpoint. An owner review of such a read
+ * still decides the effect, but its class and its output have no effect.
+ */
+export function codeOwnsReadClass(
+  endpointUrl: string,
+  remoteName: string,
+  descriptorHash: string,
+): boolean {
+  return (
+    builtInToolPolicy(endpointUrl, remoteName, descriptorHash) !== undefined ||
+    builtInReadOnlyResource(endpointUrl)
+  );
 }
 
 /**

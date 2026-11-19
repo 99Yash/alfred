@@ -180,6 +180,8 @@ function mcpToolPolicyResult(policy: McpToolPolicyRow): McpToolPolicy {
     riskTier: policy.riskTier,
     effectClass: policy.effectClass,
     retryContract: policy.retryContract,
+    readClass: policy.readClass,
+    outputKind: policy.outputKind,
     note: policy.reviewedNote,
     policyRevision: policy.policyRevision,
     reviewedAt: policy.reviewedAt?.toISOString() ?? null,
@@ -650,6 +652,8 @@ export const mcpIntegrationRoutes = new Elysia({
             riskTier: body.riskTier,
             effectClass: body.effectClass,
             retryContract: body.retryContract,
+            readClass: body.readClass,
+            outputKind: body.outputKind,
             note: body.note,
           });
 
