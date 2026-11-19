@@ -8,6 +8,7 @@ import {
   isRecord,
   isUnknownEffectEnvelope,
   toJsonValue,
+  type ApprovalCause,
   type ChatConnectNudge,
   type ToolUnavailabilityCode,
 } from "@alfred/contracts";
@@ -15,6 +16,7 @@ import {
 import type { CompletedToolCall, ProposedToolCall } from "../index";
 import type { ToolCallDispatchResult } from "./adapter";
 import { NO_TOOL_EFFECTS } from "./registry";
+import { approvalCauseFact, type ApprovalCauseFact } from "../approval-rule";
 import type { ToolResultPart } from "ai";
 
 export type TerminalToolCallDispatchResult = Exclude<
@@ -57,14 +59,24 @@ function dispatchResultToToolOutput(
                   "Non-text bytes were stripped from this result before storage; it may be incomplete.",
               }
             : {}),
+          ...approvalCauseField(result),
         }),
       };
     case "failed":
       return {
         type: "error-json",
-        value: toJsonValue(boundToolResult({ status: "failed", error: result.error }).value),
+        value: toJsonValue(
+          withApprovalCauseField(
+            boundToolResult({ status: "failed", error: result.error }).value,
+            result,
+          ),
+        ),
       };
     case "rejected":
+      return {
+        type: "json",
+        value: toJsonValue(withApprovalCauseField(boundToolResult(result.result).value, result)),
+      };
     case "unanswered":
     case "blocked":
     case "fenced":
@@ -77,6 +89,22 @@ function dispatchResultToToolOutput(
     default:
       return assertNever(result, "tool call dispatch result");
   }
+}
+
+interface CardResult {
+  approvalCause?: ApprovalCause | undefined;
+}
+
+/** A card's cause and its settings, for the model to name (ADR-0130 decision 4). */
+function approvalCauseField(result: CardResult): { approvalCause?: ApprovalCauseFact } {
+  return result.approvalCause ? { approvalCause: approvalCauseFact(result.approvalCause) } : {};
+}
+
+/** The bounded envelope with the cause beside its fields. An envelope is always a record. */
+function withApprovalCauseField(bounded: unknown, result: CardResult): unknown {
+  if (!result.approvalCause || !isRecord(bounded)) return bounded;
+
+  return { ...bounded, ...approvalCauseField(result) };
 }
 
 const INCOMPLETE_ACTION_STATUSES = new Set([
@@ -180,6 +208,10 @@ export function completedToolCall<Call extends ProposedToolCall>(
     sanitized: result.kind === "executed" && result.sanitized === true,
     nonExecution: status === "failed" && isNonExecutionFailure(result),
     connectNudge: connectNudgeFromDispatch(result),
+    approvalCause:
+      result.kind === "executed" || result.kind === "failed" || result.kind === "rejected"
+        ? result.approvalCause
+        : undefined,
     executedInput:
       result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
     joinedChildRunId: result.kind === "executed" ? result.joinedChildRunId : undefined,

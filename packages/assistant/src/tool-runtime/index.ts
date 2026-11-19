@@ -7,6 +7,7 @@ import type {
   ActivateWorkflowInput,
   AttributionActor,
   CancellationFence,
+  ApprovalCause,
   ChatConnectNudge,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
@@ -181,6 +182,8 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
   verifiedRead?: true | undefined;
   /** Set only when the floor refused the call on connection health. */
   connectNudge?: ChatConnectNudge | undefined;
+  /** Set only after a card: why it asked, and the settings that remove it (ADR-0130). */
+  approvalCause?: ApprovalCause | undefined;
   /**
    * Set only after an approval edit: the input that ran. `call.input` stays the model's proposal,
    * so a card that names the operation reads this first.

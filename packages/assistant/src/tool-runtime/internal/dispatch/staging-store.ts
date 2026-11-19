@@ -19,6 +19,7 @@ import {
   actionStagingStatusSchema,
   assertNever,
   cancellationFenceSchema,
+  approvalCauseSchema,
   effectOutcomeSchema,
   jsonValueSchema,
   toJsonValue,
@@ -47,6 +48,7 @@ export type StagingRow = Pick<
   | "runId"
   | "status"
   | "requiresApproval"
+  | "approvalCause"
   | "toolName"
   | "riskTier"
   | "proposedInput"
@@ -95,6 +97,7 @@ export type PriorRejectionStatus = Extract<ActionStaging["status"], "rejected" |
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
+  | "approvalCause"
   | "riskTier"
   | "proposedInput"
   | "displayInput"
@@ -105,9 +108,13 @@ export type PendingApprovalPromotion = Pick<
 
 /**
  * The input a claimed and unfinished call goes back to the user with. The raw input to run, not a
- * redacted copy: approve runs `proposedInput`.
+ * redacted copy: approve runs `proposedInput`. No setting removes this card, so the restage
+ * clears the cause.
  */
-export type InterruptedRestage = Omit<PendingApprovalPromotion, "proposedInputHash">;
+export type InterruptedRestage = Omit<
+  PendingApprovalPromotion,
+  "proposedInputHash" | "approvalCause"
+>;
 
 /** An earlier attempt claimed the call, so its effect may already exist. */
 export function stagingMayHaveRun(row: Pick<StagingRow, "dispatchClaimedAt">): boolean {
@@ -287,6 +294,7 @@ const STAGING_COLUMNS = {
   runId: actionStagings.runId,
   status: actionStagings.status,
   requiresApproval: actionStagings.requiresApproval,
+  approvalCause: actionStagings.approvalCause,
   toolName: actionStagings.toolName,
   riskTier: actionStagings.riskTier,
   proposedInput: actionStagings.proposedInput,
@@ -308,12 +316,16 @@ const STAGING_COLUMNS = {
   requestHash: actionStagings.requestHash,
 } as const;
 
-/** `status` and `outcome` are `text` columns with only a `$type` assertion, so parse them. */
+/**
+ * `status` and `outcome` are `text` columns with only a `$type` assertion, so parse them. The
+ * cause goes to the model and the web, so a bad cause reads as none.
+ */
 function parseStagingRow(row: StagingRow): StagingRow {
   return {
     ...row,
     status: actionStagingStatusSchema.parse(row.status),
     outcome: effectOutcomeSchema.parse(row.outcome),
+    approvalCause: approvalCauseSchema.safeParse(row.approvalCause).data ?? null,
   };
 }
 
@@ -514,6 +526,7 @@ export const postgresStagingStore: StagingStore = {
     const promoted = await db()
       .update(actionStagings)
       .set({
+        approvalCause: promotion.approvalCause,
         riskTier: promotion.riskTier,
         proposedInput: promotion.proposedInput,
         displayInput: promotion.displayInput,
@@ -570,6 +583,8 @@ export const postgresStagingStore: StagingStore = {
         .set({
           status: "pending",
           requiresApproval: true,
+          // The call may have run, and no setting removes this card.
+          approvalCause: null,
           outcome: "awaiting_approval",
           riskTier: restage.riskTier,
           // The card shows `proposedInput`, so an earlier edit moves there and approve runs it.

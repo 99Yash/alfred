@@ -181,6 +181,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
       riskTier: s.riskTier,
       proposedInput: s.proposedInput,
       requiresApproval: s.requiresApproval,
+      approvalCause: s.approvalCause,
       mayHaveRun: s.dispatchClaimedAt !== null,
       status: s.status,
       expiresAt: s.expiresAt,

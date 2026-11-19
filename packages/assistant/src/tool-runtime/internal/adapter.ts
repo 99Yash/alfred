@@ -1,4 +1,5 @@
 import type {
+  ApprovalCause,
   AskUserUnansweredResult,
   CancellationEnvelope,
   IntegrationSlug,
@@ -75,6 +76,8 @@ export type ToolCallDispatchResult =
       executedInput?: unknown;
       /** Set only by the join arm: the child run it resolved. */
       joinedChildRunId?: string;
+      /** Set only after a card: why it asked, and the settings that remove it (ADR-0130). */
+      approvalCause?: ApprovalCause;
     }
   | {
       kind: "failed";
@@ -82,8 +85,16 @@ export type ToolCallDispatchResult =
       error: PublicAppError;
       /** Set only after an approval edit: the input that ran, not the model's proposal. */
       executedInput?: unknown;
+      /** Set only after a card: why it asked, and the settings that remove it (ADR-0130). */
+      approvalCause?: ApprovalCause;
     }
-  | { kind: "rejected"; stagingId: string | null; result: RejectedToolResult }
+  | {
+      kind: "rejected";
+      stagingId: string | null;
+      result: RejectedToolResult;
+      /** Set only after a card: why it asked, and the settings that remove it (ADR-0130). */
+      approvalCause?: ApprovalCause;
+    }
   | { kind: "unanswered"; stagingId: string | null; result: UnansweredQuestionsToolResult }
   | {
       kind: "blocked";
@@ -129,6 +140,8 @@ export type ToolCallDispatchResult =
  */
 export interface DeferredDispatch {
   kind: "deferred";
+  /** Why the card would stage, and the settings that remove it (ADR-0130 decision 4). */
+  approvalCause: ApprovalCause | null;
 }
 
 export interface ToolCallRoundAdapter {

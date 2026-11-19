@@ -896,6 +896,7 @@ const dispatchToolsStep: Step<ChatRunState> = {
             sanitized,
             nonExecution,
             connectNudge,
+            approvalCause,
             scriptSources,
           } = outcome;
 
@@ -917,6 +918,8 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(completion.verifiedRead ? { verifiedRead: completion.verifiedRead } : {}),
             // Keep the repair hint on the durable trail (#378).
             ...(connectNudge ? { connectNudge } : {}),
+            // The settings that remove a card, so a reload shows the links again (ADR-0130).
+            ...(approvalCause ? { approvalCause } : {}),
             ...(scriptSources ? { scriptSources } : {}),
             segmentIndex: call.segmentIndex,
           });

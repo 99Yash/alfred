@@ -4,7 +4,7 @@
  */
 
 import type { CompletedToolCall } from "@alfred/assistant/tool-runtime";
-import type { ChatConnectNudge, ScriptSources } from "@alfred/contracts";
+import type { ApprovalCause, ChatConnectNudge, ScriptSources } from "@alfred/contracts";
 import { preview } from "./tool-preview";
 
 export interface ToolEventOutcome {
@@ -18,6 +18,8 @@ export interface ToolEventOutcome {
   nonExecution?: true | undefined;
   /** A connection-health bounce, shown to the user as a repair offer. */
   connectNudge?: ChatConnectNudge | undefined;
+  /** A card's cause, shown to the user as links to the settings that remove it (ADR-0130). */
+  approvalCause?: ApprovalCause | undefined;
   /**
    * The args the card shows when an approval edit changed them. It replaces the `started`
    * preview, so a card never names an operation that did not run.
@@ -40,6 +42,7 @@ export function toolEventOutcome(completion: CompletedToolCall): ToolEventOutcom
     sanitized: completion.sanitized ? true : undefined,
     nonExecution: completion.nonExecution ? true : undefined,
     connectNudge: completion.connectNudge,
+    approvalCause: completion.approvalCause,
     argsPreview:
       completion.executedInput === undefined ? undefined : preview(completion.executedInput).text,
     scriptSources: completion.effects.scriptSources,

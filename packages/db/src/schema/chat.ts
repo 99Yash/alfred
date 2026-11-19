@@ -1,4 +1,5 @@
 import type {
+  ApprovalCause,
   ChatAttachmentStatus,
   ChatConnectNudge,
   ChatErrorKind,
@@ -45,6 +46,11 @@ export interface ChatMessageToolCall {
    * A newer build can store a slug this enum lacks. Only `syncedChatToolCallSchema` checks it.
    */
   connectNudge?: ChatConnectNudge | undefined;
+  /**
+   * Set only after a card: why it asked, and the settings that remove it (ADR-0130 decision 4).
+   * Only `syncedChatToolCallSchema` checks it.
+   */
+  approvalCause?: ApprovalCause | undefined;
   /**
    * The web pages of a `system.code_run` script (ADR-0124). The preview prunes them, so a reload
    * reads them here. The turn log (`toolCallLogSchema`) and `syncedChatToolCallSchema` parse it.

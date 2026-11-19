@@ -32,6 +32,7 @@ import {
   toolNameSchema,
   triageCategorySchema,
   workflowBlockedSchema,
+  approvalCauseSchema,
   chatConnectNudgeSchema,
   scriptSourcesSchema,
   type IntegrationRule,
@@ -178,6 +179,11 @@ export const syncedActionStagingSchema = z.object({
   proposedInput: z.unknown(),
   requiresApproval: z.boolean(),
   /**
+   * Why the card asks, and the settings that remove it (ADR-0130 decision 4). `null`: no setting
+   * removes it, or a row from before the column. The `catch` keeps the card on a bad value.
+   */
+  approvalCause: approvalCauseSchema.nullable().catch(null).default(null),
+  /**
    * The call started once and did not finish, so its effect may already exist. Approve runs it
    * again. Defaults to false, so a row cached before this field existed still parses.
    */
@@ -312,6 +318,11 @@ export const syncedChatToolCallSchema = z.object({
    * `null` means an unreadable nudge. The `catch` stops it from dropping the whole message.
    */
   connectNudge: chatConnectNudgeSchema.nullable().optional().catch(null),
+  /**
+   * Set only after a card: why it asked, and the settings that remove it (ADR-0130 decision 4).
+   * `null` means an unreadable cause. The `catch` stops it from dropping the whole message.
+   */
+  approvalCause: approvalCauseSchema.nullable().optional().catch(null),
   /**
    * The web pages of a `system.code_run` script (ADR-0124). The preview prunes them, so they ride
    * apart. The `catch` stops a bad value from dropping the whole message.

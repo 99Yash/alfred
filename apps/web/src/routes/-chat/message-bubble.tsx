@@ -14,6 +14,7 @@ import { useAttachmentLightbox, type AttachmentOpener } from "./attachment-light
 import { ConnectNudgeRows } from "./connect-nudge-rows";
 import { useMarkdownImageMode } from "./published-transcript";
 import { splitPersistedToolCalls } from "./connect-nudges";
+import { ApprovalSettingRows, collectApprovalSettings } from "./approval-setting-rows";
 import { splitQuote } from "./quote";
 import { ReasoningSection } from "./reasoning-section";
 import { quotableProps } from "./selection-quote";
@@ -315,6 +316,8 @@ export function MessageBubble({
 
   // Connection bounces are repair offers, not cards (#378 item 3).
   const { cards: tools, nudges } = splitPersistedToolCalls(message.toolCalls ?? []);
+  // The settings that remove this turn's cards; the reply names them (ADR-0130 decision 4).
+  const approvalSettings = collectApprovalSettings(message.toolCalls ?? []);
   const sources = collectSources(tools);
   const failed = message.status === "failed";
 
@@ -348,6 +351,7 @@ export function MessageBubble({
         </div>
       ) : null}
       <ConnectNudgeRows nudges={nudges} />
+      <ApprovalSettingRows settings={approvalSettings} threadId={message.threadId} />
       {sources.length > 0 ? <SourcesStrip sources={sources} /> : null}
       {failure ? (
         <div

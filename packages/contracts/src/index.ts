@@ -18,6 +18,8 @@ export * from "./integrations";
 
 export * from "./tools";
 
+export * from "./approval-cause";
+
 export * from "./passthrough";
 
 export * from "./passthrough-bounds";
