@@ -9,8 +9,10 @@
 
 import {
   integrationFromToolName,
+  isLoadableIntegrationSlug,
   isToolName,
   type ApprovalCause,
+  type ApprovalCauseKind,
   type ApprovalSetting,
   type IntegrationSlug,
   type PolicyMode,
@@ -87,8 +89,9 @@ export interface ApprovalCauseFacts {
 /**
  * Why a call waits on a card, and the closed list of settings that remove the card (ADR-0130
  * decision 4). It follows `toolRequiresApproval`, so a listed setting removes the card for the
- * same call. `null` when the call does not wait, or when no setting removes the card: a forced
- * arm (`confirm`, `question`), or a `high` call outside a chat thread.
+ * same call. `null` when the call does not wait, or when no listed setting removes the card: a
+ * forced arm (`confirm`, `question`), a `high` call outside a chat thread, or a call on a server
+ * that the owner added outside a chat thread.
  */
 export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
   const arm = STAGING_ARM[facts.staging];
@@ -113,22 +116,25 @@ export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
     facts.policy.source === "tool_override"
       ? [alwaysAllow]
       : [
-          { kind: "integration_mode", integration: facts.policyIntegration },
+          // Only a mode that a page can set. A server that the owner added has the internal
+          // `mcp` slug, and no page sets its mode.
+          ...(isLoadableIntegrationSlug(facts.policyIntegration)
+            ? [{ kind: "integration_mode", integration: facts.policyIntegration } as const]
+            : []),
           ...(facts.policyIntegration === integrationFromToolName(facts.toolName) &&
           facts.toolName !== MCP_CALL_TOOL
             ? [alwaysAllow]
             : []),
         ];
 
-  return {
-    cause: causeOfGatedCall(facts.readFacts),
-    settings: [...policySettings, ...fullAutonomy],
-  };
+  const settings = [...policySettings, ...fullAutonomy];
+
+  return settings.length > 0 ? { cause: causeOfGatedCall(facts.readFacts), settings } : null;
 }
 
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
 export interface ApprovalCauseFact {
-  cause: ApprovalCause["cause"];
+  cause: ApprovalCauseKind;
   fix: Extract<Fix, { kind: "change_setting" }>;
 }
 
@@ -138,7 +144,7 @@ export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
 
 function causeOfGatedCall(
   readFacts: ApprovalCauseFacts["readFacts"],
-): Exclude<ApprovalCause["cause"], "high_risk"> {
+): Exclude<ApprovalCauseKind, "high_risk"> {
   if (readFacts?.read !== true) return "may_write";
 
   return readFacts.readClass === "secret" ? "secret_read" : "unclassified_read";

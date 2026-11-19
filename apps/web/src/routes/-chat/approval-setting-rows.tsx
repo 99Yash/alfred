@@ -1,5 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
-import { humanizeToolName, integrationFromToolName, type ApprovalSetting } from "@alfred/contracts";
+import {
+  assertNever,
+  humanizeToolName,
+  integrationFromToolName,
+  type ApprovalSetting,
+} from "@alfred/contracts";
 import type { SyncedChatToolCall } from "@alfred/sync";
 import { ArrowRight } from "lucide-react";
 import { toast } from "~/lib/toast";
@@ -35,6 +40,8 @@ function approvalSettingKey(setting: ApprovalSetting): string {
       return `always_allow:${setting.toolName}`;
     case "full_autonomy":
       return "full_autonomy";
+    default:
+      return assertNever(setting, "approval setting");
   }
 }
 
@@ -65,12 +72,16 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
       };
     case "full_autonomy":
       return null;
+    default:
+      return assertNever(setting, "approval setting");
   }
 }
 
 /**
  * Links to the settings that remove this turn's cards, under the reply. Nothing when the turn had
  * no card with a cause. Full Autonomy is a button, because it is a flag on this thread.
+ * The sync query sits in `SettingRows`, below the empty-case return, so a turn with no card
+ * mounts no subscription.
  */
 export function ApprovalSettingRows({
   settings,

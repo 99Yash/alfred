@@ -8,13 +8,14 @@ import {
   isRecord,
   isUnknownEffectEnvelope,
   toJsonValue,
-  type ApprovalCause,
   type ChatConnectNudge,
+  type JsonValue,
   type ToolUnavailabilityCode,
 } from "@alfred/contracts";
 
 import type { CompletedToolCall, ProposedToolCall } from "../index";
-import type { ToolCallDispatchResult } from "./adapter";
+import type { PublicAppError } from "@alfred/contracts/app-errors";
+import type { CardOutcome, RejectedToolResult, ToolCallDispatchResult } from "./adapter";
 import { NO_TOOL_EFFECTS } from "./registry";
 import { approvalCauseFact, type ApprovalCauseFact } from "../approval-rule";
 import type { ToolResultPart } from "ai";
@@ -65,17 +66,12 @@ function dispatchResultToToolOutput(
     case "failed":
       return {
         type: "error-json",
-        value: toJsonValue(
-          withApprovalCauseField(
-            boundToolResult({ status: "failed", error: result.error }).value,
-            result,
-          ),
-        ),
+        value: boundedWithApprovalCause({ status: "failed", error: result.error }, result),
       };
     case "rejected":
       return {
         type: "json",
-        value: toJsonValue(withApprovalCauseField(boundToolResult(result.result).value, result)),
+        value: boundedWithApprovalCause(result.result, result),
       };
     case "unanswered":
     case "blocked":
@@ -91,20 +87,21 @@ function dispatchResultToToolOutput(
   }
 }
 
-interface CardResult {
-  approvalCause?: ApprovalCause | undefined;
-}
-
 /** A card's cause and its settings, for the model to name (ADR-0130 decision 4). */
-function approvalCauseField(result: CardResult): { approvalCause?: ApprovalCauseFact } {
+function approvalCauseField(result: CardOutcome): { approvalCause?: ApprovalCauseFact } {
   return result.approvalCause ? { approvalCause: approvalCauseFact(result.approvalCause) } : {};
 }
 
-/** The bounded envelope with the cause beside its fields. An envelope is always a record. */
-function withApprovalCauseField(bounded: unknown, result: CardResult): unknown {
-  if (!result.approvalCause || !isRecord(bounded)) return bounded;
+/** The model envelope of a card result that is not `executed`. */
+type CardEnvelope = RejectedToolResult | { status: "failed"; error: PublicAppError };
 
-  return { ...bounded, ...approvalCauseField(result) };
+/** The bounded envelope with the cause beside its fields. An envelope is always a record. */
+function boundedWithApprovalCause(envelope: CardEnvelope, result: CardOutcome): JsonValue {
+  const bounded = boundToolResult(envelope).value;
+
+  if (!result.approvalCause || !isRecord(bounded)) return toJsonValue(bounded);
+
+  return toJsonValue({ ...bounded, ...approvalCauseField(result) });
 }
 
 const INCOMPLETE_ACTION_STATUSES = new Set([

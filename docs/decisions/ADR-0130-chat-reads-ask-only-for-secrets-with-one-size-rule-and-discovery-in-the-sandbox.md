@@ -93,10 +93,11 @@ Owner decision, 2026-11-19 (#1799 part 2). On a server that the owner added, for
 Owner decision, 2026-11-19 (#1800). In chat, a card stops the turn, so the model cannot write while the card waits.
 
 - **The rule:** the tool result of a card that the user approved, rejected, or let expire carries the cause (`approvalCause`). The script refusal `needs_approval` carries it too. The model then writes one line about the setting.
-- **The web:** the card head shows a switch for each listed setting. The saved reply shows the setting links under the reply.
+- **The web:** the card head shows a switch for the integration mode and for "Always allow" when the list holds them. For Full Autonomy, it shows a line that names the mode menu beside the card. The saved reply shows the setting links under the reply.
 - **The list:** it holds only the settings that remove the card for this call.
   - A `high` card lists only Full Autonomy. Outside a chat thread, no setting removes it, so it has no cause.
   - A tool override that asks beats the integration mode, so only "Always allow" is listed.
+  - The integration mode is listed only when a page can set it. A server that the owner added has the internal `mcp` slug, and no page sets its mode. Outside a chat thread, such a card thus has no cause.
   - "Always allow" is not listed for `mcp.call`. One override on it would cover every server, and it has no effect on a built-in provider.
   - A `confirm` card, a question, and a restaged card that may have run have no cause.
 - **The row:** `action_stagings.approval_cause` keeps the cause (migration 0177). A replay reads the same row, so it gives the same cause.

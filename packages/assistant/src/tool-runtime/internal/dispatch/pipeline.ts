@@ -645,7 +645,9 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     case "approved": {
       const binding = tool.bind(row.decidedInput ?? row.proposedInput);
 
-      if (!binding.success) return failApprovedInput(row, resolved, binding.error.issues);
+      if (!binding.success) {
+        return withApprovalCause(row, await failApprovedInput(row, resolved, binding.error.issues));
+      }
 
       return continueWith({
         ...resolved,
@@ -1447,12 +1449,17 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       // A user edit may break the schema. Fail the row instead of throwing.
       const rebound = tool.bind(useInput);
 
-      if (!rebound.success) return failApprovedInput(row, suppressed, rebound.error.issues);
+      if (!rebound.success) {
+        return withApprovalCause(
+          row,
+          await failApprovedInput(row, suppressed, rebound.error.issues),
+        );
+      }
 
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
 
-        if (exhausted) return exhausted;
+        if (exhausted) return withApprovalCause(row, exhausted);
       }
 
       return withApprovalCause(
@@ -1533,14 +1540,11 @@ async function failApprovedInput(
 function withApprovalCause(row: StagingRow, result: DispatchResult): DispatchResult {
   if (row.approvalCause === null) return result;
 
-  switch (result.kind) {
-    case "executed":
-    case "failed":
-    case "rejected":
-      return { ...result, approvalCause: row.approvalCause };
-    default:
-      return result;
+  if (result.kind === "executed" || result.kind === "failed" || result.kind === "rejected") {
+    return { ...result, approvalCause: row.approvalCause };
   }
+
+  return result;
 }
 
 function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): DispatchResult {

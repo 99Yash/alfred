@@ -7,7 +7,12 @@
  */
 
 import type { IntegrationSlug, PolicyMode, ToolName } from "@alfred/contracts";
-import { integrationFromToolName, resolveIntegrationMode } from "@alfred/contracts";
+import {
+  integrationFromToolName,
+  resolveIntegrationMode,
+  resolveToolModeDecision,
+  type ToolModeDecision,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { userActionPolicies, type UserActionPolicy } from "@alfred/db/schemas";
 import { eq } from "drizzle-orm";
@@ -93,15 +98,12 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
 }
 
 /**
- * The mode of one call, and the setting that set it (ADR-0130 decision 4).
- * - `system`: a `system.*` tool. No setting gates it.
- * - `tool_override`: the tool's own "Always allow" override.
- * - `integration`: the integration's mode, or the user default when the integration has none.
- *   A mode on the integration page replaces the default, so both name that one setting.
+ * The mode of one call, and the setting that set it (ADR-0130 decision 4). `system`: a
+ * `system.*` tool, which no setting gates. Else the `source` of `resolveToolModeDecision`.
  */
 export interface PolicyDecision {
   mode: PolicyMode;
-  source: "system" | "tool_override" | "integration";
+  source: "system" | ToolModeDecision["source"];
 }
 
 /**
@@ -118,23 +120,18 @@ export async function resolvePolicyDecision(
   toolName: ToolName,
   policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
 ): Promise<PolicyDecision> {
-  const integration = integrationFromToolName(toolName);
-
-  if (integration === "system") return { mode: "autonomy", source: "system" };
+  if (integrationFromToolName(toolName) === "system") return { mode: "autonomy", source: "system" };
 
   const policy = await getResolvedPolicy(userId);
 
-  const override =
-    policyIntegration === integration
-      ? policy.integrationRules[integration]?.toolOverrides?.[toolName]
-      : undefined;
+  if (policyIntegration !== integrationFromToolName(toolName)) {
+    return {
+      mode: resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode),
+      source: "integration",
+    };
+  }
 
-  if (override !== undefined) return { mode: override, source: "tool_override" };
-
-  return {
-    mode: resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode),
-    source: "integration",
-  };
+  return resolveToolModeDecision(policy.integrationRules, toolName, policy.defaultMode);
 }
 
 /** The mode of `resolvePolicyDecision`, for a caller that does not name the setting. */
