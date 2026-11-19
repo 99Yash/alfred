@@ -1,15 +1,17 @@
 import type { TranscriptMessage } from "@alfred/ai";
 import {
   assertNever,
-  boundToolResult,
+  boundForModel,
   CODE_RUN_TOOL,
   getStringPath,
   isActionTool,
+  isJsonObject,
   isRecord,
   isUnknownEffectEnvelope,
   toJsonValue,
   type ChatConnectNudge,
   type JsonValue,
+  type ResultTruncation,
   type ToolUnavailabilityCode,
 } from "@alfred/contracts";
 
@@ -51,7 +53,7 @@ function dispatchResultToToolOutput(
         type: "json",
         value: toJsonValue({
           status: "executed",
-          result: boundToolResult(result.toolResult).value,
+          ...boundedResultFields(result.toolResult),
           editedByUser: result.editedByUser,
           ...(result.sanitized
             ? {
@@ -81,7 +83,7 @@ function dispatchResultToToolOutput(
     case "inactive_tool":
     case "not_allowed":
     case "feature_disabled":
-      return { type: "json", value: toJsonValue(boundToolResult(result.result).value) };
+      return { type: "json", value: boundedEnvelope(result.result) };
     default:
       return assertNever(result, "tool call dispatch result");
   }
@@ -97,11 +99,35 @@ type CardEnvelope = RejectedToolResult | { status: "failed"; error: PublicAppErr
 
 /** The bounded envelope with the cause beside its fields. An envelope is always a record. */
 function boundedWithApprovalCause(envelope: CardEnvelope, result: CardOutcome): JsonValue {
-  const bounded = boundToolResult(envelope).value;
+  const bounded = boundedEnvelope(envelope);
 
-  if (!result.approvalCause || !isRecord(bounded)) return toJsonValue(bounded);
+  if (!result.approvalCause || !isJsonObject(bounded)) return bounded;
 
   return toJsonValue({ ...bounded, ...approvalCauseField(result) });
+}
+
+/**
+ * The tool result under the one size rule (ADR-0130 decision 5), with its truncation note beside it.
+ * The staging row keeps the whole result; only the model's copy is bounded.
+ */
+function boundedResultFields(toolResult: unknown): {
+  result: JsonValue;
+  truncation?: ResultTruncation;
+} {
+  const bounded = boundForModel(toJsonValue(toolResult));
+
+  return bounded.truncation
+    ? { result: bounded.value, truncation: bounded.truncation }
+    : { result: bounded.value };
+}
+
+/** An envelope under the one size rule. A cut record carries its note as a field. */
+function boundedEnvelope(envelope: unknown): JsonValue {
+  const bounded = boundForModel(toJsonValue(envelope));
+
+  if (!bounded.truncation || !isJsonObject(bounded.value)) return bounded.value;
+
+  return toJsonValue({ ...bounded.value, truncation: bounded.truncation });
 }
 
 const INCOMPLETE_ACTION_STATUSES = new Set([

@@ -13,7 +13,7 @@ import type {
   IntegrationSlug,
   JsonValue,
   PassthroughResult,
-  PassthroughTruncation,
+  ResultTruncation,
   ReadEvidence,
   RiskTierCounts,
   ToolName,
@@ -302,7 +302,7 @@ export const NO_TOOL_EFFECTS: ToolEffects = Object.freeze({});
 
 /** Live-only facts for the call's span. Never persisted, never replayed. */
 export interface ToolSpanFacts {
-  passthroughTruncation?: { truncation: PassthroughTruncation; succeeded: boolean };
+  passthroughTruncation?: { truncation: ResultTruncation; succeeded: boolean };
   /** Primitive, PII-free metadata for the span. `system.code_run` sets it (ADR-0124 rows). */
   metadata?: Readonly<Record<string, string | number | boolean>>;
 }

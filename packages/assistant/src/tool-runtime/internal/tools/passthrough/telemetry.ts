@@ -10,27 +10,25 @@ import {
   restPassthroughRequestSchema,
   truncatedCoverage,
   type PassthroughResult,
-  type PassthroughTruncation,
+  type ResultCut,
   type ReadEvidence,
 } from "@alfred/contracts";
 import type { ToolSpanFacts } from "../../registry";
 import { itemEvidence } from "../../../item-evidence";
 
 export interface PassthroughTruncationTelemetry {
-  handleEligible: true;
   integration: string;
   toolName: string;
   runId: string;
   /** 2xx with no GraphQL errors. */
   succeeded: boolean;
-  returnedBytes: number;
-  originalBytesApprox: number;
-  /** originalBytesApprox − returnedBytes, floored at 0. */
-  droppedBytesApprox: number;
-  droppedStringCharsApprox: number;
-  droppedArrayItemsApprox: number;
-  droppedBodyBytesApprox: number;
-  causes: PassthroughTruncation["causes"];
+  limitBytes: number;
+  totalBytes: number;
+  /** The list items that the one size rule removed (ADR-0130 decision 5). */
+  droppedItems: number;
+  /** The string characters that it removed. */
+  droppedChars: number;
+  cuts: number;
 }
 
 /** Span facts for a passthrough tool: the truncation of an `http` outcome, if any. */
@@ -48,24 +46,20 @@ export function passthroughTruncationTelemetry(
   facts: NonNullable<ToolSpanFacts["passthroughTruncation"]>,
 ): PassthroughTruncationTelemetry {
   const { truncation, succeeded } = facts;
-  const { causes, returnedBytes, originalBytesApprox } = truncation;
 
-  const droppedByKind = (target: string): number =>
-    causes.reduce((sum, cause) => (cause.kind === target ? sum + cause.droppedApprox : sum), 0);
+  const dropped = (unit: ResultCut["unit"]): number =>
+    truncation.cuts.reduce((sum, cut) => (cut.unit === unit ? sum + cut.total - cut.kept : sum), 0);
 
   return {
-    handleEligible: true,
     integration: integrationFromToolNameSafe(toolName),
     toolName,
     runId,
     succeeded,
-    returnedBytes,
-    originalBytesApprox,
-    droppedBytesApprox: Math.max(0, originalBytesApprox - returnedBytes),
-    droppedStringCharsApprox: droppedByKind("string_chars"),
-    droppedArrayItemsApprox: droppedByKind("array_items"),
-    droppedBodyBytesApprox: droppedByKind("body_bytes"),
-    causes,
+    limitBytes: truncation.limitBytes,
+    totalBytes: truncation.totalBytes,
+    droppedItems: dropped("items"),
+    droppedChars: dropped("chars"),
+    cuts: truncation.cuts.length + (truncation.moreCuts ?? 0),
   };
 }
 

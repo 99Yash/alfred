@@ -17,7 +17,7 @@ export const GUEST_OUTPUT_TYPES = {
   "vercel.list_deployments":
     "{ deployments: { uid: string; name: string; url: string | null; state: string | null; target: string | null; environment: string | null; createdAt: number | null; git: { org: string; repo: string; ref: string | null } | null }[] }",
   "vercel.request":
-    '{ outcome: "http"; status: number; succeeded: boolean; body: unknown; truncation?: { handleEligible: true; originalBytesApprox: number; returnedBytes: number; causes: ({ kind: "string_chars"; droppedApprox: number } | { kind: "array_items"; droppedApprox: number } | { kind: "body_bytes"; droppedApprox: number })[] } } | { outcome: "rejected"; reason: "graphql_non_query" | "graphql_operation_ambiguous" | "invalid_path" | "method_not_read" | "path_not_allowlisted"; message: string } | { outcome: "transport"; kind: "connection_reset" | "dns" | "timeout" | "tls"; retryable: boolean; message: string }',
+    '{ outcome: "http"; status: number; succeeded: boolean; body: unknown; truncation?: { limitBytes: number; totalBytes: number; cuts: { path: string; unit: "chars" | "fields" | "items" | "value"; kept: number; total: number }[]; moreCuts?: number; note: string } } | { outcome: "rejected"; reason: "graphql_non_query" | "graphql_operation_ambiguous" | "invalid_path" | "method_not_read" | "path_not_allowlisted"; message: string } | { outcome: "transport"; kind: "connection_reset" | "dns" | "timeout" | "tls"; retryable: boolean; message: string }',
   "system.web_search":
     "{ ok: true; query: string; answer: string; citations: { url: string; title?: string }[]; results: { url: string; title?: string; snippet?: string }[]; searchQueries: string[] }",
   "system.fetch_url":
@@ -41,5 +41,5 @@ export const GUEST_OUTPUT_TYPES = {
   "mcp.inspect_tool":
     '{ status: "not_found"; message: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } } | { route: "direct" | "script"; directReason?: "binary_output" | "needs_approval" | "not_a_confirmed_read" | "undeclared_output"; approval: "card" | "none"; class?: "ordinary" | "secret"; status: "tool"; connection: { id: string; instanceKey: string; label: string }; tool: { [x: string]: JsonValue }; ref: { kind: "mcp"; connectionId: string; remoteName: string } }',
   "mcp.read":
-    '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true; truncation?: { handleEligible: true; originalBytesApprox: number; returnedBytes: number; causes: ({ kind: "string_chars"; droppedApprox: number } | { kind: "array_items"; droppedApprox: number } | { kind: "body_bytes"; droppedApprox: number })[] } }',
+    '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true; truncation?: { limitBytes: number; totalBytes: number; cuts: { path: string; unit: "chars" | "fields" | "items" | "value"; kept: number; total: number }[]; moreCuts?: number; note: string } }',
 } as const;

@@ -11,6 +11,7 @@ import {
   type PassthroughTransportKind,
   type SupportedPassthroughSlug,
 } from "./integrations";
+import type { ResultTruncation } from "./bound";
 import { recordFromKeys } from "./records";
 import { isToolName, type ToolName } from "./tools";
 
@@ -136,18 +137,6 @@ export const TRANSPORT_ERROR_KINDS = ["timeout", "dns", "connection_reset", "tls
 
 export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
 
-/** Present when a result was clipped. Marks it handle-eligible (ADR-0074). */
-export interface PassthroughTruncation {
-  handleEligible: true;
-  originalBytesApprox: number;
-  returnedBytes: number;
-  causes: Array<
-    | { kind: "string_chars"; droppedApprox: number }
-    | { kind: "array_items"; droppedApprox: number }
-    | { kind: "body_bytes"; droppedApprox: number }
-  >;
-}
-
 export type PassthroughResult =
   | {
       /** The API answered, including 4xx/5xx. */
@@ -158,7 +147,8 @@ export type PassthroughResult =
       succeeded: boolean;
       /** Sanitized + bounded, including API error bodies. */
       body: unknown;
-      truncation?: PassthroughTruncation;
+      /** Set when the one size rule cut the body (ADR-0130 decision 5). */
+      truncation?: ResultTruncation;
     }
   | {
       /** The read gate denied it; nothing was sent. */
