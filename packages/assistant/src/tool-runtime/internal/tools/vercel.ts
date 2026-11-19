@@ -29,6 +29,8 @@ export const vercelTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     codeModeRead: true,
+    // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
+    outsideText: true,
     description:
       "List Vercel projects for the connected account/team, with framework and latest deployment state.",
     inputSchema: vercelListProjectsInput,
@@ -44,6 +46,8 @@ export const vercelTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     codeModeRead: true,
+    // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
+    outsideText: true,
     description:
       "List recent Vercel deployments, optionally scoped to a project, with state, target, and url. Use the returned uid as the deploymentId for redeploy.",
     inputSchema: vercelListDeploymentsInput,
@@ -77,6 +81,8 @@ export const vercelTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     codeModeRead: true,
+    // Its result is text from outside Alfred, so a URL in it is a fetch_url source (ADR-0130).
+    outsideText: true,
     availability: { passthrough: true },
     description:
       "Issue a raw, READ-ONLY Vercel REST call for anything the curated vercel tools don't cover — a project's details (GET '/v9/projects/{idOrName}'), a deployment's detail or build events (GET '/v13/deployments/{id}'), domains, environment variable metadata, or aliases. Pass `method` (GET or HEAD only — writes are rejected at the boundary), a namespace-relative `path` beginning with '/' (include the API version segment, e.g. '/v6/deployments'; never a full URL), and `query` for parameters (limit, projectId). `teamId` is applied automatically for team installs — do not add it. This is a raw, unvalidated read: a 404 or empty result may mean your path/params were wrong — NOT that the thing is absent. Correct the path once and retry, or state the uncertainty. Never report a raw empty as a confident zero.",

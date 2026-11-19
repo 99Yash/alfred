@@ -63,7 +63,8 @@ Live runs on 2026-11-19 used Haiku 5.5 with Code Mode on. Prod and dev each had 
   - A chat turn: the user messages of the thread, their attachment text, and the stored tool results of each chat-turn run of the thread.
   - A sub-agent: the sources of its parent thread, and the tool results of its own run. Its brief does not count, because the parent model wrote it.
   - A workflow run: the brief that the user activated counts as the user's words. The trigger event and the tool results of the run count as tool results.
-  - Each run: its own stored tool results, with the nested reads of a script.
+  - Each run: its own stored tool results, with the nested reads of a script. A sub-agent of a workflow also gets the sources of its parent run.
+  - **A tool result counts only when it is outside text.** Each read declares `outsideText` when its result comes from outside Alfred and the model: a connected service, the web, or the user's synced data. A result that echoes the model never counts. Examples are a script's return value, a read of chat history, scratch, memory, and a write. An `mcp.call` result counts only as a confirmed read. Without this rule, the model can return a built URL from a script and then fetch it.
 - **The match.** The URL, with no scheme and no final `/`, must appear in the text. The text around it must end the URL. Thus "yashk.xyz" from the user allows `https://yashk.xyz/`. The model cannot add a host label, a path segment, or a query.
 - Writes are the other path out, for example a mail send. Writes keep their cards under `gated`. Full Autonomy waives those cards by owner choice.
 
