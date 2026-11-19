@@ -161,6 +161,7 @@ Unheld (2026-11-17): slices 2 and 3 landed on this branch (the nine labels, the 
 
 **Removes:** `shouldDeepen`, and the dormant `dossierRequest` path if no other reader needs it.
 *Gate:* the trigger rate and the cost per day are in the trace. The payment-failure cases are caught when the first decision misses them. The echo cases keep `fyi`, and the sign-in by another person is loud.
+*Waits here:* the deck case `deepinfra-scoped-keys-newsletter-is-quiet` (owner decision 2026-11-19). Prod gave the DeepInfra bulk newsletter `action` at 0.9 from the first pass alone. Three prompt-wording attempts moved the confidence to 0.8 and never flipped the label, and a principle-form rewrite of the case bullets regressed `sign-in-by-another-person-is-loud` and the chess-streak cases in a paired probe, so the prompt change was reverted. The loud-plus-bulk-sender trigger, with the activity record in hand, is the piece that decides it.
 
 ## Slice 7 — Follow-up workflows
 

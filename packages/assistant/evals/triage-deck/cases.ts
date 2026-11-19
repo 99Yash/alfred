@@ -90,6 +90,12 @@ const CHESS_STREAK_KIND = {
   evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
 } as const satisfies DeckMail["senderKind"];
 
+const DEEPINFRA_NEWSLETTER_KIND = {
+  kind: "group",
+  confidence: 0.99,
+  evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
+} as const satisfies DeckMail["senderKind"];
+
 const UPDATES = ["UNREAD", "CATEGORY_UPDATES", "INBOX"] as const;
 
 const PROMOTIONS = ["CATEGORY_PROMOTIONS", "UNREAD", "INBOX"] as const;
@@ -765,6 +771,34 @@ export const DECK: readonly DeckCase[] = [
         outOfScope: "spam",
         prodCategory: "urgent",
         senderRelationship: "no prior contact on record",
+      },
+    ],
+  },
+  {
+    label: "deepinfra-scoped-keys-newsletter-is-quiet",
+    accept: ["news"],
+    note: "A newsletter-shaped sender — a newsletter@ address, a list-unsubscribe header, and a 'you signed up' footer — is subscribed content: news. A deprecation date on a convenience default (future key creation without scopes gets rejected) stops nothing of the owner's; only evidence of his own use could make it action, and no such use exists on record. Prod gave action at 0.9 from the first pass alone; the gather that the loud-plus-bulk-sender trigger starts is slice 6 and was not built. Three prompt-wording attempts (case line, principle folded into the quiet bullet, burden-of-proof line) moved the label 0.9 to 0.8 but never flipped it, and the principle-form rewrite regressed sign-in-by-another-person and the chess-streak cases in the paired probe, so the prompt change was reverted. The miss waits for slice 6. Owner decision 2026-11-19.",
+    mails: [
+      {
+        from: "DeepInfra <newsletter@deepinfra.com>",
+        subject: "Scoped API keys: a change coming on 2 December",
+        body: `From 2 December, new API keys need an explicit scope list. Here's what changes.
+
+DeepInfra has rolled out scoped API keys! Below: what scopes do, a change to key creation coming on 2 December, and how to limit the keys you already have.
+
+Scoped API keys are live. Since 3 November, you can specify scopes when you create an API key. Scopes limit the actions that key can successfully perform. Every existing scope is described in our documentation.
+
+Key creation will require a scope list. In two weeks, on 2 December, API key creation requests that don't specify scopes will be rejected. An unrestricted key has every non-sensitive scope, including scopes we add later. If you still need unrestricted behavior, send an explicit scope list of ["unrestricted"]. These calls are already supported today, so you can update your integration now.
+
+You can edit a key's scopes. Keys created before scopes existed are unrestricted. To limit one, open it in API key management in the DeepInfra dashboard, switch it to Scoped, and pick the scopes it needs.
+
+Kind regards, — The DeepInfra team
+
+You are receiving this because you signed up at deepinfra.com.`,
+        authoredAt: "2026-11-18T17:00:50Z",
+        labelIds: UPDATES,
+        prodCategory: "action",
+        senderKind: DEEPINFRA_NEWSLETTER_KIND,
       },
     ],
   },
