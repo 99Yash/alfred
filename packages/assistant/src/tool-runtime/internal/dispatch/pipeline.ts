@@ -104,7 +104,6 @@ import { toolExecuteContext } from "../../context";
 import { executedResultOutcome } from "../result-routing";
 import {
   callRequiresApproval,
-  confirmedReadClass,
   forecastToolApproval,
   toolRequiresApproval,
 } from "../../approval-rule";
@@ -1290,14 +1289,12 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   // Read once, and only when a caller needs them: the rule under `gated` and below `high`, or the
   // read route. A `mcp.call` read resolves the tool's identity.
-  let readFactsRead: Promise<ReadFacts> | undefined;
-  const readFacts = (): Promise<ReadFacts> => (readFactsRead ??= call.readFacts(ctx));
+  let cachedReadFacts: Promise<ReadFacts> | undefined;
+  const readFacts = (): Promise<ReadFacts> => (cachedReadFacts ??= call.readFacts(ctx));
 
   // The class decides only under `gated` and below `high` (ADR-0130 decision 1).
   const readClass =
-    policyMode === "gated" && riskTier !== "high"
-      ? confirmedReadClass(await readFacts())
-      : undefined;
+    policyMode === "gated" && riskTier !== "high" ? (await readFacts()).readClass : undefined;
 
   const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier, readClass);
 

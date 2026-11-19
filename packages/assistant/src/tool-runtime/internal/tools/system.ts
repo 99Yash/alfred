@@ -125,7 +125,7 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     availability: { surface: "kernel" },
     description:
-      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with a ref (connectionId, remoteName); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool. A hit named system.code_run is a read that runs inside a script: call its hostFunction there (mcp.read(ref, args) for a connected read). A runnable hit gives `route` (script or direct, with `directReason`) and `approval` (card: the call shows the user an approval card). A confirmed read also gives `class`: `secret` when it can return a key or a token, else `ordinary`.",
+      "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn. Connected catalog hits instead return name mcp.call with a ref (connectionId, remoteName); load mcp.call with system.load_tool and pass that ref's fields to invoke the remote tool. A hit named system.code_run is a read that runs inside a script: call its hostFunction there (mcp.read(ref, args) for a connected read). A runnable hit gives `route` (script or direct, with `directReason`) and `approval` (card: the call shows the user an approval card). A read that Alfred classifies also gives `class`: `secret` when it can return a key or a token, else `ordinary`. Under Gated, only an `ordinary` read runs with no card.",
     discovery: {
       title: "Search tools",
       summary:

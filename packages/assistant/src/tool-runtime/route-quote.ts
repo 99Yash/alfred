@@ -18,7 +18,7 @@ import type {
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { resolveMcpCallRouteFacts } from "@alfred/assistant/tool-runtime/mcp";
-import { callRequiresApproval, confirmedReadClass, toolRequiresApproval } from "./approval-rule";
+import { callRequiresApproval, toolRequiresApproval } from "./approval-rule";
 import { stagingStore } from "./internal/dispatch/staging-store";
 import { getTool, type RegisteredTool, type ToolStagingPolicy } from "./internal/registry";
 import {
@@ -82,7 +82,7 @@ async function requiresApproval(
   },
 ): Promise<boolean> {
   const { staging, policyMode, riskTier } = call;
-  const readClass = confirmedReadClass(call.facts);
+  const readClass = call.facts.readClass;
   const gated = toolRequiresApproval(policyMode, riskTier, readClass);
 
   return callRequiresApproval({
@@ -97,7 +97,7 @@ async function requiresApproval(
 /** The quote from the approval of the call and its read facts. */
 function quote(run: RouteQuoteRun, facts: ReadFacts, requiresApproval: boolean): ToolRouteQuote {
   const approval = requiresApproval ? "card" : "none";
-  const readClass = confirmedReadClass(facts);
+  const readClass = facts.readClass;
   const classField = readClass === undefined ? {} : { class: readClass };
 
   if (!run.scriptReads) return { route: "direct", approval, ...classField };

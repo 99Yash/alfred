@@ -1156,8 +1156,8 @@ export function registerTool(tool: RegisteredTool): void {
     throw new Error(`[tools] only 'system.code_run' may declare availability.codeModeReadPath`);
   }
 
-  // `fast_path` skips the approval gate, so refuse both halves of
-  // `toolRequiresApproval`: `policyMode === "gated" || riskTier === "high"`.
+  // `fast_path` skips the approval gate, so refuse both halves of `toolRequiresApproval`: the
+  // `high` tier, and a `gated` policy (ADR-0130 decision 1).
   if (tool.staging === "fast_path") {
     // A dynamic `resolveRiskTier` can return `high`.
     if (tool.riskTier === "high" || tool.resolvesRiskTier) {

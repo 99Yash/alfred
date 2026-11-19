@@ -489,9 +489,9 @@ const instructionSenders = z.array(z.string().trim().toLowerCase().min(1).max(32
 const instructionIds = z.array(z.string().min(1).max(100)).min(1).max(20).optional();
 
 /**
- * A v2 standing instruction (ADR-0113). The tool stages a card that the user confirms, also
- * under full autonomy, so the card is the one-line confirmation. Code mints the instruction id
- * and builds the stored targets; a domain must belong to one organization.
+ * A v2 standing instruction (ADR-0113). The tool saves it with no card (ADR-0130 decision 2),
+ * and the reply states what it saved. Code mints the instruction id and builds the stored
+ * targets; a domain must belong to one organization.
  */
 export const rememberInput = coerceJsonArrayFields(
   ["targets", "senderFilter", "effects", "replaces", "coexistsWith"],

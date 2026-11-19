@@ -174,13 +174,9 @@ export function mcpReadFacts(identity: McpToolIdentityResolution): ReadFacts {
 
   if (!read) return NOT_A_CONFIRMED_READ;
 
-  // An owner review decides alone, and it holds no class yet, so a reviewed read asks under
-  // `gated` (ADR-0130 decision 1).
-  return {
-    read,
-    output: identity.output,
-    readClass: identity.policy === undefined ? identity.codeReadClass : undefined,
-  };
+  // An owner review holds no class yet, and it cancels the code class, so a reviewed read asks
+  // under `gated` (ADR-0130 decision 1).
+  return { read, output: identity.output, readClass: identity.codeReadClass };
 }
 
 /**

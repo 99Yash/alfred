@@ -16,14 +16,13 @@ import {
 } from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
-import { getTool, type RegisteredTool, type ToolStagingPolicy } from "./internal/registry";
-import type { ReadFacts } from "./read-route";
+import { getTool, type ToolStagingPolicy } from "./internal/registry";
 
 /**
  * The approval rule (ADR-0130 decision 1). The `high` tier always asks: "Auto" must not authorize
  * an irreversible action, such as a real email send. Under `gated`, a confirmed `ordinary` read
  * runs with no card, and every other call asks: a write, a `secret` read, and a read with no
- * class. `readClass` is the class of a confirmed read, and `undefined` for any other call.
+ * class. `readClass` is `ReadFacts.readClass`: the class of a confirmed read, else `undefined`.
  * Dispatch, both predictors, and the route quote use this one gate.
  */
 export function toolRequiresApproval(
@@ -34,16 +33,6 @@ export function toolRequiresApproval(
   if (riskTier === "high") return true;
 
   return policyMode === "gated" && readClass !== "ordinary";
-}
-
-/** The class input of the rule: the class of a confirmed read, else `undefined`. */
-export function confirmedReadClass(facts: ReadFacts): ToolReadClass | undefined {
-  return facts.read ? facts.readClass : undefined;
-}
-
-/** The class of a curated tool's every call: a declared read gives its class, else none. */
-export function declaredReadClass(tool: RegisteredTool): ToolReadClass | undefined {
-  return tool.readClass;
 }
 
 /**
@@ -107,9 +96,7 @@ export async function forecastToolApproval(
   // No validated input here, so assume a dynamic tier may gate.
   if (tool.resolvesRiskTier) return "waivable";
 
-  return toolRequiresApproval(policyMode, tool.riskTier, declaredReadClass(tool))
-    ? "waivable"
-    : "none";
+  return toolRequiresApproval(policyMode, tool.riskTier, tool.readClass) ? "waivable" : "none";
 }
 
 /**
@@ -138,5 +125,5 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
   // A declared downgrade can take the tier below `high`. The bound call clamps an undeclared one.
   const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";
 
-  return toolRequiresApproval(policyMode, lowestTier, declaredReadClass(tool));
+  return toolRequiresApproval(policyMode, lowestTier, tool.readClass);
 }

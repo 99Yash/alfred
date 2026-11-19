@@ -85,27 +85,40 @@ ${blocks.join("\n")}
 }
 
 /**
- * The read hashes of the user's stored GitHub catalog: the current revision of the connection to
- * the built-in endpoint. A read-only endpoint lists only reads, but the hint still decides.
+ * The read hashes of the user's stored GitHub catalog: the current revision of each connection to
+ * the built-in endpoint. A read-only endpoint lists only reads, but the hint still decides. Two
+ * connections at different revisions are a fault, because the pins must match one catalog.
  */
 async function readStoredGitHubReads(userId: string): Promise<Record<string, string>> {
-  const [row] = await db()
+  const rows = await db()
     .select({
+      revisionHash: mcpCatalogRevisions.revisionHash,
       hashes: mcpCatalogRevisions.descriptorHashes,
       hints: mcpCatalogRevisions.readOnlyHints,
     })
     .from(mcpConnections)
-    .innerJoin(mcpServers, eq(mcpServers.id, mcpConnections.serverId))
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, userId)),
+    )
     .innerJoin(
       mcpCatalogRevisions,
-      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+      and(
+        eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+        eq(mcpCatalogRevisions.connectionId, mcpConnections.id),
+      ),
     )
     .where(
       and(eq(mcpConnections.userId, userId), eq(mcpServers.endpointUrl, GITHUB_MCP_ENDPOINT_HREF)),
-    )
-    .limit(1);
+    );
+
+  const [row] = rows;
 
   if (!row) throw new Error("No stored GitHub catalog: connect GitHub first");
+
+  if (rows.some((other) => other.revisionHash !== row.revisionHash)) {
+    throw new Error("The GitHub connections have different catalog revisions: refresh them first");
+  }
 
   return Object.fromEntries(
     Object.entries(row.hashes).filter(([name]) => row.hints[name] === true),
