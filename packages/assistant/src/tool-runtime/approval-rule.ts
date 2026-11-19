@@ -8,6 +8,9 @@
  */
 
 import {
+  assertNever,
+  humanizeToolName,
+  INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
   isLoadableIntegrationSlug,
   isToolName,
@@ -132,14 +135,78 @@ export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
   return settings.length > 0 ? { cause: causeOfGatedCall(facts.readFacts), settings } : null;
 }
 
+/**
+ * One setting as the model reads it. The bare `kind` does not tell the model the label of the
+ * control or where it is, so a reply said "approve the request when it comes up" and did not name
+ * the setting. Code gives the facts, and the model writes the words. The labels are the labels
+ * that the web shows: `approval-mode-options.ts`, `provider-policy.tsx`, and the card Permissions
+ * menu in `approval-dock.tsx`.
+ */
+export type ApprovalSettingFact = ApprovalSetting & {
+  /** The label of the control. */
+  name: string;
+  /** Where the user finds the control. */
+  where: string;
+  /** What changes when the user turns it on. */
+  effect: string;
+};
+
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
 export interface ApprovalCauseFact {
   cause: ApprovalCauseKind;
-  fix: Extract<Fix, { kind: "change_setting" }>;
+  fix: Omit<Extract<Fix, { kind: "change_setting" }>, "settings"> & {
+    settings: ApprovalSettingFact[];
+  };
 }
 
 export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
-  return { cause: cause.cause, fix: { kind: "change_setting", settings: cause.settings } };
+  return {
+    cause: cause.cause,
+    fix: { kind: "change_setting", settings: cause.settings.map(approvalSettingFact) },
+  };
+}
+
+function approvalSettingFact(setting: ApprovalSetting): ApprovalSettingFact {
+  switch (setting.kind) {
+    case "integration_mode": {
+      const provider = INTEGRATION_DISPLAY_NAMES[setting.integration];
+
+      return {
+        ...setting,
+        name: `Auto mode for ${provider}`,
+        where: `the Approval policy section of the ${provider} page under Integrations, or the "Always allow ${provider}" switch in the Permissions menu of the approval card`,
+        effect: `Alfred acts on ${provider} without an approval card from the next call. A high-risk action still asks.`,
+      };
+    }
+
+    case "always_allow": {
+      const action = humanizeToolName(setting.toolName);
+      const integration = integrationFromToolName(setting.toolName);
+
+      // Only a slug with a page lists its overrides (`provider-policy.tsx`).
+      const undo = isLoadableIntegrationSlug(integration)
+        ? ` The Approval policy section of the ${INTEGRATION_DISPLAY_NAMES[integration]} page under Integrations lists it and can undo it.`
+        : "";
+
+      return {
+        ...setting,
+        name: `Always allow this action (${action})`,
+        where: `the Permissions menu of the approval card.${undo}`,
+        effect: `Alfred runs ${action} without an approval card from the next call. A high-risk action still asks.`,
+      };
+    }
+
+    case "full_autonomy":
+      return {
+        ...setting,
+        name: "Full autonomy",
+        where: "the approval mode menu in the toolbar of the message box",
+        effect:
+          "Alfred runs every call in this chat without an approval card, high-risk calls included. Other chats do not change.",
+      };
+    default:
+      return assertNever(setting, "approval setting");
+  }
 }
 
 function causeOfGatedCall(
