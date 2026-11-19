@@ -152,6 +152,11 @@ export interface ToolExecuteContext {
   activeTools: readonly ToolName[];
   /** Set only for live-chat dispatch. A `requiresLiveChat` tool always receives it. */
   chat?: ChatTurnAddress | undefined;
+  /**
+   * The thread whose Full Autonomy waives a card for this run: the chat thread, or the parent
+   * thread of a sub-agent. Dispatch reads the flag from it, so a route quote reads the same one.
+   */
+  approvalThreadId?: string | undefined;
   /** Empty or undefined means unrestricted. */
   allowedIntegrations?: readonly IntegrationSlug[] | undefined;
   /**

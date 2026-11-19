@@ -1,8 +1,8 @@
 /**
  * The read route of one call (ADR-0124, amendment 2026-11-18). In a `code_run` run, this one
- * decision sends a call to a script or keeps it direct. Search quotes it, dispatch decides it
- * again for each call, and the broker checks the current descriptor before delivery. No caller
- * keeps its own copy of the table.
+ * decision sends a call to a script or keeps it direct. Discovery quotes it (`route-quote.ts`,
+ * ADR-0130 C1), dispatch decides it again for each call, and the broker checks the current
+ * descriptor before delivery. No caller keeps its own copy of the table.
  */
 
 import {

@@ -28,7 +28,7 @@ import { MCP_READ_PATH } from "./code-mode/host-bindings";
 import {
   quoteCuratedToolRoute,
   quoteMcpToolRoute,
-  readRouteQuoteRun,
+  routeQuoteRun,
   type RouteQuoteRun,
 } from "./route-quote";
 import {
@@ -84,8 +84,9 @@ type ScriptReadHit = ToolCandidateBase & {
   );
 
 /**
- * A direct hit carries its route quote (ADR-0130 C1). An unavailable hit, and a curated tool whose
- * tier comes from its input (`mcp.call` with no ref), carry none.
+ * A direct hit carries its route quote (ADR-0130 C1). Three hits carry none: an unavailable hit, a
+ * curated tool whose tier comes from its input (`mcp.call` with no ref), and a connected hit whose
+ * revision search did not record (a bug path).
  */
 export type ToolSearchCandidate = RankedHit | (RankedHit & ToolRouteQuote) | ScriptReadHit;
 
@@ -121,7 +122,7 @@ export async function searchAvailableTools(args: {
   limit?: number | undefined;
   allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
-  /** The chat thread, for its full-autonomy flag. Read only in a `code_run` run. */
+  /** The thread of the run's Full Autonomy flag, as dispatch reads it (`approvalThreadId`). */
   approvalThreadId?: string | undefined;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
@@ -206,10 +207,10 @@ export async function searchAvailableTools(args: {
 
   // One read of the run facts for all hits. Full Autonomy waives a card, so it can send a gated
   // read to the script.
-  const run = await readRouteQuoteRun({
+  const run = routeQuoteRun({
     userId: args.userId,
     readPath: args.context.readPath,
-    threadId: args.approvalThreadId,
+    approvalThreadId: args.approvalThreadId,
   });
 
   return Promise.all(

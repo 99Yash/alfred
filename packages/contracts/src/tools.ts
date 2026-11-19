@@ -121,9 +121,10 @@ export const DIRECT_READ_ROUTE_REASON_TEXT = {
 
 /**
  * What a discovery hit quotes about one tool (ADR-0130 C1): where it runs now, and if it shows
- * an approval card. Search quotes it, and dispatch decides again for each call.
+ * an approval card. Discovery quotes it, and dispatch decides again for each call.
  * - `script`: a `system.code_run` script can call it, and `approval` is `none`.
- * - `direct`: a direct tool call. `directReason` says why, and only a `code_run` run has one.
+ * - `direct`: a direct tool call. `directReason` says why. Only a run that reads through scripts
+ *   (`code_run`, or a script's nested `code_run_host` read) has one.
  * One flat shape, not a union, so the script index that renders it stays short.
  */
 export interface ToolRouteQuote {

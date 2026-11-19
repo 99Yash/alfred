@@ -54,7 +54,7 @@ import {
   type McpBrokerOutcome,
   type McpCallProposalFacts,
 } from "@alfred/assistant/tool-runtime/mcp";
-import { quoteMcpToolRoute, readRouteQuoteRun } from "@alfred/assistant/tool-runtime/route-quote";
+import { quoteMcpToolRoute, routeQuoteRun } from "@alfred/assistant/tool-runtime/route-quote";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 export interface McpBrokerToolResult {
@@ -390,7 +390,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         ...input,
       });
 
-      const output = await toCurrentToolDiscoveryPage(page, await routeQuoter(ctx));
+      const output = await toCurrentToolDiscoveryPage(page, routeQuoter(ctx));
 
       return readResult(
         output,
@@ -428,7 +428,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         userId: ctx.userId,
         ref: input.ref,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
-        quoteRoute: await routeQuoter(ctx),
+        quoteRoute: routeQuoter(ctx),
       });
 
       return readResult(
@@ -445,20 +445,19 @@ export const mcpTools: readonly RegisteredTool[] = [
 ];
 
 /**
- * The route quote of each hit (ADR-0130 C1), from one read of the run facts. In a script the read
- * path is `code_run_host`, so a hit quotes `script` only when `mcp.read` can call it.
+ * The route quote of each hit (ADR-0130 C1). In a script the read path is `code_run_host`, so a
+ * hit quotes `script` only when `mcp.read` can call it.
  */
-async function routeQuoter(
-  ctx: Pick<ToolExecuteContext, "userId" | "runContext" | "chat">,
-): Promise<McpRouteQuoter> {
-  const run = await readRouteQuoteRun({
+function routeQuoter(
+  ctx: Pick<ToolExecuteContext, "userId" | "runContext" | "approvalThreadId">,
+): McpRouteQuoter {
+  const run = routeQuoteRun({
     userId: ctx.userId,
     readPath: ctx.runContext.readPath,
-    threadId: ctx.chat?.threadId,
+    approvalThreadId: ctx.approvalThreadId,
   });
 
-  return async ({ connectionId, remoteName, catalogRevision }) =>
-    (await quoteMcpToolRoute(run, { connectionId, remoteName, catalogRevision })).quote;
+  return async (ref) => (await quoteMcpToolRoute(run, ref)).quote;
 }
 
 /** One MCP tool descriptor in the evidence record (ADR-0124), at its catalog revision. */

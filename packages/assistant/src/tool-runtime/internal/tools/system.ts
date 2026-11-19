@@ -148,7 +148,7 @@ export const systemTools: readonly RegisteredTool[] = [
           limit: input.limit,
           allowedIntegrations: ctx.allowedIntegrations ?? [],
           context: ctx.runContext,
-          approvalThreadId: ctx.chat?.threadId,
+          approvalThreadId: ctx.approvalThreadId,
         });
 
         span.end({

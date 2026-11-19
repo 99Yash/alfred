@@ -2,17 +2,24 @@
  * The route quote of a discovery hit (ADR-0130 C1). `system.search_tools`, `mcp.list_tools`, and
  * `mcp.inspect_tool` each tell the model where a tool runs now and if it shows a card, so the
  * model does not learn the route from a refused call. Each quote uses the inputs and the two
- * rules that dispatch uses (`callRequiresApproval`, `decideReadRoute`), so a hit quoted `script`
- * is a call that a script can make. Dispatch decides again for each call, because a policy can
- * change between the two.
+ * rules that dispatch uses (`callRequiresApproval`, `decideReadRoute`): the staging arm, the
+ * policy rule, the tier, the read facts, and Full Autonomy of `approvalThreadId`. Thus a hit
+ * quoted `script` is a call that a script can make. Dispatch decides again for each call, because
+ * a policy can change between the two.
  */
 
-import type { ToolName, ToolRiskTier, ToolRouteQuote } from "@alfred/contracts";
+import type {
+  PolicyMode,
+  ToolName,
+  ToolReadPath,
+  ToolRiskTier,
+  ToolRouteQuote,
+} from "@alfred/contracts";
 import { resolvePolicyMode } from "@alfred/assistant/action-policies";
 import { resolveMcpCallRouteFacts } from "@alfred/assistant/tool-runtime/mcp";
-import { callRequiresApproval } from "./approval-rule";
+import { callRequiresApproval, toolRequiresApproval } from "./approval-rule";
 import { stagingStore } from "./internal/dispatch/staging-store";
-import { getTool, type RegisteredTool } from "./internal/registry";
+import { getTool, type RegisteredTool, type ToolStagingPolicy } from "./internal/registry";
 import {
   DECLARED_STRUCTURED_READ,
   decideReadRoute,
@@ -22,7 +29,7 @@ import {
 
 const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 
-/** What one discovery call reads one time for all of its hits. */
+/** What one discovery call shares for all of its hits. */
 export interface RouteQuoteRun {
   userId: string;
   /**
@@ -30,32 +37,47 @@ export interface RouteQuoteRun {
    * read. In another run each call is direct.
    */
   scriptReads: boolean;
-  /** The thread's Full Autonomy waives a card, so it can send a gated read to a script. */
-  fullAutonomy: boolean;
+  /**
+   * The thread's Full Autonomy, which waives a card. Read at most one time, and only when the
+   * rule would stage a card, as dispatch reads it.
+   */
+  fullAutonomy: () => Promise<boolean>;
 }
 
 /**
- * Read the run facts of a quote. Full Autonomy is read live, as dispatch reads it. No thread
- * means a background run, which has no Full Autonomy.
+ * The run facts of a quote. `approvalThreadId` is the thread that dispatch reads Full Autonomy
+ * from: the chat thread, or the parent thread of a sub-agent. No thread means no Full Autonomy.
  */
-export async function readRouteQuoteRun(args: {
+export function routeQuoteRun(args: {
   userId: string;
-  readPath: string | undefined;
-  threadId: string | undefined;
-}): Promise<RouteQuoteRun> {
-  const fullAutonomy =
-    args.threadId === undefined
-      ? false
-      : await stagingStore().readThreadFullAutonomy({
-          userId: args.userId,
-          threadId: args.threadId,
-        });
+  readPath: ToolReadPath | undefined;
+  approvalThreadId: string | undefined;
+}): RouteQuoteRun {
+  const { userId, approvalThreadId } = args;
+  let read: Promise<boolean> | undefined;
 
   return {
-    userId: args.userId,
-    scriptReads: args.readPath === "code_run" || args.readPath === "code_run_host",
-    fullAutonomy,
+    userId,
+    scriptReads: args.readPath !== undefined,
+    fullAutonomy: () => {
+      read ??=
+        approvalThreadId === undefined
+          ? Promise.resolve(false)
+          : stagingStore().readThreadFullAutonomy({ userId, threadId: approvalThreadId });
+
+      return read;
+    },
   };
+}
+
+/** The live approval of one call, from the inputs that `stageOrResumeStage` reads. */
+async function requiresApproval(
+  run: RouteQuoteRun,
+  call: { staging: ToolStagingPolicy; policyMode: PolicyMode; riskTier: ToolRiskTier },
+): Promise<boolean> {
+  const gated = toolRequiresApproval(call.policyMode, call.riskTier);
+
+  return callRequiresApproval({ ...call, fullAutonomy: gated && (await run.fullAutonomy()) });
 }
 
 /** The quote from the approval of the call and its read facts. */
@@ -81,17 +103,18 @@ export async function quoteMcpToolRoute(
 ): Promise<{ quote: ToolRouteQuote; riskTier: ToolRiskTier }> {
   const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
     userId: run.userId,
-    ...tool,
+    connectionId: tool.connectionId,
+    remoteName: tool.remoteName,
+    catalogRevision: tool.catalogRevision,
   });
 
-  const requiresApproval = callRequiresApproval({
+  const approval = await requiresApproval(run, {
     staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
     policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyIntegration),
     riskTier,
-    fullAutonomy: run.fullAutonomy,
   });
 
-  return { quote: quote(run, facts, requiresApproval), riskTier };
+  return { quote: quote(run, facts, approval), riskTier };
 }
 
 /**
@@ -104,17 +127,13 @@ export async function quoteCuratedToolRoute(
 ): Promise<ToolRouteQuote | null> {
   if (tool.resolvesRiskTier || tool.resolvesPolicyIntegration) return null;
 
-  const requiresApproval = callRequiresApproval({
+  const approval = await requiresApproval(run, {
     staging: tool.staging,
     policyMode: await resolvePolicyMode(run.userId, tool.name),
     riskTier: tool.riskTier,
-    fullAutonomy: run.fullAutonomy,
   });
 
-  // The facts that dispatch reads for a curated call with no `resolveReadFacts`.
-  return quote(
-    run,
-    tool.codeModeRead ? DECLARED_STRUCTURED_READ : NOT_A_CONFIRMED_READ,
-    requiresApproval,
-  );
+  // The facts that dispatch reads for a call with no `resolveReadFacts`. Only `mcp.call` declares
+  // one, and the guard above returns for it, because it also resolves its tier.
+  return quote(run, tool.codeModeRead ? DECLARED_STRUCTURED_READ : NOT_A_CONFIRMED_READ, approval);
 }

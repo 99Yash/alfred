@@ -669,6 +669,7 @@ function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
     runContext: args.runContext,
     activeTools: args.activeTools,
     chat: args.chat,
+    approvalThreadId: args.approvalThreadId,
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
     hostRead: hostReadDispatcher(args),
@@ -1173,8 +1174,8 @@ async function refuseUnavailableRun(
 
 /**
  * ADR-0124 decision 1 and its amendment of 2026-11-18: dispatch decides the route of each call
- * again with `decideReadRoute`, from the call's read facts and its live `requiresApproval`. Search
- * only quoted the route, and a policy can change between the two.
+ * again with `decideReadRoute`, from the call's read facts and its live `requiresApproval`.
+ * Discovery only quoted the route (`route-quote.ts`), and a policy can change between the two.
  *
  * - A direct call in a `code_run` run whose route is the script is refused. Only a fresh
  *   proposal: a replay or a resume has a row, and its call already passed. The result marks the
