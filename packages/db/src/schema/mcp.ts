@@ -297,11 +297,11 @@ export const mcpToolPolicy = pgTable(
     effectClass: text("effect_class").$type<McpEffectClass>().notNull().default("unknown"),
     retryContract: text("retry_contract").$type<McpRetryContract>().notNull().default("never"),
     /**
-     * The owner's read class of a reviewed read (ADR-0130 amendment 2026-11-19). `null`: no
-     * class, so the read asks under `gated`.
+     * The owner's read class of a reviewed read (ADR-0130 amendment (a)). It applies only when
+     * code does not own the read. `null`: no class, so the read asks under `gated`.
      */
     readClass: text("read_class").$type<ToolReadClass>(),
-    /** The owner's output kind of a reviewed read. `null`: undeclared, so the read stays direct. */
+    /** The owner's output kind, under the same rule. `null`: undeclared, so the read stays direct. */
     outputKind: text("output_kind").$type<ToolOutputKind>(),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     reviewedNote: text("reviewed_note"),

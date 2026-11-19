@@ -34,7 +34,7 @@ import {
   builtInReadOnlyResource,
   integrationOfMcpEndpoint,
   builtInToolPolicy,
-  isBuiltInSecretRead,
+  codeOwnsReadClass,
   type BuiltInToolPolicy,
   type McpConnectionRemovalGate,
 } from "@alfred/assistant/connections/mcp";
@@ -93,11 +93,11 @@ export type McpToolIdentityResolution =
       readOnlyResource: boolean;
       readOnly: boolean;
       /**
-       * The output of this exact descriptor: the owner's review when it sets one, else Alfred's
-       * declaration (`builtInOutputKind`). See {@link resolvedReadClass} for who decides.
+       * The output of this exact descriptor. Code's declaration (`builtInOutputKind`) when code
+       * owns the read (`codeOwnsReadClass`), else the owner's review (ADR-0130 amendment (a)).
        */
       output: ToolOutputKind | undefined;
-      /** The read class of this exact descriptor ({@link resolvedReadClass}, ADR-0130 decision 1). */
+      /** The read class of this exact descriptor, from the same owner as `output` (ADR-0130 decision 1). */
       readClass: ToolReadClass | undefined;
       /** The integration whose policy rule governs the call: a built-in's provider, else `mcp`. */
       policyIntegration: IntegrationSlug;
@@ -160,9 +160,9 @@ export function isReadOnlyMcpToolIdentity(identity: ResolvedMcpToolIdentity): bo
  * `readOnlyHint` counts only with a built-in read-only endpoint or a code pin of this exact
  * descriptor. The health mapping, the finalize guard, and the Google write refusal still use
  * `isReadOnlyMcpToolIdentity` and `isSelectedMcpToolReadOnly`, which are not route inputs. An owner review of this
- * exact descriptor decides alone, and it also sets the class and the output that it names. A
- * review under another hash (drift) confirms nothing, and it also cancels the code pin, the same
- * as for the tier.
+ * exact descriptor decides alone. A review under another hash (drift) confirms nothing, and it
+ * also cancels the code pin, the same as for the tier. The class and the output come from the
+ * resolution (ADR-0130 amendment (a)).
  */
 export function mcpReadFacts(identity: McpToolIdentityResolution): ReadFacts {
   if (identity.status !== "resolved") return NOT_A_CONFIRMED_READ;
@@ -325,6 +325,7 @@ export async function resolveMcpToolIdentity(
 
   const reviewed = row.reviewed === true;
   const policy = row.policy ?? undefined;
+  const codeOwned = codeOwnsReadClass(row.endpointUrl, input.remoteName, row.descriptorHash);
 
   return {
     status: "resolved",
@@ -338,48 +339,17 @@ export async function resolveMcpToolIdentity(
     // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade (ADR-0094).
     readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
     readOnly: row.readOnly === true,
-    output:
-      policy?.outputKind ??
-      builtInOutputKind(row.endpointUrl, input.remoteName, row.descriptorHash),
-    readClass: resolvedReadClass({
-      endpointUrl: row.endpointUrl,
-      remoteName: input.remoteName,
-      descriptorHash: row.descriptorHash,
-      policy,
-      reviewed,
-    }),
+    // Code owns the class and the output of a read that it confirms. Else the owner's review of
+    // this exact descriptor sets them, and an empty field stays empty (ADR-0130 amendment (a)).
+    output: codeOwned
+      ? builtInOutputKind(row.endpointUrl, input.remoteName, row.descriptorHash)
+      : (policy?.outputKind ?? undefined),
+    readClass: codeOwned
+      ? builtInReadClass(row.endpointUrl, input.remoteName, row.descriptorHash)
+      : (policy?.readClass ?? undefined),
     // A built-in follows its provider's rule. A user-added server keeps the `mcp` rule.
     policyIntegration: integrationOfMcpEndpoint(row.endpointUrl) ?? "mcp",
   };
-}
-
-interface ReadClassInput {
-  endpointUrl: string;
-  remoteName: string;
-  descriptorHash: string;
-  /** The review of this exact descriptor. */
-  policy: McpToolPolicyRow | undefined;
-  /** A review exists under any descriptor hash. */
-  reviewed: boolean;
-}
-
-/**
- * The read class of one exact descriptor (ADR-0130 decision 1 and its amendment 2026-11-19).
- * The source that confirms the read sets its class:
- * - A read in code's secret list is `secret`, under any review.
- * - An owner review of this exact descriptor sets the class. An empty class stays empty, so the
- *   read asks under `gated`.
- * - A review under another hash (drift) cancels code's class, as it cancels the code pin.
- * - With no review, code's class applies (`builtInReadClass`).
- */
-function resolvedReadClass(input: ReadClassInput): ToolReadClass | undefined {
-  if (isBuiltInSecretRead(input.endpointUrl, input.remoteName)) return "secret";
-
-  if (input.policy !== undefined) return input.policy.readClass ?? undefined;
-
-  if (input.reviewed) return undefined;
-
-  return builtInReadClass(input.endpointUrl, input.remoteName, input.descriptorHash);
 }
 
 /** Why an owner review cannot bind. Assignable to every review store's result union. */

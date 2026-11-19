@@ -716,8 +716,9 @@ export type McpToolInspectionResult = z.infer<typeof mcpToolInspectionResultSche
 export const MCP_TOOL_POLICY_NOTE_MAX = 500;
 
 /**
- * The owner's read class and output kind of a reviewed read (ADR-0130 decision 1, amendment
- * 2026-11-19). `null` keeps the read gated and direct. Only a `read` review can set them.
+ * The owner's read class and output kind of a reviewed read (ADR-0130 amendment (a)). They apply
+ * only when code does not own the read. `null`: no class, so the read asks under `gated`, and no
+ * output, so it stays direct. Only a `read` review can set them.
  */
 const mcpToolPolicyReadFields = {
   readClass: z.enum(TOOL_READ_CLASSES).nullable(),
