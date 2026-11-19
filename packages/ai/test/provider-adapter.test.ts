@@ -394,19 +394,19 @@ describe("provider turn protocol", () => {
 describe("route legs", () => {
   test("preserve the provider and model identity the factory supplied", () => {
     const standard = identifyLanguageModel(route("standard").model());
-    assert.equal(standard.provider, "openai");
-    // ADR-0077: Auto's primary is GPT-6 Luna.
-    assert.equal(standard.modelId, "gpt-6-luna");
+    assert.equal(standard.provider, "anthropic");
+    // ADR-0077 amendment 2026-11-19: Auto's primary is Claude Haiku 5.5.
+    assert.equal(standard.modelId, "claude-haiku-5-5");
 
     const boss = identifyLanguageModel(route("boss").model());
     assert.equal(boss.provider, "openai");
-    // ADR-0077: background work shares Auto's primary.
+    // ADR-0077: background work stays on GPT-6 Luna.
     assert.equal(boss.modelId, "gpt-6-luna");
   });
 
   test("select the generic AI SDK reasoning ceiling", () => {
     assert.equal(routeEffort("standard"), "medium");
-    assert.equal(routeEffort("deep"), "medium");
+    assert.equal(routeEffort("deep"), "high");
     assert.equal(routeEffort("cheap"), "none");
     assert.equal(routeEffort("compactor"), "none");
   });

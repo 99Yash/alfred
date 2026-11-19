@@ -54,7 +54,7 @@ const MODEL_ROUTES = {
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Same model as chat, so a delegating turn stays on one vendor.
+  // Brief and cold-start sub-agents. Chat moved to Haiku on 2026-11-19; this route was not measured there.
   subAgent: {
     legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
@@ -76,17 +76,17 @@ const MODEL_ROUTES = {
     legs: [() => googleLeg("gemini-3.8-flash")],
     reasoning: "none",
   },
-  // Alfred: the everyday chat tier.
+  // Alfred: the everyday chat tier (ADR-0077 amendment 2026-11-19). `medium` is explicit: the
+  // Anthropic API default is `high`, and the paired Code Mode eval measured Haiku at `medium`.
   standard: {
-    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
+    legs: [() => anthropicLeg("claude-haiku-5-5"), () => googleLeg("gemini-3.8-flash")],
     reasoning: "medium",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
-  // Alfred Pro (ADR-0077 amendment 2026-11-18). `medium` is explicit: the Anthropic API default is
-  // `high`, and the paired Code Mode eval measured Haiku at `medium`.
+  // Alfred Pro (ADR-0077 amendment 2026-11-19): the same model as Alfred, with more reasoning.
   deep: {
     legs: [() => anthropicLeg("claude-haiku-5-5"), () => googleLeg("gemini-3.8-flash")],
-    reasoning: "medium",
+    reasoning: "high",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
 } as const satisfies Record<string, ModelRoute>;

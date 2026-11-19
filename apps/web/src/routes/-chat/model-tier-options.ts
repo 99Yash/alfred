@@ -15,7 +15,7 @@ const STANDARD_OPTION: TierOption = {
 const DEEP_OPTION: TierOption = {
   value: "deep",
   label: "Alfred Pro",
-  description: "Flagship reasoning for complex tasks",
+  description: "Thinks longer on complex tasks",
 };
 
 /**

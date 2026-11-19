@@ -294,9 +294,8 @@ async function seedUser(
     .set({ integrationRules: OWNER_INTEGRATION_RULES })
     .where(eq(userActionPolicies.userId, userId));
 
-  if (input.mode === "code_mode") {
-    await settings({ userId }).set(CODE_MODE_READ_PATH_FEATURE_KEY, true);
-  }
+  // Code Mode is on by default (ADR-0124 amendment 2026-11-19), so each mode writes its row.
+  await settings({ userId }).set(CODE_MODE_READ_PATH_FEATURE_KEY, input.mode === "code_mode");
 
   const connection = await ensureConnection({
     userId,

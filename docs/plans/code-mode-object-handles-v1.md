@@ -176,7 +176,7 @@ TypeScript 7 has no JavaScript compiler API, so a build step cannot ask the chec
 
 **Superseded in 2b.** The items below are the design before the build. "As built in 2b" and owner decision 4 replace them: no gate reads the flag, and the gate reads the run context, not the snapshot.
 
-- `feature.internal.code_mode_read_path` is a hidden key, as `feature.internal.triage_sender_kind_projection` is. A missing row means off. It goes in the availability snapshot, as `passthroughEnabled` does, and dispatch checks it again.
+- `feature.internal.code_mode_read_path` is a hidden key, as `feature.internal.triage_sender_kind_projection` is. A missing row meant off until the ADR-0124 amendment of 2026-11-19. Now a missing row means on, and only an explicit off value turns it off. It goes in the availability snapshot, as `passthroughEnabled` does, and dispatch checks it again.
 - When the flag is on, chat adds `system.code_run` to the active tools at the start of the run. The kernel does not change, so the schema-budget ratchet does not change. The prompt is pinned for each run, so code.run guidance is added at run start (ADR-0124 decision 7).
 - One gate removes the read tools from the boss surface: `evaluateToolAvailability`. Preload, carryover, `search_tools`, `load_tool`, the inactive-tool reissue, and dispatch all use that evaluator. When the flag is on, a `codeModeRead` tool is not available to the boss outside a script. A direct `mcp.call` from the boss to a read-only tool is refused with "use system.code_run". `search_tools` returns a read-only MCP hit as a ref for `mcp.read`. A host dispatch runs with a `code_run` run context, so the same gate lets the read through.
 
@@ -262,7 +262,7 @@ ADR-0124 says that a paired evaluation decides the default read path. The review
 **Decided from ADR-0055 and ADR-0124.**
 
 - **The loop is the production loop.** The eval starts each turn with `startChatTurn` and runs it with `runOnce` in the eval process, until the run stops. Thus the prompt, the pinned read path, the preload, the tool surface, dispatch, staging, and the approval park are the production code. The eval does not copy the chat loop.
-- **The two modes.** Each run has a new eval user on the local database, and the eval deletes the user at the end. The direct mode has no `feature.internal.code_mode_read_path` row. The Code Mode mode has the row set to on.
+- **The two modes.** Each run has a new eval user on the local database, and the eval deletes the user at the end. The direct mode has the `feature.internal.code_mode_read_path` row set to off. The Code Mode mode has the row set to on.
 - **The fake provider.** The GitHub MCP server is fake at the protocol client (`McpProtocolClient`), as in `mcp-seam.test.ts`. The connection uses the real GitHub read-only endpoint, so the read authority and the output kind come from production code. The catalog, the broker, the policy, and the evidence record are real.
 - **The descriptors.** The catalog is the captured GitHub read-only catalog of 2026-11-08, with its 28 descriptors as the server sent them (`evals/fixtures/github-mcp-catalog.json`). `list_issues` returns the bodies when the call does not name `fields`, as the real server does.
 - **The results.** The issue content is synthetic, so no private data goes into the repo. The result shapes follow the GitHub MCP server. No real GitHub issue result was captured, so this is a limit of the eval.

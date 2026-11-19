@@ -48,13 +48,13 @@ export interface IntegrationAvailabilitySnapshot {
   /** Off by default. */
   passthroughEnabled: ReadonlyMap<SupportedPassthroughSlug, boolean>;
   /**
-   * ADR-0124: chat reads through `system.code_run`. Off when absent or false. Only the
-   * `CODE_MODE_READ_PATH_FEATURE_KEY` preference turns it on.
+   * ADR-0124: chat reads through `system.code_run`. On by default (amendment 2026-11-19). Only an
+   * explicit off value of the `CODE_MODE_READ_PATH_FEATURE_KEY` preference turns it off.
    */
   codeModeReadPath?: boolean;
 }
 
-/** Hidden per-user key for the ADR-0124 flip. A missing row means off. No settings UI. */
+/** Hidden per-user off switch for ADR-0124. A missing row means on. No settings UI. */
 export const CODE_MODE_READ_PATH_FEATURE_KEY = "feature.internal.code_mode_read_path";
 
 export const TOOL_UNAVAILABILITY_CODES = [

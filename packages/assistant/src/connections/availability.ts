@@ -6,6 +6,7 @@ import {
   INTEGRATIONS,
   isCredentialProvider,
   CODE_MODE_READ_PATH_FEATURE_KEY,
+  isPassthroughPreferenceOff,
   isPassthroughPreferenceOn,
   LIVE_PROVIDER_SLUGS,
   LIVE_PROVIDERS,
@@ -291,7 +292,7 @@ async function loadIntegrationAvailability(
     integrations: availability,
     providers: byProvider,
     passthroughEnabled,
-    // The same explicit-on rule as passthrough: a missing row is off (ADR-0124 flag).
-    codeModeReadPath: isPassthroughPreferenceOn(prefByKey.get(CODE_MODE_READ_PATH_FEATURE_KEY)),
+    // ADR-0124 amendment 2026-11-19: on by default. Only an explicit off row turns it off.
+    codeModeReadPath: !isPassthroughPreferenceOff(prefByKey.get(CODE_MODE_READ_PATH_FEATURE_KEY)),
   };
 }
