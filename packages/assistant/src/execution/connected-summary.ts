@@ -34,7 +34,7 @@ const CONNECTED_HEADER = `You are connected to these integrations right now — 
  * and dispatch decides the route of each call (amendment 2026-11-18). The write labels below stay
  * as confirmation hints (ADR-0069).
  */
-const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. Some reads are direct calls: a read that waits for the user's approval (only a direct call shows the approval card), a read that returns file content, and an MCP tool whose read effect or output kind Alfred cannot confirm. A search hit and a refusal name the current route. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
+const CONNECTED_HEADER_CODE_RUN = `You are connected to these integrations right now. Read from them inside system.code_run, where each read tool is an async function with its own name (for example contacts.search) and mcp.read reads an MCP server's tool. Some reads are direct calls: a read that waits for the user's approval (only a direct call shows the approval card), a read that returns file content, and an MCP tool whose read effect or output kind Alfred cannot confirm. Each search hit gives its current route and approval, and a refusal names the route. Call a write directly as integration.action, and an MCP server's write through mcp.call. ${CONNECTED_LIST_RULES}`;
 
 const NO_INTEGRATIONS_TEXT =
   "You have no integrations connected right now. If the user asks about their email, calendar, files, or other connected data, tell them they need to connect it first — never pretend to have access you do not.";
@@ -150,7 +150,7 @@ async function mcpConnectionLines(
   const lines: string[] = [];
 
   const howToCall = scriptReads
-    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId. A search hit names its current route: system.code_run with mcp.read for a read that runs in a script, or mcp.call for a direct call"
+    ? "find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId. Each hit gives its route: script for mcp.read in a script, or direct for mcp.call"
     : "find one with system.search_tools or mcp.list_tools scoped to this connectionId, then call it through mcp.call";
 
   for (const connection of await listOwnedConnections(userId)) {

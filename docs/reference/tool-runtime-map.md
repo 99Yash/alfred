@@ -43,9 +43,13 @@ calls the tool depends on the read path that the chat run pinned at its start
   no full autonomy on the thread) also stays a direct `mcp.call`, because a script
   cannot show a card. One decision (`decideReadRoute` in
   `tool-runtime/read-route.ts`) sets the route of each call. Dispatch refuses a direct
-  `mcp.call` whose route is the script. `system.search_tools` returns each hit with
-  its current route: a `system.code_run` hit with `hostFunction: "mcp.read"`, or an
-  `mcp.call` hit. Binary reads stay direct too (ADR-0124 amendment 2026-11-18).
+  `mcp.call` whose route is the script. `system.search_tools`, `mcp.list_tools`, and
+  `mcp.inspect_tool` give each hit its current `route` (`script` or `direct`, with
+  `directReason`) and its `approval` (`none` or `card`). One module
+  (`tool-runtime/route-quote.ts`) makes each quote from the inputs that dispatch uses
+  (ADR-0130 C1). A script hit of `system.search_tools` is a `system.code_run` hit with
+  `hostFunction: "mcp.read"`. Binary reads stay direct too (ADR-0124 amendment
+  2026-11-18).
 
 The pin rules the run. A flag change applies only to the next chat run.
 

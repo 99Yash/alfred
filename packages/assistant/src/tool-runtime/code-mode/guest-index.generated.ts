@@ -37,9 +37,9 @@ export const GUEST_OUTPUT_TYPES = {
   "system.read_scratch":
     '{ ok: true; key: string; found: false } | { ok: true; key: string; found: true; entry: { value: unknown; zone: "scratch" | "shared"; writtenBy: string; writtenAt: number } }',
   "mcp.list_tools":
-    '{ status: "tools"; nextCursor: string | null; tools: { namespace: string; connection: { id: string; instanceKey: string; label: string }; title?: string; description?: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } }[] }',
+    '{ status: "tools"; nextCursor: string | null; tools: { route: "direct" | "script"; directReason?: "binary_output" | "needs_approval" | "not_a_confirmed_read" | "undeclared_output"; approval: "card" | "none"; namespace: string; connection: { id: string; instanceKey: string; label: string }; title?: string; description?: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } }[] }',
   "mcp.inspect_tool":
-    '{ status: "tool"; connection: { id: string; instanceKey: string; label: string }; tool: { [x: string]: JsonValue }; ref: { kind: "mcp"; connectionId: string; remoteName: string } } | { status: "not_found"; message: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } }',
+    '{ status: "not_found"; message: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } } | { route: "direct" | "script"; directReason?: "binary_output" | "needs_approval" | "not_a_confirmed_read" | "undeclared_output"; approval: "card" | "none"; status: "tool"; connection: { id: string; instanceKey: string; label: string }; tool: { [x: string]: JsonValue }; ref: { kind: "mcp"; connectionId: string; remoteName: string } }',
   "mcp.read":
     '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true; truncation?: { handleEligible: true; originalBytesApprox: number; returnedBytes: number; causes: ({ kind: "string_chars"; droppedApprox: number } | { kind: "array_items"; droppedApprox: number } | { kind: "body_bytes"; droppedApprox: number })[] } }',
 } as const;
