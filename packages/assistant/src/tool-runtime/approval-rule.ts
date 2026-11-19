@@ -2,7 +2,9 @@
  * The approval rule (ADR-0034, ADR-0069) and its two predictors. Dispatch applies the rule to
  * each call. The batch scheduler and the connected summary predict it before a call, so the
  * prompt, the scheduler, and the gate cannot disagree. Chat full autonomy is not part of the
- * forecast: the round reads it once, and dispatch reads it live for each call.
+ * forecast: the round reads it once, and dispatch reads it live for each call. The route quote of
+ * a discovery hit (`route-quote.ts`) is not a forecast: it applies `callRequiresApproval` itself,
+ * with Full Autonomy read live.
  */
 
 import { isToolName, type PolicyMode, type ToolName, type ToolRiskTier } from "@alfred/contracts";
@@ -13,7 +15,7 @@ import { getTool, type ToolStagingPolicy } from "./internal/registry";
 /**
  * Approval is needed when policy is `gated` or the tier is `high`.
  * "Auto" must not authorize an irreversible action, such as a real email send.
- * Dispatch and both predictors use this one gate.
+ * Dispatch, both predictors, and the route quote use this one gate.
  */
 export function toolRequiresApproval(policyMode: PolicyMode, riskTier: ToolRiskTier): boolean {
   return policyMode === "gated" || riskTier === "high";

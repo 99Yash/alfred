@@ -22,6 +22,7 @@ import {
   type McpToolInspectionNotFound,
   type McpToolInspectionResult,
   type McpToolInspectionSuccess,
+  type ToolRouteQuote,
   type McpToolRef,
   type McpToolSearchInput,
 } from "@alfred/contracts";
@@ -434,9 +435,18 @@ export async function inspectMcpToolLocal(
   });
 }
 
-/** What the model and a program get from `mcp.inspect_tool`: a ref with no revision. */
+/**
+ * Quotes the route and the approval of one tool at the catalog revision that it came from
+ * (ADR-0130 C1). The tool runtime owns the rule, so this layer takes it as an argument.
+ */
+export type McpRouteQuoter = (ref: ExternalToolRef) => Promise<ToolRouteQuote>;
+
+/**
+ * What the model and a program get from `mcp.inspect_tool`: a ref with no revision, and the
+ * route quote of the tool.
+ */
 export type McpInspectToolResult =
-  | (Omit<McpToolInspectionSuccess, "ref"> & { ref: McpToolRef })
+  | (Omit<McpToolInspectionSuccess, "ref"> & { ref: McpToolRef } & ToolRouteQuote)
   | (Omit<McpToolInspectionNotFound, "ref"> & { ref: McpToolRef });
 
 /**
@@ -445,7 +455,7 @@ export type McpInspectToolResult =
  * `catalogRevision` is the revision that the descriptor came from, for the evidence record only.
  */
 export async function inspectCurrentMcpToolLocal(
-  input: { userId: string; ref: McpToolRef } & AdmittedServers,
+  input: { userId: string; ref: McpToolRef; quoteRoute: McpRouteQuoter } & AdmittedServers,
 ): Promise<{ result: McpInspectToolResult; catalogRevision: string | undefined }> {
   const ref = toMcpToolRef(mcpToolRefSchema.parse(input.ref));
   const read = await readInspectableDescriptor({ ...input, ref });
@@ -457,18 +467,34 @@ export async function inspectCurrentMcpToolLocal(
     };
   }
 
+  const quote = await input.quoteRoute({ ...ref, catalogRevision: read.row.revisionHash });
+
   return {
-    result: { status: "tool", ref, connection: connection(read.row), tool: read.tool },
+    result: { status: "tool", ref, connection: connection(read.row), tool: read.tool, ...quote },
     catalogRevision: read.row.revisionHash,
   };
 }
 
-/** What the model and a program get from `mcp.list_tools`: refs with no revision. */
+/** What the model and a program get from `mcp.list_tools`: refs with no revision, and a quote. */
 export type McpListToolsResult = Omit<McpToolDiscoveryPage, "tools"> & {
-  tools: (Omit<McpToolDiscoveryHit, "ref"> & { ref: McpToolRef })[];
+  tools: (Omit<McpToolDiscoveryHit, "ref"> & { ref: McpToolRef } & ToolRouteQuote)[];
 };
 
-/** Remove the revision from each hit, so the model never copies one (ADR-0088 amendment 2026-11-18). */
-export function toCurrentToolDiscoveryPage(page: McpToolDiscoveryPage): McpListToolsResult {
-  return { ...page, tools: page.tools.map((hit) => ({ ...hit, ref: toMcpToolRef(hit.ref) })) };
+/**
+ * Remove the revision from each hit, so the model never copies one (ADR-0088 amendment
+ * 2026-11-18), and quote the route of each hit at the revision it came from (ADR-0130 C1).
+ */
+export async function toCurrentToolDiscoveryPage(
+  page: McpToolDiscoveryPage,
+  quoteRoute: McpRouteQuoter,
+): Promise<McpListToolsResult> {
+  const tools = await Promise.all(
+    page.tools.map(async (hit) => ({
+      ...hit,
+      ref: toMcpToolRef(hit.ref),
+      ...(await quoteRoute(hit.ref)),
+    })),
+  );
+
+  return { ...page, tools };
 }

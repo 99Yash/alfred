@@ -39,7 +39,7 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
     indexLine(
       MCP_READ_PATH,
       "Call one read-only tool of a connected MCP server (Gmail, Calendar, GitHub, and others).",
-      "ref: <the ref from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }",
+      'ref: <a ref whose route is "script", from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }',
       outputType(MCP_READ_PATH),
     ),
   );
@@ -61,7 +61,8 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
       `${READ_PROGRAM_LIMITS.maxBridgeRequests} reads. It has no network, no imports, and no ` +
       "timers. `Date.now()` and `Math.random()` are fixed for the run.",
     "- MCP tools: find one with `mcp.list_tools({ query })`, read its schemas with " +
-      "`mcp.inspect_tool({ ref })`, and call it with `mcp.read(ref, args)`, which returns " +
+      '`mcp.inspect_tool({ ref })`, and call a hit whose `route` is `"script"` with ' +
+      '`mcp.read(ref, args)`. A `"direct"` hit runs only as a direct mcp.call. `mcp.read` returns ' +
       '`{ status: "completed", result }` on success. If the tool has no output schema, first ' +
       "return a short sample of `result`, then write the real script.",
     "",

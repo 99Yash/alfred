@@ -14,6 +14,7 @@ import {
   toMcpToolRef,
   type McpToolDiscoveryHit,
   type McpToolRef,
+  type ToolRouteQuote,
 } from "@alfred/contracts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { singularizePhrase } from "@alfred/assistant/search-words";
@@ -23,12 +24,13 @@ import {
   mcpServerIdsAdmittedBy,
   searchMcpToolsLocal,
 } from "@alfred/assistant/connections/mcp";
-import { resolvePolicyMode } from "@alfred/assistant/action-policies";
-import { resolveMcpCallRouteFacts } from "@alfred/assistant/tool-runtime/mcp";
-import { callRequiresApproval } from "./approval-rule";
-import { decideReadRoute, DECLARED_STRUCTURED_READ } from "./read-route";
 import { MCP_READ_PATH } from "./code-mode/host-bindings";
-import { stagingStore } from "./internal/dispatch/staging-store";
+import {
+  quoteCuratedToolRoute,
+  quoteMcpToolRoute,
+  routeQuoteRun,
+  type RouteQuoteRun,
+} from "./route-quote";
 import {
   evaluateToolAvailability,
   evaluateToolCatalog,
@@ -75,12 +77,18 @@ type RankedHit =
 type ScriptReadHit = ToolCandidateBase & {
   name: typeof CODE_RUN_TOOL;
   availability: "available";
-} & (
+} & ToolRouteQuote &
+  (
     | { hostFunction: typeof MCP_READ_PATH; ref: McpToolRef }
     | { hostFunction: ToolName; ref?: never }
   );
 
-export type ToolSearchCandidate = RankedHit | ScriptReadHit;
+/**
+ * A direct hit carries its route quote (ADR-0130 C1). Three hits carry none: an unavailable hit, a
+ * curated tool whose tier comes from its input (`mcp.call` with no ref), and a connected hit whose
+ * revision search did not record (a bug path).
+ */
+export type ToolSearchCandidate = RankedHit | (RankedHit & ToolRouteQuote) | ScriptReadHit;
 
 type RankedCandidate = RankedHit & {
   score: number;
@@ -114,7 +122,7 @@ export async function searchAvailableTools(args: {
   limit?: number | undefined;
   allowedIntegrations: readonly IntegrationSlug[];
   context: ToolRunContext;
-  /** The chat thread, for its full-autonomy flag. Read only in a `code_run` run. */
+  /** The thread of the run's Full Autonomy flag, as dispatch reads it (`approvalThreadId`). */
   approvalThreadId?: string | undefined;
   availability?: IntegrationAvailabilitySnapshot | undefined;
 }): Promise<ToolSearchCandidate[]> {
@@ -197,67 +205,46 @@ export async function searchAvailableTools(args: {
 
   const selected = ranked.slice(0, boundedLimit(args.limit, 5));
 
-  // Full autonomy waives a card, so it sends a gated read to the script too. Read it one time.
-  const fullAutonomy =
-    scriptReads && args.approvalThreadId !== undefined
-      ? await stagingStore().readThreadFullAutonomy({
-          userId: args.userId,
-          threadId: args.approvalThreadId,
-        })
-      : false;
-
-  const route = { userId: args.userId, scriptReads, fullAutonomy, revisions };
+  // One read of the run facts for all hits. Full Autonomy waives a card, so it can send a gated
+  // read to the script.
+  const run = routeQuoteRun({
+    userId: args.userId,
+    readPath: args.context.readPath,
+    approvalThreadId: args.approvalThreadId,
+  });
 
   return Promise.all(
     selected.map(({ score: _score, preloadEligible: _preloadEligible, ...candidate }) =>
-      candidate.ref ? routeConnectedHit(candidate, route) : routeCuratedHit(candidate, route),
+      candidate.ref
+        ? routeConnectedHit(candidate, run, revisions)
+        : routeCuratedHit(candidate, run),
     ),
   );
 }
 
-interface HitRoute {
-  userId: string;
-  /** The run is a `code_run` run (ADR-0124). */
-  scriptReads: boolean;
-  fullAutonomy: boolean;
-  /** The catalog revision that search read for each connection. */
-  revisions: ReadonlyMap<string, string>;
-}
-
 /**
- * Search quotes the current route of a connected hit (ADR-0124 amendment 2026-11-18). One
- * identity read gives the tier, the read facts, and the policy rule. Dispatch decides again for
- * the call, so a policy change between the two cannot run a call on a stale route.
+ * Search quotes the current route and approval of a connected hit (ADR-0130 C1). A script hit
+ * names `system.code_run` with `mcp.read`. Dispatch decides again for the call, so a policy
+ * change between the two cannot run a call on a stale route.
  */
 async function routeConnectedHit(
   candidate: Extract<RankedHit, { name: "mcp.call" }>,
-  route: HitRoute,
+  run: RouteQuoteRun,
+  revisions: ReadonlyMap<string, string>,
 ): Promise<ToolSearchCandidate> {
-  const catalogRevision = route.revisions.get(candidate.ref.connectionId);
+  const catalogRevision = revisions.get(candidate.ref.connectionId);
 
-  // Every connected hit came from a page that named its revision, so a miss is a bug. Quote the
-  // floor: dispatch decides the call again anyway.
+  // Every connected hit came from a page that named its revision, so a miss is a bug. Quote
+  // nothing: dispatch decides the call anyway.
   if (catalogRevision === undefined) return candidate;
 
-  const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
-    userId: route.userId,
+  const { quote, riskTier } = await quoteMcpToolRoute(run, {
     connectionId: candidate.ref.connectionId,
     remoteName: candidate.ref.remoteName,
     catalogRevision,
   });
 
-  if (!route.scriptReads || !facts.read) return { ...candidate, risk: riskTier };
-
-  const requiresApproval = callRequiresApproval({
-    staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
-    policyMode: await resolvePolicyMode(route.userId, MCP_CALL_TOOL, policyIntegration),
-    riskTier,
-    fullAutonomy: route.fullAutonomy,
-  });
-
-  if (decideReadRoute(facts, requiresApproval).route !== "script") {
-    return { ...candidate, risk: riskTier };
-  }
+  if (quote.route === "direct") return { ...candidate, risk: riskTier, ...quote };
 
   return {
     name: CODE_RUN_TOOL,
@@ -268,34 +255,28 @@ async function routeConnectedHit(
     reason: candidate.reason,
     risk: riskTier,
     availability: "available",
+    ...quote,
   };
 }
 
 /**
- * A curated hit takes the same decision. The staging arm is an input, so a `fast_path` catalog
- * read (`mcp.list_tools`) quotes the script, as dispatch runs it. With no input here, the static
- * tier stands in for a dynamic one, and dispatch decides the call.
+ * A curated hit takes the same quote. The staging arm is an input, so a `fast_path` catalog read
+ * (`mcp.list_tools`) quotes the script, as dispatch runs it. An unavailable hit keeps its reason
+ * and quotes nothing.
  */
 async function routeCuratedHit(
   candidate: Extract<RankedHit, { ref?: never }>,
-  route: HitRoute,
+  run: RouteQuoteRun,
 ): Promise<ToolSearchCandidate> {
   const tool = getTool(candidate.name);
 
-  if (!route.scriptReads || !tool?.codeModeRead || candidate.availability !== "available") {
-    return candidate;
-  }
+  if (!tool || candidate.availability !== "available") return candidate;
 
-  const requiresApproval = callRequiresApproval({
-    staging: tool.staging,
-    policyMode: await resolvePolicyMode(route.userId, candidate.name),
-    riskTier: tool.riskTier,
-    fullAutonomy: route.fullAutonomy,
-  });
+  const quote = await quoteCuratedToolRoute(run, tool);
 
-  if (decideReadRoute(DECLARED_STRUCTURED_READ, requiresApproval).route !== "script") {
-    return candidate;
-  }
+  if (quote === null) return candidate;
+
+  if (quote.route === "direct") return { ...candidate, ...quote };
 
   return {
     name: CODE_RUN_TOOL,
@@ -305,10 +286,9 @@ async function routeCuratedHit(
     reason: candidate.reason,
     risk: candidate.risk,
     availability: "available",
+    ...quote,
   };
 }
-
-const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 
 /** Above one name-word hit (55), so naming the connection ranks its tools over another server's. */
 const MCP_CONNECTION_NAME_BONUS = 60;

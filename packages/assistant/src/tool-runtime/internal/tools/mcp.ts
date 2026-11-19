@@ -38,12 +38,14 @@ import {
   type McpCallEnvelope,
   type McpListToolsResult,
   type McpInspectToolResult,
+  type McpRouteQuoter,
 } from "@alfred/assistant/connections/mcp";
 import {
   liveTool,
   readResult,
   type ReadResult,
   type RegisteredTool,
+  type ToolExecuteContext,
 } from "@alfred/assistant/tool-runtime";
 import {
   getMcpExecutionBroker,
@@ -52,6 +54,7 @@ import {
   type McpBrokerOutcome,
   type McpCallProposalFacts,
 } from "@alfred/assistant/tool-runtime/mcp";
+import { quoteMcpToolRoute, routeQuoteRun } from "@alfred/assistant/tool-runtime/route-quote";
 
 /** Model-safe projection of a broker outcome into an `mcp.call` tool result. */
 export interface McpBrokerToolResult {
@@ -365,7 +368,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: true,
     description:
-      'Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection ("railway" for Railway) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. This is a local read.',
+      'Search the tools in all connected MCP catalogs. Returns compact hits with an exact `ref`, namespace, and connection identity. `query` matches tool names, titles, and descriptions: every word must match, and a word that names the connection ("railway" for Railway) is skipped. Scope with `namespace` or `connectionId`; continue with `cursor`. Use mcp.inspect_tool to inspect a full descriptor. Each hit gives `route`: `script` runs in a script as mcp.read(ref, args), and `direct` runs only as a direct mcp.call, with `directReason`. `approval: "card"` means the call shows the user an approval card. This is a local read.',
     discovery: {
       aliases: ["list mcp tools", "mcp catalog", "what mcp tools", "connected tools"],
       tags: ["mcp", "integration", "discovery"],
@@ -387,7 +390,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         ...input,
       });
 
-      const output = toCurrentToolDiscoveryPage(page);
+      const output = await toCurrentToolDiscoveryPage(page, routeQuoter(ctx));
 
       return readResult(
         output,
@@ -408,7 +411,7 @@ export const mcpTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: true,
     description:
-      "Inspect one connected MCP tool by the ref returned by mcp.list_tools or system.search_tools. Pass only `ref`.",
+      "Inspect one connected MCP tool by the ref returned by mcp.list_tools or system.search_tools. Pass only `ref`. The result gives `route` and `approval`, as mcp.list_tools does.",
     discovery: {
       aliases: ["inspect mcp tool", "mcp tool schema"],
       tags: ["mcp", "integration", "discovery"],
@@ -425,6 +428,7 @@ export const mcpTools: readonly RegisteredTool[] = [
         userId: ctx.userId,
         ref: input.ref,
         serverIds: await mcpServerIdsAdmittedBy(ctx.userId, ctx.allowedIntegrations),
+        quoteRoute: routeQuoter(ctx),
       });
 
       return readResult(
@@ -439,6 +443,22 @@ export const mcpTools: readonly RegisteredTool[] = [
     readEvidence: "returned_by_execute",
   }),
 ];
+
+/**
+ * The route quote of each hit (ADR-0130 C1). In a script the read path is `code_run_host`, so a
+ * hit quotes `script` only when `mcp.read` can call it.
+ */
+function routeQuoter(
+  ctx: Pick<ToolExecuteContext, "userId" | "runContext" | "approvalThreadId">,
+): McpRouteQuoter {
+  const run = routeQuoteRun({
+    userId: ctx.userId,
+    readPath: ctx.runContext.readPath,
+    approvalThreadId: ctx.approvalThreadId,
+  });
+
+  return async (ref) => (await quoteMcpToolRoute(run, ref)).quote;
+}
 
 /** One MCP tool descriptor in the evidence record (ADR-0124), at its catalog revision. */
 function mcpToolItem(
