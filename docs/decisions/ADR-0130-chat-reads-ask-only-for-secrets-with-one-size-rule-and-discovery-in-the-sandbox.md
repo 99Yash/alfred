@@ -156,6 +156,20 @@ Live runs on 2026-11-19 used Haiku 5.5 with Code Mode on. Prod and dev each had 
   - A code pin for each Linear read. Linear changed four read tools in 26 days, so each change would show a card until the next deploy.
   - Trust in `readOnlyHint` alone. The owner rejected this on 2026-11-13.
 
+## Slices
+
+Build in this order. Each issue names its decision.
+
+1. #1807 — each search hit gives its route, approval need, and class (decision 6, C1).
+2. #1799 — a read asks only for secrets, and `system.*` tools run with no card (decisions 1 and 2).
+3. #1803 — `fetch_url` fetches only a URL from the user or a tool result (decision 3). Ship it with or before #1799.
+4. #1800 — `approvalCause` names the setting (decision 4).
+5. #1801 — one size rule and handles (decision 5).
+6. #1802 — the saved time note and the turn context (decision 7).
+7. #1804 — the Linear read-only endpoint probe (decision 9).
+8. #1806 — the `code_run` index and the sub-agent merge (decision 6, other cuts).
+9. #1805 — discovery and `time.now()` in the sandbox, after the eval (decision 6).
+
 ## Principles recorded for later theory
 
 - **A handle and an artifact are one object in principle.** Both are stored outputs of a model run. A script can write a large dataset once. The model loads it as a handle, and the user sees it as an artifact. The UI must keep the two apart: a handle is not shown to the user as an artifact unless the model presents it. The UI design needs its own theory with the artifact engine (ADR-0086). This ADR does not build it.
