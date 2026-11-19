@@ -79,6 +79,16 @@ The first paired evaluation (PR #1784; receipt in `docs/plans/code-mode-object-h
 
 **The storage bound.** One script can make 256 host calls (`maxBridgeRequests`). Thus one script can save about 256 MiB of accepted responses, before database overhead. The evidence record keeps the saved bytes of each host call, so the real size is measured.
 
+## Amendment 2026-11-19 (c): Code Mode is the default read path
+
+The owner decided the production default on 2026-11-19, after the second paired evaluation (receipt of 2026-11-18 in `docs/plans/code-mode-object-handles-v1.md`). Every eligible read goes to a script. The route table of the first 2026-11-18 amendment stays as it is: writes, unconfirmed effects, binary reads, and reads that need approval stay direct.
+
+- **The evidence.** On Claude Haiku 5.5 at `medium`, Code Mode met the rule "quality, then cost" for every case kind, the single lookup too. It cost 57% to 75% less on fan-out and dependent reads. Only Code Mode found the fact in the large single result.
+- **The model.** The evidence is for Haiku only. So both chat tiers move to Haiku 5.5 (ADR-0077 amendment 2026-11-19). A model change for a chat tier needs a new paired evaluation.
+- **The flag.** `feature.internal.code_mode_read_path` becomes an off switch. A missing row means on. Only an explicit off value turns the direct read path back on. The paired evaluation writes the row for each mode.
+
+The rejected alternative was a route that the model chooses for each read. Sol 6.1 failed only the single lookup, but a model choice brings back the two read paths that decision 1 removed (principle 7).
+
 ## Instrumentation
 
 These rows start with the first slice, so the change is measured from day one:
@@ -99,7 +109,7 @@ The run `run_s7yi1ymxakcj` becomes an eval case: the same question must take few
 ## Residual risk
 
 - An MCP server can change its result shape, and no type catches the change. The script then fails at run time, and its `try/catch` returns the results that it got.
-- The quality of the code that `gpt-6-luna` writes for Alfred's tools is not measured yet. The instrumentation above measures it.
+- The quality of the code that Claude Haiku 5.5 writes is measured on GitHub reads only (30 runs). The instrumentation above measures the rest in production.
 - A bulk write in chat needs a batch write tool for each case until ADR-0116 is built. Writes are much less frequent than reads.
 
 ## Cross-ref

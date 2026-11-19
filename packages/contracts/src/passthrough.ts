@@ -53,6 +53,11 @@ export function isPassthroughPreferenceOn(value: unknown): boolean {
   return value === true || value === "true" || value === 1;
 }
 
+/** The explicit-off twin of `isPassthroughPreferenceOn`, for a key whose missing row means on. */
+export function isPassthroughPreferenceOff(value: unknown): boolean {
+  return value === false || value === "false" || value === 0;
+}
+
 // ---------------------------------------------------------------------------
 // Request shapes. No URL, origin, or headers: Alfred pins those.
 // `method` and `path` stay loose so a bad value reaches the read gate and comes back
