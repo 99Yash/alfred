@@ -1,4 +1,9 @@
-import { isToolName, type PolicyMode, type ToolName } from "@alfred/contracts";
+import {
+  APPROVAL_CONTROL_LABELS,
+  isToolName,
+  type PolicyMode,
+  type ToolName,
+} from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { toolChipLabel } from "~/components/approvals/card-spec";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
@@ -8,8 +13,16 @@ import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { SectionHeading } from "./section-heading";
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
-  { value: "autonomy", label: "Auto", icon: <Zap size={13} aria-hidden /> },
-  { value: "gated", label: "Gated", icon: <ShieldCheck size={13} aria-hidden /> },
+  {
+    value: "autonomy",
+    label: APPROVAL_CONTROL_LABELS.integrationAuto,
+    icon: <Zap size={13} aria-hidden />,
+  },
+  {
+    value: "gated",
+    label: APPROVAL_CONTROL_LABELS.integrationGated,
+    icon: <ShieldCheck size={13} aria-hidden />,
+  },
 ];
 
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
@@ -33,7 +46,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
   if (error && !policy) {
     return (
       <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
-        <SectionHeading>Approval policy</SectionHeading>
+        <SectionHeading>{APPROVAL_CONTROL_LABELS.approvalPolicy}</SectionHeading>
         <AppCard>
           <div
             className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"
@@ -63,7 +76,7 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
 
   return (
     <section className="app-card-in space-y-3" style={{ animationDelay: "150ms" }}>
-      <SectionHeading>Approval policy</SectionHeading>
+      <SectionHeading>{APPROVAL_CONTROL_LABELS.approvalPolicy}</SectionHeading>
 
       {error ? <CachedSyncNotice subject="policy" error={error} retry={retry} /> : null}
 
@@ -71,7 +84,9 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-app-fg-4">
-              {mode === "autonomy" ? "Auto" : "Gated"}
+              {mode === "autonomy"
+                ? APPROVAL_CONTROL_LABELS.integrationAuto
+                : APPROVAL_CONTROL_LABELS.integrationGated}
             </p>
             <p className="mt-1 text-xs leading-5 text-app-fg-3">
               {mode === "autonomy"

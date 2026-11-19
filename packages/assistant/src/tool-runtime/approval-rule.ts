@@ -8,10 +8,13 @@
  */
 
 import {
+  APPROVAL_CAUSE_KINDS,
+  APPROVAL_CONTROL_LABELS,
   assertNever,
   humanizeToolName,
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
+  isCatalogSlug,
   isLoadableIntegrationSlug,
   isToolName,
   type ApprovalCause,
@@ -136,19 +139,30 @@ export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
 }
 
 /**
- * One setting as the model reads it. The bare `kind` does not tell the model the label of the
- * control or where it is, so a reply said "approve the request when it comes up" and did not name
- * the setting. Code gives the facts, and the model writes the words. The labels are the labels
- * that the web shows: `approval-mode-options.ts`, `provider-policy.tsx`, and the card Permissions
- * menu in `approval-dock.tsx`.
+ * One setting as the model reads it (ADR-0130 decision 4). The bare `kind` did not tell the model
+ * the label of the control or where it is, so a reply said "approve the request when it comes up"
+ * and named no setting. Code gives facts: the labels (`APPROVAL_CONTROL_LABELS`, which the web
+ * shows too), the places, the scope, and the causes that the setting removes. The model writes
+ * the words. A replay of the recorded turn on Haiku named the setting and its place in 15 of 15
+ * replies with these facts, and in 0 of 20 with the bare `kind`.
+ *
+ * The model reads the fact after the card has a decision, and a decided card does not show its
+ * Permissions menu. So a place on a card is the card of the next call.
  */
 export type ApprovalSettingFact = ApprovalSetting & {
   /** The label of the control. */
   name: string;
-  /** Where the user finds the control. */
-  where: string;
-  /** What changes when the user turns it on. */
-  effect: string;
+  /** The places where the user can turn the setting on now. */
+  where: string[];
+  /** What the setting covers: this chat, every call of the integration, or this one action. */
+  scope: "this_chat" | "integration" | "this_action";
+  /**
+   * The causes whose cards the setting removes. A `confirm` card and a question have no cause,
+   * and no setting removes them.
+   */
+  removes: readonly ApprovalCauseKind[];
+  /** The place where the user turns the setting off, when it is not in `where`. */
+  undoWhere?: string;
 };
 
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
@@ -166,43 +180,62 @@ export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
   };
 }
 
+const LABELS = APPROVAL_CONTROL_LABELS;
+
+/** A policy setting does not remove a `high` card (`toolRequiresApproval`). Full Autonomy does. */
+const BELOW_HIGH_CAUSES = APPROVAL_CAUSE_KINDS.filter((kind) => kind !== "high_risk");
+
+/** The approval policy section of an integration page. Only a catalog slug has a page. */
+function approvalPolicyPlace(integration: IntegrationSlug): string | undefined {
+  return isCatalogSlug(integration)
+    ? `the ${LABELS.approvalPolicy} section of the ${INTEGRATION_DISPLAY_NAMES[integration]} page under Integrations`
+    : undefined;
+}
+
 function approvalSettingFact(setting: ApprovalSetting): ApprovalSettingFact {
   switch (setting.kind) {
     case "integration_mode": {
       const provider = INTEGRATION_DISPLAY_NAMES[setting.integration];
+      const page = approvalPolicyPlace(setting.integration);
 
       return {
         ...setting,
-        name: `Auto mode for ${provider}`,
-        where: `the Approval policy section of the ${provider} page under Integrations, or the "Always allow ${provider}" switch in the Permissions menu of the approval card`,
-        effect: `Alfred acts on ${provider} without an approval card from the next call. A high-risk action still asks.`,
+        name: `${LABELS.integrationAuto} mode for ${provider}`,
+        where: [
+          ...(page === undefined ? [] : [page]),
+          `the "Always allow ${provider}" switch in the ${LABELS.permissions} menu of the next approval card for ${provider}`,
+        ],
+        scope: "integration",
+        removes: BELOW_HIGH_CAUSES,
       };
     }
 
     case "always_allow": {
       const action = humanizeToolName(setting.toolName);
-      const integration = integrationFromToolName(setting.toolName);
-
-      // Only a slug with a page lists its overrides (`provider-policy.tsx`).
-      const undo = isLoadableIntegrationSlug(integration)
-        ? ` The Approval policy section of the ${INTEGRATION_DISPLAY_NAMES[integration]} page under Integrations lists it and can undo it.`
-        : "";
+      const page = approvalPolicyPlace(integrationFromToolName(setting.toolName));
 
       return {
         ...setting,
-        name: `Always allow this action (${action})`,
-        where: `the Permissions menu of the approval card.${undo}`,
-        effect: `Alfred runs ${action} without an approval card from the next call. A high-risk action still asks.`,
+        name: LABELS.alwaysAllowAction,
+        where: [
+          `the "${LABELS.alwaysAllowAction}" switch in the ${LABELS.permissions} menu of the next approval card for ${action}`,
+        ],
+        scope: "this_action",
+        removes: BELOW_HIGH_CAUSES,
+        ...(page === undefined ? {} : { undoWhere: page }),
       };
     }
 
     case "full_autonomy":
       return {
         ...setting,
-        name: "Full autonomy",
-        where: "the approval mode menu in the toolbar of the message box",
-        effect:
-          "Alfred runs every call in this chat without an approval card, high-risk calls included. Other chats do not change.",
+        name: LABELS.fullAutonomy,
+        where: [
+          "the approval mode menu in the toolbar of the message box",
+          `the "${LABELS.fullAutonomyButton}" button under the reply`,
+        ],
+        scope: "this_chat",
+        removes: APPROVAL_CAUSE_KINDS,
       };
     default:
       return assertNever(setting, "approval setting");
