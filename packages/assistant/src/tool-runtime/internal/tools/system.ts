@@ -74,6 +74,7 @@ import {
 import { inZone } from "@alfred/assistant/time";
 import { logger } from "@alfred/logging";
 import { redactCredentialUrl, runFetchUrl, type FetchUrlResult } from "./fetch-url";
+import { urlAppearsInPriorContext } from "@alfred/assistant/tool-runtime/url-provenance";
 import {
   chatHistoryEvidence,
   fetchUrlEvidence,
@@ -106,6 +107,10 @@ export function currentTimeSnapshot(timezone: IanaTimezone, now: Date = new Date
     timezone,
   };
 }
+
+/** The refusal of a URL that no source of the run holds (ADR-0130 decision 3). */
+const FETCH_URL_NOT_IN_PRIOR_CONTEXT =
+  "This URL is not in the user's messages or in an earlier tool result, so Alfred did not fetch it. Fetch a URL exactly as a source gives it, or ask the user to paste the URL.";
 
 /** `system.read_scratch` result. Named so the Code Mode index reads its type (ADR-0124). */
 export type ReadScratchResult =
@@ -761,8 +766,23 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: true,
     description:
-      "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded.",
+      "Read the contents of a known http(s) URL in as sanitized text. Use this when you already hold a link (from the user, read_user_context, or a prior tool result) and need what the page actually says — 'read my website', 'summarize this page', 'what does this link say'. This reads a page you can name; use web_search to discover sources for a question instead. Reads JavaScript-rendered pages too (X/Twitter profiles and tweets, and other single-page apps): when the plain read comes back empty it re-fetches through a headless renderer, so prefer it over web_search for 'what's in his bio', 'read his recent tweets' — web_search only sees lagged second-hand commentary about X. Returns readable text (HTML stripped), the page title, and the final URL; binary resources (PDFs, images) are reported honestly, not downloaded. It fetches only a URL that appears in the user's messages or in an earlier tool result; a URL you build or change is refused.",
     inputSchema: fetchUrlInput,
+    // ADR-0130 decision 3: only a URL from the user or from an earlier tool result. Before the
+    // staging row, so a refused URL is never fetched and never saved. A replay does not ask again.
+    refuseProposal: async (input, ctx) =>
+      (await urlAppearsInPriorContext(
+        {
+          userId: ctx.userId,
+          runId: ctx.runId,
+          approvalThreadId: ctx.approvalThreadId,
+          // Chat and its sub-agents have a thread. A boss run with no thread is a workflow.
+          workflowRun: ctx.caller === "boss" && ctx.approvalThreadId === undefined,
+        },
+        input.url,
+      ))
+        ? null
+        : FETCH_URL_NOT_IN_PRIOR_CONTEXT,
     execute: async (input): Promise<FetchUrlResult> => {
       return await runFetchUrl({ url: input.url });
     },

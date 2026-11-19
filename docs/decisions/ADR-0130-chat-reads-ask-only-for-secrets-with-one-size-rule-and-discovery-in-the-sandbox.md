@@ -58,6 +58,13 @@ Live runs on 2026-11-19 used Haiku 5.5 with Code Mode on. Prod and dev each had 
 - **The guard.** `system.fetch_url` fetches a URL only if the URL appears exactly in the user's words, or in an earlier tool result in the thread. A URL that the model builds is refused with a cause. Decision 4 gives that cause to the model, and the model can then ask the user to paste the URL.
 - The redirect checks and the private-host checks in `fetch-url.ts` stay.
 - This matches the rule of Anthropic's server-side `web_fetch` tool. Before code, verify that rule against the Anthropic documentation.
+  - Verified on 2026-11-19 ([web fetch tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool)). The tool fetches a URL from a user message, a client tool result, or an earlier search or fetch result. "Claude cannot fetch URLs that appear only in its own output." The error is `url_not_in_prior_context`. The page does not say how the match works.
+- **The sources** (owner, 2026-11-19, built in #1803):
+  - A chat turn: the user messages of the thread, their attachment text, and the stored tool results of each chat-turn run of the thread.
+  - A sub-agent: the sources of its parent thread, and the tool results of its own run. Its brief does not count, because the parent model wrote it.
+  - A workflow run: the brief that the user activated counts as the user's words. The trigger event and the tool results of the run count as tool results.
+  - Each run: its own stored tool results, with the nested reads of a script.
+- **The match.** The URL, with no scheme and no final `/`, must appear in the text. The text around it must end the URL. Thus "yashk.xyz" from the user allows `https://yashk.xyz/`. The model cannot add a host label, a path segment, or a query.
 - Writes are the other path out, for example a mail send. Writes keep their cards under `gated`. Full Autonomy waives those cards by owner choice.
 
 ### 4. A block names the setting that removes it (settled)
