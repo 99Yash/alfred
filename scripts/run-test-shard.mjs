@@ -14,6 +14,7 @@
 // every file a second time. An empty leg fails instead.
 
 import { spawnSync } from "node:child_process";
+import { availableParallelism } from "node:os";
 
 import {
   WEIGHTS_FILE,
@@ -79,7 +80,13 @@ const probeArgs =
     ? []
     : [`--import=${new URL("./test-file-cpu.mjs", import.meta.url).href}`];
 
-const run = spawnSync(command, [...commandArgs, ...probeArgs, ...leg.files], {
+// One file per core. `node --test` defaults to one fewer, to leave a core for the
+// runner process, but that process only relays events. On the 4-vCPU CI runner,
+// the default ran a leg at 3.0 busy cores (run 44759533677, 2026-11-20): 362
+// CPU-s in 121 s.
+const concurrencyArgs = [`--test-concurrency=${availableParallelism()}`];
+
+const run = spawnSync(command, [...commandArgs, ...concurrencyArgs, ...probeArgs, ...leg.files], {
   cwd,
   stdio: "inherit",
 });
