@@ -69,6 +69,9 @@ export const documents = pgTable(
       .on(t.userId, t.source, t.contentHash)
       .where(sql`${t.source} = 'gmail_attachment'`),
     index("documents_user_source_idx").on(t.userId, t.source, t.authoredAt),
+    // Memory pick (`runMemoryPickDocuments`) seeks a window over authored_at with
+    // no source equality; the backward scan serves its DESC order (NULLS FIRST).
+    index("documents_user_authored_idx").on(t.userId, t.authoredAt),
     index("documents_source_admission_idx").on(t.userId, t.source, t.ingestedAt),
     index("documents_thread_idx").on(t.userId, t.source, t.sourceThreadId),
     index("documents_embed_sweep_idx")

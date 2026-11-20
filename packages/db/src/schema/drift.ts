@@ -1,13 +1,4 @@
-import {
-  bigserial,
-  index,
-  jsonb,
-  pgTable,
-  real,
-  text,
-  timestamp,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
+import { bigserial, jsonb, pgTable, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { lifecycle_dates } from "../helpers";
 import { user } from "./auth";
 
@@ -35,7 +26,8 @@ export const driftMetrics = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("drift_metrics_user_metric_idx").on(t.userId, t.metric, t.capturedAt),
+    // No (user_id, metric, captured_at) index: the table is written on schedule
+    // and never read in production; the capture-key unique below is its only reader.
     uniqueIndex("drift_metrics_user_metric_capture_key_idx").on(t.userId, t.metric, t.captureKey),
   ],
 );

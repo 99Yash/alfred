@@ -1254,6 +1254,13 @@
       "when": 1795151698115,
       "tag": "0178_approval_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1795163893139,
+      "tag": "0179_eager_karma",
+      "breakpoints": true
     }
   ]
 }

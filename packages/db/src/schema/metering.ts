@@ -55,7 +55,8 @@ export const apiCallLog = pgTable(
   (t) => [
     index("api_call_log_run_idx").on(t.runId, t.id),
     index("api_call_log_user_created_idx").on(t.userId, t.createdAt),
-    index("api_call_log_kind_created_idx").on(t.kind, t.createdAt),
+    // No (kind, created_at) index: every production read filters run_id or
+    // (user_id, created_at); kind appears only in SELECT/GROUP BY.
   ],
 );
 

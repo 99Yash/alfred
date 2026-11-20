@@ -274,6 +274,13 @@ export const agentRuns = pgTable(
       t.createdAt.desc(),
       t.id.desc(),
     ),
+    // `chatThreadRunMatch` queries (tool carryover, URL provenance) seek one
+    // thread's runs across all statuses; the backward scan serves the
+    // created_at DESC order. The partial predicate is implied by the
+    // `= threadId` arm, so rows with no thread id never enter the index.
+    index("agent_runs_chat_thread_history_idx")
+      .on(t.userId, t.workflowSlug, chatThreadIdExpr(t), t.createdAt)
+      .where(sql`${chatThreadIdExpr(t)} IS NOT NULL`),
     index("agent_runs_user_idx").on(t.userId, t.status),
     index("agent_runs_runnable_idx")
       .on(t.lastCheckpointAt)

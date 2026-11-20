@@ -130,7 +130,10 @@ export const chatMessages = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("chat_messages_user_idx").on(t.userId),
+    // The Replicache pull window (`recentMessages`) filters user_id and orders
+    // created_at DESC, id DESC; plain columns so a backward scan matches the
+    // query's NULLS FIRST order exactly (a .desc() index renders NULLS LAST).
+    index("chat_messages_user_created_idx").on(t.userId, t.createdAt, t.id),
     index("chat_messages_thread_created_idx").on(t.threadId, t.createdAt),
     index("chat_messages_run_idx").on(t.runId),
   ],
@@ -164,7 +167,7 @@ export const chatThreadContext = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("chat_thread_context_user_idx").on(t.userId),
+    // No user_id index: thread_id is the primary key and every lookup uses it.
     check(
       "chat_thread_context_watermark_pair_chk",
       sql`(${t.summaryWatermarkCreatedAt} IS NULL) = (${t.summaryWatermarkMessageId} IS NULL)`,
@@ -219,7 +222,8 @@ export const chatAttachments = pgTable(
   (t) => [
     // Also serves `message_id` lookups, so no separate index.
     index("chat_attachments_message_position_idx").on(t.messageId, t.position),
-    index("chat_attachments_user_idx").on(t.userId),
+    // Same pull-window shape as `chat_messages_user_created_idx` (backward scan).
+    index("chat_attachments_user_created_idx").on(t.userId, t.createdAt, t.id),
   ],
 );
 
