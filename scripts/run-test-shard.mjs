@@ -1,21 +1,19 @@
 // Runs one CI leg of a package's test files, split by measured weight.
 //
 // Usage, from the package directory, with the package's own test command:
-//   TEST_SHARD=2/3 [TEST_DURATIONS_OUT=/abs/path.json] \
+//   TEST_SHARD=2/3 [TEST_CPU_OUT=/abs/path.jsonl] \
 //     node ../../scripts/run-test-shard.mjs tsx --test --test-force-exit
 //
 // It replaces `tsx --test --test-shard=i/n "test/**/*.test.ts"`. The split rule
-// is in `test-shards.mjs`. The runner appends the reporter flags and this leg's
-// files to the command it is given. With `TEST_DURATIONS_OUT` set, it also writes
-// each file's wall time there through `test-file-durations.mjs`, so CI records
-// the next weights on every run.
+// is in `test-shards.mjs`. The runner appends this leg's files to the command it
+// is given. With `TEST_CPU_OUT` set, it also preloads `test-file-cpu.mjs`, which
+// appends each file's CPU time there, so CI records the next weights on every run.
 //
 // Every leg must get at least one file. `node --test` with NO file argument runs
 // its default glob over the whole package, so an empty leg would silently run
 // every file a second time. An empty leg fails instead.
 
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 import {
   WEIGHTS_FILE,
@@ -72,19 +70,16 @@ console.log(
     `${unweighted.length} file(s) not in ${WEIGHTS_FILE} took the median)`,
 );
 
-const durationsOut = process.env["TEST_DURATIONS_OUT"];
+const cpuOut = process.env["TEST_CPU_OUT"];
 
-const reporterArgs =
-  durationsOut === undefined || durationsOut === ""
+// `node --test` hands its `--import` flags to every file's child, which is what
+// puts the probe inside each test file's process. The env carries `TEST_CPU_OUT`.
+const probeArgs =
+  cpuOut === undefined || cpuOut === ""
     ? []
-    : [
-        "--test-reporter=spec",
-        "--test-reporter-destination=stdout",
-        `--test-reporter=${fileURLToPath(new URL("./test-file-durations.mjs", import.meta.url))}`,
-        `--test-reporter-destination=${durationsOut}`,
-      ];
+    : [`--import=${new URL("./test-file-cpu.mjs", import.meta.url).href}`];
 
-const run = spawnSync(command, [...commandArgs, ...reporterArgs, ...leg.files], {
+const run = spawnSync(command, [...commandArgs, ...probeArgs, ...leg.files], {
   cwd,
   stdio: "inherit",
 });

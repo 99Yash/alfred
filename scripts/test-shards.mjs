@@ -5,8 +5,10 @@
 // run: 135 s of test time against 71 s and 74 s on legs 2 and 3, over 12 green
 // runs on 2026-11-20. This module deals by weight instead. It sorts the files
 // heaviest first and gives each file to the leg with the least weight so far (the
-// LPT rule). The weights are per-file wall times that CI recorded with
-// `test-file-durations.mjs`, committed as `test/shard-weights.json` in the package.
+// LPT rule). The weights are per-file CPU milliseconds that CI recorded with
+// `test-file-cpu.mjs`, committed as `test/shard-weights.json` in the package.
+// CPU, not wall time: a leg is CPU-bound, and one file's wall time mostly says
+// which files shared the CPU with it.
 //
 // Coverage never depends on the weights. The file list comes from git, so a new
 // test file always runs: it takes the median weight until the next refresh. A

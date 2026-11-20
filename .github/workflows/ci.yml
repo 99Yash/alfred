@@ -808,15 +808,21 @@ jobs:
   # at 164 s), because each leg also pays ~55 s of setup (containers ~24 s, cache
   # ~10, install ~8, node ~5, checkout 2, migrations 2-3).
   #
+  # The skew had one main cause. `test/barrel-load.test.ts` starts one `tsx`
+  # child per exports subpath (79), so it costs about 20 % of the suite's CPU
+  # while its wall time looks like 8 %. Round-robin kept it on leg 1.
+  #
   # `test:shard` runs `scripts/run-test-shard.mjs`. It lists the test files from
   # git and deals them heaviest-first onto the lightest leg, using the per-file
-  # wall times in `packages/assistant/test/shard-weights.json`. Coverage comes
-  # from the git list, never from the weights: a new file runs at the median
-  # weight, and stale weights only make the legs uneven. Each leg records the
-  # wall time of every file it ran and uploads it as
-  # `assistant-test-durations-<leg>`. To refresh the weights, run
-  # `node scripts/test-shard-weights.mjs <run-id>` against a green run and commit
-  # the file. The first line of each `Assistant tests` step prints all leg
+  # CPU times in `packages/assistant/test/shard-weights.json`. CPU, not wall
+  # time: one file's wall time moved 3x between two runs, because it mostly says
+  # which files shared the CPU with it. Coverage comes from the git list, never
+  # from the weights: a new file runs at the median weight, and stale weights
+  # only make the legs uneven. Each leg records the CPU time of every file it ran
+  # (`scripts/test-file-cpu.mjs`, children included) and uploads it as
+  # `assistant-test-cpu-<leg>`. To refresh the weights, run
+  # `node scripts/test-shard-weights.mjs <run-id>...` against green runs and
+  # commit the file. The first line of each `Assistant tests` step prints all leg
   # weights, so drift shows in any log.
   #
   # `fail-fast: false` because a red shard must not cancel its siblings. With
@@ -909,16 +915,16 @@ jobs:
       - name: Assistant tests
         env:
           TEST_SHARD: ${{ matrix.shard }}/3
-          TEST_DURATIONS_OUT: ${{ runner.temp }}/assistant-test-durations.json
+          TEST_CPU_OUT: ${{ runner.temp }}/assistant-test-cpu.jsonl
         run: corepack pnpm --filter @alfred/assistant test:shard
 
-      # `always()`: a red leg's durations are as valid a weight as a green one's.
-      - name: Upload per-file durations
+      # `always()`: a red leg's CPU times are as valid a weight as a green one's.
+      - name: Upload per-file CPU times
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: assistant-test-durations-${{ matrix.shard }}
-          path: ${{ runner.temp }}/assistant-test-durations.json
+          name: assistant-test-cpu-${{ matrix.shard }}
+          path: ${{ runner.temp }}/assistant-test-cpu.jsonl
           if-no-files-found: warn
           retention-days: 30
 
