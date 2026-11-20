@@ -4,7 +4,7 @@
  * change can apply to the parked run's next call. Every Full Autonomy control opens this picker
  * (ADR-0130 amendment (c)), through `requestApprovalModePicker`.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApprovalModePickerRequest } from "~/lib/chat/approval-mode-picker-request";
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
@@ -74,13 +74,10 @@ export function ApprovalModePicker({
   // A disabled picker is closed. Reset the flag, so the menu does not open again by itself.
   if (disabled && menuOpen) setMenuOpen(false);
 
-  // Take a Full Autonomy request from the external store. While the picker is disabled (the
-  // thread row loads after a jump from `/approvals`), the request waits until it expires.
-  useEffect(() => {
-    if (!requested || disabled) return;
-    setMenuOpen(true);
-    clear();
-  }, [requested, disabled, clear]);
+  // Take a Full Autonomy request from the external store, during render. While the picker is
+  // disabled (the thread row loads after a jump from `/approvals`), the request waits until it
+  // expires. The menu holds its own flag, so the expiry does not close an open menu.
+  if (requested && !disabled && !menuOpen) setMenuOpen(true);
 
   return (
     <PickerMenu
@@ -88,7 +85,12 @@ export function ApprovalModePicker({
       heading="How should Alfred act?"
       footnote={FOOTNOTE}
       open={menuOpen}
-      onOpenChange={setMenuOpen}
+      onOpenChange={(next) => {
+        setMenuOpen(next);
+
+        // The request is done when the menu closes.
+        if (!next) clear();
+      }}
       value={mode}
       tip="Action approval"
       tipDescription={TIP_DESCRIPTION[mode]}
