@@ -159,12 +159,28 @@ export function resolveIntegrationMode(
 /**
  * One tool's mode, and the setting that set it (ADR-0130 decision 4).
  * - `tool_override`: the tool's own "Always allow" override.
- * - `integration`: the integration's mode, or the user default when the integration has none.
- *   A mode on the integration page replaces the default, so both name that one setting.
+ * - `integration`: the mode on the integration page.
+ * - `default`: the global default, because the integration has no mode of its own.
  */
 export interface ToolModeDecision {
   mode: PolicyMode;
-  source: "tool_override" | "integration";
+  source: ApprovalModeSource;
+}
+
+/** The setting that supplied a tool's mode (`ToolModeDecision`). */
+export type ApprovalModeSource = "tool_override" | "integration" | "default";
+
+/** The mode of one integration, and whether its own rule or the global default supplied it. */
+export function resolveIntegrationModeDecision(
+  rules: IntegrationRules,
+  slug: IntegrationSlug,
+  defaultMode: PolicyMode,
+): ToolModeDecision {
+  const mode = rules[slug]?.mode;
+
+  return mode === undefined
+    ? { mode: defaultMode, source: "default" }
+    : { mode, source: "integration" };
 }
 
 /**
@@ -181,7 +197,7 @@ export function resolveToolModeDecision(
 
   if (override !== undefined) return { mode: override, source: "tool_override" };
 
-  return { mode: resolveIntegrationMode(rules, integration, defaultMode), source: "integration" };
+  return resolveIntegrationModeDecision(rules, integration, defaultMode);
 }
 
 /** The mode of `resolveToolModeDecision`, for a caller that does not name the setting. */

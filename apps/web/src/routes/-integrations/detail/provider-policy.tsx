@@ -1,4 +1,5 @@
 import {
+  integrationTakesMode,
   APPROVAL_CONTROL_LABELS,
   isToolName,
   type PolicyMode,
@@ -28,7 +29,7 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
 export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
-  // Every catalog slug is a loadable provider, so every page has a policy row.
+  // The detail page renders this panel only for a live provider.
   const { slug } = provider;
 
   const { policy, modeFor, setIntegrationMode, setToolMode, loading, error, retry } =
@@ -41,6 +42,10 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
   const toolOverrides = Object.entries(policy?.integrationRules[slug]?.toolOverrides ?? {}).filter(
     (entry): entry is [ToolName, PolicyMode] => isToolName(entry[0]),
   );
+
+  // Only a page whose integration takes a mode has the control (ADR-0130 amendment (c)). The
+  // detail page renders this panel only for a live provider, so this only narrows the slug.
+  if (!integrationTakesMode(slug)) return null;
 
   // A failed pull keeps the cached row, so the panel shows only when there is no row.
   if (error && !policy) {

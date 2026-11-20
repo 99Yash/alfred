@@ -15,10 +15,12 @@ import {
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
   isCatalogSlug,
-  isLoadableIntegrationSlug,
   isToolName,
+  approvalSettings,
   type ApprovalCause,
   type ApprovalCauseKind,
+  type ApprovalModeSource,
+  type ApprovalReason,
   type ApprovalSetting,
   type IntegrationSlug,
   type PolicyMode,
@@ -27,7 +29,11 @@ import {
   type ToolRiskTier,
 } from "@alfred/contracts";
 import type { Fix } from "@alfred/contracts/app-errors";
-import { resolvePolicyMode, type PolicyDecision } from "@alfred/assistant/action-policies";
+import {
+  getResolvedPolicy,
+  resolvePolicyMode,
+  type PolicyDecision,
+} from "@alfred/assistant/action-policies";
 import type { ReadFacts } from "./read-route";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
 import { getTool, type ToolStagingPolicy } from "./internal/registry";
@@ -51,15 +57,14 @@ export function toolRequiresApproval(
 
 /**
  * The live approval of one call, which the read route takes as its input (ADR-0124 amendment
- * 2026-11-18): the staging arm, the rule and the tier, and the thread's Full Autonomy. `join` and
- * `fast_path` return before the gate, so they never wait. A forced arm waits whatever the rest says.
- * Dispatch reads Full Autonomy only when the rule would gate, so a caller may pass `false` then.
+ * 2026-11-18): the staging arm, the result of the approval rule (`toolRequiresApproval`), and the
+ * thread's Full Autonomy. `join` and `fast_path` return before the gate, so they never wait. A
+ * forced arm waits whatever the rest says. Dispatch reads Full Autonomy only when the rule gates,
+ * so a caller may pass `false` then.
  */
 export function callRequiresApproval(args: {
   staging: ToolStagingPolicy;
-  policyMode: PolicyMode;
-  riskTier: ToolRiskTier;
-  readClass: ToolReadClass | undefined;
+  ruleGates: boolean;
   fullAutonomy: boolean;
 }): boolean {
   const arm = STAGING_ARM[args.staging];
@@ -68,18 +73,11 @@ export function callRequiresApproval(args: {
 
   if (arm.forcesApproval) return true;
 
-  return toolRequiresApproval(args.policyMode, args.riskTier, args.readClass) && !args.fullAutonomy;
+  return args.ruleGates && !args.fullAutonomy;
 }
 
-/**
- * `mcp.call` reaches every server, so one override on it would cover each server at once. Its
- * card names the integration mode of the server's provider instead.
- */
-const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
-
-/** The facts of one call that waits on a card, for `approvalCause`. */
-export interface ApprovalCauseFacts {
-  staging: ToolStagingPolicy;
+/** The facts of one call that the approval rule reads, for `approvalReasonOf`. */
+export interface ApprovalRuleFacts {
   toolName: ToolName;
   /** The mode and the setting that set it (`resolvePolicyDecision`). */
   policy: PolicyDecision;
@@ -88,54 +86,48 @@ export interface ApprovalCauseFacts {
   riskTier: ToolRiskTier;
   /** The read facts of the call. Dispatch reads them under `gated` below `high`, else `undefined`. */
   readFacts: Pick<ReadFacts, "read" | "readClass"> | undefined;
-  /** The run has a chat thread, so Full Autonomy for the thread can remove the card. */
-  onThread: boolean;
 }
 
 /**
- * Why a call waits on a card, and the closed list of settings that remove the card (ADR-0130
- * decision 4). It follows `toolRequiresApproval`, so a listed setting removes the card for the
- * same call. `null` when the call does not wait, or when no listed setting removes the card: a
- * forced arm (`confirm`, `question`), a `high` call outside a chat thread, or a call on a server
- * that the owner added outside a chat thread.
+ * The approval rule for one call, with its reason (ADR-0130 amendment (c)). `null`: the rule does
+ * not gate the call. Dispatch decides the card from this one result, so the reason and the card
+ * cannot disagree. The staging arm and Full Autonomy apply after it (`callRequiresApproval`).
  */
-export function approvalCause(facts: ApprovalCauseFacts): ApprovalCause | null {
-  const arm = STAGING_ARM[facts.staging];
-
-  if (arm === null || arm.forcesApproval) return null;
-
+export function approvalReasonOf(facts: ApprovalRuleFacts): ApprovalReason | null {
   const readClass = facts.readFacts?.readClass;
 
   if (!toolRequiresApproval(facts.policy.mode, facts.riskTier, readClass)) return null;
 
-  const fullAutonomy: ApprovalSetting[] = facts.onThread ? [{ kind: "full_autonomy" }] : [];
+  if (facts.riskTier === "high") return { cause: "high_risk", toolName: facts.toolName };
 
-  if (facts.riskTier === "high") {
-    return fullAutonomy.length > 0 ? { cause: "high_risk", settings: fullAutonomy } : null;
+  // `toolRequiresApproval` never gates `system.*` below `high`, so the source is a policy setting.
+  if (facts.policy.source === "system") {
+    throw new Error(`[approval] ${facts.toolName} gated below high with no policy setting`);
   }
 
-  const alwaysAllow: ApprovalSetting = { kind: "always_allow", toolName: facts.toolName };
+  return {
+    cause: causeOfGatedCall(facts.readFacts),
+    toolName: facts.toolName,
+    integration: facts.policyIntegration,
+    source: facts.policy.source,
+  };
+}
 
-  // An override on the tool beats the integration mode, so only "Always allow" changes it.
-  // Overrides apply only under the tool's own integration (`resolvePolicyDecision`).
-  const policySettings: ApprovalSetting[] =
-    facts.policy.source === "tool_override"
-      ? [alwaysAllow]
-      : [
-          // Only a mode that a page can set. A server that the owner added has the internal
-          // `mcp` slug, and no page sets its mode.
-          ...(isLoadableIntegrationSlug(facts.policyIntegration)
-            ? [{ kind: "integration_mode", integration: facts.policyIntegration } as const]
-            : []),
-          ...(facts.policyIntegration === integrationFromToolName(facts.toolName) &&
-          facts.toolName !== MCP_CALL_TOOL
-            ? [alwaysAllow]
-            : []),
-        ];
+/**
+ * The reason of a card and the settings that remove such a card under current policy (ADR-0130
+ * amendment (c)). Each result that leaves dispatch derives the settings again, so they are never
+ * out of date. `null` when no setting removes the card.
+ */
+export async function approvalCauseNow(
+  userId: string,
+  reason: ApprovalReason | null,
+  onThread: boolean,
+): Promise<ApprovalCause | null> {
+  if (reason === null) return null;
 
-  const settings = [...policySettings, ...fullAutonomy];
+  const settings = approvalSettings(reason, await getResolvedPolicy(userId), onThread);
 
-  return settings.length > 0 ? { cause: causeOfGatedCall(facts.readFacts), settings } : null;
+  return settings.length > 0 ? { reason, settings } : null;
 }
 
 /**
@@ -168,14 +160,22 @@ export type ApprovalSettingFact = ApprovalSetting & {
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
 export interface ApprovalCauseFact {
   cause: ApprovalCauseKind;
+  /**
+   * The setting that supplied the mode: the rule on the tool, the integration mode, or the global
+   * default. Absent on a `high` card, which no policy setting removes.
+   */
+  source?: ApprovalModeSource;
   fix: Omit<Extract<Fix, { kind: "change_setting" }>, "settings"> & {
     settings: ApprovalSettingFact[];
   };
 }
 
 export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
+  const { reason } = cause;
+
   return {
-    cause: cause.cause,
+    cause: reason.cause,
+    ...(reason.cause === "high_risk" ? {} : { source: reason.source }),
     fix: { kind: "change_setting", settings: cause.settings.map(approvalSettingFact) },
   };
 }
@@ -243,7 +243,7 @@ function approvalSettingFact(setting: ApprovalSetting): ApprovalSettingFact {
 }
 
 function causeOfGatedCall(
-  readFacts: ApprovalCauseFacts["readFacts"],
+  readFacts: ApprovalRuleFacts["readFacts"],
 ): Exclude<ApprovalCauseKind, "high_risk"> {
   if (readFacts?.read !== true) return "may_write";
 

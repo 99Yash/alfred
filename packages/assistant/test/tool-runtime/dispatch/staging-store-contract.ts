@@ -161,7 +161,7 @@ export function runStagingStoreContract(
       const expiresAt = new Date("2026-08-12T10:00:00.000Z");
 
       const promoted = await h.store.promotePendingApproval(row.id, {
-        approvalCause: null,
+        approvalReason: null,
         riskTier: "high",
         proposedInput: { slug: "calendar" },
         displayInput: { slug: "calendar", credential: "[REDACTED]" },
@@ -186,7 +186,7 @@ export function runStagingStoreContract(
       );
       assert.equal(
         await h.store.promotePendingApproval(row.id, {
-          approvalCause: null,
+          approvalReason: null,
           riskTier: "high",
           proposedInput: { slug: "calendar" },
           displayInput: { slug: "calendar", credential: "[REDACTED]" },
@@ -487,7 +487,7 @@ export function runStagingStoreContract(
       assert.equal(row.outcome, "dispatching");
 
       const promoted = await h.store.promotePendingApproval(row.id, {
-        approvalCause: null,
+        approvalReason: null,
         riskTier: "high",
         proposedInput: { slug: "calendar" },
         displayInput: { slug: "calendar" },

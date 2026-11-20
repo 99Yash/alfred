@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { approvalKindSchema } from "./agent";
-import { approvalCauseSchema } from "./approval-cause";
 import { chatConnectNudgeSchema } from "./chat";
 import { scriptSourcesSchema } from "./read-evidence";
 import { keyGuard } from "./guards";
@@ -177,11 +176,6 @@ export const chatToolSchema = z.object({
    * and the retraction still lands.
    */
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
-  /**
-   * Set after a card: why it asked, and the settings that remove it, so chat shows the links
-   * (ADR-0130 decision 4). `.catch` keeps the frame when the value does not parse.
-   */
-  approvalCause: approvalCauseSchema.optional().catch(undefined),
   /**
    * The web pages of a `system.code_run` script, for the sources strip (ADR-0124). The preview
    * prunes them, so they ride here. `.catch` keeps the frame when the value does not parse.

@@ -5,6 +5,7 @@
  */
 
 import type {
+  ApprovalCause,
   ActionSlug,
   HostCallOutcome,
   HostReadRefusal,
@@ -211,6 +212,8 @@ export type HostReadOutcome =
       refusal: HostReadRefusal;
       message: string;
       call: HostReadCall | undefined;
+      /** Set only on `needs_approval`: the reason and the settings (ADR-0130 amendment (c)). */
+      approvalCause?: ApprovalCause | undefined;
     };
 
 export type HostReadDispatcher = (request: HostReadRequest) => Promise<HostReadOutcome>;
@@ -239,6 +242,12 @@ export interface HostCallEntry {
    * or a refusal.
    */
   savedBytes: number | null;
+  /**
+   * Set only on `needs_approval`: why the read waits, and the settings that remove the card. The
+   * `code_run` result carries it to the model, so a script that catches the refusal does not lose
+   * it (ADR-0130 amendment (c)). The saved record does not keep it.
+   */
+  approvalCause?: ApprovalCause | undefined;
 }
 
 /** How a host call settled. The ledger adds the index, the path, and the duration. */

@@ -7,7 +7,7 @@ import type {
   ToolName,
   ToolRiskTier,
 } from "@alfred/contracts";
-import type { ActionStagingStatus, ApprovalCause } from "@alfred/contracts";
+import type { ActionStagingStatus, ApprovalReason } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -67,7 +67,7 @@ export const actionStagings = pgTable(
     requiresApproval: boolean("requires_approval").notNull(),
     // Why the row waits on a card, and the settings that remove the card (ADR-0130 decision 4).
     // NULL when no setting removes the card, and on rows from before the column.
-    approvalCause: jsonb("approval_cause").$type<ApprovalCause>(),
+    approvalReason: jsonb("approval_cause").$type<ApprovalReason>(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
     // What the effect did, apart from the approval `status`. `unknown` means it may
     // have been delivered. It never retries and holds the unique index below.

@@ -9,7 +9,7 @@
 import type { IntegrationSlug, PolicyMode, ToolName } from "@alfred/contracts";
 import {
   integrationFromToolName,
-  resolveIntegrationMode,
+  resolveIntegrationModeDecision,
   resolveToolModeDecision,
   type ToolModeDecision,
 } from "@alfred/contracts";
@@ -125,10 +125,11 @@ export async function resolvePolicyDecision(
   const policy = await getResolvedPolicy(userId);
 
   if (policyIntegration !== integrationFromToolName(toolName)) {
-    return {
-      mode: resolveIntegrationMode(policy.integrationRules, policyIntegration, policy.defaultMode),
-      source: "integration",
-    };
+    return resolveIntegrationModeDecision(
+      policy.integrationRules,
+      policyIntegration,
+      policy.defaultMode,
+    );
   }
 
   return resolveToolModeDecision(policy.integrationRules, toolName, policy.defaultMode);

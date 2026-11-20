@@ -6,6 +6,7 @@
 
 import type {
   ApprovalCause,
+  ApprovalReason,
   AskUserUnansweredReason,
   DirectRouteReason,
   HostReadRefusal,
@@ -107,11 +108,11 @@ import {
 import { toolExecuteContext } from "../../context";
 import { executedResultOutcome } from "../result-routing";
 import {
-  approvalCause,
   approvalCauseFact,
+  approvalCauseNow,
+  approvalReasonOf,
   callRequiresApproval,
   forecastToolApproval,
-  toolRequiresApproval,
 } from "../../approval-rule";
 import {
   decideReadRoute,
@@ -637,7 +638,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     case "pending":
       if (row.requiresApproval) {
         return resolved.deferIfGated
-          ? deferred(row.approvalCause)
+          ? deferred(await approvalCauseNow(args.userId, row.approvalReason, onThread(args)))
           : waitForStagingApproval(row, args, arm, false);
       }
 
@@ -646,7 +647,11 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
       const binding = tool.bind(row.decidedInput ?? row.proposedInput);
 
       if (!binding.success) {
-        return withApprovalCause(row, await failApprovedInput(row, resolved, binding.error.issues));
+        return withApprovalCause(
+          row,
+          args,
+          await failApprovedInput(row, resolved, binding.error.issues),
+        );
       }
 
       return continueWith({
@@ -665,7 +670,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     case "expired":
     case "executed":
     case "failed":
-      return withApprovalCause(row, replaySettledStaging(row, resolved));
+      return withApprovalCause(row, args, replaySettledStaging(row, resolved));
     default:
       return assertNever(row.status, "saved staging status");
   }
@@ -853,6 +858,7 @@ function hostReadOutcome(
           `Call ${request.toolName} as a direct tool call with the same input: the user sees ` +
           `the card there.${approvalCauseSuffix(result.approvalCause)}`,
         call,
+        ...(result.approvalCause === null ? {} : { approvalCause: result.approvalCause }),
       };
     case "failed":
       return {
@@ -1127,16 +1133,21 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
   });
 
   if (priorReject) {
-    return settleWithoutExecution(arm, {
-      dispatch: args,
-      traceInput: redactTraceInput(call),
-      toolName,
-      stagingId: null,
-      input,
-      status: priorReject.status === "expired" ? "expired" : "rejected",
-      reason: priorReject.reason,
-      mayHaveRun: priorReject.mayHaveRun === true,
-    });
+    // A replay under a new call ID still names the setting (ADR-0130 amendment (c)).
+    return withApprovalCause(
+      priorReject,
+      args,
+      settleWithoutExecution(arm, {
+        dispatch: args,
+        traceInput: redactTraceInput(call),
+        toolName,
+        stagingId: null,
+        input,
+        status: priorReject.status === "expired" ? "expired" : "rejected",
+        reason: priorReject.reason,
+        mayHaveRun: priorReject.mayHaveRun === true,
+      }),
+    );
   }
 
   return continueWith({ ...validated, proposedInputHash, requestHash });
@@ -1315,42 +1326,37 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const ruleReadFacts =
     policyMode === "gated" && riskTier !== "high" ? await readFacts() : undefined;
 
-  const readClass = ruleReadFacts?.readClass;
-
-  const policyRequiresApproval = toolRequiresApproval(policyMode, riskTier, readClass);
+  // The one approval decision (ADR-0130 amendment (c)): the rule and its reason come from one
+  // call, so the card and the reason cannot disagree. The row keeps the reason.
+  const ruleReason = approvalReasonOf({
+    toolName,
+    policy,
+    policyIntegration,
+    riskTier,
+    readFacts: ruleReadFacts,
+  });
 
   // Read only when a card would stage, so the normal path makes no read. Never waives a question.
-  const fullAutonomy =
-    !arm.forcesApproval && policyRequiresApproval && (await readFullAutonomy(args));
+  const fullAutonomy = !arm.forcesApproval && ruleReason !== null && (await readFullAutonomy(args));
 
   // The one approval input of the route decision too (ADR-0124 amendment 2026-11-18).
   const requiresApproval = callRequiresApproval({
     staging: tool.staging,
-    policyMode,
-    riskTier,
-    readClass,
+    ruleGates: ruleReason !== null,
     fullAutonomy,
   });
 
-  // The row keeps the cause, so a replay and the card read the facts of this decision.
-  const cause = requiresApproval
-    ? approvalCause({
-        staging: tool.staging,
-        toolName,
-        policy,
-        policyIntegration,
-        riskTier,
-        readFacts: ruleReadFacts,
-        onThread: args.approvalThreadId !== undefined,
-      })
-    : null;
+  // A forced arm (`confirm`, `question`) has no reason: no setting removes its card.
+  const reason = requiresApproval && !arm.forcesApproval ? ruleReason : null;
 
   const misrouted = await refuseMisroutedRead(suppressed, requiresApproval, readFacts);
 
   if (misrouted) return misrouted;
 
   // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
-  if (requiresApproval && suppressed.deferIfGated) return deferred(cause);
+  if (requiresApproval && suppressed.deferIfGated) {
+    return deferred(await approvalCauseNow(args.userId, reason, onThread(args)));
+  }
 
   if (fullAutonomy) {
     logger.info(
@@ -1385,7 +1391,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     proposedInputHash,
     requestHash,
     requiresApproval,
-    approvalCause: cause,
+    approvalReason: reason,
     status: "pending",
     notifyAfterAt,
     expiresAt,
@@ -1407,7 +1413,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   // A pending row may gain a gate after a mode change, but it must never lose one.
   if (!insertedNew && row.status === "pending" && requiresApproval && !row.requiresApproval) {
     const promoted = await stagingStore().promotePendingApproval(row.id, {
-      approvalCause: cause,
+      approvalReason: reason,
       riskTier,
       proposedInput: persistedProposedInput,
       displayInput: persistedDisplayInput,
@@ -1452,6 +1458,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       if (!rebound.success) {
         return withApprovalCause(
           row,
+          args,
           await failApprovedInput(row, suppressed, rebound.error.issues),
         );
       }
@@ -1459,11 +1466,12 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
 
-        if (exhausted) return withApprovalCause(row, exhausted);
+        if (exhausted) return withApprovalCause(row, args, exhausted);
       }
 
       return withApprovalCause(
         row,
+        args,
         await executeAndCommit(row, rebound.call, ctx, {
           lease: stepLease(args),
           editedByUser,
@@ -1476,7 +1484,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     case "expired":
     case "executed":
     case "failed":
-      return withApprovalCause(row, replaySettledStaging(row, suppressed));
+      return withApprovalCause(row, args, replaySettledStaging(row, suppressed));
 
     default: {
       // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
@@ -1533,18 +1541,28 @@ async function failApprovedInput(
 }
 
 /**
- * The result of a call that waited on a card carries the row's cause, so the model can name the
- * setting that removes the card (ADR-0130 decision 4). A replay reads the same row, so it gives
- * the same cause. A row with no cause, or a result of another kind, passes through.
+ * The result of a call that waited on a card carries its reason and the settings that remove such
+ * a card now (ADR-0130 amendment (c)). The row keeps the reason. The settings come from current
+ * policy, so a replay names the settings of today. A row with no reason, or a result of another
+ * kind, passes through.
  */
-function withApprovalCause(row: StagingRow, result: DispatchResult): DispatchResult {
-  if (row.approvalCause === null) return result;
-
-  if (result.kind === "executed" || result.kind === "failed" || result.kind === "rejected") {
-    return { ...result, approvalCause: row.approvalCause };
+async function withApprovalCause(
+  row: { approvalReason: ApprovalReason | null },
+  args: ToolCallDispatchArgs,
+  result: DispatchResult,
+): Promise<DispatchResult> {
+  if (result.kind !== "executed" && result.kind !== "failed" && result.kind !== "rejected") {
+    return result;
   }
 
-  return result;
+  const cause = await approvalCauseNow(args.userId, row.approvalReason, onThread(args));
+
+  return cause === null ? result : { ...result, approvalCause: cause };
+}
+
+/** The call runs in a chat thread, so Full Autonomy for the thread is a setting. */
+function onThread(args: ToolCallDispatchArgs): boolean {
+  return args.approvalThreadId !== undefined;
 }
 
 function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): DispatchResult {
