@@ -91,7 +91,8 @@
     "check-types": "tsc -b --emitDeclarationOnly && tsc -p tsconfig.test.json && tsc -p tsconfig.eval.json",
     "test": "tsx --test --test-force-exit \"test/**/*.test.ts\"",
     "test:db": "tsx --env-file-if-exists=../../apps/server/.env --test --test-force-exit \"test/**/*.test.ts\"",
-    "test:shard": "node ../../scripts/run-test-shard.mjs tsx --test --test-force-exit",
+    "test:shard": "node ../../scripts/run-test-shard.mjs --exclude test/barrel-load.test.ts tsx --test --test-force-exit",
+    "test:env-free": "tsx --test --test-force-exit test/barrel-load.test.ts",
     "eval": "evalite run",
     "eval:watch": "evalite watch",
     "mcp:policy-drift": "tsx --env-file-if-exists=../../apps/server/.env src/scripts/mcp-policy-drift.ts"

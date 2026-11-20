@@ -659,6 +659,15 @@ jobs:
       - name: HTTP barrel loads with no service environment
         run: corepack pnpm --filter @alfred/http test:env-free
 
+      # The `@alfred/assistant` import probe: one `tsx` child per exports subpath
+      # (79), each with only PATH, HOME and TMPDIR. It needs no service. It runs
+      # here, not in an assistant shard, because it alone costs about 20-26 % of
+      # that suite's CPU, and its wall time swung 90-124 s on the leg that held
+      # it (2026-11-20). `test:shard` excludes it by name in the same
+      # `package.json`, and the runner fails if that name stops matching a file.
+      - name: Assistant exports import inertly
+        run: corepack pnpm --filter @alfred/assistant test:env-free
+
   # Postgres AND Redis, both as services, plus the full format-valid `serverEnv`
   # block and `db:migrate` — the `http-tests` template. Every DB-backed suite here
   # asks `dbBackedSkip` for `"database"` only, but these files ran under the
@@ -809,8 +818,10 @@ jobs:
   # ~10, install ~8, node ~5, checkout 2, migrations 2-3).
   #
   # The skew had one main cause. `test/barrel-load.test.ts` starts one `tsx`
-  # child per exports subpath (79), so it costs about 20 % of the suite's CPU
-  # while its wall time looks like 8 %. Round-robin kept it on leg 1.
+  # child per exports subpath (79), so it costs about 20-26 % of the suite's CPU
+  # while its wall time looks like 8 %. Round-robin kept it on leg 1. Weighting
+  # could not fix it either: the leg that held it still swung 90-124 s. So it
+  # runs in `unit-tests` now, and `test:shard` excludes it.
   #
   # `test:shard` runs `scripts/run-test-shard.mjs`. It lists the test files from
   # git and deals them heaviest-first onto the lightest leg, using the per-file

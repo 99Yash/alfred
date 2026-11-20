@@ -2,7 +2,11 @@
 //
 // Usage, from the package directory, with the package's own test command:
 //   TEST_SHARD=2/3 [TEST_CPU_OUT=/abs/path.jsonl] \
-//     node ../../scripts/run-test-shard.mjs tsx --test --test-force-exit
+//     node ../../scripts/run-test-shard.mjs [--exclude test/x.test.ts]... \
+//       tsx --test --test-force-exit
+//
+// `--exclude` removes a file that another CI job runs. Keep the exclusion next to
+// the script that runs the file, in the same `package.json`.
 //
 // It replaces `tsx --test --test-shard=i/n "test/**/*.test.ts"`. The split rule
 // is in `test-shards.mjs`. The runner appends this leg's files to the command it
@@ -28,8 +32,18 @@ const cwd = process.cwd();
 
 const commandLine = process.argv.slice(2);
 
+/** Files that another job runs; each `--exclude <path>` pair precedes the command. */
+const excluded = new Set();
+
+while (commandLine[0] === "--exclude" && commandLine.length >= 2) {
+  excluded.add(commandLine[1]);
+  commandLine.splice(0, 2);
+}
+
 if (commandLine.length === 0) {
-  console.error("usage: node run-test-shard.mjs <test command...>   (with TEST_SHARD=i/n)");
+  console.error(
+    "usage: node run-test-shard.mjs [--exclude <test file>]... <test command...>   (with TEST_SHARD=i/n)",
+  );
   process.exit(1);
 }
 
@@ -44,7 +58,22 @@ if (shard === null) {
   process.exit(1);
 }
 
-const files = listTestFiles(cwd);
+const listed = listTestFiles(cwd);
+
+// An exclusion that matches no file is a renamed or deleted file. The job that
+// runs it fails on the missing path too, but fail here as well: a stale
+// exclusion must not read as "the other job owns it".
+const unknownExclusions = [...excluded].filter((file) => !listed.includes(file));
+
+if (unknownExclusions.length > 0) {
+  console.error(
+    `run-test-shard: --exclude names no test file: ${unknownExclusions.join(", ")}. ` +
+      `Update the exclusion and the script that runs the file, together.`,
+  );
+  process.exit(1);
+}
+
+const files = listed.filter((file) => !excluded.has(file));
 
 if (files.length === 0) {
   console.error(`run-test-shard: ${cwd}/test holds no *.test.ts file; this leg would test nothing`);
