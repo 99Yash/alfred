@@ -17,6 +17,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # About half the pull requests change only prose: 70 of the last 150 commits on
+  # `main` touched nothing outside `docs/**` and the root `*.md` files (counted
+  # 2026-11-20). No test, no type check and no build reads those paths, so such a
+  # pull request skips every test job, the type-check leg and `duplicates`. The
+  # static legs 1-3 still run, because `check:doc-symbols`, `check:prose-locators`,
+  # `check:plan-status`, `check:rules-catalog` and `check:campaign-state` read docs.
+  #
+  # The rule fails toward running. This job names the paths that MAY skip, never
+  # which job a path affects: a path missing from the list makes everything run,
+  # while a path missing from a "what does this touch" map would silently leave a
+  # change untested. Every dependent job runs unless this job printed exactly
+  # `code=false`. So if this job fails, prints nothing, or runs on a push to `main`
+  # or a manual dispatch, the dependent jobs see an empty output or `true`, and
+  # they run.
+  #
+  # The workflow cannot use `on.pull_request.paths-ignore` for this. Seven of
+  # these jobs are required checks in the `main protection` ruleset, and a
+  # workflow that never starts leaves them `Expected` forever. A job skipped by
+  # its `if:` reports success to the ruleset. The two matrix aggregates accept
+  # `skipped` only when this job said `code=false`.
+  #
+  # `--no-renames` is load-bearing. With rename detection, `--name-only` prints
+  # only the NEW path, so moving `packages/x.ts` to `docs/x.md` would show one
+  # docs path and skip the tests over a deleted source file.
+  #
+  # Cost: every dependent job waits for this one, about 10 s, on every run.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      # A pull_request run checks out the merge commit. HEAD^1 is the base tip,
+      # so the diff is exactly what the pull request adds to `main`.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Classify the change as prose-only or code
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "$EVENT_NAME run: every job runs"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
+          printf 'changed paths:\n%s\n' "$changed"
+          code=false
+          if [ -z "$changed" ]; then code=true; fi
+          while IFS= read -r path; do
+            case "$path" in
+              docs/*) ;;
+              */*) code=true ;;
+              *.md) ;;
+              *) code=true ;;
+            esac
+          done <<< "$changed"
+          echo "code=$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   # `static` used to run `check:ci` and `check-types` in ONE serial step, and
   # that step measured 187 s of the job's 227 s wall clock (run 41211342533,
   # 2026-11-01). The ~28 checks are independent scripts that need only
@@ -42,10 +106,16 @@ jobs:
   #
   # No leg carries `services:`, an `env:` block, or migrations: no check in
   # the chain touches Postgres or Redis.
+  #
+  # Legs 1-3 run on every change, prose-only included. `!cancelled()` keeps
+  # them running when `changes` fails, so the required `static` never passes
+  # on a skipped matrix. Only the leg-4 steps read `changes`.
   static-shard:
     name: static-shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -121,11 +191,11 @@ jobs:
           corepack pnpm format:check
 
       - name: Monorepo type check
-        if: matrix.shard == 4
+        if: matrix.shard == 4 && needs.changes.outputs.code != 'false'
         run: corepack pnpm check-types
 
       - name: Build and smoke-test the PDF extraction child
-        if: matrix.shard == 4
+        if: matrix.shard == 4 && needs.changes.outputs.code != 'false'
         run: |
           corepack pnpm --filter server build
           test -f apps/server/dist/extract-pdf-child.js
@@ -163,6 +233,8 @@ jobs:
     name: duplicates
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -222,6 +294,8 @@ jobs:
     name: http-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -337,6 +411,8 @@ jobs:
     name: db-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -458,6 +534,8 @@ jobs:
     name: unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -597,6 +675,8 @@ jobs:
     name: leaf-db-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -743,6 +823,8 @@ jobs:
     name: assistant-unit-tests-shard (${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     strategy:
       fail-fast: false
       matrix:
@@ -843,18 +925,26 @@ jobs:
   # is required — without it a failed shard SKIPS this job, and a skipped
   # required check is not a passing one. It runs no checkout and no install, so
   # it costs seconds.
+  #
+  # A skipped matrix passes only when `changes` said `code=false`, a prose-only
+  # pull request. Any other skip, such as a failed `changes` job, stays red.
   assistant-unit-tests:
     name: assistant-unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: assistant-unit-tests-shard
+    needs: [changes, assistant-unit-tests-shard]
     if: always()
     steps:
       - name: Require every shard to pass
         env:
           SHARDS_RESULT: ${{ needs.assistant-unit-tests-shard.result }}
+          CODE: ${{ needs.changes.outputs.code }}
         run: |
-          echo "assistant-unit-tests-shard matrix result: $SHARDS_RESULT"
+          echo "assistant-unit-tests-shard matrix result: $SHARDS_RESULT (changes code=$CODE)"
+          if [ "$SHARDS_RESULT" = "skipped" ] && [ "$CODE" = "false" ]; then
+            echo "prose-only pull request: the shards were skipped on purpose"
+            exit 0
+          fi
           test "$SHARDS_RESULT" = "success"
 
   # This job builds the browser bundle as well as running the web unit tests. The
@@ -880,6 +970,8 @@ jobs:
     name: web-unit-tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     steps:
       - uses: actions/checkout@v4
 
