@@ -10,7 +10,7 @@ import {
 } from "@alfred/contracts";
 import type { SyncedActionPolicy, SyncedChatToolCall } from "@alfred/sync";
 import { ArrowRight } from "lucide-react";
-import { toast } from "~/lib/toast";
+import { requestApprovalModePicker } from "~/lib/chat/approval-mode-picker-request";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
@@ -58,6 +58,8 @@ function approvalSettingKey(setting: ApprovalSetting): string {
 interface SettingLink {
   key: string;
   label: string;
+  /** What the setting authorizes (ADR-0130 amendment (c)). */
+  scope: string;
   /** The integration page, or the integrations list when the slug has no page. */
   slug: string | undefined;
 }
@@ -69,7 +71,8 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
 
       return {
         key: approvalSettingKey(setting),
-        label: `${page?.name ?? "Integration"} settings`,
+        label: `${page?.name ?? "Integration"} ${APPROVAL_CONTROL_LABELS.approvalPolicy.toLowerCase()}`,
+        scope: "This integration",
         slug: page?.slug,
       };
     }
@@ -78,6 +81,7 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
       return {
         key: approvalSettingKey(setting),
         label: `Always allow ${humanizeToolName(setting.toolName)}`,
+        scope: "This action",
         slug: getIntegrationPage(integrationFromToolName(setting.toolName))?.slug,
       };
     case "full_autonomy":
@@ -88,8 +92,9 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
 }
 
 /**
- * Links to the settings that remove this turn's cards, under the reply. Nothing when the turn had
- * no card with a reason. Full Autonomy is a button, because it is a flag on this thread.
+ * Links to the settings that remove this turn's cards, under the reply, each with its scope.
+ * Nothing when the turn had no card with a reason. Full Autonomy opens the approval mode picker
+ * of this thread (ADR-0069), so it never turns on at once.
  * The sync queries sit in `SettingRows`, below the empty-case return, so a turn with no card
  * mounts no subscription.
  */
@@ -116,7 +121,7 @@ function SettingRows({
   // Null before the first pull, and on a shared page with no sync: then no row shows.
   const { policy } = useActionPolicy();
   const settings = policy === null ? [] : settingsOf(reasons, policy);
-  // Undefined on a shared page with no sync, so the Full Autonomy button does not show there.
+  // Undefined on a shared page with no sync and no picker, so the button does not show there.
   const threadActions = useThreadActions(threadId);
   const links = settings.map(settingLink).filter((link) => link !== null);
 
@@ -136,6 +141,7 @@ function SettingRows({
         <SettingButton
           key={link.key}
           label={link.label}
+          scope={link.scope}
           onClick={() =>
             void (link.slug === undefined
               ? navigate({ to: "/integrations" })
@@ -146,18 +152,23 @@ function SettingRows({
       {offersFullAutonomy ? (
         <SettingButton
           label={APPROVAL_CONTROL_LABELS.fullAutonomyButton}
-          onClick={() =>
-            void threadActions.setApprovalMode(threadId, "full").catch(() => {
-              toast.error("Couldn't turn on Full Autonomy. Please try again.");
-            })
-          }
+          onClick={() => requestApprovalModePicker(threadId)}
         />
       ) : null}
     </div>
   );
 }
 
-function SettingButton({ label, onClick }: { label: string; onClick: () => void }) {
+function SettingButton({
+  label,
+  scope,
+  onClick,
+}: {
+  label: string;
+  /** Omitted when the label already names the scope. */
+  scope?: string | undefined;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -169,6 +180,7 @@ function SettingButton({ label, onClick }: { label: string; onClick: () => void 
       )}
     >
       {label}
+      {scope === undefined ? null : <span className="font-normal text-app-fg-2">· {scope}</span>}
       <ArrowRight
         size={13}
         aria-hidden

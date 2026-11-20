@@ -33,6 +33,9 @@ export function PickerMenu({
   trigger,
   side = "top",
   align = "start",
+  open,
+  onOpenChange,
+  footnote,
   children,
 }: {
   /** The menu's accessible name. */
@@ -48,13 +51,21 @@ export function PickerMenu({
   /** Where the menu opens from the trigger. The composer pickers open up; the top bar opens down. */
   side?: DropdownMenuContentProps["side"];
   align?: DropdownMenuContentProps["align"];
+  /** Set both to control the menu, so another control can open it. Leave both unset otherwise. */
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
+  /** Optional line below the options. */
+  footnote?: string | undefined;
   children: ReactNode;
 }) {
   // The menu portals out of `.app`, so stamp the resolved theme on the content.
   const { resolved } = useAppTheme();
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange === undefined ? {} : { onOpenChange })}
+    >
       <Tip label={tip} description={tipDescription}>
         <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
       </Tip>
@@ -81,6 +92,11 @@ export function PickerMenu({
             </DropdownMenu.Label>
           ) : null}
           <DropdownMenu.RadioGroup value={value}>{children}</DropdownMenu.RadioGroup>
+          {footnote ? (
+            <p className="px-2 pt-1.5 pb-1 text-[11px] leading-snug text-pretty text-app-fg-2 select-none">
+              {footnote}
+            </p>
+          ) : null}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

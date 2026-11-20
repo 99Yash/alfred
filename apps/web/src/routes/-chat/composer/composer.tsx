@@ -654,6 +654,7 @@ export function Composer({
               onVoiceConfirm={() => void onVoiceConfirm()}
               onStopGeneration={onStopGeneration}
               approvalMode={approvalMode}
+              approvalModeThreadId={threadId}
               approvalModePending={Boolean(approvalModePending) || (sending && !threadId)}
               onApprovalModeChange={onApprovalModeChange}
               tier={tier}

@@ -127,6 +127,13 @@ function isChatTurnRun(t: Pick<ChatThreadRunColumns, "workflowSlug">): SQL {
   return sql`${t.workflowSlug} = ${sql.raw(`'${CHAT_TURN_WORKFLOW_SLUG}'`)}`;
 }
 
+/** The thread of a chat-turn run, and `NULL` for any other run (a workflow has no thread). */
+export function chatTurnThreadIdOf(
+  t: Pick<ChatThreadRunColumns, "workflowSlug" | "metadata">,
+): SQL {
+  return sql`CASE WHEN ${isChatTurnRun(t)} THEN ${chatThreadIdExpr(t)} END`;
+}
+
 /** WHERE for the chat-turn runs of one thread, built from the same expressions as the index. */
 export function chatThreadRunMatch(
   t: ChatThreadRunColumns,

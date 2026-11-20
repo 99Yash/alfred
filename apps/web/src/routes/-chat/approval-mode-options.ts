@@ -27,7 +27,7 @@ const AUTO_OPTION: ModeOption = {
 const FULL_OPTION: ModeOption = {
   value: "full",
   label: APPROVAL_CONTROL_LABELS.fullAutonomy,
-  description: "This chat never asks. Sends, invites, and deploys run at once.",
+  description: "This chat stops asking. Sends, invites, and deploys run at once.",
   Icon: ShieldOff,
 };
 

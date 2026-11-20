@@ -2,6 +2,7 @@ import { ApprovalCard } from "./approval-card";
 import type { StagedRow } from "./ask-user";
 import { QuestionApprovalCard } from "./question-approval-card";
 import type { DecisionOutcome } from "./decide-approval";
+import type { PermissionsPolicy } from "./permissions-menu";
 import type { RecordedDecision } from "./use-approval-decision";
 
 /**
@@ -10,15 +11,18 @@ import type { RecordedDecision } from "./use-approval-decision";
  */
 export function StagedApprovalCard({
   row,
+  policy,
   onDecide,
 }: {
   row: StagedRow;
+  /** The page's action policy read, for the settings that remove a write card. */
+  policy: PermissionsPolicy;
   /** Throws with a message on failure. */
   onDecide: (decision: RecordedDecision) => Promise<DecisionOutcome>;
 }) {
   return row.kind === "question" ? (
     <QuestionApprovalCard question={row} onDecide={onDecide} />
   ) : (
-    <ApprovalCard staging={row.staging} onDecide={onDecide} />
+    <ApprovalCard staging={row.staging} policy={policy} onDecide={onDecide} />
   );
 }

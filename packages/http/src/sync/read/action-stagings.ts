@@ -2,13 +2,14 @@ import type { DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  chatTurnThreadIdOf,
   workflows,
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
 import { isQuestionApproval } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
-import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
@@ -29,6 +30,7 @@ type ActionStagingRow = {
   staging: ActionStaging;
   workflowSlug: string;
   workflowName: string | null;
+  threadId: string | null;
   trigger: AgentRunTrigger | null;
   brief: string | null;
   recentRejection: RecentRejection | null;
@@ -122,6 +124,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
         staging: actionStagings,
         workflowSlug: agentRuns.workflowSlug,
         workflowName: workflows.name,
+        threadId: sql<string | null>`${chatTurnThreadIdOf(agentRuns)}`,
         trigger: agentRuns.trigger,
         brief: agentRuns.brief,
       })
@@ -172,6 +175,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
       runId: s.runId,
       workflowSlug: row.workflowSlug,
       workflowName: row.workflowName ?? row.workflowSlug,
+      threadId: row.threadId,
       trigger: narrowTrigger(row.trigger),
       brief,
       stepId: s.stepId,

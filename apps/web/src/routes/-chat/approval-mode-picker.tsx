@@ -1,8 +1,11 @@
 /**
  * Approval-mode picker, same shape as {@link ModelTierPicker}. See {@link ChatApprovalMode} for
  * what each mode writes. Stays usable while a pending approval disables the composer, so a mode
- * change can apply to the parked run's next call.
+ * change can apply to the parked run's next call. Every Full Autonomy control opens this picker
+ * (ADR-0130 amendment (c)), through `requestApprovalModePicker`.
  */
+import { useState } from "react";
+import { useApprovalModePickerRequest } from "~/lib/chat/approval-mode-picker-request";
 import { cn } from "~/lib/utils";
 import { MODE_OPTIONS, modeOption } from "./approval-mode-options";
 import type { ChatApprovalMode } from "@alfred/sync";
@@ -12,7 +15,7 @@ import { pickerTriggerClass, pickerTriggerNeutralClass } from "./picker-menu-cla
 const TIP_DESCRIPTION = {
   review: "Review: Alfred asks before acting.",
   auto: "Auto: Alfred follows your rules. Risky actions still ask.",
-  full: "Full autonomy: this chat never asks.",
+  full: "Full autonomy: this chat stops asking.",
 } satisfies Record<ChatApprovalMode, string>;
 
 function triggerToneClass(mode: ChatApprovalMode): string {
@@ -47,22 +50,41 @@ function chevronClass(mode: ChatApprovalMode): string | undefined {
   return mode === "auto" ? "text-app-green-4/70" : undefined;
 }
 
+/** What a mode change can waive (ADR-0069 amendment, ADR-0130 amendment (c)). */
+const FOOTNOTE =
+  "A change applies to Alfred's next actions. A card that waits now, a question, and a confirm step still wait.";
+
 export function ApprovalModePicker({
   mode,
+  threadId,
   disabled,
   onChange,
 }: {
   mode: ChatApprovalMode;
+  /** The thread whose Full Autonomy controls open this picker. `undefined` in a new chat. */
+  threadId?: string | undefined;
   disabled?: boolean | undefined;
   onChange: (mode: ChatApprovalMode) => void;
 }) {
   const selected = modeOption(mode);
   const SelectedIcon = selected.Icon;
+  const [menuOpen, setMenuOpen] = useState(false);
+  // A request stays until the menu closes. While the picker is disabled (the thread row loads
+  // after a jump from `/approvals`), the request waits, and the menu opens when it can.
+  const request = useApprovalModePickerRequest(threadId);
+  const open = (menuOpen || request.requested) && !disabled;
 
   return (
     <PickerMenu
       label="Action approval"
       heading="How should Alfred act?"
+      footnote={FOOTNOTE}
+      open={open}
+      onOpenChange={(next) => {
+        setMenuOpen(next);
+
+        if (!next) request.clear();
+      }}
       value={mode}
       tip="Action approval"
       tipDescription={TIP_DESCRIPTION[mode]}

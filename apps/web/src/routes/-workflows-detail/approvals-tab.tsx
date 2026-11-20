@@ -16,7 +16,8 @@ import { WorkflowIcon } from "./workflow-icon";
  */
 export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
   const { rows, loading, error, retry } = useActionStagings();
-  const { modeFor } = useActionPolicy();
+  const policy = useActionPolicy();
+  const { modeFor } = policy;
   const pending = rows.filter((row) => row.staging.workflowSlug === workflow.slug);
   const integrations = workflow.allowedIntegrations;
 
@@ -41,6 +42,7 @@ export function ApprovalsTab({ workflow }: { workflow: SyncedWorkflow }) {
             <StagedApprovalCard
               key={row.staging.id}
               row={row}
+              policy={policy}
               onDecide={(decision) => decideApproval(row.staging.id, decision)}
             />
           ))}

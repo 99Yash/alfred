@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppButton, AppCard, AppPill } from "~/components/ui/v2";
 import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { useActionStagings } from "~/lib/replicache/use-action-stagings";
 import { cn } from "~/lib/utils";
 import { StagedApprovalCard } from "~/components/approvals/staged-approval-card";
@@ -60,6 +61,8 @@ function buildFacets<T extends string>(
  */
 export function ApprovalsPage() {
   const { rows, loading, error, retry } = useActionStagings();
+  // One policy read for every card, for the settings that remove each card (ADR-0130).
+  const policy = useActionPolicy();
 
   const { integration: selIntegration = [], risk: selRisk = [] } = useSearch({
     from: "/approvals",
@@ -273,6 +276,7 @@ export function ApprovalsPage() {
               >
                 <StagedApprovalCard
                   row={row}
+                  policy={policy}
                   onDecide={(decision) => decideApproval(row.staging.id, decision)}
                 />
               </div>

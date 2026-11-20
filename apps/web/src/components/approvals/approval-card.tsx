@@ -1,13 +1,25 @@
 import type { SyncedActionStaging } from "@alfred/sync";
-import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Ban, Check, Pencil, RefreshCw, Workflow, X } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  Ban,
+  Check,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  Workflow,
+  X,
+} from "lucide-react";
+import { requestApprovalModePicker } from "~/lib/chat/approval-mode-picker-request";
 import { AppButton, AppCard, AppTextarea } from "~/components/ui/v2";
 import { cn } from "~/lib/utils";
+import { approvalReasonLine } from "./approval-reason";
 import { approveButtonLabel, toolChipLabel } from "./card-spec";
 import { MayHaveRunNotice } from "./may-have-run-notice";
 import { formatDateTime } from "~/lib/date-format";
 import { shortId, triggerLabel } from "./format";
 import { ApprovalInputEditor } from "./input-editor";
+import { PermissionsMenu, type PermissionsPolicy } from "./permissions-menu";
 import { RiskPill } from "./risk-pill";
 import { ToolIcon } from "./tool-icon";
 import type { DecisionOutcome } from "./decide-approval";
@@ -26,15 +38,23 @@ const ICON_REVISE_SM = <RefreshCw size={13} />;
 
 const ICON_CHECK = <Check size={14} />;
 
+const SOURCE_LINK_CLASS = cn(
+  "inline-flex items-center gap-1 rounded-control-xs font-medium transition-colors hover:text-app-fg-4",
+  "app-focus",
+);
+
 /**
  * One staged write in the approvals queue. Questions get `QuestionApprovalCard`
  * (ADR-0099), so the write-only decision type rules out a reason-less reject.
  */
 export function ApprovalCard({
   staging,
+  policy,
   onDecide,
 }: {
   staging: SyncedActionStaging;
+  /** The page's action policy read, for the settings that remove this card. */
+  policy: PermissionsPolicy;
   /** Throws with a message on failure. */
   onDecide: (decision: WriteDecision) => Promise<DecisionOutcome>;
 }) {
@@ -48,6 +68,7 @@ export function ApprovalCard({
     reasonRef,
     busy,
     error,
+    setError,
     edited,
     reasonMissing,
     title,
@@ -55,6 +76,9 @@ export function ApprovalCard({
     dontRunAgainDecision,
     run,
   } = useApprovalDecision(staging);
+
+  const navigate = useNavigate();
+  const { threadId } = staging;
 
   // Replicache removes a decided card; a restaged one re-seeds with its new input. Either way `busy` needs no cleanup.
   const decide = (decision: WriteDecision) =>
@@ -73,18 +97,25 @@ export function ApprovalCard({
             </h2>
             <RiskPill riskTier={staging.riskTier} />
           </div>
+          <p className="mt-1 text-[12px] leading-[18px] text-pretty text-app-fg-3">
+            {approvalReasonLine(staging.approvalReason)}
+          </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-app-fg-3">
-            <Link
-              to="/workflows/$workflow"
-              params={{ workflow: staging.workflowSlug }}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-control-xs font-medium transition-colors hover:text-app-fg-4",
-                "app-focus",
-              )}
-            >
-              <Workflow size={12} />
-              {staging.workflowName}
-            </Link>
+            {threadId === null ? (
+              <Link
+                to="/workflows/$workflow"
+                params={{ workflow: staging.workflowSlug }}
+                className={SOURCE_LINK_CLASS}
+              >
+                <Workflow size={12} />
+                {staging.workflowName}
+              </Link>
+            ) : (
+              <Link to="/chat/$threadId" params={{ threadId }} className={SOURCE_LINK_CLASS}>
+                <MessageSquare size={12} />
+                Chat
+              </Link>
+            )}
             <span className="text-app-fg-2">·</span>
             <span>{triggerLabel(staging.trigger)}</span>
             <span className="text-app-fg-2">·</span>
@@ -105,6 +136,20 @@ export function ApprovalCard({
             ) : null}
           </div>
         </div>
+        <PermissionsMenu
+          staging={staging}
+          policy={policy}
+          onFullAutonomy={
+            threadId === null
+              ? undefined
+              : () => {
+                  // The chat shell of the thread opens its picker when it mounts.
+                  requestApprovalModePicker(threadId);
+                  void navigate({ to: "/chat/$threadId", params: { threadId } });
+                }
+          }
+          onError={setError}
+        />
       </div>
 
       {staging.mayHaveRun ? <MayHaveRunNotice /> : null}
