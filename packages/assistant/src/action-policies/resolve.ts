@@ -6,10 +6,11 @@
  * It holds a Promise, so a burst of reads for one user makes one DB read.
  */
 
-import type { IntegrationSlug, PolicyMode, ToolName } from "@alfred/contracts";
+import type { IntegrationSlug, McpServerToolRef, PolicyMode, ToolName } from "@alfred/contracts";
 import {
   integrationFromToolName,
   resolveIntegrationModeDecision,
+  resolveServerToolModeDecision,
   resolveToolModeDecision,
   type ToolModeDecision,
 } from "@alfred/contracts";
@@ -105,29 +106,46 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
 export type PolicyDecision = { mode: "autonomy"; source: "system" } | ToolModeDecision;
 
 /**
- * Read order: `system.*`, then tool override, then integration mode, then user default (ADR-0034).
- * `system.*` returns `autonomy` before the row is read (ADR-0040 D5), so no data bug
- * or user toggle can gate it. The seeded `integrationRules.system` is only a second line.
- * `system.*` can still stage on the ADR-0069 `high`-tier floor, which `toolRequiresApproval` adds.
- * `policyIntegration` is the integration of the call when its input names another one
- * (`BoundToolCall.policyIntegration`): `mcp.call` on the GitHub MCP reads the `github` rule.
- * The tool overrides of the tool's own integration do not apply then.
+ * The rule that governs one call, when its input names it (`BoundToolCall.policyTarget`).
+ * - `integration`: `mcp.call` on the GitHub MCP reads the `github` rule.
+ * - `serverTool`: the server tool of an `mcp.call` whose descriptor dispatch resolved. Its rule
+ *   applies at this exact descriptor (ADR-0130 amendment (c)).
+ */
+export interface PolicyTarget {
+  integration: IntegrationSlug;
+  serverTool?: McpServerToolRef | undefined;
+}
+
+/**
+ * Read order: `system.*`, then the rule on the tool or on the server tool, then the integration
+ * mode, then the user default (ADR-0034). `system.*` returns `autonomy` before the row is read
+ * (ADR-0040 D5), so no data bug or user toggle can gate it. The seeded `integrationRules.system`
+ * is only a second line. `system.*` can still stage on the ADR-0069 `high`-tier floor, which
+ * `toolRequiresApproval` adds. With no `target`, the rule of the tool's own integration governs.
+ * A call on a server tool, or on another integration, does not read the tool overrides of the
+ * tool's own integration.
  */
 export async function resolvePolicyDecision(
   userId: string,
   toolName: ToolName,
-  policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
+  target?: PolicyTarget,
 ): Promise<PolicyDecision> {
   if (integrationFromToolName(toolName) === "system") return { mode: "autonomy", source: "system" };
 
   const policy = await getResolvedPolicy(userId);
+  const integration = target?.integration ?? integrationFromToolName(toolName);
 
-  if (policyIntegration !== integrationFromToolName(toolName)) {
-    return resolveIntegrationModeDecision(
+  if (target?.serverTool !== undefined) {
+    return resolveServerToolModeDecision(
       policy.integrationRules,
-      policyIntegration,
+      integration,
+      target.serverTool,
       policy.defaultMode,
     );
+  }
+
+  if (integration !== integrationFromToolName(toolName)) {
+    return resolveIntegrationModeDecision(policy.integrationRules, integration, policy.defaultMode);
   }
 
   return resolveToolModeDecision(policy.integrationRules, toolName, policy.defaultMode);
@@ -137,9 +155,9 @@ export async function resolvePolicyDecision(
 export async function resolvePolicyMode(
   userId: string,
   toolName: ToolName,
-  policyIntegration: IntegrationSlug = integrationFromToolName(toolName),
+  target?: PolicyTarget,
 ): Promise<PolicyMode> {
-  return (await resolvePolicyDecision(userId, toolName, policyIntegration)).mode;
+  return (await resolvePolicyDecision(userId, toolName, target)).mode;
 }
 
 export async function resolveApprovalNotifyDelayMs(userId: string): Promise<number> {

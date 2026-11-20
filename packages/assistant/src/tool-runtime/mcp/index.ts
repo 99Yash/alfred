@@ -19,6 +19,7 @@ export {
   isSelectedMcpToolReadOnly,
   mcpUnresolvedInvocationGate,
   readCurrentMcpCatalogRevision,
+  readCurrentMcpServerTool,
   reconcileInflightInvocations,
   resolveMcpToolIdentity,
   type McpToolIdentityResolution,

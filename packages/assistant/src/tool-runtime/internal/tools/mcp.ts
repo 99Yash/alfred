@@ -273,9 +273,12 @@ export const mcpTools: readonly RegisteredTool[] = [
     // Reads the persisted catalog at the bound revision only. Any doubt stays high.
     resolveRiskTier: async (input, ctx) => (await proposalFacts(input, ctx.userId)).riskTier,
     // A built-in follows its provider's rule, so the GitHub Auto/Gated setting governs GitHub reads.
-    // A user-added server has no provider and keeps the `mcp` rule.
-    resolvePolicyIntegration: async (input, ctx) =>
-      (await integrationOfMcpConnection(ctx.userId, input.connectionId)) ?? "mcp",
+    // A user-added server has no provider and keeps the `mcp` rule. A resolved tool also names its
+    // server tool, whose own rule beats the integration mode at this descriptor (ADR-0130 (c)).
+    resolvePolicyTarget: async (input, ctx) =>
+      (await proposalFacts(input, ctx.userId)).policyTarget ?? {
+        integration: (await integrationOfMcpConnection(ctx.userId, input.connectionId)) ?? "mcp",
+      },
     // Before the staging row, so a refused call gets no approval card. Only a fresh proposal
     // runs this. The broker checks the connection that runs again.
     refuseProposal: async (input, ctx) => {

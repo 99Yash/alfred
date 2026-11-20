@@ -1,8 +1,10 @@
 import {
+  APPROVAL_CONTROL_LABELS,
   enumGuard,
   humanizeSlug,
   isToolRiskTier,
   MCP_TOOL_POLICY_NOTE_MAX,
+  serverToolRuleOf,
   mcpEffectClassValues,
   mcpRetryContractValues,
   TOOL_OUTPUT_KINDS,
@@ -10,7 +12,9 @@ import {
   TOOL_RISK_TIERS,
   toMessage,
   type ExternalToolRef,
+  type IntegrationSlug,
   type McpEffectClass,
+  type McpServerToolRef,
   type McpRetryContract,
   type ToolOutputKind,
   type ToolReadClass,
@@ -18,9 +22,16 @@ import {
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { AppButton, AppSelect, useAppForm, type AppSelectOption } from "~/components/ui/v2";
+import {
+  AppButton,
+  AppSelect,
+  AppSwitch,
+  useAppForm,
+  type AppSelectOption,
+} from "~/components/ui/v2";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { MCP_TOOL_POLICY_QUERY_KEY, type McpToolPolicyState } from "./helpers";
 
 /** `note`, `readClass`, and `outputKind` are `null` when blank, as the contract expects. */
@@ -478,6 +489,94 @@ export function McpToolPolicyReview({
   toolRef: ExternalToolRef;
 }) {
   const controller = useMcpToolPolicy(connectionId, toolRef);
+  const { state } = controller;
 
-  return <McpToolPolicyReviewView {...controller} />;
+  const ruleTarget =
+    state?.status === "reviewed" || state?.status === "unreviewed" || state?.status === "drifted"
+      ? state.ruleTarget
+      : undefined;
+
+  return (
+    <>
+      <McpToolPolicyReviewView {...controller} />
+      {ruleTarget === undefined ? null : (
+        <ServerToolRuleSwitch
+          integration={ruleTarget.integration}
+          serverTool={{
+            connectionId,
+            remoteName: toolRef.remoteName,
+            descriptorHash: ruleTarget.descriptorHash,
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * "Always allow this action" for one server tool (ADR-0130 amendment (c)). The rule binds to the
+ * descriptor that the owner inspected, so a changed tool asks again. Off removes the rule, and the
+ * integration mode governs the tool again. A `high` call still asks.
+ */
+function ServerToolRuleSwitch({
+  integration,
+  serverTool,
+}: {
+  integration: IntegrationSlug;
+  serverTool: McpServerToolRef;
+}) {
+  const { policy, setServerToolMode, loading } = useActionPolicy();
+  const [error, setError] = useState<string | null>(null);
+  const id = `server-tool-rule-${serverTool.connectionId}-${serverTool.remoteName}`;
+
+  if (policy === null) return null;
+
+  const allowed =
+    serverToolRuleOf(policy.integrationRules, integration, serverTool)?.mode === "autonomy";
+
+  const stored =
+    policy.integrationRules[integration]?.serverToolOverrides?.[serverTool.connectionId]?.[
+      serverTool.remoteName
+    ];
+
+  const changed = stored !== undefined && stored.descriptorHash !== serverTool.descriptorHash;
+
+  return (
+    <div className="space-y-1 border-t border-app-bg-3 pt-4">
+      <div className="flex items-start gap-3">
+        <AppSwitch
+          id={id}
+          checked={allowed}
+          disabled={loading}
+          onCheckedChange={(next) => {
+            setError(null);
+            setServerToolMode(integration, serverTool, next === true ? "autonomy" : null).catch(
+              (cause: unknown) => setError(toMessage(cause)),
+            );
+          }}
+          className="mt-0.5 shrink-0"
+        />
+        <div className="min-w-0">
+          <label htmlFor={id} className="block text-xs font-medium text-app-fg-4">
+            {APPROVAL_CONTROL_LABELS.alwaysAllowAction}
+          </label>
+          <p className="mt-0.5 text-xs text-app-fg-3">
+            {allowed
+              ? "Alfred runs this tool without asking. If the server changes it, Alfred asks again. High-risk calls still ask."
+              : "Only this tool on this server. Other tools keep their rule."}
+          </p>
+          {changed ? (
+            <p className="mt-0.5 text-xs text-app-amber-4" role="status">
+              The server changed this tool, so the earlier rule no longer applies.
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {error ? (
+        <p className="text-xs text-app-red-4" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
 }

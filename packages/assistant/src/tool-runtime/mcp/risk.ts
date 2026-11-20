@@ -5,7 +5,8 @@
  * Reads the persisted catalog in one joined query; runs on every call.
  */
 
-import { isToolRiskTier, type IntegrationSlug, type ToolRiskTier } from "@alfred/contracts";
+import { isToolRiskTier, type ToolRiskTier } from "@alfred/contracts";
+import type { PolicyTarget } from "@alfred/assistant/action-policies";
 import { NOT_A_CONFIRMED_READ, type ReadFacts } from "../read-route";
 import {
   isReadOnlyMcpToolIdentity,
@@ -29,8 +30,29 @@ export const MCP_READ_ONLY_STRUCTURAL_TIER: ToolRiskTier = "low";
 export interface McpCallRouteFacts {
   riskTier: ToolRiskTier;
   facts: ReadFacts;
-  /** The rule that governs the call: a built-in's provider, else `mcp`. */
-  policyIntegration: IntegrationSlug;
+  /** The rule that governs the call (`policyTargetOf`). */
+  policyTarget: PolicyTarget;
+}
+
+/**
+ * The rule that governs a call on one resolved tool: the server's provider (else `mcp`), and the
+ * server tool at its exact descriptor, whose own rule beats the integration mode (ADR-0130
+ * amendment (c)). `undefined` for an unresolved tool: no descriptor, so no rule on it applies.
+ */
+function policyTargetOf(
+  identity: McpToolIdentityResolution,
+  remoteName: string,
+): PolicyTarget | undefined {
+  if (identity.status !== "resolved") return undefined;
+
+  return {
+    integration: identity.policyIntegration,
+    serverTool: {
+      connectionId: identity.connection.id,
+      remoteName,
+      descriptorHash: identity.descriptorHash,
+    },
+  };
 }
 
 /**
@@ -46,7 +68,7 @@ export async function resolveMcpCallRouteFacts(
   return {
     riskTier: effectiveMcpRiskTier(identity),
     facts: mcpReadFacts(identity),
-    policyIntegration: identity.status === "resolved" ? identity.policyIntegration : "mcp",
+    policyTarget: policyTargetOf(identity, input.remoteName) ?? { integration: "mcp" },
   };
 }
 
@@ -66,6 +88,8 @@ export interface McpCallProposalFacts {
    * a Code Mode read uses this to name the failure (ADR-0116 amendment 2026-11-18).
    */
   stale: boolean;
+  /** The rule that governs the call, from the same identity. `undefined`: the tool did not resolve. */
+  policyTarget: PolicyTarget | undefined;
 }
 
 /**
@@ -86,6 +110,7 @@ export async function resolveMcpCallProposalFacts(input: {
       facts: NOT_A_CONFIRMED_READ,
       readOnly: false,
       stale: false,
+      policyTarget: undefined,
     };
   }
 
@@ -96,6 +121,7 @@ export async function resolveMcpCallProposalFacts(input: {
     facts: mcpReadFacts(identity),
     readOnly: identity.status === "resolved" && isReadOnlyMcpToolIdentity(identity),
     stale: identity.status === "unresolved" && identity.reason === "revision_stale",
+    policyTarget: policyTargetOf(identity, input.remoteName),
   };
 }
 

@@ -5,6 +5,7 @@ import {
   INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
   resolveToolModeDecision,
+  serverToolRuleOf,
 } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -17,7 +18,7 @@ import { cn } from "~/lib/utils";
 
 export type PermissionsPolicy = Pick<
   ActionPolicyState,
-  "policy" | "modeFor" | "setIntegrationMode" | "setToolMode"
+  "policy" | "modeFor" | "setIntegrationMode" | "setToolMode" | "setServerToolMode"
 >;
 
 /**
@@ -58,6 +59,18 @@ export function PermissionsMenu({
 
   const integrationSetting = settings.find((setting) => setting.kind === "integration_mode");
   const showTool = settings.some((setting) => setting.kind === "always_allow");
+
+  const serverToolSetting = settings.find((setting) => setting.kind === "always_allow_server_tool");
+
+  // On only for a rule that allows this exact version of the server tool.
+  const serverToolAllowed =
+    serverToolSetting !== undefined &&
+    serverToolRuleOf(
+      synced.integrationRules,
+      serverToolSetting.integration,
+      serverToolSetting.serverTool,
+    )?.mode === "autonomy";
+
   const showFullAutonomy = settings.some((setting) => setting.kind === "full_autonomy");
   const toolTitle = humanizeToolName(staging.toolName);
 
@@ -127,6 +140,28 @@ export function PermissionsMenu({
           <p className="text-[11px] font-medium tracking-tight text-app-fg-2">
             Default permissions
           </p>
+          {serverToolSetting !== undefined ? (
+            <PermissionSwitch
+              id={`permissions-server-tool-${staging.id}`}
+              checked={serverToolAllowed}
+              // Off removes the rule, so the integration mode governs the tool again.
+              onCheckedChange={(next) =>
+                write(
+                  policy.setServerToolMode(
+                    serverToolSetting.integration,
+                    serverToolSetting.serverTool,
+                    next ? "autonomy" : null,
+                  ),
+                )
+              }
+              label={APPROVAL_CONTROL_LABELS.alwaysAllowAction}
+              hint={
+                serverToolAllowed
+                  ? `Only ${serverToolSetting.serverTool.remoteName}: Alfred does it without asking. If the server changes this tool, Alfred asks again.`
+                  : `Only ${serverToolSetting.serverTool.remoteName} on this server. Other tools keep their rule.`
+              }
+            />
+          ) : null}
           {showTool ? (
             <PermissionSwitch
               id={`permissions-tool-${staging.id}`}

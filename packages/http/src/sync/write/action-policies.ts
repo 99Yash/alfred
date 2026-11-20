@@ -1,13 +1,21 @@
 import { defaultActionPolicy } from "@alfred/assistant/action-policies";
-import { withToolOverride } from "@alfred/contracts";
+import { readCurrentMcpServerTool } from "@alfred/assistant/tool-runtime/mcp";
+import {
+  withServerToolOverride,
+  withToolOverride,
+  type IntegrationRules,
+  type PolicyMode,
+} from "@alfred/contracts";
 import { userActionPolicies } from "@alfred/db/schemas";
 import type {
   PolicySetDefaultModeArgs,
   PolicySetIntegrationModeArgs,
+  PolicySetServerToolModeArgs,
   PolicySetToolModeArgs,
 } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
+import type { MutatorResult } from "./mutator";
 
 export async function policySetIntegrationMode(
   tx: DbTransaction,
@@ -41,14 +49,54 @@ export async function policySetIntegrationMode(
     });
 }
 
-/**
- * Set or clear one tool's override. Read-modify-write under a row lock, so the drop rule in
- * `withToolOverride` sees the same integration mode the client computed against.
- */
+/** Set or clear one tool's override. */
 export async function policySetToolMode(
   tx: DbTransaction,
   args: PolicySetToolModeArgs,
   userId: string,
+): Promise<void> {
+  await writeIntegrationRules(tx, userId, (rules, defaultMode) =>
+    withToolOverride(rules, args.toolName, args.mode, defaultMode),
+  );
+}
+
+/**
+ * Set or clear the rule on one server tool (ADR-0130 amendment (c)). The write applies only to a
+ * connection that the user owns and whose rule is `args.integration`. A new rule binds only to the
+ * tool's descriptor in the current catalog, so a card from before a change cannot allow the new
+ * tool. A clear always applies to an owned connection.
+ */
+export async function policySetServerToolMode(
+  tx: DbTransaction,
+  args: PolicySetServerToolModeArgs,
+  userId: string,
+): Promise<MutatorResult> {
+  const current = await readCurrentMcpServerTool(
+    { userId, connectionId: args.serverTool.connectionId, remoteName: args.serverTool.remoteName },
+    tx,
+  );
+
+  if (current?.integration !== args.integration) return { applied: false };
+
+  if (args.mode !== null && current.descriptorHash !== args.serverTool.descriptorHash) {
+    return { applied: false };
+  }
+
+  await writeIntegrationRules(tx, userId, (rules, defaultMode) =>
+    withServerToolOverride(rules, args.integration, args.serverTool, args.mode, defaultMode),
+  );
+
+  return { applied: true };
+}
+
+/**
+ * Read-modify-write of the integration rules under a row lock, so the drop rule of an exception
+ * sees the same integration mode the client computed against.
+ */
+async function writeIntegrationRules(
+  tx: DbTransaction,
+  userId: string,
+  change: (rules: IntegrationRules, defaultMode: PolicyMode) => IntegrationRules,
 ): Promise<void> {
   const [row] = await tx
     .select({
@@ -64,12 +112,7 @@ export async function policySetToolMode(
 
   const defaultMode = row?.defaultMode ?? base.defaultMode;
 
-  const integrationRules = withToolOverride(
-    row?.integrationRules ?? base.integrationRules,
-    args.toolName,
-    args.mode,
-    defaultMode,
-  );
+  const integrationRules = change(row?.integrationRules ?? base.integrationRules, defaultMode);
 
   await tx
     .insert(userActionPolicies)

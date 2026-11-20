@@ -1,4 +1,4 @@
-import { MCP_ADD_SERVER_MAX_LABEL_LENGTH } from "@alfred/contracts";
+import { APPROVAL_CONTROL_LABELS, MCP_ADD_SERVER_MAX_LABEL_LENGTH } from "@alfred/contracts";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Ellipsis, Pencil, PlugZap, RotateCw, Trash2, Wrench } from "lucide-react";
 import { use, useRef, useState } from "react";
@@ -101,7 +101,7 @@ export function McpConnectionMenu({
           >
             <DropdownMenu.Item className={appMenuItemClass} onSelect={() => setDialog("tools")}>
               <Wrench size={14} aria-hidden className="text-app-fg-2" />
-              View tools
+              {APPROVAL_CONTROL_LABELS.serverTools}
             </DropdownMenu.Item>
             {onReconnect ? (
               <DropdownMenu.Item

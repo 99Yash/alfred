@@ -7,6 +7,7 @@
 
 import type {
   ExternalToolRef,
+  IntegrationSlug,
   McpEffectClass,
   McpRetryContract,
   ToolOutputKind,
@@ -19,11 +20,20 @@ import { mcpToolPolicy, type McpToolPolicyRow } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { lockMcpReviewTarget, resolveMcpReviewTarget, upsertToolPolicy } from "./invocations";
 
+/**
+ * What the rule on one server tool binds to (ADR-0130 amendment (c)): the integration whose rule
+ * governs the server, and the tool's descriptor at the caller-named revision.
+ */
+export interface McpServerToolRuleTarget {
+  integration: IntegrationSlug;
+  descriptorHash: string;
+}
+
 /** Review state of one `(connection, remoteName)` at a caller-named revision. */
 export type McpToolPolicyState =
-  | { status: "reviewed"; policy: McpToolPolicyRow }
-  | { status: "unreviewed" }
-  | { status: "drifted"; previous: McpToolPolicyRow }
+  | { status: "reviewed"; policy: McpToolPolicyRow; ruleTarget: McpServerToolRuleTarget }
+  | { status: "unreviewed"; ruleTarget: McpServerToolRuleTarget }
+  | { status: "drifted"; previous: McpToolPolicyRow; ruleTarget: McpServerToolRuleTarget }
   | { status: "catalog_stale" }
   | { status: "not_found" }
   | { status: "connection_missing" };
@@ -69,16 +79,27 @@ export async function readMcpToolPolicyState(
 
   if (identity.status !== "resolved") return identity;
 
-  if (identity.policy !== undefined) return { status: "reviewed", policy: identity.policy };
+  const ruleTarget = ruleTargetOf(identity);
 
-  if (!identity.reviewed) return { status: "unreviewed" };
+  if (identity.policy !== undefined) {
+    return { status: "reviewed", policy: identity.policy, ruleTarget };
+  }
+
+  if (!identity.reviewed) return { status: "unreviewed", ruleTarget };
 
   const previous = await readLatestPairPolicy(input, runner);
 
   // A concurrent clear landed between the two reads.
-  if (previous === undefined) return { status: "unreviewed" };
+  if (previous === undefined) return { status: "unreviewed", ruleTarget };
 
-  return { status: "drifted", previous };
+  return { status: "drifted", previous, ruleTarget };
+}
+
+function ruleTargetOf(identity: {
+  policyIntegration: IntegrationSlug;
+  descriptorHash: string;
+}): McpServerToolRuleTarget {
+  return { integration: identity.policyIntegration, descriptorHash: identity.descriptorHash };
 }
 
 /** Write the owner's review for the descriptor they inspected. `policyRevision` counts up from 1. */
@@ -120,7 +141,7 @@ export async function reviewMcpToolPolicy(
       tx,
     );
 
-    return { status: "reviewed", policy };
+    return { status: "reviewed", policy, ruleTarget: ruleTargetOf(identity) };
   });
 }
 
@@ -147,6 +168,6 @@ export async function clearMcpToolPolicy(
         ),
       );
 
-    return { status: "unreviewed" };
+    return { status: "unreviewed", ruleTarget: ruleTargetOf(identity) };
   });
 }

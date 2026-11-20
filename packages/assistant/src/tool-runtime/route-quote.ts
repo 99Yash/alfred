@@ -115,7 +115,7 @@ export async function quoteMcpToolRoute(
   run: RouteQuoteRun,
   tool: { connectionId: string; remoteName: string; catalogRevision: string },
 ): Promise<{ quote: ToolRouteQuote; riskTier: ToolRiskTier }> {
-  const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
+  const { riskTier, facts, policyTarget } = await resolveMcpCallRouteFacts({
     userId: run.userId,
     connectionId: tool.connectionId,
     remoteName: tool.remoteName,
@@ -124,7 +124,7 @@ export async function quoteMcpToolRoute(
 
   const approval = await requiresApproval(run, {
     staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
-    policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyIntegration),
+    policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyTarget),
     riskTier,
     facts,
   });

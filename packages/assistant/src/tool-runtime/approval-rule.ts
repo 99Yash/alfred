@@ -22,6 +22,7 @@ import {
   type ApprovalReason,
   type ApprovalSetting,
   type IntegrationSlug,
+  type McpServerToolRef,
   type PolicyMode,
   type ToolName,
   type ToolReadClass,
@@ -82,6 +83,8 @@ export interface ApprovalRuleFacts {
   policy: PolicyDecision;
   /** The integration whose rule governs the call: the provider of a built-in `mcp.call`. */
   policyIntegration: IntegrationSlug;
+  /** The server tool of an `mcp.call` whose descriptor resolved (`PolicyTarget.serverTool`). */
+  serverTool: McpServerToolRef | undefined;
   riskTier: ToolRiskTier;
   /** The read facts of the call. Dispatch reads them under `gated` below `high`, else `undefined`. */
   readFacts: Pick<ReadFacts, "read" | "readClass"> | undefined;
@@ -107,6 +110,7 @@ export function approvalReasonOf(facts: ApprovalRuleFacts): ApprovalReason | nul
     toolName: facts.toolName,
     integration: facts.policyIntegration,
     source: facts.policy.source,
+    ...(facts.serverTool === undefined ? {} : { serverTool: facts.serverTool }),
   };
 }
 
@@ -145,7 +149,7 @@ export async function approvalCauseNow(
 export type ApprovalSettingFact = ApprovalSetting & {
   /** The label of the control. */
   name: string;
-  /** The places where the user can turn the setting on now. */
+  /** The places where the user can turn the setting on now, and off again. */
   where: string[];
   /** What the setting covers: this chat, every call of the integration, or this one action. */
   scope: "this_chat" | "integration" | "this_action";
@@ -154,8 +158,6 @@ export type ApprovalSettingFact = ApprovalSetting & {
    * and no setting removes them.
    */
   removes: readonly ApprovalCauseKind[];
-  /** The place where the user turns the setting off, when it is not in `where`. */
-  undoWhere?: string;
 };
 
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
@@ -166,10 +168,13 @@ export interface ApprovalCauseFact {
   /** The integration whose rule governs the call: the provider of a built-in `mcp.call`. */
   integration?: IntegrationSlug;
   /**
-   * The setting that supplied the mode: the rule on the tool, the integration mode, or the global
-   * default. Absent on a `high` card, which no policy setting removes.
+   * The setting that supplied the mode: the rule on the tool, the rule on the server tool, the
+   * integration mode, or the global default. Absent on a `high` card, which no policy setting
+   * removes.
    */
   source?: ApprovalModeSource;
+  /** The remote tool of a call on an MCP server, when dispatch resolved its descriptor. */
+  remoteTool?: string;
   /** Absent when no setting removes the card, for example a `high` card outside a chat. */
   fix?: Omit<Extract<Fix, { kind: "change_setting" }>, "settings"> & {
     settings: ApprovalSettingFact[];
@@ -185,6 +190,9 @@ export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
     ...(reason.cause === "high_risk"
       ? {}
       : { integration: reason.integration, source: reason.source }),
+    ...(reason.cause !== "high_risk" && reason.serverTool !== undefined
+      ? { remoteTool: reason.serverTool.remoteName }
+      : {}),
     ...(cause.settings.length === 0
       ? {}
       : { fix: { kind: "change_setting", settings: cause.settings.map(approvalSettingFact) } }),
@@ -228,12 +236,36 @@ function approvalSettingFact(setting: ApprovalSetting): ApprovalSettingFact {
       return {
         ...setting,
         name: LABELS.alwaysAllowAction,
+        // The page lists the exceptions of the integration's actions, and adds one.
         where: [
           `the "${LABELS.alwaysAllowAction}" switch in the ${LABELS.permissions} menu of the next approval card for ${action}`,
+          ...(page === undefined ? [] : [`${LABELS.actionExceptions} in ${page}`]),
         ],
         scope: "this_action",
         removes: BELOW_HIGH_CAUSES,
-        ...(page === undefined ? {} : { undoWhere: page }),
+      };
+    }
+
+    case "always_allow_server_tool": {
+      const tool = setting.serverTool.remoteName;
+
+      // A built-in server shows on its provider's page. A server that the owner added shows in
+      // the MCP servers of the Integrations page.
+      const connection = isCatalogSlug(setting.integration)
+        ? `the ${INTEGRATION_DISPLAY_NAMES[setting.integration]} page under Integrations`
+        : "the MCP servers under Integrations";
+
+      return {
+        ...setting,
+        name: LABELS.alwaysAllowAction,
+        // Both places turn the rule off too. It binds to this version of the tool, so a changed
+        // tool asks again.
+        where: [
+          `the "${LABELS.alwaysAllowAction}" switch in the ${LABELS.permissions} menu of the next approval card for ${tool}`,
+          `the "${LABELS.alwaysAllowAction}" switch of ${tool} in "${LABELS.serverTools}" of the server's connection on ${connection}`,
+        ],
+        scope: "this_action",
+        removes: BELOW_HIGH_CAUSES,
       };
     }
 

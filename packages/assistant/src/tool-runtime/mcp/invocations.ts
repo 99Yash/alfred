@@ -251,6 +251,41 @@ export async function readCurrentMcpCatalogRevision(
 }
 
 /**
+ * The current state of one server tool, for a write of the rule on it (ADR-0130 amendment (c)):
+ * the integration whose rule governs the connection, and the tool's descriptor hash in the current
+ * catalog. `null`: the caller does not own the connection. `descriptorHash` is `null` when the
+ * current catalog has no such tool.
+ */
+export async function readCurrentMcpServerTool(
+  input: { userId: string; connectionId: string; remoteName: string },
+  runner: DbRunner = db(),
+): Promise<{ integration: IntegrationSlug; descriptorHash: string | null } | null> {
+  const [row] = await runner
+    .select({
+      endpointUrl: mcpServers.endpointUrl,
+      descriptorHash: descriptorHashOf(input.remoteName),
+    })
+    .from(mcpConnections)
+    .innerJoin(
+      mcpServers,
+      and(eq(mcpServers.id, mcpConnections.serverId), eq(mcpServers.userId, input.userId)),
+    )
+    .leftJoin(
+      mcpCatalogRevisions,
+      eq(mcpCatalogRevisions.id, mcpConnections.currentCatalogRevisionId),
+    )
+    .where(and(eq(mcpConnections.id, input.connectionId), eq(mcpConnections.userId, input.userId)))
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    integration: integrationOfMcpEndpoint(row.endpointUrl) ?? "mcp",
+    descriptorHash: row.descriptorHash,
+  };
+}
+
+/**
  * Resolve one selected MCP tool's identity in one query (runs on every `mcp.call`).
  * Stale revision, missing descriptor, or foreign connection gives `unresolved`.
  * The policy join also checks `userId`, so a cross-user row never downgrades.

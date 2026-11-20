@@ -209,15 +209,21 @@ function mcpToolPolicyStateResult(
         status: "reviewed",
         ref,
         policy: mcpToolPolicyResult(state.policy),
+        ruleTarget: state.ruleTarget,
       });
     case "drifted":
       return mcpToolPolicyStateSchema.parse({
         status: "drifted",
         ref,
         previous: mcpToolPolicyResult(state.previous),
+        ruleTarget: state.ruleTarget,
       });
     case "unreviewed":
-      return mcpToolPolicyStateSchema.parse({ status: "unreviewed", ref });
+      return mcpToolPolicyStateSchema.parse({
+        status: "unreviewed",
+        ref,
+        ruleTarget: state.ruleTarget,
+      });
     case "catalog_stale":
       return mcpToolPolicyStateSchema.parse({ status: "catalog_stale", ref });
     case "not_found":

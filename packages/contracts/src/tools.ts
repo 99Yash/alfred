@@ -139,10 +139,36 @@ export interface ToolRouteQuote {
   class?: ToolReadClass;
 }
 
-/** `mode` is absent when a rule only holds tool overrides; the user default then applies. */
+/**
+ * One remote tool on one MCP server, at one exact descriptor (ADR-0130 amendment (c)). A server
+ * names a call's tool with it, and a rule on one server tool binds to it. A type, not an
+ * interface: it rides in a `Fix`, which must be assignable to `JsonValue`.
+ */
+export type McpServerToolRef = {
+  connectionId: string;
+  remoteName: string;
+  descriptorHash: string;
+};
+
+/**
+ * The rule on one server tool ("Always allow this action" on an MCP server, ADR-0130 amendment
+ * (c)). It applies only while the tool keeps `descriptorHash`, so a changed tool asks again.
+ */
+export interface ServerToolRule {
+  mode: PolicyMode;
+  descriptorHash: string;
+}
+
+/**
+ * `mode` is absent when a rule only holds exceptions; the user default then applies.
+ * - `toolOverrides`: the rule on one tool of the integration.
+ * - `serverToolOverrides`: the rule on one server tool, keyed by connection id, then by remote
+ *   tool name. A connection has one integration (a built-in's provider, else `mcp`).
+ */
 export interface IntegrationRule {
   mode?: PolicyMode;
   toolOverrides?: Partial<Record<ToolName, PolicyMode>>;
+  serverToolOverrides?: Record<string, Record<string, ServerToolRule>>; // drift-ok: keyed by connection id and remote tool name, both open
 }
 
 export type IntegrationRules = Partial<Record<IntegrationSlug, IntegrationRule>>; // drift-ok: sparse per-user overrides; absence is the default mode
@@ -159,6 +185,7 @@ export function resolveIntegrationMode(
 /**
  * One tool's mode, and the setting that set it (ADR-0130 decision 4).
  * - `tool_override`: the tool's own "Always allow" override.
+ * - `server_tool`: the rule on one server tool, at the call's descriptor.
  * - `integration`: the mode on the integration page.
  * - `default`: the global default, because the integration has no mode of its own.
  */
@@ -168,7 +195,39 @@ export interface ToolModeDecision {
 }
 
 /** The setting that supplied a tool's mode (`ToolModeDecision`). */
-export type ApprovalModeSource = "tool_override" | "integration" | "default";
+export type ApprovalModeSource = "tool_override" | "server_tool" | "integration" | "default";
+
+/**
+ * The rule on one server tool that applies to `serverTool` now: a rule at the same descriptor
+ * hash. A rule at another hash applies to nothing, so the tool asks again (ADR-0130 amendment (c)).
+ */
+export function serverToolRuleOf(
+  rules: IntegrationRules,
+  integration: IntegrationSlug,
+  serverTool: McpServerToolRef,
+): ServerToolRule | undefined {
+  const rule =
+    rules[integration]?.serverToolOverrides?.[serverTool.connectionId]?.[serverTool.remoteName];
+
+  return rule?.descriptorHash === serverTool.descriptorHash ? rule : undefined;
+}
+
+/**
+ * The mode of a call on one server tool: its rule at this descriptor, then the integration's
+ * mode, then the user default. The rule beats the integration mode, as a tool override does.
+ */
+export function resolveServerToolModeDecision(
+  rules: IntegrationRules,
+  integration: IntegrationSlug,
+  serverTool: McpServerToolRef,
+  defaultMode: PolicyMode,
+): ToolModeDecision {
+  const rule = serverToolRuleOf(rules, integration, serverTool);
+
+  if (rule !== undefined) return { mode: rule.mode, source: "server_tool" };
+
+  return resolveIntegrationModeDecision(rules, integration, defaultMode);
+}
 
 /** The mode of one integration, and whether its own rule or the global default supplied it. */
 export function resolveIntegrationModeDecision(
@@ -229,14 +288,60 @@ export function withToolOverride(
     overrides[toolName] = mode;
   }
 
+  return withIntegrationRule(rules, integration, { ...rule, toolOverrides: overrides });
+}
+
+/**
+ * Set or clear (`null`) the rule on one server tool. The rule binds to `serverTool.descriptorHash`.
+ * A connection keeps one rule for each remote tool, so a new rule replaces one at an old hash.
+ * A rule equal to the integration's mode is dropped, as `withToolOverride` drops an override.
+ * The client and server mutators share it.
+ */
+export function withServerToolOverride(
+  rules: IntegrationRules,
+  integration: IntegrationSlug,
+  serverTool: McpServerToolRef,
+  mode: PolicyMode | null,
+  defaultMode: PolicyMode,
+): IntegrationRules {
+  const rule = rules[integration];
+  const { connectionId, remoteName, descriptorHash } = serverTool;
+  const connectionRules = { ...rule?.serverToolOverrides?.[connectionId] };
+
+  if (mode === null || mode === resolveIntegrationMode(rules, integration, defaultMode)) {
+    delete connectionRules[remoteName];
+  } else {
+    connectionRules[remoteName] = { mode, descriptorHash };
+  }
+
+  const { [connectionId]: _previous, ...otherConnections } = rule?.serverToolOverrides ?? {};
+
+  const serverToolOverrides =
+    Object.keys(connectionRules).length > 0
+      ? { ...otherConnections, [connectionId]: connectionRules }
+      : otherConnections;
+
+  return withIntegrationRule(rules, integration, { ...rule, serverToolOverrides });
+}
+
+/** Put `rule` on `integration` with its empty parts removed, or drop the integration's rule when it is empty. */
+function withIntegrationRule(
+  rules: IntegrationRules,
+  integration: IntegrationSlug,
+  rule: IntegrationRule,
+): IntegrationRules {
+  const toolOverrides = rule.toolOverrides ?? {};
+  const serverToolOverrides = rule.serverToolOverrides ?? {};
+
   const next: IntegrationRule = {
-    ...(rule?.mode ? { mode: rule.mode } : {}),
-    ...(Object.keys(overrides).length > 0 ? { toolOverrides: overrides } : {}),
+    ...(rule.mode ? { mode: rule.mode } : {}),
+    ...(Object.keys(toolOverrides).length > 0 ? { toolOverrides } : {}),
+    ...(Object.keys(serverToolOverrides).length > 0 ? { serverToolOverrides } : {}),
   };
 
   const { [integration]: _previous, ...rest } = rules;
 
-  return next.mode || next.toolOverrides ? { ...rest, [integration]: next } : rest;
+  return Object.keys(next).length > 0 ? { ...rest, [integration]: next } : rest;
 }
 
 export function integrationFromToolName(toolName: ToolName): IntegrationSlug {

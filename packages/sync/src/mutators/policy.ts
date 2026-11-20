@@ -1,8 +1,11 @@
 import {
   APPROVAL_MODE_SLUGS,
+  INTEGRATION_SLUGS,
+  mcpServerToolRefSchema,
   POLICY_MODES,
   toolNameSchema,
   toolTakesOverride,
+  withServerToolOverride,
   withToolOverride,
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
@@ -64,6 +67,45 @@ export async function policySetToolModeClient(
     integrationRules: withToolOverride(
       current.integrationRules,
       args.toolName,
+      args.mode,
+      current.defaultMode,
+    ),
+    rowVersion: current.rowVersion + 1,
+  };
+
+  await SYNC_MODEL.actionpolicy.put(tx, next);
+}
+
+/**
+ * The rule on one server tool ("Always allow this action" on an MCP server, ADR-0130 amendment
+ * (c)). `integration` is the rule that governs the server: its provider, else `mcp`. The server
+ * writes the rule only for an owned connection of that integration, and sets it only at the
+ * tool's current descriptor.
+ */
+export const policySetServerToolModeArgsSchema = z.object({
+  integration: z.enum(INTEGRATION_SLUGS),
+  serverTool: mcpServerToolRefSchema,
+  /** `null` clears the rule. */
+  mode: z.enum(POLICY_MODES).nullable(),
+});
+
+export type PolicySetServerToolModeArgs = z.infer<typeof policySetServerToolModeArgsSchema>;
+
+/** Set or clear the rule on one server tool. */
+export async function policySetServerToolModeClient(
+  tx: WriteTransaction,
+  args: PolicySetServerToolModeArgs,
+): Promise<void> {
+  const [current] = await SYNC_MODEL.actionpolicy.scan(tx);
+
+  if (!current) return;
+
+  const next: SyncedActionPolicy = {
+    ...current,
+    integrationRules: withServerToolOverride(
+      current.integrationRules,
+      args.integration,
+      args.serverTool,
       args.mode,
       current.defaultMode,
     ),

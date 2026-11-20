@@ -19,6 +19,8 @@ function modeSourceLine(reason: GatedReason): string {
   switch (reason.source) {
     case "tool_override":
       return "This action is set to ask first.";
+    case "server_tool":
+      return "This server tool is set to ask first.";
     case "integration":
       return `${INTEGRATION_DISPLAY_NAMES[reason.integration]} is set to ask first.`;
     case "default":
