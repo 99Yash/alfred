@@ -5,6 +5,7 @@ import {
   isToolRiskTier,
   MCP_TOOL_POLICY_NOTE_MAX,
   serverToolRuleOf,
+  storedServerToolRuleOf,
   mcpEffectClassValues,
   mcpRetryContractValues,
   TOOL_OUTPUT_KINDS,
@@ -534,10 +535,7 @@ function ServerToolRuleSwitch({
   const allowed =
     serverToolRuleOf(policy.integrationRules, integration, serverTool)?.mode === "autonomy";
 
-  const stored =
-    policy.integrationRules[integration]?.serverToolOverrides?.[serverTool.connectionId]?.[
-      serverTool.remoteName
-    ];
+  const stored = storedServerToolRuleOf(policy.integrationRules, integration, serverTool);
 
   const changed = stored !== undefined && stored.descriptorHash !== serverTool.descriptorHash;
 

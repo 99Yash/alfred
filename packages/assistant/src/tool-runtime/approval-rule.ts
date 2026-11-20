@@ -22,7 +22,6 @@ import {
   type ApprovalReason,
   type ApprovalSetting,
   type IntegrationSlug,
-  type McpServerToolRef,
   type PolicyMode,
   type ToolName,
   type ToolReadClass,
@@ -33,6 +32,7 @@ import {
   getResolvedPolicy,
   resolvePolicyMode,
   type PolicyDecision,
+  type PolicyTarget,
 } from "@alfred/assistant/action-policies";
 import type { ReadFacts } from "./read-route";
 import { STAGING_ARM } from "./internal/dispatch/staging-arm";
@@ -81,10 +81,11 @@ export interface ApprovalRuleFacts {
   toolName: ToolName;
   /** The mode and the setting that set it (`resolvePolicyDecision`). */
   policy: PolicyDecision;
-  /** The integration whose rule governs the call: the provider of a built-in `mcp.call`. */
-  policyIntegration: IntegrationSlug;
-  /** The server tool of an `mcp.call` whose descriptor resolved (`PolicyTarget.serverTool`). */
-  serverTool: McpServerToolRef | undefined;
+  /**
+   * The rule that governs the call: the provider of a built-in `mcp.call`, and the server tool of
+   * an `mcp.call` whose descriptor resolved.
+   */
+  policyTarget: PolicyTarget;
   riskTier: ToolRiskTier;
   /** The read facts of the call. Dispatch reads them under `gated` below `high`, else `undefined`. */
   readFacts: Pick<ReadFacts, "read" | "readClass"> | undefined;
@@ -108,9 +109,11 @@ export function approvalReasonOf(facts: ApprovalRuleFacts): ApprovalReason | nul
   return {
     cause: causeOfGatedCall(facts.readFacts),
     toolName: facts.toolName,
-    integration: facts.policyIntegration,
+    integration: facts.policyTarget.integration,
     source: facts.policy.source,
-    ...(facts.serverTool === undefined ? {} : { serverTool: facts.serverTool }),
+    ...(facts.policyTarget.serverTool === undefined
+      ? {}
+      : { serverTool: facts.policyTarget.serverTool }),
   };
 }
 
@@ -356,7 +359,7 @@ export function toolAlwaysWaitsForApproval(toolName: ToolName, policyMode: Polic
   if (arm.forcesApproval) return true;
 
   // The input picks the policy rule (`mcp.call` on a built-in), so another rule can run it with no card.
-  if (tool.resolvesPolicyIntegration) return false;
+  if (tool.resolvesPolicyTarget) return false;
 
   // A declared downgrade can take the tier below `high`. The bound call clamps an undeclared one.
   const lowestTier = tool.riskTierDowngradeReason === undefined ? tool.riskTier : "no_risk";

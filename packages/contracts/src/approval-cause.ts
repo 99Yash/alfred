@@ -14,6 +14,7 @@ import {
 } from "./integrations";
 import {
   integrationFromToolName,
+  mcpServerToolRefSchema,
   serverToolRuleOf,
   toolNameSchema,
   type ApprovalModeSource,
@@ -76,13 +77,6 @@ const APPROVAL_MODE_SOURCES = [
   "integration",
   "default",
 ] as const satisfies readonly ApprovalModeSource[];
-
-/** One remote tool on one MCP server, at one exact descriptor (`McpServerToolRef`). */
-export const mcpServerToolRefSchema = z.object({
-  connectionId: z.string().min(1),
-  remoteName: z.string().min(1),
-  descriptorHash: z.string().min(1),
-}) satisfies z.ZodType<McpServerToolRef>;
 
 /**
  * The reason why one call waited, as dispatch decided it. The staging row keeps it.

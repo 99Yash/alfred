@@ -1380,8 +1380,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const ruleReason = approvalReasonOf({
     toolName,
     policy,
-    policyIntegration,
-    serverTool: policyTarget.serverTool,
+    policyTarget,
     riskTier,
     readFacts: ruleReadFacts,
   });

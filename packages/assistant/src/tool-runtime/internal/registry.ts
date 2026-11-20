@@ -578,7 +578,7 @@ export interface RegisteredTool {
   /** See {@link LiveToolArgs.riskTierDowngradeReason}. */
   riskTierDowngradeReason?: string | undefined;
   /** Whether the tool declares {@link ToolArgsCommon.resolvePolicyTarget}, so its policy rule depends on input. */
-  resolvesPolicyIntegration: boolean;
+  resolvesPolicyTarget: boolean;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
   /** See {@link ToolReplay}. */
@@ -708,7 +708,7 @@ function staticReadRoute(tool: RegisteredTool): ReadRoute | null {
 export function toolCanWaitForApproval(tool: RegisteredTool): boolean {
   if (tool.staging === "fast_path" || tool.staging === "join") return false;
 
-  if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyIntegration) {
+  if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyTarget) {
     return true;
   }
 
@@ -988,7 +988,7 @@ export function liveTool<
     riskTier: args.riskTier,
     resolvesRiskTier: resolveRiskTier !== undefined,
     riskTierDowngradeReason: args.riskTierDowngradeReason,
-    resolvesPolicyIntegration: resolvePolicyTarget !== undefined,
+    resolvesPolicyTarget: resolvePolicyTarget !== undefined,
     staging: args.staging ?? "staged",
     replay: args.replay,
     codeModeRead: args.codeModeRead !== undefined,

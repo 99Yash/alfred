@@ -141,14 +141,17 @@ export interface ToolRouteQuote {
 
 /**
  * One remote tool on one MCP server, at one exact descriptor (ADR-0130 amendment (c)). A server
- * names a call's tool with it, and a rule on one server tool binds to it. A type, not an
- * interface: it rides in a `Fix`, which must be assignable to `JsonValue`.
+ * names a call's tool with it, and a rule on one server tool binds to it. The stored reason and
+ * the policy write parse it.
  */
-export type McpServerToolRef = {
-  connectionId: string;
-  remoteName: string;
-  descriptorHash: string;
-};
+export const mcpServerToolRefSchema = z.object({
+  connectionId: z.string().min(1),
+  remoteName: z.string().min(1),
+  descriptorHash: z.string().min(1),
+});
+
+/** `z.infer` gives a type alias, so a `Fix` that holds it stays assignable to `JsonValue`. */
+export type McpServerToolRef = z.infer<typeof mcpServerToolRefSchema>;
 
 /**
  * The rule on one server tool ("Always allow this action" on an MCP server, ADR-0130 amendment
@@ -206,10 +209,20 @@ export function serverToolRuleOf(
   integration: IntegrationSlug,
   serverTool: McpServerToolRef,
 ): ServerToolRule | undefined {
-  const rule =
-    rules[integration]?.serverToolOverrides?.[serverTool.connectionId]?.[serverTool.remoteName];
+  const rule = storedServerToolRuleOf(rules, integration, serverTool);
 
   return rule?.descriptorHash === serverTool.descriptorHash ? rule : undefined;
+}
+
+/** The stored rule on one server tool at any descriptor hash, so a page can show an old one. */
+export function storedServerToolRuleOf(
+  rules: IntegrationRules,
+  integration: IntegrationSlug,
+  serverTool: Pick<McpServerToolRef, "connectionId" | "remoteName">,
+): ServerToolRule | undefined {
+  return rules[integration]?.serverToolOverrides?.[serverTool.connectionId]?.[
+    serverTool.remoteName
+  ];
 }
 
 /**

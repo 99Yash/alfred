@@ -775,6 +775,8 @@ export const mcpServerToolRuleTargetSchema = z
   })
   .strict();
 
+export type McpServerToolRuleTarget = z.infer<typeof mcpServerToolRuleTargetSchema>;
+
 /**
  * `drifted`: reviewed under an older descriptor, so the default floor applies again.
  * A missing connection is a 404, not a state. A state with a resolved descriptor carries its

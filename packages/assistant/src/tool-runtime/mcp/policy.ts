@@ -9,6 +9,7 @@ import type {
   ExternalToolRef,
   IntegrationSlug,
   McpEffectClass,
+  McpServerToolRuleTarget,
   McpRetryContract,
   ToolOutputKind,
   ToolReadClass,
@@ -19,15 +20,6 @@ import { runAtomic, type DbRunner } from "@alfred/db/helpers";
 import { mcpToolPolicy, type McpToolPolicyRow } from "@alfred/db/schemas";
 import { and, desc, eq } from "drizzle-orm";
 import { lockMcpReviewTarget, resolveMcpReviewTarget, upsertToolPolicy } from "./invocations";
-
-/**
- * What the rule on one server tool binds to (ADR-0130 amendment (c)): the integration whose rule
- * governs the server, and the tool's descriptor at the caller-named revision.
- */
-export interface McpServerToolRuleTarget {
-  integration: IntegrationSlug;
-  descriptorHash: string;
-}
 
 /** Review state of one `(connection, remoteName)` at a caller-named revision. */
 export type McpToolPolicyState =

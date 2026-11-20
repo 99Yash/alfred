@@ -140,7 +140,7 @@ export async function quoteCuratedToolRoute(
   run: RouteQuoteRun,
   tool: RegisteredTool,
 ): Promise<ToolRouteQuote | null> {
-  if (tool.resolvesRiskTier || tool.resolvesPolicyIntegration) return null;
+  if (tool.resolvesRiskTier || tool.resolvesPolicyTarget) return null;
 
   // The facts that dispatch reads for a call with no `resolveReadFacts`. Only `mcp.call` declares
   // one, and the guard above returns for it, because it also resolves its tier.

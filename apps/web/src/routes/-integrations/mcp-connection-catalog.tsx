@@ -14,6 +14,7 @@ import {
 import { mcpConnectionPresentation } from "./mcp-server-status";
 import { McpHealthMappingReview } from "./mcp-health-mapping";
 import { McpToolPolicyReview } from "./mcp-tool-policy";
+import { ServerToolRuleList } from "./server-tool-rules";
 
 type SelectedToolRef = { readonly remoteName: string; readonly catalogRevision: string };
 
@@ -88,6 +89,8 @@ export interface McpCatalogViewProps {
   detailMinHeight?: number | null | undefined;
   /** Slide the list in from the left: true only after "All tools", never on the modal's first open. */
   listEntersFromDetail?: boolean | undefined;
+  /** The rules on this server's tools, above the list (ADR-0130 amendment (c)). */
+  ruleList?: ReactNode;
 }
 
 /** A drill-in or back swap: a short fade and an 8px slide, which reduced motion keeps as a fade. */
@@ -124,6 +127,7 @@ export function McpCatalogView({
   listScrollRef,
   detailMinHeight = null,
   listEntersFromDetail = false,
+  ruleList = null,
 }: McpCatalogViewProps) {
   const statusLine =
     connectionStatus === "ready" ? null : (
@@ -204,6 +208,7 @@ export function McpCatalogView({
         />
       </div>
       {statusLine}
+      {ruleList}
       <div ref={listScrollRef} className="scroll-stable -mx-3 max-h-[60vh] overflow-y-auto">
         {loading ? (
           <p className="p-3 text-xs text-app-fg-3" role="status">
@@ -443,6 +448,8 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
       listScrollRef={listScrollRef}
       detailMinHeight={detailMinHeight}
       listEntersFromDetail={returnedFromDetail}
+      // The rules on this server's tools, also for a tool that left the catalog (ADR-0130 (c)).
+      ruleList={<ServerToolRuleList scope={{ connectionId }} />}
     />
   );
 }

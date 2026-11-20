@@ -144,8 +144,8 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 - **Not in `mcp_tool_policy`:** a row there is an owner review. A review changes the tier rules of ADR-0096: it beats a code pin, and a drifted review keeps the floor. "Always allow" must not change the tier.
 - **The bind:** the rule applies only while the tool keeps `descriptorHash`. One connection keeps one rule for each remote tool, so a new rule replaces an old one.
 - **The write:** the server accepts the rule only for a connection that the user owns, under the integration of that connection. It sets the rule only at the descriptor of the current catalog. A clear always applies.
-- **The places:** the Permissions menu of a card, and the tool's switch in "View tools" of the server's connection. The integration page lists the rules of its server tools under "Action exceptions", and it can add a tool exception.
-- **Residual risk:** a removed connection leaves its rules in the policy row. They match no call.
+- **The places:** the Permissions menu of a card, and the tool's switch in "View tools" of the server's connection. "View tools" also lists the rules of the connection, with Reset, so a rule on a tool that left the catalog can be removed. The page of a live provider lists the rules of its server tools under "Action exceptions", and it can add a tool exception.
+- **Residual risk:** a removed connection leaves its rules in the policy row. They match no call. A list does not know the current descriptor, so it says that a changed tool asks again, and it does not mark an old rule.
 
 **Rejected.**
 
