@@ -1,6 +1,6 @@
 # ADR-0130 — Chat reads ask only for secrets, with one size rule and discovery in the sandbox (ACCEPTED — 2026-11-19)
 
-**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
+**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Amendment (c), 2026-11-20, replaces the stored list of amendment (b): the row keeps the reason, and one function derives the settings from current policy. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
 
 Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
 
@@ -101,6 +101,46 @@ Owner decision, 2026-11-19 (#1800). In chat, a card stops the turn, so the model
   - "Always allow" is not listed for `mcp.call`. One override on it would cover every server, and it has no effect on a built-in provider.
   - A `confirm` card, a question, and a restaged card that may have run have no cause.
 - **The row:** `action_stagings.approval_cause` keeps the cause (migration 0177). A replay reads the same row, so it gives the same cause.
+
+#### Amendment 2026-11-20 (c): the reason is a fact of the call, and the settings are a fact of current policy
+
+Owner decisions, 2026-11-20 (#1800 review). This amendment replaces "The list" and "The row" of amendment (b). The rule of amendment (b) for where the model gets the cause stays.
+
+**The fault.** A review of #1800 found 12 faults. They have one root: amendment (b) stores a list of settings at the time of the card. The list mixes two facts with different times:
+
+- The reason why the call waited. This fact does not change after the card.
+- The settings that remove such a card. This fact is a fact of the current policy and of the controls that a page has.
+
+Also, `approvalCause` applies the approval rule a second time, apart from dispatch. Thus the two can disagree, and five call sites attach the cause by hand. This was the third patch in this area, so the theory was written again (theory principle 2).
+
+**The rule.**
+
+- **One decision.** Dispatch makes one approval decision for each call. The decision holds the reason and the source of the mode:
+  - the reason: `high_risk`, `may_write`, `secret_read`, or `unclassified_read`;
+  - the source: the rule on one tool, the rule on one server tool, the integration mode, the global default, or the `high` tier.
+
+  No other code applies the approval rule again to explain a card. The result boundary attaches the reason to each result that a card produced. This includes a rejected proposal that is replayed under a new call ID.
+
+- **The row keeps the reason, not the settings.** `action_stagings` keeps the reason and the source. The reason is a durable fact of the call.
+- **One function derives the settings.** A shared function takes the reason and the current policy. It returns each setting that removes such a card now. It runs when a surface shows the settings: the model fact, the card, the saved reply, the approvals queue, and a workflow card. The same eligibility rules apply to the settings that it gives and to the policy writes that the mutators accept.
+- **Which settings.** The list holds each setting that removes the card, narrowest first. A one-time approval stays the main action.
+  - "Always allow" for this action. For a call on an MCP server, this is a rule on one server and one remote tool. The rule is bound to the descriptor hash, so a changed tool asks again. One rule on `mcp.call` for all servers is still not offered.
+  - The integration mode, only when the integration page has the mode control.
+  - Full Autonomy for this chat, only in a chat thread.
+  - The global default is named as the source when it supplied the mode. It is not offered, because it changes every integration.
+  - A `high` card lists only Full Autonomy.
+- **Each setting states its scope.** The card, the saved reply, and the model fact say what each setting authorizes: this action, this integration, or this chat.
+- **Full Autonomy always opens the picker of ADR-0069.** No link or button turns it on at once. The picker says that the change applies to future calls that the mode can waive. A pending approval, a question, and a `confirm` card still wait.
+- **The reason in the card comes from the decision.** The card does not infer the reason from the tier.
+- **Code Mode.** A script refusal `needs_approval` gives typed reason facts to the host ledger. The `code_run` result carries them to the model, within its size bound. A script that catches the refusal does not lose them.
+- **All approval surfaces.** The chat card, the saved reply, the `/approvals` queue, and the workflow approvals tab show the settings (ADR-0034).
+- **The acceptance case.** A confirmed secret read, for example `vercel.request` under `gated`, gives a reason that the model receives. The owner can reach each named control. The Linear example of #1800 changes with #1804, so it is not the acceptance case.
+
+**Rejected.**
+
+- **Keep the stored list and fix each fault.** The list can be out of date, and each fix stays a patch on two copies of the rule.
+- **Offer only the narrowest setting.** The owner wants each control that removes the card, with its scope stated.
+- **A mode control on the pages of MCP-only providers.** The rule on one server tool is the narrow control. It also covers a server that the owner added.
 
 ### 5. One size rule: a result is bounded by its structure where it goes to the model (settled)
 
