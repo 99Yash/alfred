@@ -21,6 +21,7 @@ import {
   type ReadProgramOutcome,
 } from "../../code-mode/run-read-program";
 import { scriptSources } from "../../code-mode/script-sources";
+import { approvalCauseFact, type ApprovalCauseFact } from "../../approval-rule";
 
 /**
  * What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results.
@@ -36,7 +37,16 @@ export type CodeRunResult = (
   sources?: ScriptSource[];
   /** Pages left out above the count or byte cap of `sources`. */
   omittedSources?: number;
+  /**
+   * The reads that wait for the user's approval: the reason and the settings that remove each card
+   * (ADR-0130 amendment (c)). From the host ledger, so a script that catches `needs_approval` does
+   * not lose them. One entry per tool, at most `MAX_APPROVAL_FACTS`.
+   */
+  approvals?: ApprovalCauseFact[];
 };
+
+/** A bound on the approval facts of one script, so a loop over many gated reads stays small. */
+const MAX_APPROVAL_FACTS = 5;
 
 interface ReadCounts {
   total: number;
@@ -110,9 +120,12 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   // Pages whose reference did not fit its schema (a URL above the cap) are omitted too.
   const omitted = aboveCaps + omittedPagesOf(outcome.ledger);
 
+  const approvals = approvalFactsOf(outcome.ledger);
+
   const pages = {
     ...(sources.length > 0 ? { sources } : {}),
     ...(omitted > 0 ? { omittedSources: omitted } : {}),
+    ...(approvals.length > 0 ? { approvals } : {}),
   };
 
   if (outcome.status === "completed") {
@@ -120,6 +133,28 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   }
 
   return { status: outcome.status, message: outcome.message, reads, ...pages };
+}
+
+/**
+ * The approval facts of the reads that waited for a card, in request order: one per tool,
+ * governing integration, and cause. So `mcp.call` on two providers stays two facts, and two
+ * causes of one tool stay two facts.
+ */
+function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] {
+  const byRule = new Map<string, ApprovalCauseFact>();
+
+  for (const entry of ledger.toSorted((a, b) => a.index - b.index)) {
+    const cause = entry.approvalCause;
+
+    if (cause === undefined) continue;
+
+    const { reason } = cause;
+    const key = `${reason.toolName}:${reason.cause === "high_risk" ? "" : reason.integration}:${reason.cause}`;
+
+    if (!byRule.has(key)) byRule.set(key, approvalCauseFact(cause));
+  }
+
+  return [...byRule.values()].slice(0, MAX_APPROVAL_FACTS);
 }
 
 /** The web references of the reads that executed, in request order. */

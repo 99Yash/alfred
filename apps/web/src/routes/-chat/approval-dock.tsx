@@ -1,11 +1,11 @@
 import type { ApprovalSetting, IntegrationSlug, ToolRiskTier } from "@alfred/contracts";
 import {
+  approvalSettings,
   APPROVAL_CONTROL_LABELS,
   assertNever,
   humanizeToolName,
-  isLoadableIntegrationSlug,
 } from "@alfred/contracts";
-import type { SyncedActionStaging } from "@alfred/sync";
+import type { SyncedActionPolicy, SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Link } from "@tanstack/react-router";
 import {
@@ -404,7 +404,7 @@ function useRecordDecision<Decision extends RecordedDecision>({
 
 type DockPolicy = Pick<
   ActionPolicyState,
-  "modeFor" | "toolModeFor" | "setIntegrationMode" | "setToolMode"
+  "policy" | "modeFor" | "toolModeFor" | "setIntegrationMode" | "setToolMode"
 >;
 
 interface DockCardProps {
@@ -478,8 +478,13 @@ function DockApprovalCard({
   );
 
   const approved = decisionKind === "approve";
-  // Only the settings that remove this card (ADR-0130 decision 4). The server lists them.
-  const { integrationSetting, toolSetting, fullAutonomySetting } = cardSettings(staging);
+
+  // Only the settings that remove this card, from its reason and current policy (ADR-0130).
+  const { integrationSetting, toolSetting, fullAutonomySetting } = cardSettings(
+    staging,
+    policy.policy,
+  );
+
   // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
   // proposal: an edit that picks another server changes what Approve runs.
   const mcpServer = useMcpCallServer(staging.toolName, draftInput);
@@ -537,12 +542,7 @@ function DockApprovalCard({
                 toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
                 showFullAutonomy={fullAutonomySetting !== undefined}
                 onFlipIntegration={(autonomy) => {
-                  if (
-                    !integrationSetting ||
-                    !isLoadableIntegrationSlug(integrationSetting.integration)
-                  ) {
-                    return;
-                  }
+                  if (!integrationSetting) return;
 
                   setError(null);
                   setIntegrationMode(
@@ -1037,12 +1037,19 @@ interface CardSettings {
 }
 
 /**
- * The settings that remove this card, from the row's cause (ADR-0130 decision 4). A `high` card
- * lists only Full Autonomy. An `mcp.call` names its provider's mode, not an override on `mcp.call`.
- * A row with no cause shows no switch: no setting removes its card.
+ * The settings that remove this card, derived from the row's reason and current policy (ADR-0130
+ * amendment (c)). A `high` card lists only Full Autonomy. An `mcp.call` names its provider's
+ * mode, not an override on `mcp.call`. A row with no reason, or no synced policy yet, shows no
+ * switch. The dock is in a chat thread, so Full Autonomy applies.
  */
-function cardSettings(staging: SyncedActionStaging): CardSettings {
-  const settings = staging.approvalCause?.settings ?? [];
+function cardSettings(
+  staging: SyncedActionStaging,
+  policy: SyncedActionPolicy | null,
+): CardSettings {
+  const settings =
+    staging.approvalReason === null || policy === null
+      ? []
+      : approvalSettings(staging.approvalReason, policy, true);
 
   return {
     integrationSetting: settings.find((setting) => setting.kind === "integration_mode"),

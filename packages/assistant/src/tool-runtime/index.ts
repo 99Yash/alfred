@@ -1,3 +1,4 @@
+import type { ApprovalCause } from "./approval-rule";
 import type { ToolSet, TranscriptMessage } from "@alfred/ai";
 import type {
   IntegrationSlug,
@@ -7,7 +8,6 @@ import type {
   ActivateWorkflowInput,
   AttributionActor,
   CancellationFence,
-  ApprovalCause,
   ChatConnectNudge,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,

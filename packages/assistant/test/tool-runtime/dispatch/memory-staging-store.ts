@@ -96,7 +96,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       runId: row.runId,
       status: row.status,
       requiresApproval: row.requiresApproval,
-      approvalCause: row.approvalCause,
+      approvalReason: row.approvalReason,
       toolName: row.toolName,
       riskTier: row.riskTier,
       proposedInput: row.proposedInput,
@@ -171,6 +171,7 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       return {
         reason: hit.rejectReason,
+        approvalReason: hit.approvalReason,
         status: hit.status,
         ...(stagingMayHaveRun(hit) ? { mayHaveRun: true as const } : {}),
       };
@@ -225,7 +226,7 @@ export function memoryStagingStore(): MemoryStagingStore {
         riskTier: values.riskTier,
         status: values.status ?? "pending",
         requiresApproval: values.requiresApproval,
-        approvalCause: values.approvalCause ?? null,
+        approvalReason: values.approvalReason ?? null,
         toolName: values.toolName,
         proposedInput: values.proposedInput,
         displayInput: values.displayInput,
@@ -260,7 +261,7 @@ export function memoryStagingStore(): MemoryStagingStore {
       const row = mustGet(stagingId);
 
       if (row.status !== "pending" || row.requiresApproval) return null;
-      row.approvalCause = promotion.approvalCause;
+      row.approvalReason = promotion.approvalReason;
       row.riskTier = promotion.riskTier;
       row.proposedInput = promotion.proposedInput;
       row.displayInput = promotion.displayInput;
@@ -304,7 +305,7 @@ export function memoryStagingStore(): MemoryStagingStore {
 
       row.status = "pending";
       row.requiresApproval = true;
-      row.approvalCause = null;
+      row.approvalReason = null;
       row.outcome = "awaiting_approval";
       row.riskTier = restage.riskTier;
       row.proposedInput = restage.proposedInput;

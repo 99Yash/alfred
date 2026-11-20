@@ -2,7 +2,7 @@ import type { TranscriptMessage } from "@alfred/ai";
 import { ARTIFACT_DOCUMENT_DESIGN_PROMPT } from "@alfred/artifacts-design";
 import {
   artifactFormatSchema,
-  approvalCauseSchema,
+  approvalReasonSchema,
   chatConnectNudgeSchema,
   scriptSourcesSchema,
   chatModelTierSchema,
@@ -53,8 +53,8 @@ const toolCallLogSchema = z.object({
   // Connection-health rejection only (#378). `.catch`: a slug this build does not
   // know reads as no nudge instead of failing the whole state parse.
   connectNudge: chatConnectNudgeSchema.optional().catch(undefined),
-  // The settings that remove a card (ADR-0130 decision 4). `.catch`: a bad value reads as none.
-  approvalCause: approvalCauseSchema.optional().catch(undefined),
+  // Why a card asked (ADR-0130 amendment (c)). `.catch`: a bad value reads as none.
+  approvalReason: approvalReasonSchema.optional().catch(undefined),
   // The web pages of a `code_run` script (ADR-0124). The preview prunes them, so they ride apart.
   scriptSources: scriptSourcesSchema.optional().catch(undefined),
   segmentIndex: z.number().int().nonnegative().default(0),

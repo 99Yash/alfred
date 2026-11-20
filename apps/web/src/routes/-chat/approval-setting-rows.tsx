@@ -1,29 +1,38 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  approvalSettings,
   APPROVAL_CONTROL_LABELS,
   assertNever,
   humanizeToolName,
   integrationFromToolName,
+  type ApprovalReason,
   type ApprovalSetting,
 } from "@alfred/contracts";
-import type { SyncedChatToolCall } from "@alfred/sync";
+import type { SyncedActionPolicy, SyncedChatToolCall } from "@alfred/sync";
 import { ArrowRight } from "lucide-react";
 import { toast } from "~/lib/toast";
 import { useThreadActions } from "~/lib/chat/use-thread-actions";
+import { useActionPolicy } from "~/lib/replicache/use-action-policy";
 import { getIntegrationPage } from "~/lib/integrations/integrations";
 import { cn } from "~/lib/utils";
 
+/** The reasons of the cards of one turn (ADR-0130 amendment (c)), in call order. */
+export function collectApprovalReasons(toolCalls: readonly SyncedChatToolCall[]): ApprovalReason[] {
+  return toolCalls.flatMap((call) => (call.approvalReason ? [call.approvalReason] : []));
+}
+
 /**
- * The settings that remove the cards of one turn (ADR-0130 decision 4), first appearance first.
- * The model writes the words in the reply. These rows only give the links.
+ * The settings that remove the cards of one turn under current policy, first appearance first
+ * (ADR-0130 amendment (c)). The saved reply is in a chat thread, so Full Autonomy applies.
  */
-export function collectApprovalSettings(
-  toolCalls: readonly SyncedChatToolCall[],
+function settingsOf(
+  reasons: readonly ApprovalReason[],
+  policy: SyncedActionPolicy,
 ): ApprovalSetting[] {
   const byKey = new Map<string, ApprovalSetting>();
 
-  for (const call of toolCalls) {
-    for (const setting of call.approvalCause?.settings ?? []) {
+  for (const reason of reasons) {
+    for (const setting of approvalSettings(reason, policy, true)) {
       const key = approvalSettingKey(setting);
 
       if (!byKey.has(key)) byKey.set(key, setting);
@@ -80,30 +89,33 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
 
 /**
  * Links to the settings that remove this turn's cards, under the reply. Nothing when the turn had
- * no card with a cause. Full Autonomy is a button, because it is a flag on this thread.
- * The sync query sits in `SettingRows`, below the empty-case return, so a turn with no card
+ * no card with a reason. Full Autonomy is a button, because it is a flag on this thread.
+ * The sync queries sit in `SettingRows`, below the empty-case return, so a turn with no card
  * mounts no subscription.
  */
 export function ApprovalSettingRows({
-  settings,
+  reasons,
   threadId,
 }: {
-  settings: readonly ApprovalSetting[];
+  reasons: readonly ApprovalReason[];
   threadId: string;
 }) {
-  if (settings.length === 0) return null;
+  if (reasons.length === 0) return null;
 
-  return <SettingRows settings={settings} threadId={threadId} />;
+  return <SettingRows reasons={reasons} threadId={threadId} />;
 }
 
 function SettingRows({
-  settings,
+  reasons,
   threadId,
 }: {
-  settings: readonly ApprovalSetting[];
+  reasons: readonly ApprovalReason[];
   threadId: string;
 }) {
   const navigate = useNavigate();
+  // Null before the first pull, and on a shared page with no sync: then no row shows.
+  const { policy } = useActionPolicy();
+  const settings = policy === null ? [] : settingsOf(reasons, policy);
   // Undefined on a shared page with no sync, so the Full Autonomy button does not show there.
   const threadActions = useThreadActions(threadId);
   const links = settings.map(settingLink).filter((link) => link !== null);

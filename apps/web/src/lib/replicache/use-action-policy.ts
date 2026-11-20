@@ -1,9 +1,4 @@
-import type {
-  IntegrationSlug,
-  LoadableIntegrationSlug,
-  PolicyMode,
-  ToolName,
-} from "@alfred/contracts";
+import type { IntegrationSlug, LiveProviderSlug, PolicyMode, ToolName } from "@alfred/contracts";
 import { resolveIntegrationMode, resolveToolMode } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
 import { useCallback } from "react";
@@ -22,7 +17,7 @@ export interface ActionPolicyState {
   modeFor: (slug: IntegrationSlug) => PolicyMode | null;
   /** The tool's override, else {@link modeFor}. */
   toolModeFor: (toolName: ToolName) => PolicyMode | null;
-  setIntegrationMode: (slug: LoadableIntegrationSlug, mode: PolicyMode) => Promise<void>;
+  setIntegrationMode: (slug: LiveProviderSlug, mode: PolicyMode) => Promise<void>;
   /** `null` clears the override. */
   setToolMode: (toolName: ToolName, mode: PolicyMode | null) => Promise<void>;
   setDefaultMode: (mode: PolicyMode) => Promise<void>;
@@ -61,7 +56,7 @@ export function useActionPolicy(): ActionPolicyState {
   );
 
   const setIntegrationMode = useCallback(
-    async (slug: LoadableIntegrationSlug, mode: PolicyMode): Promise<void> => {
+    async (slug: LiveProviderSlug, mode: PolicyMode): Promise<void> => {
       if (!rep) return;
       await rep.mutate.policySetIntegrationMode({ slug, mode });
     },

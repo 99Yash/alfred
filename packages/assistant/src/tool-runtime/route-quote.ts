@@ -87,9 +87,7 @@ async function requiresApproval(
 
   return callRequiresApproval({
     staging,
-    policyMode,
-    riskTier,
-    readClass,
+    ruleGates: gated,
     fullAutonomy: gated && (await run.fullAutonomy()),
   });
 }

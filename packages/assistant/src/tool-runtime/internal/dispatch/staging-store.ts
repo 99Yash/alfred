@@ -14,12 +14,13 @@ import type {
   JsonValue,
   RunStatus,
   ToolName,
+  ApprovalReason,
 } from "@alfred/contracts";
 import {
   actionStagingStatusSchema,
   assertNever,
   cancellationFenceSchema,
-  approvalCauseSchema,
+  approvalReasonSchema,
   effectOutcomeSchema,
   jsonValueSchema,
   toJsonValue,
@@ -48,7 +49,7 @@ export type StagingRow = Pick<
   | "runId"
   | "status"
   | "requiresApproval"
-  | "approvalCause"
+  | "approvalReason"
   | "toolName"
   | "riskTier"
   | "proposedInput"
@@ -97,7 +98,7 @@ export type PriorRejectionStatus = Extract<ActionStaging["status"], "rejected" |
 
 export type PendingApprovalPromotion = Pick<
   ActionStaging,
-  | "approvalCause"
+  | "approvalReason"
   | "riskTier"
   | "proposedInput"
   | "displayInput"
@@ -113,7 +114,7 @@ export type PendingApprovalPromotion = Pick<
  */
 export type InterruptedRestage = Omit<
   PendingApprovalPromotion,
-  "proposedInputHash" | "approvalCause"
+  "proposedInputHash" | "approvalReason"
 >;
 
 /** An earlier attempt claimed the call, so its effect may already exist. */
@@ -210,6 +211,8 @@ export interface StagingStore {
     reason: string | null;
     status: ActionStaging["status"];
     mayHaveRun?: true;
+    /** Why the rejected card asked (ADR-0130 amendment (c)), so its replay names the setting. */
+    approvalReason: ApprovalReason | null;
   } | null>;
 
   /** Read a saved call before binding against a possibly changed tool schema. */
@@ -294,7 +297,7 @@ const STAGING_COLUMNS = {
   runId: actionStagings.runId,
   status: actionStagings.status,
   requiresApproval: actionStagings.requiresApproval,
-  approvalCause: actionStagings.approvalCause,
+  approvalReason: actionStagings.approvalReason,
   toolName: actionStagings.toolName,
   riskTier: actionStagings.riskTier,
   proposedInput: actionStagings.proposedInput,
@@ -318,15 +321,23 @@ const STAGING_COLUMNS = {
 
 /**
  * `status` and `outcome` are `text` columns with only a `$type` assertion, so parse them. The
- * cause goes to the model and the web, so a bad cause reads as none.
+ * reason goes to the model and the web, so a bad reason reads as none (`storedApprovalReason`).
  */
 function parseStagingRow(row: StagingRow): StagingRow {
   return {
     ...row,
     status: actionStagingStatusSchema.parse(row.status),
     outcome: effectOutcomeSchema.parse(row.outcome),
-    approvalCause: approvalCauseSchema.safeParse(row.approvalCause).data ?? null,
+    approvalReason: storedApprovalReason(row.approvalReason),
   };
+}
+
+/**
+ * The stored reason of a card. The jsonb column has only a `$type` assertion, and a row from
+ * before migration 0178 or a rolling deploy can hold another shape, so a bad value reads as none.
+ */
+function storedApprovalReason(value: unknown): ApprovalReason | null {
+  return approvalReasonSchema.safeParse(value).data ?? null;
 }
 
 export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
@@ -397,6 +408,7 @@ export const postgresStagingStore: StagingStore = {
     const rows = await db()
       .select({
         reason: actionStagings.rejectReason,
+        approvalReason: actionStagings.approvalReason,
         status: actionStagings.status,
         decidedAt: actionStagings.decidedAt,
         dispatchClaimedAt: actionStagings.dispatchClaimedAt,
@@ -426,6 +438,7 @@ export const postgresStagingStore: StagingStore = {
       ? {
           reason: row.reason,
           status: row.status,
+          approvalReason: storedApprovalReason(row.approvalReason),
           ...(stagingMayHaveRun(row) ? { mayHaveRun: true as const } : {}),
         }
       : null;
@@ -526,7 +539,7 @@ export const postgresStagingStore: StagingStore = {
     const promoted = await db()
       .update(actionStagings)
       .set({
-        approvalCause: promotion.approvalCause,
+        approvalReason: promotion.approvalReason,
         riskTier: promotion.riskTier,
         proposedInput: promotion.proposedInput,
         displayInput: promotion.displayInput,
@@ -584,7 +597,7 @@ export const postgresStagingStore: StagingStore = {
           status: "pending",
           requiresApproval: true,
           // The call may have run, and no setting removes this card.
-          approvalCause: null,
+          approvalReason: null,
           outcome: "awaiting_approval",
           riskTier: restage.riskTier,
           // The card shows `proposedInput`, so an earlier edit moves there and approve runs it.

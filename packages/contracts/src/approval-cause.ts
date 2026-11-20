@@ -1,24 +1,48 @@
 /**
- * Why a call waits on an approval card, and the settings that remove the card (ADR-0130 decision
- * 4). Code supplies these facts. The model writes the words, and the web shows the links.
+ * Why a call waited on an approval card, and the settings that remove such a card (ADR-0130
+ * decision 4, amendment (c)). The reason is a fact of the call, so the staging row keeps it. The
+ * settings are a fact of current policy, so `approvalSettings` derives them each time a surface
+ * shows them. Code supplies these facts. The model writes the words, and the web shows the links.
  */
 import { z } from "zod";
-import { INTEGRATION_SLUGS } from "./integrations";
-import { toolNameSchema } from "./tools";
+import { enumGuard } from "./guards";
+import { INTEGRATION_SLUGS, LIVE_PROVIDER_SLUGS, type LiveProviderSlug } from "./integrations";
+import {
+  integrationFromToolName,
+  toolNameSchema,
+  type ApprovalModeSource,
+  type IntegrationRules,
+  type ToolName,
+} from "./tools";
 
 /**
- * One setting that removes a card. A closed list:
+ * The integrations whose page has the mode control (`ProviderPolicy` renders only for a live
+ * provider). The approval settings and the policy writer (`policySetIntegrationModeArgsSchema`)
+ * use this one list.
+ */
+export const APPROVAL_MODE_SLUGS: readonly LiveProviderSlug[] = LIVE_PROVIDER_SLUGS;
+
+export const integrationTakesMode = enumGuard(APPROVAL_MODE_SLUGS);
+
+/**
+ * A tool that can take an "Always allow" override: a tool of an integration that takes a mode.
+ * `system.*` never gates, and one override on `mcp.call` would cover every server.
+ */
+export function toolTakesOverride(toolName: ToolName): boolean {
+  return integrationTakesMode(integrationFromToolName(toolName));
+}
+
+/**
+ * One setting that removes a card. A closed list, narrowest first. Only `approvalSettings` makes
+ * one, from a stored reason, so no boundary parses it.
+ * - `always_allow`: "Always allow" for this one tool (`toolTakesOverride`).
  * - `integration_mode`: the mode of the integration on its integrations page.
- * - `always_allow`: "Always allow" for this one tool.
  * - `full_autonomy`: Full Autonomy for the chat thread.
  */
-export const approvalSettingSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("integration_mode"), integration: z.enum(INTEGRATION_SLUGS) }),
-  z.object({ kind: z.literal("always_allow"), toolName: toolNameSchema }),
-  z.object({ kind: z.literal("full_autonomy") }),
-]);
-
-export type ApprovalSetting = z.infer<typeof approvalSettingSchema>;
+export type ApprovalSetting =
+  | { kind: "always_allow"; toolName: ToolName }
+  | { kind: "integration_mode"; integration: LiveProviderSlug }
+  | { kind: "full_autonomy" };
 
 /**
  * Why the call waits:
@@ -36,12 +60,70 @@ export const APPROVAL_CAUSE_KINDS = [
 
 export type ApprovalCauseKind = (typeof APPROVAL_CAUSE_KINDS)[number];
 
-export const approvalCauseSchema = z.object({
-  cause: z.enum(APPROVAL_CAUSE_KINDS),
-  settings: z.array(approvalSettingSchema).min(1),
-});
+const APPROVAL_MODE_SOURCES = [
+  "tool_override",
+  "integration",
+  "default",
+] as const satisfies readonly ApprovalModeSource[];
 
-export type ApprovalCause = z.infer<typeof approvalCauseSchema>;
+/**
+ * The reason why one call waited, as dispatch decided it. The staging row keeps it.
+ * - A `high` call names only the tool: no policy setting removes its card.
+ * - Any other call names the integration whose rule governs it (the provider of a built-in
+ *   `mcp.call`), and the setting that supplied the mode.
+ */
+export const approvalReasonSchema = z.discriminatedUnion("cause", [
+  z.object({ cause: z.literal("high_risk"), toolName: toolNameSchema }),
+  z.object({
+    cause: z.enum(APPROVAL_CAUSE_KINDS).exclude(["high_risk"]),
+    toolName: toolNameSchema,
+    integration: z.enum(INTEGRATION_SLUGS),
+    source: z.enum(APPROVAL_MODE_SOURCES),
+  }),
+]);
+
+export type ApprovalReason = z.infer<typeof approvalReasonSchema>;
+
+/** The policy facts that `approvalSettings` reads. */
+export interface ApprovalPolicyView {
+  integrationRules: IntegrationRules;
+}
+
+/**
+ * The settings that remove a card with this reason under current policy (ADR-0130 amendment (c)),
+ * narrowest first. Each surface calls it when it shows the settings, so a list is never out of
+ * date. `onThread`: the call ran in a chat thread, so Full Autonomy for the thread applies.
+ * - A `high` card lists only Full Autonomy.
+ * - "Always allow" applies only to the tool's own integration (`resolvePolicyDecision`).
+ * - A current override on the tool beats the integration mode, so the mode is not listed then.
+ * - The integration mode is listed only when the integration page has the control.
+ * - The global default is not listed: it changes every integration.
+ */
+export function approvalSettings(
+  reason: ApprovalReason,
+  policy: ApprovalPolicyView,
+  onThread: boolean,
+): ApprovalSetting[] {
+  const fullAutonomy: ApprovalSetting[] = onThread ? [{ kind: "full_autonomy" }] : [];
+
+  if (reason.cause === "high_risk") return fullAutonomy;
+
+  const ownIntegration = integrationFromToolName(reason.toolName) === reason.integration;
+
+  const overrideGoverns =
+    ownIntegration &&
+    policy.integrationRules[reason.integration]?.toolOverrides?.[reason.toolName] !== undefined;
+
+  return [
+    ...(ownIntegration && toolTakesOverride(reason.toolName)
+      ? [{ kind: "always_allow", toolName: reason.toolName } as const]
+      : []),
+    ...(!overrideGoverns && integrationTakesMode(reason.integration)
+      ? [{ kind: "integration_mode", integration: reason.integration } as const]
+      : []),
+    ...fullAutonomy,
+  ];
+}
 
 /**
  * The labels of the controls that change an approval setting. The web shows them, and the model

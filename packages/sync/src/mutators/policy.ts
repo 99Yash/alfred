@@ -1,9 +1,8 @@
 import {
-  integrationFromToolName,
-  isLoadableIntegrationSlug,
-  LOADABLE_INTEGRATION_SLUGS,
+  APPROVAL_MODE_SLUGS,
   POLICY_MODES,
   toolNameSchema,
+  toolTakesOverride,
   withToolOverride,
 } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
@@ -11,8 +10,12 @@ import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
 import type { SyncedActionPolicy } from "../schemas";
 
+/**
+ * The writes accept the same settings that an approval card names (`approvalSettings`, ADR-0130
+ * amendment (c)): a mode only for an integration whose page has the mode control.
+ */
 export const policySetIntegrationModeArgsSchema = z.object({
-  slug: z.enum(LOADABLE_INTEGRATION_SLUGS),
+  slug: z.enum(APPROVAL_MODE_SLUGS),
   mode: z.enum(POLICY_MODES),
 });
 
@@ -40,10 +43,7 @@ export async function policySetIntegrationModeClient(
 
 export const policySetToolModeArgsSchema = z.object({
   // `system.*` never gates, and `mcp.call` stands for every MCP tool, so neither takes an override.
-  toolName: toolNameSchema.refine(
-    (toolName) => isLoadableIntegrationSlug(integrationFromToolName(toolName)),
-    "Tool has no approval policy",
-  ),
+  toolName: toolNameSchema.refine(toolTakesOverride, "Tool has no approval policy"),
   /** `null` clears the override. */
   mode: z.enum(POLICY_MODES).nullable(),
 });
