@@ -81,6 +81,7 @@ import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { clearChatStop, isChatStopRequested } from "./stop-signal";
+import { resultHandleLinesByMessage } from "./result-handle-store";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
@@ -961,6 +962,21 @@ const dispatchToolsStep: Step<ChatRunState> = {
   },
 };
 
+/** An earlier assistant message, with one line for each result its turn stored (ADR-0130 decision 5). */
+function assistantReplayContent(
+  text: string,
+  lines: string | undefined,
+): string | { type: "text"; text: string }[] {
+  if (lines === undefined) return text;
+
+  return text.length > 0
+    ? [
+        { type: "text", text },
+        { type: "text", text: lines },
+      ]
+    : lines;
+}
+
 export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadata> = {
   slug: CHAT_TURN_WORKFLOW_SLUG,
   name: "Chat turn",
@@ -1032,18 +1048,34 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       ex,
     );
 
+    // A new turn replays no tool result, so each stored result of an earlier turn gets one line
+    // after its assistant message (ADR-0130 decision 5).
+    const handleLines = await resultHandleLinesByMessage({
+      userId: input.userId,
+      threadId,
+      messageIds: verbatimRows.filter((row) => row.role === "assistant").map((row) => row.id),
+      ex,
+    });
+
     const out: TranscriptMessage[] = assembled.summaryMessage ? [assembled.summaryMessage] : [];
 
     for (const r of verbatimRows) {
       const atts = attachmentsByMessage.get(r.id) ?? [];
       const content = atts.length > 0 ? buildStoredContentParts(r.content, atts) : r.content;
 
-      // Check the produced content, not `atts`: an attachment can degrade to no parts.
-      if (content.length === 0) continue;
+      const lines = r.role === "assistant" ? handleLines.get(r.id) : undefined;
+
+      // Check the produced content, not `atts`: an attachment can degrade to no parts. An assistant
+      // row with no text still carries the lines of the results its turn stored.
+      if (content.length === 0 && lines === undefined) continue;
+
       // Attachments belong to user messages, so an assistant row keeps its text.
-      out.push(
-        r.role === "user" ? { role: "user", content } : { role: "assistant", content: r.content },
-      );
+      if (r.role === "user") {
+        out.push({ role: "user", content });
+        continue;
+      }
+
+      out.push({ role: "assistant", content: assistantReplayContent(r.content, lines) });
     }
 
     return out;

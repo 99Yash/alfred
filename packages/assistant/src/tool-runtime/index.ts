@@ -37,6 +37,13 @@ import { runToolCallRound } from "./internal/tool-call-round";
 
 export { questionToolInput, QUESTION_TOOL_PROBE_INPUT } from "./question-contract";
 
+export {
+  RESULT_HANDLE_TTL_MS,
+  registerResultHandleStore,
+  type ResultHandleStore,
+  type StoredResultRef,
+} from "./result-handle-store";
+
 // The registry map stays private to `internal/registry.ts`. `builtin-tools.ts`
 // makes every production registration; `registerTool` is the fixture door.
 export {

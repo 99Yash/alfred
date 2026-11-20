@@ -140,6 +140,7 @@ export const INTEGRATIONS = {
       "read_user_context",
       "read_chat_history",
       "read_scratch",
+      "load_result",
       "write_scratch",
       "promote",
       "remember",

@@ -6,6 +6,7 @@ import {
   type ReadGateResult,
   type TransportErrorKind,
 } from "@alfred/contracts";
+import { STORED_RESULT_MAX_BYTES } from "../../../code-mode/result-budget";
 import { boundPassthroughBody } from "./bounds";
 
 /**
@@ -25,7 +26,10 @@ export interface HttpResultArgs {
   body: unknown;
   /** A partial GraphQL response keeps its `data` but sets `succeeded: false`. */
   graphqlHasErrors?: boolean;
-  /** A script gets the whole sanitized body. Only the model's copy is bounded (ADR-0130 decision 5). */
+  /**
+   * A script gets the whole sanitized body. A direct call keeps a copy within the stored cap, and
+   * the chat boundary bounds the model's copy (ADR-0130 decision 5).
+   */
   recipient?: ResultRecipient;
 }
 
@@ -47,7 +51,9 @@ export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
     };
   }
 
-  const bounded = boundPassthroughBody(args.body);
+  // The stored cap, so the staging row and the handle stay bounded. The chat boundary bounds the
+  // model's copy (ADR-0130 decision 5).
+  const bounded = boundPassthroughBody(args.body, STORED_RESULT_MAX_BYTES);
 
   return {
     outcome: "http",

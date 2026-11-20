@@ -154,7 +154,7 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
         }
       }
 
-      transcript = [...transcript, toolResultMessage(call, routed)];
+      transcript = [...transcript, await toolResultMessage(call, routed, input.run)];
       calls.push(completedToolCall(call, routed));
     }
 

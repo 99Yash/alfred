@@ -364,6 +364,14 @@ const scratchKey = z.string().min(1).max(240);
 
 export const readScratchInput = z.object({ key: scratchKey }).strict();
 
+/** The prefix of a result handle id (`createId("rh")`). */
+export const RESULT_HANDLE_PREFIX = "rh_";
+
+/** ADR-0087: the read of a stored result. The handle is from a result or a transcript line. */
+export const loadResultInput = z
+  .object({ handle: z.string().startsWith(RESULT_HANDLE_PREFIX).max(64) })
+  .strict();
+
 /** `run`'s own source cap (`limits.maxSourceBytes`, 256 KiB). A longer script fails there anyway. */
 export const CODE_RUN_MAX_SOURCE_CHARS = 256 * 1024;
 
@@ -1214,6 +1222,7 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.read_user_context": readUserContextInput,
   "system.read_chat_history": readChatHistoryInput,
   "system.read_scratch": readScratchInput,
+  "system.load_result": loadResultInput,
   "system.code_run": codeRunInput,
   "system.write_scratch": writeScratchInput,
   "system.promote": promoteScratchInput,

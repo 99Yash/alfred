@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ToolName } from "@alfred/contracts";
-import { isRecord } from "@alfred/contracts";
+import { isRecord, parseIanaTimezone } from "@alfred/contracts";
+import type { ToolCallRun } from "@alfred/assistant/tool-runtime";
+import { FIRST_STEP } from "../../../support/first-step";
 import {
   executedResultOutcome,
   isNonExecutionFailure,
@@ -16,6 +18,17 @@ import type { ToolCallDispatchResult } from "../../../../src/tool-runtime/intern
  */
 
 const REQUEST: ToolName = "vercel.request";
+
+const RUN: ToolCallRun = {
+  runId: "run_test",
+  stepId: "dispatch-tools",
+  userId: "user_test",
+  timezone: parseIanaTimezone("UTC"),
+  workflow: "test-workflow",
+  caller: "boss",
+  runContext: { caller: "boss", interaction: "background" },
+  ...FIRST_STEP,
+};
 
 describe("read-gate `rejected` is a VISIBLE, model-facing result", () => {
   const gateRejected: Extract<ToolCallDispatchResult, { kind: "executed" }> = {
@@ -67,10 +80,11 @@ describe("`feature_disabled` is HIDDEN nonExecution plumbing", () => {
 
 describe("an executed result carries `editedByUser` to the model", () => {
   // Both the chat turn and the sub-agent brief must carry the edit flag.
-  function executedValue(editedByUser: boolean): unknown {
-    const message = toolResultMessage(
+  async function executedValue(editedByUser: boolean): Promise<unknown> {
+    const message = await toolResultMessage(
       { toolCallId: "call_1", toolName: REQUEST, input: {} },
       { kind: "executed", stagingId: "s1", toolResult: { ok: true }, effects: {}, editedByUser },
+      RUN,
     );
 
     assert.ok(Array.isArray(message.content), "expected tool-result content");
@@ -82,15 +96,15 @@ describe("an executed result carries `editedByUser` to the model", () => {
     return output.value;
   }
 
-  test("edited input surfaces editedByUser: true", () => {
-    const value = executedValue(true);
+  test("edited input surfaces editedByUser: true", async () => {
+    const value = await executedValue(true);
     assert.ok(isRecord(value));
     assert.equal(value.status, "executed");
     assert.equal(value.editedByUser, true);
   });
 
-  test("un-edited input still reports editedByUser: false (never omitted)", () => {
-    const value = executedValue(false);
+  test("un-edited input still reports editedByUser: false (never omitted)", async () => {
+    const value = await executedValue(false);
     assert.ok(isRecord(value));
     assert.equal(value.editedByUser, false);
   });

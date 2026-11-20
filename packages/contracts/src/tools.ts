@@ -554,6 +554,11 @@ export const TOOL_LABELS = {
     title: "search conversation history",
   },
   "system.read_scratch": { running: "Reading notes", done: "Read notes", title: "read notes" },
+  "system.load_result": {
+    running: "Reading an earlier result",
+    done: "Read an earlier result",
+    title: "read an earlier result",
+  },
   "system.code_run": {
     running: "Reading with a script",
     done: "Read with a script",
@@ -722,6 +727,7 @@ export const TOOL_CATEGORIES = {
   "system.read_user_context": "system",
   "system.read_chat_history": "source",
   "system.read_scratch": "system",
+  "system.load_result": "system",
   "system.write_scratch": "system",
   "system.promote": "action",
   "system.remember": "action",

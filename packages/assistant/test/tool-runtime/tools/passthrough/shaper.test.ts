@@ -37,7 +37,8 @@ describe("passthroughHttpResult — succeeded semantics", () => {
   });
 
   test("a clipped body attaches the truncation thermometer", () => {
-    const r = passthroughHttpResult({ status: 200, body: { blob: "q".repeat(70_000) } });
+    // Over the stored cap (about 1 MiB): the tool keeps a bounded copy for its row and its handle.
+    const r = passthroughHttpResult({ status: 200, body: { blob: "q".repeat(1_100_000) } });
 
     if (r.outcome !== "http") return assert.fail("expected http");
     assert.ok(r.truncation, "expected truncation on a clipped body");
