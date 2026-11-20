@@ -99,12 +99,10 @@ export async function getResolvedPolicy(userId: string): Promise<ResolvedPolicy>
 
 /**
  * The mode of one call, and the setting that set it (ADR-0130 decision 4). `system`: a
- * `system.*` tool, which no setting gates. Else the `source` of `resolveToolModeDecision`.
+ * `system.*` tool, which no setting gates, so its mode is always `autonomy`. Else the
+ * `ToolModeDecision` of `resolveToolModeDecision`. So a `gated` decision always names a setting.
  */
-export interface PolicyDecision {
-  mode: PolicyMode;
-  source: "system" | ToolModeDecision["source"];
-}
+export type PolicyDecision = { mode: "autonomy"; source: "system" } | ToolModeDecision;
 
 /**
  * Read order: `system.*`, then tool override, then integration mode, then user default (ADR-0034).

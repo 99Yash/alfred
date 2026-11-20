@@ -1,14 +1,13 @@
 import {
-  integrationTakesMode,
   APPROVAL_CONTROL_LABELS,
   isToolName,
+  type LiveProviderSlug,
   type PolicyMode,
   type ToolName,
 } from "@alfred/contracts";
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { toolChipLabel } from "~/components/approvals/card-spec";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
-import type { IntegrationPage } from "~/lib/integrations/integrations";
 import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
 import { CachedSyncNotice } from "~/components/cached-sync-notice";
 import { SectionHeading } from "./section-heading";
@@ -28,10 +27,11 @@ const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
 
 const RETRY_LEADING = <RefreshCw size={13} aria-hidden />;
 
-export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
-  // The detail page renders this panel only for a live provider.
-  const { slug } = provider;
-
+/**
+ * The mode control of one integration page. Only a live provider takes a mode (ADR-0130
+ * amendment (c), `APPROVAL_MODE_SLUGS`), so the slug type carries that rule.
+ */
+export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: string }) {
   const { policy, modeFor, setIntegrationMode, setToolMode, loading, error, retry } =
     useActionPolicy();
 
@@ -42,10 +42,6 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
   const toolOverrides = Object.entries(policy?.integrationRules[slug]?.toolOverrides ?? {}).filter(
     (entry): entry is [ToolName, PolicyMode] => isToolName(entry[0]),
   );
-
-  // Only a page whose integration takes a mode has the control (ADR-0130 amendment (c)). The
-  // detail page renders this panel only for a live provider, so this only narrows the slug.
-  if (!integrationTakesMode(slug)) return null;
 
   // A failed pull keeps the cached row, so the panel shows only when there is no row.
   if (error && !policy) {
@@ -95,12 +91,12 @@ export function ProviderPolicy({ provider }: { provider: IntegrationPage }) {
             </p>
             <p className="mt-1 text-xs leading-5 text-app-fg-3">
               {mode === "autonomy"
-                ? `Alfred acts on ${provider.name} without pausing for approval. Risky actions still ask.`
-                : `Alfred asks before it changes anything on ${provider.name}, and before a read that can show a secret, such as a key or a token.`}
+                ? `Alfred acts on ${name} without pausing for approval. Risky actions still ask.`
+                : `Alfred asks before it changes anything on ${name}, and before a read that can show a secret, such as a key or a token.`}
             </p>
           </div>
           <AppSegmented<PolicyMode>
-            label={`${provider.name} approval policy`}
+            label={`${name} approval policy`}
             value={mode}
             items={MODE_ITEMS}
             onValueChange={(next) => {

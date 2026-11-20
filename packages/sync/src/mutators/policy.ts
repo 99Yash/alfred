@@ -1,5 +1,5 @@
 import {
-  LIVE_PROVIDER_SLUGS,
+  APPROVAL_MODE_SLUGS,
   POLICY_MODES,
   toolNameSchema,
   toolTakesOverride,
@@ -11,11 +11,11 @@ import { SYNC_MODEL } from "../sync-model";
 import type { SyncedActionPolicy } from "../schemas";
 
 /**
- * The writes accept the same settings that an approval card names (`approvalSettingSchema`,
- * ADR-0130 amendment (c)): a mode only for an integration whose page has the mode control.
+ * The writes accept the same settings that an approval card names (`approvalSettings`, ADR-0130
+ * amendment (c)): a mode only for an integration whose page has the mode control.
  */
 export const policySetIntegrationModeArgsSchema = z.object({
-  slug: z.enum(LIVE_PROVIDER_SLUGS),
+  slug: z.enum(APPROVAL_MODE_SLUGS),
   mode: z.enum(POLICY_MODES),
 });
 

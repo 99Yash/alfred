@@ -4,7 +4,6 @@ import {
   APPROVAL_CONTROL_LABELS,
   assertNever,
   humanizeToolName,
-  isLoadableIntegrationSlug,
 } from "@alfred/contracts";
 import type { SyncedActionPolicy, SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -480,7 +479,7 @@ function DockApprovalCard({
 
   const approved = decisionKind === "approve";
 
-  // Only the settings that remove this card (ADR-0130 decision 4). The server lists them.
+  // Only the settings that remove this card, from its reason and current policy (ADR-0130).
   const { integrationSetting, toolSetting, fullAutonomySetting } = cardSettings(
     staging,
     policy.policy,
@@ -543,12 +542,7 @@ function DockApprovalCard({
                 toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
                 showFullAutonomy={fullAutonomySetting !== undefined}
                 onFlipIntegration={(autonomy) => {
-                  if (
-                    !integrationSetting ||
-                    !isLoadableIntegrationSlug(integrationSetting.integration)
-                  ) {
-                    return;
-                  }
+                  if (!integrationSetting) return;
 
                   setError(null);
                   setIntegrationMode(

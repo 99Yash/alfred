@@ -5,13 +5,8 @@
  * shows them. Code supplies these facts. The model writes the words, and the web shows the links.
  */
 import { z } from "zod";
-import {
-  INTEGRATION_SLUGS,
-  LIVE_PROVIDER_SLUGS,
-  isLiveProviderSlug,
-  type IntegrationSlug,
-  type LiveProviderSlug,
-} from "./integrations";
+import { enumGuard } from "./guards";
+import { INTEGRATION_SLUGS, LIVE_PROVIDER_SLUGS, type LiveProviderSlug } from "./integrations";
 import {
   integrationFromToolName,
   toolNameSchema,
@@ -21,12 +16,13 @@ import {
 } from "./tools";
 
 /**
- * An integration whose page has the mode control (`ProviderPolicy` renders only for a live
- * provider). The approval settings and the policy writer use this one rule.
+ * The integrations whose page has the mode control (`ProviderPolicy` renders only for a live
+ * provider). The approval settings and the policy writer (`policySetIntegrationModeArgsSchema`)
+ * use this one list.
  */
-export function integrationTakesMode(slug: IntegrationSlug): slug is LiveProviderSlug {
-  return isLiveProviderSlug(slug);
-}
+export const APPROVAL_MODE_SLUGS: readonly LiveProviderSlug[] = LIVE_PROVIDER_SLUGS;
+
+export const integrationTakesMode = enumGuard(APPROVAL_MODE_SLUGS);
 
 /**
  * A tool that can take an "Always allow" override: a tool of an integration that takes a mode.
@@ -37,21 +33,16 @@ export function toolTakesOverride(toolName: ToolName): boolean {
 }
 
 /**
- * One setting that removes a card. A closed list, narrowest first:
- * - `always_allow`: "Always allow" for this one tool.
+ * One setting that removes a card. A closed list, narrowest first. Only `approvalSettings` makes
+ * one, from a stored reason, so no boundary parses it.
+ * - `always_allow`: "Always allow" for this one tool (`toolTakesOverride`).
  * - `integration_mode`: the mode of the integration on its integrations page.
  * - `full_autonomy`: Full Autonomy for the chat thread.
  */
-export const approvalSettingSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("always_allow"),
-    toolName: toolNameSchema.refine(toolTakesOverride, "Tool takes no override"),
-  }),
-  z.object({ kind: z.literal("integration_mode"), integration: z.enum(LIVE_PROVIDER_SLUGS) }),
-  z.object({ kind: z.literal("full_autonomy") }),
-]);
-
-export type ApprovalSetting = z.infer<typeof approvalSettingSchema>;
+export type ApprovalSetting =
+  | { kind: "always_allow"; toolName: ToolName }
+  | { kind: "integration_mode"; integration: LiveProviderSlug }
+  | { kind: "full_autonomy" };
 
 /**
  * Why the call waits:
@@ -92,12 +83,6 @@ export const approvalReasonSchema = z.discriminatedUnion("cause", [
 ]);
 
 export type ApprovalReason = z.infer<typeof approvalReasonSchema>;
-
-/** The reason of a call, and the settings that remove such a card under current policy. */
-export interface ApprovalCause {
-  reason: ApprovalReason;
-  settings: ApprovalSetting[];
-}
 
 /** The policy facts that `approvalSettings` reads. */
 export interface ApprovalPolicyView {

@@ -135,19 +135,25 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   return { status: outcome.status, message: outcome.message, reads, ...pages };
 }
 
-/** The approval facts of the reads that wait for a card, one per tool, in request order. */
+/**
+ * The approval facts of the reads that wait for a card, in request order: one per tool and
+ * governing integration, so `mcp.call` on two providers stays two facts.
+ */
 function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] {
-  const byTool = new Map<string, ApprovalCauseFact>();
+  const byRule = new Map<string, ApprovalCauseFact>();
 
   for (const entry of ledger.toSorted((a, b) => a.index - b.index)) {
     const cause = entry.approvalCause;
 
-    if (cause === undefined || byTool.has(cause.reason.toolName)) continue;
+    if (cause === undefined) continue;
 
-    byTool.set(cause.reason.toolName, approvalCauseFact(cause));
+    const { reason } = cause;
+    const key = `${reason.toolName}:${reason.cause === "high_risk" ? "" : reason.integration}`;
+
+    if (!byRule.has(key)) byRule.set(key, approvalCauseFact(cause));
   }
 
-  return [...byTool.values()].slice(0, MAX_APPROVAL_FACTS);
+  return [...byRule.values()].slice(0, MAX_APPROVAL_FACTS);
 }
 
 /** The web references of the reads that executed, in request order. */

@@ -16,14 +16,14 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
   const connected = provider.status === "connected";
   // A planned provider has no Alfred credential. One with a built-in MCP server shows
   // that connection; any other shows the design-only notice.
-  const live = isLiveProviderSlug(provider.slug);
+  const liveSlug = isLiveProviderSlug(provider.slug) ? provider.slug : undefined;
   const builtIns = builtInMCPProvidersOf(provider.slug);
 
   return (
     <div className="mt-6 space-y-10">
       <DetailHeader provider={provider} connected={connected} />
       <HeroPanel provider={provider} />
-      {live ? (
+      {liveSlug !== undefined ? (
         <>
           <ConnectedAccounts provider={provider} connected={connected} />
           {/* GitHub: the install also connects its MCP server, so the page shows both halves. */}
@@ -34,7 +34,7 @@ export function ProviderDetail({ provider }: { provider: IntegrationPage }) {
               note={`Connecting ${provider.name} also connects this server. Chat reads ${provider.name} through it.`}
             />
           ))}
-          <ProviderPolicy provider={provider} />
+          <ProviderPolicy slug={liveSlug} name={provider.name} />
           <TrustNotice provider={provider} />
           <RelatedSetup provider={provider} />
           <Capabilities provider={provider} />

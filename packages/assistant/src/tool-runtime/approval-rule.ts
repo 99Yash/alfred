@@ -17,7 +17,6 @@ import {
   isCatalogSlug,
   isToolName,
   approvalSettings,
-  type ApprovalCause,
   type ApprovalCauseKind,
   type ApprovalModeSource,
   type ApprovalReason,
@@ -100,10 +99,8 @@ export function approvalReasonOf(facts: ApprovalRuleFacts): ApprovalReason | nul
 
   if (facts.riskTier === "high") return { cause: "high_risk", toolName: facts.toolName };
 
-  // `toolRequiresApproval` never gates `system.*` below `high`, so the source is a policy setting.
-  if (facts.policy.source === "system") {
-    throw new Error(`[approval] ${facts.toolName} gated below high with no policy setting`);
-  }
+  // Below `high`, only `gated` gates. A `gated` decision names a setting: `system.*` is `autonomy`.
+  if (facts.policy.mode !== "gated") return null;
 
   return {
     cause: causeOfGatedCall(facts.readFacts),
@@ -114,10 +111,16 @@ export function approvalReasonOf(facts: ApprovalRuleFacts): ApprovalReason | nul
 }
 
 /**
- * The reason of a card and the settings that remove such a card under current policy (ADR-0130
- * amendment (c)). Each result that leaves dispatch derives the settings again, so they are never
- * out of date. `null` when no setting removes the card.
+ * The reason of a card, and the settings that remove such a card under current policy (ADR-0130
+ * amendment (c)). The dispatch boundary derives the settings for each result, so they are never
+ * out of date. The reason is a durable fact, so it stays when no setting removes the card.
  */
+export interface ApprovalCause {
+  reason: ApprovalReason;
+  settings: ApprovalSetting[];
+}
+
+/** The cause of a card now: its reason, and the settings of current policy. `null`: no card. */
 export async function approvalCauseNow(
   userId: string,
   reason: ApprovalReason | null,
@@ -125,9 +128,7 @@ export async function approvalCauseNow(
 ): Promise<ApprovalCause | null> {
   if (reason === null) return null;
 
-  const settings = approvalSettings(reason, await getResolvedPolicy(userId), onThread);
-
-  return settings.length > 0 ? { reason, settings } : null;
+  return { reason, settings: approvalSettings(reason, await getResolvedPolicy(userId), onThread) };
 }
 
 /**
@@ -160,12 +161,17 @@ export type ApprovalSettingFact = ApprovalSetting & {
 /** The cause as the model reads it: the cause, and a `change_setting` fix with the settings. */
 export interface ApprovalCauseFact {
   cause: ApprovalCauseKind;
+  /** The tool whose call waited. */
+  toolName: ToolName;
+  /** The integration whose rule governs the call: the provider of a built-in `mcp.call`. */
+  integration?: IntegrationSlug;
   /**
    * The setting that supplied the mode: the rule on the tool, the integration mode, or the global
    * default. Absent on a `high` card, which no policy setting removes.
    */
   source?: ApprovalModeSource;
-  fix: Omit<Extract<Fix, { kind: "change_setting" }>, "settings"> & {
+  /** Absent when no setting removes the card, for example a `high` card outside a chat. */
+  fix?: Omit<Extract<Fix, { kind: "change_setting" }>, "settings"> & {
     settings: ApprovalSettingFact[];
   };
 }
@@ -175,8 +181,13 @@ export function approvalCauseFact(cause: ApprovalCause): ApprovalCauseFact {
 
   return {
     cause: reason.cause,
-    ...(reason.cause === "high_risk" ? {} : { source: reason.source }),
-    fix: { kind: "change_setting", settings: cause.settings.map(approvalSettingFact) },
+    toolName: reason.toolName,
+    ...(reason.cause === "high_risk"
+      ? {}
+      : { integration: reason.integration, source: reason.source }),
+    ...(cause.settings.length === 0
+      ? {}
+      : { fix: { kind: "change_setting", settings: cause.settings.map(approvalSettingFact) } }),
   };
 }
 

@@ -4,8 +4,8 @@
  * `join` and `fast_path` tools execute inline with no row (ADR-0034, ADR-0069).
  */
 
+import type { ApprovalCause } from "../../approval-rule";
 import type {
-  ApprovalCause,
   ApprovalReason,
   AskUserUnansweredReason,
   DirectRouteReason,
@@ -143,8 +143,9 @@ export type ToolCallDispatchResult = Awaited<ReturnType<DispatchToolCallRoundAda
 
 type DispatchResult = ToolCallDispatchResult;
 
-function deferred(approvalCause: ApprovalCause | null): DeferredDispatch {
-  return { kind: "deferred", approvalCause };
+/** The boundary (`runDispatchStages`) attaches the cause. */
+function deferred(): DeferredDispatch {
+  return { kind: "deferred", approvalCause: null };
 }
 
 /**
@@ -359,6 +360,11 @@ interface ResolvedDispatch {
   /** Return `deferred` instead of a write that would stage a card. Only the round sets it. */
   deferIfGated: boolean;
   /**
+   * The reason of the card of this call, from the stage that read or wrote its row. The boundary
+   * (`runDispatchStages`) attaches it to the result (ADR-0130 amendment (c)).
+   */
+  approval: ApprovalNote;
+  /**
    * `args.input` is the saved input of an approved staging row, not the caller's input. Its
    * server fields are already bound, so `bindServerFields` does not run again.
    */
@@ -418,16 +424,56 @@ async function dispatchToolCallUnlessGated(
   return refuseHostRouteOutsideScript(await runDispatchStages(args, true), args);
 }
 
+/** The reason of the card of one call. A stage sets it when it reads or writes the call's row. */
+interface ApprovalNote {
+  reason: ApprovalReason | null;
+}
+
+/**
+ * The one result boundary of dispatch (ADR-0130 amendment (c)). The stages note the reason of the
+ * card from the row. Here the result of a card gets the reason and the settings that remove such
+ * a card under current policy. No stage attaches the cause by hand.
+ */
 async function runDispatchStages(
   args: ToolCallDispatchArgs,
   deferIfGated: boolean,
+): Promise<DispatchResult | DeferredDispatch | DirectRouteHostRead> {
+  const approval: ApprovalNote = { reason: null };
+  const result = await runStages(args, deferIfGated, approval);
+
+  if (
+    result.kind !== "executed" &&
+    result.kind !== "failed" &&
+    result.kind !== "rejected" &&
+    result.kind !== "deferred"
+  ) {
+    return result;
+  }
+
+  const cause = await approvalCauseNow(
+    args.userId,
+    approval.reason,
+    args.approvalThreadId !== undefined,
+  );
+
+  return cause === null ? result : { ...result, approvalCause: cause };
+}
+
+async function runStages(
+  args: ToolCallDispatchArgs,
+  deferIfGated: boolean,
+  approval: ApprovalNote,
 ): Promise<DispatchResult | DeferredDispatch | DirectRouteHostRead> {
   const registry = await resolveRegistryStage(args);
 
   if (!isContinue(registry)) return registry;
 
   // A saved claim must become a card even when a deploy changed the input schema.
-  const resumed = await resumeSavedStagingStage({ ...registry.continueWith, deferIfGated });
+  const resumed = await resumeSavedStagingStage({
+    ...registry.continueWith,
+    deferIfGated,
+    approval,
+  });
 
   if (!isContinue(resumed)) return resumed;
 
@@ -450,7 +496,7 @@ async function runDispatchStages(
 /** Stage 1: find the tool, then check the workflow envelope, availability, and the active surface. */
 const resolveRegistryStage: DispatchStage<
   ToolCallDispatchArgs,
-  Omit<ResolvedDispatch, "deferIfGated">
+  Omit<ResolvedDispatch, "deferIfGated" | "approval">
 > = async (args) => {
   if (!isToolName(args.toolName)) {
     const message = undeclaredToolMessage(args.toolName, args.allowedIntegrations);
@@ -610,7 +656,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
 
   if (isInterruptedClaim(row)) {
     // A restage can write a card, so the serial lane owns it. No setting removes that card.
-    if (resolved.deferIfGated) return deferred(null);
+    if (resolved.deferIfGated) return deferred();
 
     // The claim itself proves that a write may have started, even if replay classification changed.
     const restage = await restageInterruptedCall(row, resolved);
@@ -634,12 +680,12 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     }
   }
 
+  resolved.approval.reason = row.approvalReason;
+
   switch (row.status) {
     case "pending":
       if (row.requiresApproval) {
-        return resolved.deferIfGated
-          ? deferred(await approvalCauseNow(args.userId, row.approvalReason, onThread(args)))
-          : waitForStagingApproval(row, args, arm, false);
+        return resolved.deferIfGated ? deferred() : waitForStagingApproval(row, args, arm, false);
       }
 
       return continueWith(resolved);
@@ -647,11 +693,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
       const binding = tool.bind(row.decidedInput ?? row.proposedInput);
 
       if (!binding.success) {
-        return withApprovalCause(
-          row,
-          args,
-          await failApprovedInput(row, resolved, binding.error.issues),
-        );
+        return failApprovedInput(row, resolved, binding.error.issues);
       }
 
       return continueWith({
@@ -670,7 +712,7 @@ const resumeSavedStagingStage: DispatchStage<ResolvedDispatch, ResolvedDispatch>
     case "expired":
     case "executed":
     case "failed":
-      return withApprovalCause(row, args, replaySettledStaging(row, resolved));
+      return replaySettledStaging(row, resolved);
     default:
       return assertNever(row.status, "saved staging status");
   }
@@ -1134,20 +1176,18 @@ const suppressRepeatedStage: DispatchStage<ValidatedDispatch, SuppressedDispatch
 
   if (priorReject) {
     // A replay under a new call ID still names the setting (ADR-0130 amendment (c)).
-    return withApprovalCause(
-      priorReject,
-      args,
-      settleWithoutExecution(arm, {
-        dispatch: args,
-        traceInput: redactTraceInput(call),
-        toolName,
-        stagingId: null,
-        input,
-        status: priorReject.status === "expired" ? "expired" : "rejected",
-        reason: priorReject.reason,
-        mayHaveRun: priorReject.mayHaveRun === true,
-      }),
-    );
+    validated.approval.reason = priorReject.approvalReason;
+
+    return settleWithoutExecution(arm, {
+      dispatch: args,
+      traceInput: redactTraceInput(call),
+      toolName,
+      stagingId: null,
+      input,
+      status: priorReject.status === "expired" ? "expired" : "rejected",
+      reason: priorReject.reason,
+      mayHaveRun: priorReject.mayHaveRun === true,
+    });
   }
 
   return continueWith({ ...validated, proposedInputHash, requestHash });
@@ -1355,7 +1395,9 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
 
   // Before the upsert, so a deferred call leaves no row and no card. The serial lane stages it.
   if (requiresApproval && suppressed.deferIfGated) {
-    return deferred(await approvalCauseNow(args.userId, reason, onThread(args)));
+    suppressed.approval.reason = reason;
+
+    return deferred();
   }
 
   if (fullAutonomy) {
@@ -1432,6 +1474,8 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
     promotedPendingApproval = true;
   }
 
+  suppressed.approval.reason = row.approvalReason;
+
   switch (row.status) {
     case "pending":
       // A pending row can gain a gate but never lose one (ADR-0034, ADR-0088).
@@ -1456,35 +1500,27 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
       const rebound = tool.bind(useInput);
 
       if (!rebound.success) {
-        return withApprovalCause(
-          row,
-          args,
-          await failApprovedInput(row, suppressed, rebound.error.issues),
-        );
+        return failApprovedInput(row, suppressed, rebound.error.issues);
       }
 
       {
         const exhausted = await guardPassthroughBudget(row, tool, ctx);
 
-        if (exhausted) return withApprovalCause(row, args, exhausted);
+        if (exhausted) return exhausted;
       }
 
-      return withApprovalCause(
-        row,
-        args,
-        await executeAndCommit(row, rebound.call, ctx, {
-          lease: stepLease(args),
-          editedByUser,
-          ...(editedByUser ? { executedInput: rebound.call.input } : {}),
-        }),
-      );
+      return executeAndCommit(row, rebound.call, ctx, {
+        lease: stepLease(args),
+        editedByUser,
+        ...(editedByUser ? { executedInput: rebound.call.input } : {}),
+      });
     }
 
     case "rejected":
     case "expired":
     case "executed":
     case "failed":
-      return withApprovalCause(row, args, replaySettledStaging(row, suppressed));
+      return replaySettledStaging(row, suppressed);
 
     default: {
       // Fail instead of throwing, so the boss gets a tool result. The cases above are exhaustive,
@@ -1538,31 +1574,6 @@ async function failApprovedInput(
     stagingId: row.id,
     error,
   };
-}
-
-/**
- * The result of a call that waited on a card carries its reason and the settings that remove such
- * a card now (ADR-0130 amendment (c)). The row keeps the reason. The settings come from current
- * policy, so a replay names the settings of today. A row with no reason, or a result of another
- * kind, passes through.
- */
-async function withApprovalCause(
-  row: { approvalReason: ApprovalReason | null },
-  args: ToolCallDispatchArgs,
-  result: DispatchResult,
-): Promise<DispatchResult> {
-  if (result.kind !== "executed" && result.kind !== "failed" && result.kind !== "rejected") {
-    return result;
-  }
-
-  const cause = await approvalCauseNow(args.userId, row.approvalReason, onThread(args));
-
-  return cause === null ? result : { ...result, approvalCause: cause };
-}
-
-/** The call runs in a chat thread, so Full Autonomy for the thread is a setting. */
-function onThread(args: ToolCallDispatchArgs): boolean {
-  return args.approvalThreadId !== undefined;
 }
 
 function replaySettledStaging(row: StagingRow, resolved: ResolvedDispatch): DispatchResult {

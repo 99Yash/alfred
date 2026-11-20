@@ -321,15 +321,23 @@ const STAGING_COLUMNS = {
 
 /**
  * `status` and `outcome` are `text` columns with only a `$type` assertion, so parse them. The
- * cause goes to the model and the web, so a bad cause reads as none.
+ * reason goes to the model and the web, so a bad reason reads as none (`storedApprovalReason`).
  */
 function parseStagingRow(row: StagingRow): StagingRow {
   return {
     ...row,
     status: actionStagingStatusSchema.parse(row.status),
     outcome: effectOutcomeSchema.parse(row.outcome),
-    approvalReason: approvalReasonSchema.safeParse(row.approvalReason).data ?? null,
+    approvalReason: storedApprovalReason(row.approvalReason),
   };
+}
+
+/**
+ * The stored reason of a card. The jsonb column has only a `$type` assertion, and a row from
+ * before migration 0178 or a rolling deploy can hold another shape, so a bad value reads as none.
+ */
+function storedApprovalReason(value: ApprovalReason | null): ApprovalReason | null {
+  return approvalReasonSchema.safeParse(value).data ?? null;
 }
 
 export function outcomeForInsert(values: StagingInsertValues): EffectOutcome {
@@ -430,7 +438,7 @@ export const postgresStagingStore: StagingStore = {
       ? {
           reason: row.reason,
           status: row.status,
-          approvalReason: approvalReasonSchema.safeParse(row.approvalReason).data ?? null,
+          approvalReason: storedApprovalReason(row.approvalReason),
           ...(stagingMayHaveRun(row) ? { mayHaveRun: true as const } : {}),
         }
       : null;

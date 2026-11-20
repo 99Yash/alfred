@@ -4,8 +4,8 @@
  * The approval gate is `user_action_policies` (ADR-0034).
  */
 
+import type { ApprovalCause } from "../approval-rule";
 import type {
-  ApprovalCause,
   ActionSlug,
   HostCallOutcome,
   HostReadRefusal,

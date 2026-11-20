@@ -65,8 +65,10 @@ export const actionStagings = pgTable(
     // because resume needs it. NULL on old rows, which fall back to `proposed_input`.
     displayInput: jsonb("display_input").$type<JsonValue>(),
     requiresApproval: boolean("requires_approval").notNull(),
-    // Why the row waits on a card, and the settings that remove the card (ADR-0130 decision 4).
-    // NULL when no setting removes the card, and on rows from before the column.
+    // Why the row waits on a card (ADR-0130 amendment (c)). The settings that remove such a card
+    // are derived from current policy, not stored. NULL on a row with no card, a forced card
+    // (`confirm`, a question), and a row from before the column. The column keeps its first name
+    // `approval_cause`, so the migration only converts values. Readers parse it.
     approvalReason: jsonb("approval_cause").$type<ApprovalReason>(),
     status: text("status").$type<ActionStagingStatus>().notNull().default("pending"),
     // What the effect did, apart from the approval `status`. `unknown` means it may

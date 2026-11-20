@@ -1,5 +1,5 @@
+import type { ApprovalCause } from "../approval-rule";
 import type {
-  ApprovalCause,
   AskUserUnansweredResult,
   CancellationEnvelope,
   IntegrationSlug,
