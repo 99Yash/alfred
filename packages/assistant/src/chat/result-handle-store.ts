@@ -4,17 +4,25 @@
  * fetch (owner, 2026-11-20). `sweepExpiredResultHandles` deletes expired rows and their objects; a
  * thread delete cascades the rows, and the thread's prefix cleanup removes the objects.
  */
-import { toJsonValue, type JsonValue } from "@alfred/contracts";
+import { parseJsonText } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { createId } from "@alfred/db/helpers";
 import { resultHandles } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
+import type { AgentDbExecutor } from "@alfred/assistant/execution";
 import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
-import type { ResultHandleStore, StoredResultRef } from "@alfred/assistant/tool-runtime";
-import { deleteObjects, isStorageConfigured, readObject, writeObject } from "./attachments/storage";
-
-/** How long a handle stays readable after its fetch (owner, 2026-11-20). */
-export const RESULT_HANDLE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+import {
+  RESULT_HANDLE_TTL_MS,
+  type ResultHandleStore,
+  type StoredResultRef,
+} from "@alfred/assistant/tool-runtime";
+import {
+  deleteObjects,
+  isStorageConfigured,
+  objectExists,
+  readObject,
+  writeObject,
+} from "./attachments/storage";
 
 /** Rows that one sweep round deletes. */
 const SWEEP_BATCH = 500;
@@ -49,7 +57,7 @@ const park: ResultHandleStore["park"] = async (args) => {
   const handle = createId("rh");
   const storageKey = resultHandleKey(args.userId, args.threadId, handle);
   const bytes = encoder.encode(JSON.stringify(args.value));
-  const fetchedAt = new Date();
+  const { fetchedAt } = args;
 
   await writeObject(storageKey, bytes, "application/json");
 
@@ -97,8 +105,18 @@ const load: ResultHandleStore["load"] = async (args) => {
 
   if (!row) return null;
 
-  const bytes = await readObject(row.storageKey);
-  const value: JsonValue = toJsonValue(JSON.parse(decoder.decode(bytes)));
+  let bytes: Uint8Array;
+
+  try {
+    bytes = await readObject(row.storageKey);
+  } catch (error) {
+    // A row whose object is gone reads as not found. A storage fault still throws.
+    if (!(await objectExists(row.storageKey))) return null;
+
+    throw error;
+  }
+
+  const value = parseJsonText(decoder.decode(bytes));
 
   return {
     handle: row.id,
@@ -126,10 +144,11 @@ async function liveResultHandles(args: {
   userId: string;
   threadId: string;
   messageIds: readonly string[];
+  ex: AgentDbExecutor;
 }): Promise<ResultHandleLine[]> {
   if (args.messageIds.length === 0) return [];
 
-  return db()
+  return args.ex
     .select({
       messageId: resultHandles.messageId,
       handle: resultHandles.id,
@@ -167,6 +186,7 @@ export async function resultHandleLinesByMessage(args: {
   userId: string;
   threadId: string;
   messageIds: readonly string[];
+  ex: AgentDbExecutor;
 }): Promise<Map<string, string>> {
   const byMessage = new Map<string, ResultHandleLine[]>();
 

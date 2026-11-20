@@ -16,19 +16,18 @@ import {
   mcpCallModelInput,
   mcpToolInspectInputSchema,
   mcpToolSearchInputSchema,
-  safeJsonParse,
+  parseJsonContainer,
   toJsonValue,
   truncatedCoverage,
   unknownEffectEnvelopeSchema,
   type McpCallInput,
-  type JsonObject,
   type JsonValue,
   type McpToolRef,
   type ReadEvidenceRefDraft,
   type ResultRecipient,
   type ResultTruncation,
 } from "@alfred/contracts";
-import { HOST_READ_DELIVERY_MAX_BYTES } from "../../code-mode/result-budget";
+import { STORED_RESULT_MAX_BYTES } from "../../code-mode/result-budget";
 import { resultRecipientOf } from "./passthrough";
 import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
@@ -204,7 +203,7 @@ function withResponseFacts(
 
   const bounded = boundPassthroughBody(
     withParsedJsonText(envelope.result),
-    HOST_READ_DELIVERY_MAX_BYTES,
+    STORED_RESULT_MAX_BYTES,
   );
 
   return {
@@ -227,7 +226,7 @@ function withParsedJsonText(result: McpCallEnvelope["result"]): JsonValue {
 
   const content = value.content.map((block) => {
     const text = getStringPath(block, "text");
-    const json = text === undefined ? null : jsonContainerOf(text);
+    const json = text === undefined ? null : parseJsonContainer(text);
 
     if (json === null || !isJsonObject(block) || block.type !== "text") return block;
 
@@ -237,17 +236,6 @@ function withParsedJsonText(result: McpCallEnvelope["result"]): JsonValue {
   });
 
   return { ...value, content };
-}
-
-/** The parsed text when it is a JSON object or list, else `null`. */
-function jsonContainerOf(text: string): JsonObject | readonly JsonValue[] | null {
-  const start = text.trimStart()[0];
-
-  if (start !== "{" && start !== "[") return null;
-
-  const parsed = safeJsonParse(text);
-
-  return isJsonArray(parsed) || isJsonObject(parsed) ? parsed : null;
 }
 
 export const mcpTools: readonly RegisteredTool[] = [

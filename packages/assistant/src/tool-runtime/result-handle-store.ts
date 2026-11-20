@@ -1,6 +1,11 @@
 import type { JsonValue } from "@alfred/contracts";
 import { bootPort } from "@alfred/assistant/boot-port";
 
+/** How long a handle stays readable after its fetch (owner, 2026-11-20). */
+export const RESULT_HANDLE_TTL_DAYS = 3;
+
+export const RESULT_HANDLE_TTL_MS = RESULT_HANDLE_TTL_DAYS * 24 * 60 * 60 * 1000;
+
 /** A stored result as the park step and `system.load_result` see it (ADR-0087). */
 export interface StoredResultRef {
   handle: string;
@@ -36,6 +41,11 @@ export interface ResultHandleStore {
     toolName: string;
     query: string;
     itemCount: number | null;
+    /**
+     * When the data was fetched. A value that a script made from stored results keeps the oldest
+     * fetch time of those results, so old data does not look new.
+     */
+    fetchedAt: Date;
     value: JsonValue;
   }): Promise<StoredResultRef | null>;
   /** The live stored result of this thread, or `null` when it is unknown, expired, or not this thread's. */

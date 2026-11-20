@@ -11,14 +11,16 @@ import {
   getStringPath,
   isJsonArray,
   isJsonObject,
+  parseJsonContainer,
   toJsonValue,
   type JsonValue,
+  type StoredResultCopy,
 } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 
 import type { ProposedToolCall, ToolCallRun } from "../index";
 import { resultHandleStore } from "../result-handle-store";
-import { HOST_READ_DELIVERY_MAX_BYTES } from "../code-mode/result-budget";
+import { STORED_RESULT_MAX_BYTES } from "../code-mode/result-budget";
 
 /** The most characters of the query on a transcript line. */
 const QUERY_MAX_CHARS = 300;
@@ -46,24 +48,11 @@ function storedValueOf(
   return modelCopyCut ? toolResult : null;
 }
 
-/** A string that holds a JSON object or list, parsed. An MCP text block often holds one. */
-function parsedJsonText(text: string): JsonValue | null {
-  const start = text.trimStart()[0];
-
-  if (start !== "[" && start !== "{") return null;
-
-  try {
-    return toJsonValue(JSON.parse(text));
-  } catch {
-    return null;
-  }
-}
-
 /** The items of the largest list in `value`, to {@link ITEM_COUNT_DEPTH}. `null` with no list. */
 function itemCountOf(value: JsonValue, depth = 0): number | null {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- a JSON text leaf is the one string arm that can hold a list.
   if (typeof value === "string") {
-    const parsed = parsedJsonText(value);
+    const parsed = parseJsonContainer(value);
 
     return parsed === null ? null : itemCountOf(parsed, depth);
   }
@@ -83,6 +72,19 @@ function itemCountOf(value: JsonValue, depth = 0): number | null {
   }
 
   return best;
+}
+
+/**
+ * When the stored data was fetched: now, or for a script that read stored results, the oldest of
+ * their fetch times (`CodeRunResult.loadedFetchedAt`).
+ */
+function fetchedAtOf(toolName: string, toolResult: JsonValue): Date {
+  const loaded =
+    toolName === CODE_RUN_TOOL ? getStringPath(toolResult, "loadedFetchedAt") : undefined;
+
+  const time = loaded === undefined ? Number.NaN : Date.parse(loaded);
+
+  return Number.isNaN(time) ? new Date() : new Date(time);
 }
 
 /** The call input as one short line. */
@@ -116,14 +118,14 @@ export async function parkResult(args: {
 
   // Every stored value fits one delivery to a script, so a load needs no pages. A larger result
   // keeps its start, and its note says what was cut.
-  const stored = boundForModel(value, HOST_READ_DELIVERY_MAX_BYTES);
+  const stored = boundForModel(value, STORED_RESULT_MAX_BYTES);
 
-  // The blob is always `{ value, truncation? }`, so a load reads one shape.
-  const storedValue = toJsonValue(
-    stored.truncation
-      ? { value: stored.value, truncation: stored.truncation }
-      : { value: stored.value },
-  );
+  // One shape for every blob (`storedResultSchema`), so a load parses it.
+  const copy: StoredResultCopy = stored.truncation
+    ? { value: stored.value, truncation: stored.truncation }
+    : { value: stored.value };
+
+  const storedValue = toJsonValue(copy);
 
   try {
     const ref = await store.park({
@@ -135,6 +137,7 @@ export async function parkResult(args: {
       toolName: call.toolName,
       query: queryOf(call),
       itemCount: itemCountOf(value),
+      fetchedAt: fetchedAtOf(call.toolName, args.toolResult),
       value: storedValue,
     });
 

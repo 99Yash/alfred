@@ -22,6 +22,7 @@ import {
 } from "../../code-mode/run-read-program";
 import { scriptSources } from "../../code-mode/script-sources";
 import { approvalCauseFact, type ApprovalCauseFact } from "../../approval-rule";
+import { RESULT_HANDLE_EVIDENCE_STORE } from "./load-result";
 
 /**
  * What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results.
@@ -43,6 +44,12 @@ export type CodeRunResult = (
    * not lose them. One entry per tool, at most `MAX_APPROVAL_FACTS`.
    */
   approvals?: ApprovalCauseFact[];
+  /**
+   * The oldest fetch time of the stored results that the script read with `system.load_result`,
+   * from the host ledger. The park step gives the value this fetch time, so data from an earlier
+   * turn does not look new (ADR-0130 decision 7).
+   */
+  loadedFetchedAt?: string;
 };
 
 /** A bound on the approval facts of one script, so a loop over many gated reads stays small. */
@@ -121,11 +128,13 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
   const omitted = aboveCaps + omittedPagesOf(outcome.ledger);
 
   const approvals = approvalFactsOf(outcome.ledger);
+  const loadedFetchedAt = oldestLoadedFetchOf(outcome.ledger);
 
   const pages = {
     ...(sources.length > 0 ? { sources } : {}),
     ...(omitted > 0 ? { omittedSources: omitted } : {}),
     ...(approvals.length > 0 ? { approvals } : {}),
+    ...(loadedFetchedAt ? { loadedFetchedAt } : {}),
   };
 
   if (outcome.status === "completed") {
@@ -162,6 +171,21 @@ function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] 
   }
 
   return [...byRule.values()].slice(0, MAX_APPROVAL_FACTS);
+}
+
+/** The oldest `version` of a stored result that a load delivered: its ISO fetch time. */
+function oldestLoadedFetchOf(ledger: readonly HostCallEntry[]): string | undefined {
+  const times = ledger
+    .filter((entry) => entry.kind === "executed")
+    .flatMap((entry) => entry.evidence?.refs ?? [])
+    .flatMap((ref) =>
+      ref.kind === "record" && ref.store === RESULT_HANDLE_EVIDENCE_STORE && ref.version
+        ? [ref.version]
+        : [],
+    )
+    .toSorted();
+
+  return times[0];
 }
 
 /** The web references of the reads that executed, in request order. */

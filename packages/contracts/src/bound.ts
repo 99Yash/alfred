@@ -1,6 +1,7 @@
 import { assertNever } from "./errors";
 import { isJsonArray, isJsonObject } from "./guards";
-import type { JsonPrimitive, JsonValue } from "./user-model";
+import { z } from "zod";
+import { jsonValueSchema, type JsonPrimitive, type JsonValue } from "./user-model";
 
 /**
  * One size rule (ADR-0130 decision 5): a result is bounded by its structure where it goes to the
@@ -54,34 +55,52 @@ const STRING_CUT_MARK = "…";
 export type ResultRecipient = "model" | "script";
 
 /** One cut: where it is, and what it kept. */
-export interface ResultCut {
-  /** The JSON path of the cut value, for example `$.issues` or `$.content[0].json.items`. */
-  path: string;
-  /**
-   * `items`: whole list items from the end. `chars`: string UTF-16 code units from the end. `fields`:
-   * object fields from the end, only when no list or long string is left to cut. `value`: the
-   * whole result, only when no cut can make it fit.
-   */
-  unit: "items" | "chars" | "fields" | "value";
-  kept: number;
-  total: number;
-}
+const resultCutSchema = z
+  .object({
+    /** The JSON path of the cut value, for example `$.issues` or `$.content[0].json.items`. */
+    path: z.string(),
+    /**
+     * `items`: whole list items from the end. `chars`: string UTF-16 code units from the end.
+     * `fields`: object fields from the end, only when no list or long string is left to cut.
+     * `value`: the whole result, only when no cut can make it fit.
+     */
+    unit: z.enum(["items", "chars", "fields", "value"]),
+    kept: z.number(),
+    total: z.number(),
+  })
+  .strict();
+
+export type ResultCut = z.infer<typeof resultCutSchema>;
 
 /** The note beside a bounded result. */
-export interface ResultTruncation {
-  limitBytes: number;
-  /** The JSON bytes of the whole result. */
-  totalBytes: number;
-  cuts: ResultCut[];
-  /** The count of cuts that `cuts` does not list. */
-  moreCuts?: number;
-  /**
-   * The handle of the whole result, when Alfred stored it (ADR-0087, ADR-0130 decision 5). A
-   * script reads it with `system.load_result({ handle })`. Absent when nothing was stored.
-   */
-  handle?: string;
-  note: string;
-}
+const resultTruncationSchema = z
+  .object({
+    limitBytes: z.number(),
+    /** The JSON bytes of the whole result. */
+    totalBytes: z.number(),
+    cuts: z.array(resultCutSchema),
+    /** The count of cuts that `cuts` does not list. */
+    moreCuts: z.number().optional(),
+    /**
+     * The handle of the whole result, when Alfred stored it (ADR-0087, ADR-0130 decision 5). A
+     * script reads it with `system.load_result({ handle })`. Absent when nothing was stored.
+     */
+    handle: z.string().optional(),
+    note: z.string(),
+  })
+  .strict();
+
+export type ResultTruncation = z.infer<typeof resultTruncationSchema>;
+
+/**
+ * The stored copy of a result behind a handle: the value, and the note when the stored cap cut it.
+ * The park step writes it, and `system.load_result` parses it.
+ */
+export const storedResultSchema = z
+  .object({ value: jsonValueSchema, truncation: resultTruncationSchema.optional() })
+  .strict();
+
+export type StoredResultCopy = z.infer<typeof storedResultSchema>;
 
 export interface BoundedResult {
   value: JsonValue;

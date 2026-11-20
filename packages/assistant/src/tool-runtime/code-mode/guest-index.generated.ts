@@ -37,7 +37,7 @@ export const GUEST_OUTPUT_TYPES = {
   "system.read_scratch":
     '{ ok: true; key: string; found: false } | { ok: true; key: string; found: true; entry: { value: unknown; zone: "scratch" | "shared"; writtenBy: string; writtenAt: number } }',
   "system.load_result":
-    "{ found: true; handle: string; toolName: string; query: string; fetchedAt: string; value: JsonValue; truncation?: JsonValue } | { found: false; handle: string; message: string }",
+    '{ found: true; handle: string; toolName: string; query: string; fetchedAt: string; value: JsonValue; truncation?: { limitBytes: number; totalBytes: number; cuts: { path: string; unit: "chars" | "fields" | "items" | "value"; kept: number; total: number }[]; moreCuts?: number; handle?: string; note: string } } | { found: false; handle: string; message: string }',
   "mcp.list_tools":
     '{ status: "tools"; nextCursor: string | null; tools: { route: "direct" | "script"; directReason?: "binary_output" | "needs_approval" | "not_a_confirmed_read" | "undeclared_output"; approval: "card" | "none"; class?: "ordinary" | "secret"; namespace: string; connection: { id: string; instanceKey: string; label: string }; title?: string; description?: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } }[] }',
   "mcp.inspect_tool":

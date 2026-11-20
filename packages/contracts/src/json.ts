@@ -3,7 +3,8 @@
 import type { z } from "zod";
 
 import { toMessage } from "./errors";
-import type { JsonValue } from "./user-model";
+import { isJsonArray, isJsonObject } from "./guards";
+import type { JsonObject, JsonValue } from "./user-model";
 
 /**
  * `JSON.parse`, typed as what it builds. Without a reviver it can only produce JSON values.
@@ -25,6 +26,20 @@ export function safeJsonParse(raw: string): JsonValue {
   } catch {
     return null;
   }
+}
+
+/**
+ * The parsed text when it is a JSON object or list, else `null`. A provider often sends a list as
+ * the JSON text of one block (an MCP text block), and a reader needs it as structure.
+ */
+export function parseJsonContainer(text: string): JsonObject | readonly JsonValue[] | null {
+  const start = text.trimStart()[0];
+
+  if (start !== "{" && start !== "[") return null;
+
+  const parsed = safeJsonParse(text);
+
+  return isJsonArray(parsed) || isJsonObject(parsed) ? parsed : null;
 }
 
 /**

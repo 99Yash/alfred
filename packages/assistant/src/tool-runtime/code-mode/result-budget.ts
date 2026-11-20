@@ -24,6 +24,14 @@ export const SCRIPT_FAILURE_MESSAGE_MAX_CHARS = 1_000;
  */
 export const HOST_READ_DELIVERY_MAX_BYTES = 1024 * 1024;
 
+/**
+ * The most JSON bytes of a stored result copy (a handle, or a direct read's own copy). It leaves
+ * room under {@link HOST_READ_DELIVERY_MAX_BYTES} for the fields that `system.load_result` adds
+ * (the handle, the tool, a query of at most 300 characters, and the fetch time), so one load
+ * always delivers the whole stored copy.
+ */
+export const STORED_RESULT_MAX_BYTES = HOST_READ_DELIVERY_MAX_BYTES - 8 * 1024;
+
 /** The named failure of a script read above {@link HOST_READ_DELIVERY_MAX_BYTES}. */
 export function scriptReadTooLarge(bytes: number): PublicAppError {
   return publicAppError("script_read_output_too_large", {

@@ -6,7 +6,7 @@ import {
   type ReadGateResult,
   type TransportErrorKind,
 } from "@alfred/contracts";
-import { HOST_READ_DELIVERY_MAX_BYTES } from "../../../code-mode/result-budget";
+import { STORED_RESULT_MAX_BYTES } from "../../../code-mode/result-budget";
 import { boundPassthroughBody } from "./bounds";
 
 /**
@@ -53,7 +53,7 @@ export function passthroughHttpResult(args: HttpResultArgs): PassthroughResult {
 
   // The stored cap, so the staging row and the handle stay bounded. The chat boundary bounds the
   // model's copy (ADR-0130 decision 5).
-  const bounded = boundPassthroughBody(args.body, HOST_READ_DELIVERY_MAX_BYTES);
+  const bounded = boundPassthroughBody(args.body, STORED_RESULT_MAX_BYTES);
 
   return {
     outcome: "http",
