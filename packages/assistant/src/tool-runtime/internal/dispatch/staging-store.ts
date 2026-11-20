@@ -336,7 +336,7 @@ function parseStagingRow(row: StagingRow): StagingRow {
  * The stored reason of a card. The jsonb column has only a `$type` assertion, and a row from
  * before migration 0178 or a rolling deploy can hold another shape, so a bad value reads as none.
  */
-function storedApprovalReason(value: ApprovalReason | null): ApprovalReason | null {
+function storedApprovalReason(value: unknown): ApprovalReason | null {
   return approvalReasonSchema.safeParse(value).data ?? null;
 }
 

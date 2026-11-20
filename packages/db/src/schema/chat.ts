@@ -48,7 +48,8 @@ export interface ChatMessageToolCall {
   connectNudge?: ChatConnectNudge | undefined;
   /**
    * Set only after a card: why it asked (ADR-0130 amendment (c)). The web derives the settings
-   * that remove such a card from current policy. Only `syncedChatToolCallSchema` checks it.
+   * that remove such a card from current policy. The turn log (`toolCallLogSchema`) and
+   * `syncedChatToolCallSchema` parse it.
    */
   approvalReason?: ApprovalReason | undefined;
   /**

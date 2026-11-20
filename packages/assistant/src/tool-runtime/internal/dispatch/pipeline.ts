@@ -909,8 +909,15 @@ function hostReadOutcome(
         message: result.error.message,
         call,
       };
+    // A replayed rejection keeps the reason of its card, so the `code_run` result names it.
     case "rejected":
-      return { kind: "refused", refusal: "rejected", message: result.result.reason, call };
+      return {
+        kind: "refused",
+        refusal: "rejected",
+        message: result.result.reason,
+        call,
+        ...(result.approvalCause ? { approvalCause: result.approvalCause } : {}),
+      };
     case "blocked":
     case "fenced":
     case "invalid_input":

@@ -246,7 +246,10 @@ async function callHost(
       evidence: undefined,
       contentHash: null,
       savedBytes: null,
-      ...(outcome.approvalCause ? { approvalCause: outcome.approvalCause } : {}),
+      ...((outcome.refusal === "needs_approval" || outcome.refusal === "rejected") &&
+      outcome.approvalCause
+        ? { approvalCause: outcome.approvalCause }
+        : {}),
     });
     // Only a `RunError` reaches the guest with its message and code; any other throw arrives
     // as "Host function failed." (measured on run@2.1.13).

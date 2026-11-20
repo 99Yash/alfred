@@ -209,10 +209,17 @@ export type HostReadOutcome =
     }
   | {
       kind: "refused";
-      refusal: HostReadRefusal;
+      refusal: Exclude<HostReadRefusal, "needs_approval" | "rejected">;
       message: string;
       call: HostReadCall | undefined;
-      /** Set only on `needs_approval`: the reason and the settings (ADR-0130 amendment (c)). */
+    }
+  | {
+      kind: "refused";
+      /** A read that waits for a card, or a replay of a card that the user rejected. */
+      refusal: "needs_approval" | "rejected";
+      message: string;
+      call: HostReadCall | undefined;
+      /** The reason and the settings (ADR-0130 amendment (c)). Absent when dispatch has no reason. */
       approvalCause?: ApprovalCause | undefined;
     };
 
@@ -243,9 +250,10 @@ export interface HostCallEntry {
    */
   savedBytes: number | null;
   /**
-   * Set only on `needs_approval`: why the read waits, and the settings that remove the card. The
-   * `code_run` result carries it to the model, so a script that catches the refusal does not lose
-   * it (ADR-0130 amendment (c)). The saved record does not keep it.
+   * Set only on `needs_approval` and on a replayed `rejected`: why the read waited, and the
+   * settings that remove the card. The `code_run` result carries it to the model, so a script that
+   * catches the refusal does not lose it (ADR-0130 amendment (c)). The saved record does not keep
+   * it.
    */
   approvalCause?: ApprovalCause | undefined;
 }

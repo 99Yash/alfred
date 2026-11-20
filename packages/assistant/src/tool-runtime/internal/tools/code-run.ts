@@ -136,8 +136,9 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
 }
 
 /**
- * The approval facts of the reads that wait for a card, in request order: one per tool and
- * governing integration, so `mcp.call` on two providers stays two facts.
+ * The approval facts of the reads that waited for a card, in request order: one per tool,
+ * governing integration, and cause. So `mcp.call` on two providers stays two facts, and two
+ * causes of one tool stay two facts.
  */
 function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] {
   const byRule = new Map<string, ApprovalCauseFact>();
@@ -148,7 +149,7 @@ function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] 
     if (cause === undefined) continue;
 
     const { reason } = cause;
-    const key = `${reason.toolName}:${reason.cause === "high_risk" ? "" : reason.integration}`;
+    const key = `${reason.toolName}:${reason.cause === "high_risk" ? "" : reason.integration}:${reason.cause}`;
 
     if (!byRule.has(key)) byRule.set(key, approvalCauseFact(cause));
   }
