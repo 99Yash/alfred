@@ -60,12 +60,13 @@ export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: s
   // always takes the other mode.
   const exceptionMode: PolicyMode = mode === "autonomy" ? "gated" : "autonomy";
 
-  const exceptionOptions: ReadonlyArray<AppSelectOption> = TOOL_NAMES.filter(
-    (toolName) =>
-      integrationFromToolName(toolName) === slug &&
-      toolTakesOverride(toolName) &&
-      !toolOverrides.some(([excepted]) => excepted === toolName),
-  ).map((toolName) => ({ value: toolName, label: toolChipLabel(toolName) }));
+  const exceptionOptions: ReadonlyArray<AppSelectOption> = TOOL_NAMES.flatMap((toolName) =>
+    integrationFromToolName(toolName) === slug &&
+    toolTakesOverride(toolName) &&
+    !toolOverrides.some(([excepted]) => excepted === toolName)
+      ? [{ value: toolName, label: toolChipLabel(toolName) }]
+      : [],
+  );
 
   // A failed write: the optimistic change rolls back, so say why.
   const [writeError, setWriteError] = useState<string | null>(null);
