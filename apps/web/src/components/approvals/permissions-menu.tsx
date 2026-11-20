@@ -2,16 +2,16 @@ import {
   approvalSettings,
   APPROVAL_CONTROL_LABELS,
   humanizeToolName,
+  INTEGRATION_DISPLAY_NAMES,
   integrationFromToolName,
   resolveToolModeDecision,
 } from "@alfred/contracts";
 import type { SyncedActionStaging } from "@alfred/sync";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { ArrowRight, ChevronDown, ShieldCheck } from "lucide-react";
-import { use, useId } from "react";
+import { use, useId, useRef } from "react";
 import { AppSwitch } from "~/components/ui/v2";
 import { AppThemeContext } from "~/components/ui/v2/theme";
-import { getIntegrationPage } from "~/lib/integrations/integrations";
 import type { ActionPolicyState } from "~/lib/replicache/use-action-policy";
 import { cn } from "~/lib/utils";
 
@@ -43,6 +43,9 @@ export function PermissionsMenu({
   onError: (message: string | null) => void;
 }) {
   const popoverId = useId();
+  // Full Autonomy opens the picker as the popover closes. The popover then must not take the
+  // focus back to its trigger, or the picker closes at once.
+  const openingPicker = useRef(false);
   // The popover portals out of `.app`, so stamp the resolved theme on the content.
   const dataTheme = use(AppThemeContext)?.resolved;
   const synced = policy.policy;
@@ -58,8 +61,7 @@ export function PermissionsMenu({
   const showFullAutonomy = settings.some((setting) => setting.kind === "full_autonomy");
   const toolTitle = humanizeToolName(staging.toolName);
 
-  const toolIntegrationName =
-    getIntegrationPage(integrationFromToolName(staging.toolName))?.name ?? "integration";
+  const toolIntegrationName = INTEGRATION_DISPLAY_NAMES[integrationFromToolName(staging.toolName)];
 
   // On only for the tool's own "Always allow" override, not for a mode it inherits.
   const toolMode = resolveToolModeDecision(
@@ -73,8 +75,7 @@ export function PermissionsMenu({
   const integrationName =
     integrationSetting === undefined
       ? undefined
-      : (getIntegrationPage(integrationSetting.integration)?.name ??
-        integrationSetting.integration);
+      : INTEGRATION_DISPLAY_NAMES[integrationSetting.integration];
 
   const integrationAllowed =
     integrationSetting !== undefined &&
@@ -113,6 +114,11 @@ export function PermissionsMenu({
           sideOffset={8}
           collisionPadding={16}
           data-app-theme={dataTheme}
+          onCloseAutoFocus={(event) => {
+            if (!openingPicker.current) return;
+            openingPicker.current = false;
+            event.preventDefault();
+          }}
           className={cn(
             "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-hidden rounded-surface p-3",
             "app-fade-in outline-none",
@@ -132,7 +138,7 @@ export function PermissionsMenu({
               label={APPROVAL_CONTROL_LABELS.alwaysAllowAction}
               hint={
                 toolAllowed
-                  ? `Alfred can ${toolTitle} without asking.`
+                  ? `Only ${toolTitle}: Alfred does it without asking.`
                   : `Only ${toolTitle}. Other ${toolIntegrationName} actions keep their rule.`
               }
             />
@@ -162,7 +168,10 @@ export function PermissionsMenu({
               <PopoverPrimitive.Close asChild>
                 <button
                   type="button"
-                  onClick={onFullAutonomy}
+                  onClick={() => {
+                    openingPicker.current = true;
+                    onFullAutonomy();
+                  }}
                   className={cn(
                     "group/full inline-flex items-center gap-1 rounded-control-xs text-[13px] leading-5 font-medium text-app-fg-4",
                     "app-focus",
@@ -177,7 +186,7 @@ export function PermissionsMenu({
                 </button>
               </PopoverPrimitive.Close>
               <p className="mt-0.5 text-[11.5px] leading-snug text-app-fg-2">
-                Every action in this chat, high-risk ones too. Opens the mode menu.
+                Each approval card in this chat, high-risk ones too. Opens the mode menu.
               </p>
             </div>
           ) : null}

@@ -3,8 +3,6 @@ import {
   approvalSettings,
   APPROVAL_CONTROL_LABELS,
   assertNever,
-  humanizeToolName,
-  integrationFromToolName,
   type ApprovalReason,
   type ApprovalSetting,
 } from "@alfred/contracts";
@@ -77,13 +75,9 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
       };
     }
 
+    // Only the Permissions menu of a card sets the override. The integration page can only
+    // remove it, so the reply does not link there (ADR-0130 amendment (c)).
     case "always_allow":
-      return {
-        key: approvalSettingKey(setting),
-        label: `Always allow ${humanizeToolName(setting.toolName)}`,
-        scope: "This action",
-        slug: getIntegrationPage(integrationFromToolName(setting.toolName))?.slug,
-      };
     case "full_autonomy":
       return null;
     default:

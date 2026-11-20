@@ -2,14 +2,14 @@ import type { DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
-  chatTurnThreadIdOf,
+  approvalThreadIdOf,
   workflows,
   type ActionStaging,
   type AgentRunTrigger,
 } from "@alfred/db/schemas";
 import { isQuestionApproval } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionStaging } from "@alfred/sync";
-import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { SerializationError } from "./entity-row";
 import { syncEntity } from "./sync-entity";
 
@@ -124,7 +124,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
         staging: actionStagings,
         workflowSlug: agentRuns.workflowSlug,
         workflowName: workflows.name,
-        threadId: sql<string | null>`${chatTurnThreadIdOf(agentRuns)}`,
+        threadId: approvalThreadIdOf(agentRuns),
         trigger: agentRuns.trigger,
         brief: agentRuns.brief,
       })
