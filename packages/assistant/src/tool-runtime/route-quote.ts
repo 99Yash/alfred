@@ -115,7 +115,7 @@ export async function quoteMcpToolRoute(
   run: RouteQuoteRun,
   tool: { connectionId: string; remoteName: string; catalogRevision: string },
 ): Promise<{ quote: ToolRouteQuote; riskTier: ToolRiskTier }> {
-  const { riskTier, facts, policyIntegration } = await resolveMcpCallRouteFacts({
+  const { riskTier, facts, policyTarget } = await resolveMcpCallRouteFacts({
     userId: run.userId,
     connectionId: tool.connectionId,
     remoteName: tool.remoteName,
@@ -124,7 +124,7 @@ export async function quoteMcpToolRoute(
 
   const approval = await requiresApproval(run, {
     staging: getTool(MCP_CALL_TOOL)?.staging ?? "staged",
-    policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyIntegration),
+    policyMode: await resolvePolicyMode(run.userId, MCP_CALL_TOOL, policyTarget),
     riskTier,
     facts,
   });
@@ -140,7 +140,7 @@ export async function quoteCuratedToolRoute(
   run: RouteQuoteRun,
   tool: RegisteredTool,
 ): Promise<ToolRouteQuote | null> {
-  if (tool.resolvesRiskTier || tool.resolvesPolicyIntegration) return null;
+  if (tool.resolvesRiskTier || tool.resolvesPolicyTarget) return null;
 
   // The facts that dispatch reads for a call with no `resolveReadFacts`. Only `mcp.call` declares
   // one, and the guard above returns for it, because it also resolves its tier.

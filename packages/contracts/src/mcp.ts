@@ -5,7 +5,12 @@
 
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import type { CatalogSlug, CredentialProvider, IntegrationSlug } from "./integrations";
+import {
+  INTEGRATION_SLUGS,
+  type CatalogSlug,
+  type CredentialProvider,
+  type IntegrationSlug,
+} from "./integrations";
 import { integrationRoutePrefix } from "./integrations/slugs";
 import { LOOP_ENTITY_PROVIDERS } from "./loop-key";
 import { OBJECT_STATE_CATEGORIES, isBuiltInObjectStateProvider } from "./integration-objects";
@@ -760,8 +765,22 @@ export const mcpToolPolicySchema = z
 export type McpToolPolicy = z.infer<typeof mcpToolPolicySchema>;
 
 /**
+ * What the rule on one server tool binds to (ADR-0130 amendment (c)): the integration whose rule
+ * governs the server (its provider, else `mcp`), and the tool's descriptor at the named revision.
+ */
+export const mcpServerToolRuleTargetSchema = z
+  .object({
+    integration: z.enum(INTEGRATION_SLUGS),
+    descriptorHash: z.string().min(1),
+  })
+  .strict();
+
+export type McpServerToolRuleTarget = z.infer<typeof mcpServerToolRuleTargetSchema>;
+
+/**
  * `drifted`: reviewed under an older descriptor, so the default floor applies again.
- * A missing connection is a 404, not a state.
+ * A missing connection is a 404, not a state. A state with a resolved descriptor carries its
+ * `ruleTarget`.
  */
 export const mcpToolPolicyStateSchema = z.union([
   z
@@ -769,14 +788,22 @@ export const mcpToolPolicyStateSchema = z.union([
       status: z.literal("reviewed"),
       ref: mcpExternalToolRefSchema,
       policy: mcpToolPolicySchema,
+      ruleTarget: mcpServerToolRuleTargetSchema,
     })
     .strict(),
-  z.object({ status: z.literal("unreviewed"), ref: mcpExternalToolRefSchema }).strict(),
+  z
+    .object({
+      status: z.literal("unreviewed"),
+      ref: mcpExternalToolRefSchema,
+      ruleTarget: mcpServerToolRuleTargetSchema,
+    })
+    .strict(),
   z
     .object({
       status: z.literal("drifted"),
       ref: mcpExternalToolRefSchema,
       previous: mcpToolPolicySchema,
+      ruleTarget: mcpServerToolRuleTargetSchema,
     })
     .strict(),
   z.object({ status: z.literal("catalog_stale"), ref: mcpExternalToolRefSchema }).strict(),

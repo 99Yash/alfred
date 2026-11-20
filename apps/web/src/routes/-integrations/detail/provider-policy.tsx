@@ -1,6 +1,10 @@
 import {
   APPROVAL_CONTROL_LABELS,
+  integrationFromToolName,
   isToolName,
+  TOOL_NAMES,
+  toMessage,
+  toolTakesOverride,
   type LiveProviderSlug,
   type PolicyMode,
   type ToolName,
@@ -8,8 +12,17 @@ import {
 import { AlertCircle, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { toolChipLabel } from "~/components/approvals/card-spec";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";
-import { AppButton, AppCard, AppSegmented, type AppSegmentedItem } from "~/components/ui/v2";
+import {
+  AppButton,
+  AppCard,
+  AppSegmented,
+  AppSelect,
+  type AppSegmentedItem,
+  type AppSelectOption,
+} from "~/components/ui/v2";
 import { CachedSyncNotice } from "~/components/cached-sync-notice";
+import { useState } from "react";
+import { ServerToolRuleList } from "../server-tool-rules";
 import { SectionHeading } from "./section-heading";
 
 const MODE_ITEMS: ReadonlyArray<AppSegmentedItem<PolicyMode>> = [
@@ -38,10 +51,30 @@ export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: s
   // `gated` while loading, so the less-safe option never flashes.
   const mode: PolicyMode = modeFor(slug) ?? "gated";
 
-  // Set from an approval card ("Always allow this action"). This list is the only way to undo one.
+  // Set here or from an approval card ("Always allow this action").
   const toolOverrides = Object.entries(policy?.integrationRules[slug]?.toolOverrides ?? {}).filter(
     (entry): entry is [ToolName, PolicyMode] => isToolName(entry[0]),
   );
+
+  // An exception equal to the integration mode is dropped (`withToolOverride`), so a new one
+  // always takes the other mode.
+  const exceptionMode: PolicyMode = mode === "autonomy" ? "gated" : "autonomy";
+
+  const exceptionOptions: ReadonlyArray<AppSelectOption> = TOOL_NAMES.flatMap((toolName) =>
+    integrationFromToolName(toolName) === slug &&
+    toolTakesOverride(toolName) &&
+    !toolOverrides.some(([excepted]) => excepted === toolName)
+      ? [{ value: toolName, label: toolChipLabel(toolName) }]
+      : [],
+  );
+
+  // A failed write: the optimistic change rolls back, so say why.
+  const [writeError, setWriteError] = useState<string | null>(null);
+
+  const write = (pending: Promise<void>) => {
+    setWriteError(null);
+    pending.catch((cause: unknown) => setWriteError(toMessage(cause)));
+  };
 
   // A failed pull keeps the cached row, so the panel shows only when there is no row.
   if (error && !policy) {
@@ -107,9 +140,11 @@ export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: s
             className={loading ? "opacity-60" : undefined}
           />
         </div>
-        {toolOverrides.length > 0 ? (
-          <div className="space-y-2 border-t border-app-fg-a1/30 pt-3">
-            <p className="text-xs font-medium text-app-fg-3">Action exceptions</p>
+        <div className="space-y-2 border-t border-app-fg-a1/30 pt-3">
+          <p className="text-xs font-medium text-app-fg-3">
+            {APPROVAL_CONTROL_LABELS.actionExceptions}
+          </p>
+          {toolOverrides.length > 0 ? (
             <ul className="space-y-1.5">
               {toolOverrides.map(([toolName, toolMode]) => (
                 <li key={toolName} className="flex items-center justify-between gap-3">
@@ -123,7 +158,7 @@ export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: s
                     size="sm"
                     variant="ghost"
                     disabled={loading}
-                    onClick={() => void setToolMode(toolName, null)}
+                    onClick={() => write(setToolMode(toolName, null))}
                     className="shrink-0"
                   >
                     Reset
@@ -131,8 +166,33 @@ export function ProviderPolicy({ slug, name }: { slug: LiveProviderSlug; name: s
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
+          ) : null}
+          {exceptionOptions.length > 0 ? (
+            <AppSelect
+              label={
+                exceptionMode === "autonomy"
+                  ? `Always allow one ${name} action`
+                  : `Always ask first for one ${name} action`
+              }
+              placeholder="Choose an action"
+              value={undefined}
+              options={exceptionOptions}
+              disabled={loading}
+              onChange={(value) => {
+                if (value !== undefined && isToolName(value)) {
+                  write(setToolMode(value, exceptionMode));
+                }
+              }}
+            />
+          ) : null}
+          {/* The rules on the tools of this integration's MCP server (ADR-0130 amendment (c)). */}
+          <ServerToolRuleList scope={{ integration: slug }} />
+          {writeError ? (
+            <p className="text-xs text-app-red-4" role="alert">
+              {writeError}
+            </p>
+          ) : null}
+        </div>
       </AppCard>
     </section>
   );

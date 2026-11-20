@@ -1360,8 +1360,10 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const riskTier = await call.effectiveRiskTier(ctx);
 
   // A built-in `mcp.call` reads its provider's rule, so the GitHub setting governs GitHub reads.
-  const policyIntegration = await call.policyIntegration(ctx);
-  const policy = await resolvePolicyDecision(args.userId, toolName, policyIntegration);
+  // A call on one server tool reads the rule on that tool first (ADR-0130 amendment (c)).
+  const policyTarget = await call.policyTarget(ctx);
+  const policyIntegration = policyTarget.integration;
+  const policy = await resolvePolicyDecision(args.userId, toolName, policyTarget);
   const policyMode = policy.mode;
 
   // Read once, and only when a caller needs them: the rule under `gated` and below `high`, or the
@@ -1378,7 +1380,7 @@ const stageOrResumeStage: DispatchStage<SuppressedDispatch, never> = async (supp
   const ruleReason = approvalReasonOf({
     toolName,
     policy,
-    policyIntegration,
+    policyTarget,
     riskTier,
     readFacts: ruleReadFacts,
   });

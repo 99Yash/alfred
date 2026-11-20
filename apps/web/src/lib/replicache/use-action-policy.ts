@@ -1,4 +1,10 @@
-import type { IntegrationSlug, LiveProviderSlug, PolicyMode, ToolName } from "@alfred/contracts";
+import type {
+  IntegrationSlug,
+  LiveProviderSlug,
+  McpServerToolRef,
+  PolicyMode,
+  ToolName,
+} from "@alfred/contracts";
 import { resolveIntegrationMode, resolveToolMode } from "@alfred/contracts";
 import { SYNC_MODEL, type SyncedActionPolicy } from "@alfred/sync";
 import { useCallback } from "react";
@@ -20,6 +26,15 @@ export interface ActionPolicyState {
   setIntegrationMode: (slug: LiveProviderSlug, mode: PolicyMode) => Promise<void>;
   /** `null` clears the override. */
   setToolMode: (toolName: ToolName, mode: PolicyMode | null) => Promise<void>;
+  /**
+   * Set or clear (`null`) the rule on one server tool (ADR-0130 amendment (c)). `integration` is
+   * the rule that governs the server: its provider, else `mcp`.
+   */
+  setServerToolMode: (
+    integration: IntegrationSlug,
+    serverTool: McpServerToolRef,
+    mode: PolicyMode | null,
+  ) => Promise<void>;
   setDefaultMode: (mode: PolicyMode) => Promise<void>;
   loading: boolean;
   error: string | null;
@@ -55,6 +70,18 @@ export function useActionPolicy(): ActionPolicyState {
     [rep],
   );
 
+  const setServerToolMode = useCallback(
+    async (
+      integration: IntegrationSlug,
+      serverTool: McpServerToolRef,
+      mode: PolicyMode | null,
+    ): Promise<void> => {
+      if (!rep) return;
+      await rep.mutate.policySetServerToolMode({ integration, serverTool, mode });
+    },
+    [rep],
+  );
+
   const setIntegrationMode = useCallback(
     async (slug: LiveProviderSlug, mode: PolicyMode): Promise<void> => {
       if (!rep) return;
@@ -77,6 +104,7 @@ export function useActionPolicy(): ActionPolicyState {
     toolModeFor,
     setIntegrationMode,
     setToolMode,
+    setServerToolMode,
     setDefaultMode,
     loading,
     error,

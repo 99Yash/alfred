@@ -6,12 +6,20 @@
  */
 import { z } from "zod";
 import { enumGuard } from "./guards";
-import { INTEGRATION_SLUGS, LIVE_PROVIDER_SLUGS, type LiveProviderSlug } from "./integrations";
+import {
+  INTEGRATION_SLUGS,
+  LIVE_PROVIDER_SLUGS,
+  type IntegrationSlug,
+  type LiveProviderSlug,
+} from "./integrations";
 import {
   integrationFromToolName,
+  mcpServerToolRefSchema,
+  serverToolRuleOf,
   toolNameSchema,
   type ApprovalModeSource,
   type IntegrationRules,
+  type McpServerToolRef,
   type ToolName,
 } from "./tools";
 
@@ -36,11 +44,14 @@ export function toolTakesOverride(toolName: ToolName): boolean {
  * One setting that removes a card. A closed list, narrowest first. Only `approvalSettings` makes
  * one, from a stored reason, so no boundary parses it.
  * - `always_allow`: "Always allow" for this one tool (`toolTakesOverride`).
+ * - `always_allow_server_tool`: "Always allow" for this one tool on one MCP server, at the call's
+ *   descriptor. `integration` holds the rule: the server's provider, else `mcp`.
  * - `integration_mode`: the mode of the integration on its integrations page.
  * - `full_autonomy`: Full Autonomy for the chat thread.
  */
 export type ApprovalSetting =
   | { kind: "always_allow"; toolName: ToolName }
+  | { kind: "always_allow_server_tool"; integration: IntegrationSlug; serverTool: McpServerToolRef }
   | { kind: "integration_mode"; integration: LiveProviderSlug }
   | { kind: "full_autonomy" };
 
@@ -62,6 +73,7 @@ export type ApprovalCauseKind = (typeof APPROVAL_CAUSE_KINDS)[number];
 
 const APPROVAL_MODE_SOURCES = [
   "tool_override",
+  "server_tool",
   "integration",
   "default",
 ] as const satisfies readonly ApprovalModeSource[];
@@ -71,6 +83,8 @@ const APPROVAL_MODE_SOURCES = [
  * - A `high` call names only the tool: no policy setting removes its card.
  * - Any other call names the integration whose rule governs it (the provider of a built-in
  *   `mcp.call`), and the setting that supplied the mode.
+ * - `serverTool`: the server tool of an `mcp.call` whose descriptor dispatch resolved. Absent for
+ *   any other call, and on a row from before the rule on one server tool.
  */
 export const approvalReasonSchema = z.discriminatedUnion("cause", [
   z.object({ cause: z.literal("high_risk"), toolName: toolNameSchema }),
@@ -79,6 +93,7 @@ export const approvalReasonSchema = z.discriminatedUnion("cause", [
     toolName: toolNameSchema,
     integration: z.enum(INTEGRATION_SLUGS),
     source: z.enum(APPROVAL_MODE_SOURCES),
+    serverTool: mcpServerToolRefSchema.optional(),
   }),
 ]);
 
@@ -95,7 +110,10 @@ export interface ApprovalPolicyView {
  * date. `onThread`: the call ran in a chat thread, so Full Autonomy for the thread applies.
  * - A `high` card lists only Full Autonomy.
  * - "Always allow" applies only to the tool's own integration (`resolvePolicyDecision`).
- * - A current override on the tool beats the integration mode, so the mode is not listed then.
+ * - On an MCP server, "Always allow" is the rule on the one server tool (`serverTool`). One rule
+ *   on `mcp.call` for every server is not offered.
+ * - A current rule on the tool or on the server tool beats the integration mode, so the mode is
+ *   not listed then.
  * - The integration mode is listed only when the integration page has the control.
  * - The global default is not listed: it changes every integration.
  */
@@ -108,13 +126,19 @@ export function approvalSettings(
 
   if (reason.cause === "high_risk") return fullAutonomy;
 
-  const ownIntegration = integrationFromToolName(reason.toolName) === reason.integration;
+  const { integration, serverTool } = reason;
+  const ownIntegration = integrationFromToolName(reason.toolName) === integration;
 
   const overrideGoverns =
-    ownIntegration &&
-    policy.integrationRules[reason.integration]?.toolOverrides?.[reason.toolName] !== undefined;
+    serverTool === undefined
+      ? ownIntegration &&
+        policy.integrationRules[integration]?.toolOverrides?.[reason.toolName] !== undefined
+      : serverToolRuleOf(policy.integrationRules, integration, serverTool) !== undefined;
 
   return [
+    ...(serverTool === undefined
+      ? []
+      : [{ kind: "always_allow_server_tool", integration, serverTool } as const]),
     ...(ownIntegration && toolTakesOverride(reason.toolName)
       ? [{ kind: "always_allow", toolName: reason.toolName } as const]
       : []),
@@ -136,6 +160,10 @@ export const APPROVAL_CONTROL_LABELS = {
   fullAutonomyButton: "Full Autonomy for this chat",
   /** The section of an integration page that sets its mode and lists its tool overrides. */
   approvalPolicy: "Approval policy",
+  /** The list of exceptions in the approval policy section of an integration page. */
+  actionExceptions: "Action exceptions",
+  /** The item of an MCP connection menu that opens the server's tools and their approval policy. */
+  serverTools: "View tools",
   /** The integration mode that runs a call with no card. */
   integrationAuto: "Auto",
   /** The integration mode that asks first. */

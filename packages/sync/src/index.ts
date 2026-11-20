@@ -53,6 +53,8 @@ export {
   type PolicySetIntegrationModeArgs,
   policySetToolModeArgsSchema,
   type PolicySetToolModeArgs,
+  policySetServerToolModeArgsSchema,
+  type PolicySetServerToolModeArgs,
   policySetDefaultModeArgsSchema,
   type PolicySetDefaultModeArgs,
   isLikelyValidWorkflowCron,

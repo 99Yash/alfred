@@ -459,9 +459,19 @@ export type SyncedTriageTag = z.infer<typeof syncedTriageTagSchema>;
 
 export const policyModeSchema = z.enum(POLICY_MODES);
 
+const serverToolRuleSchema = z.object({
+  mode: policyModeSchema,
+  descriptorHash: z.string().min(1),
+});
+
 const rawIntegrationRuleSchema = z.object({
   mode: policyModeSchema.optional(),
   toolOverrides: z.record(z.string(), policyModeSchema).optional(),
+  serverToolOverrides: z
+    .record(z.string(), z.record(z.string(), serverToolRuleSchema))
+    .optional()
+    // A malformed map drops only the rules on server tools, not the integration's mode.
+    .catch(undefined),
 });
 
 function normalizeToolOverrides(
@@ -480,9 +490,16 @@ export const integrationRuleSchema: z.ZodType<IntegrationRule> = rawIntegrationR
   (rule) => {
     const toolOverrides = normalizeToolOverrides(rule.toolOverrides);
 
+    const serverToolOverrides = Object.fromEntries(
+      Object.entries(rule.serverToolOverrides ?? {}).filter(
+        ([, rules]) => Object.keys(rules).length > 0,
+      ),
+    );
+
     return {
       ...(rule.mode ? { mode: rule.mode } : {}),
       ...(toolOverrides ? { toolOverrides } : {}),
+      ...(Object.keys(serverToolOverrides).length > 0 ? { serverToolOverrides } : {}),
     };
   },
 );

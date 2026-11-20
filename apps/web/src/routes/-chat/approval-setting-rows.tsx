@@ -3,6 +3,8 @@ import {
   approvalSettings,
   APPROVAL_CONTROL_LABELS,
   assertNever,
+  humanizeToolName,
+  integrationFromToolName,
   type ApprovalReason,
   type ApprovalSetting,
 } from "@alfred/contracts";
@@ -46,6 +48,8 @@ function approvalSettingKey(setting: ApprovalSetting): string {
       return `integration_mode:${setting.integration}`;
     case "always_allow":
       return `always_allow:${setting.toolName}`;
+    case "always_allow_server_tool":
+      return `always_allow_server_tool:${setting.serverTool.connectionId}:${setting.serverTool.remoteName}`;
     case "full_autonomy":
       return "full_autonomy";
     default:
@@ -75,9 +79,31 @@ function settingLink(setting: ApprovalSetting): SettingLink | null {
       };
     }
 
-    // Only the Permissions menu of a card sets the override. The integration page can only
-    // remove it, so the reply does not link there (ADR-0130 amendment (c)).
-    case "always_allow":
+    // The integration page lists the exceptions of its tools and adds one.
+    case "always_allow": {
+      const page = getIntegrationPage(integrationFromToolName(setting.toolName));
+
+      return {
+        key: approvalSettingKey(setting),
+        label: `${APPROVAL_CONTROL_LABELS.alwaysAllowAction}: ${humanizeToolName(setting.toolName)}`,
+        scope: "This action",
+        slug: page?.slug,
+      };
+    }
+
+    // The server's tools, from its connection: on its provider's page, else on the list.
+    case "always_allow_server_tool": {
+      const page = getIntegrationPage(setting.integration);
+
+      return {
+        key: approvalSettingKey(setting),
+        label: `${APPROVAL_CONTROL_LABELS.alwaysAllowAction}: ${setting.serverTool.remoteName}`,
+        scope: "This action",
+        slug: page?.slug,
+      };
+    }
+
+    // A button opens the approval mode picker instead.
     case "full_autonomy":
       return null;
     default:

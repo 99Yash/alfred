@@ -15,6 +15,7 @@ import {
   noteCreateArgsSchema,
   policySetDefaultModeArgsSchema,
   policySetIntegrationModeArgsSchema,
+  policySetServerToolModeArgsSchema,
   policySetToolModeArgsSchema,
   prefDeleteArgsSchema,
   prefSetArgsSchema,
@@ -45,6 +46,7 @@ import { noteCreate } from "./notes";
 import {
   policySetDefaultMode,
   policySetIntegrationMode,
+  policySetServerToolMode,
   policySetToolMode,
 } from "./action-policies";
 import { prefDelete, prefSet } from "./preferences";
@@ -93,6 +95,11 @@ export const serverMutators: ServerMutatorsRegistry = {
   policySetToolMode: {
     args: policySetToolModeArgsSchema,
     run: policySetToolMode,
+    followUp: () => [{ kind: "bustPolicyCache" }],
+  },
+  policySetServerToolMode: {
+    args: policySetServerToolModeArgsSchema,
+    run: policySetServerToolMode,
     followUp: () => [{ kind: "bustPolicyCache" }],
   },
   workflowUpdate: { args: workflowUpdateArgsSchema, run: workflowUpdate },

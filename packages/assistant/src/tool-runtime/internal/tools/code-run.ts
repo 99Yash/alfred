@@ -137,8 +137,9 @@ function codeRunResult(outcome: ReadProgramOutcome): CodeRunResult {
 
 /**
  * The approval facts of the reads that waited for a card, in request order: one per tool,
- * governing integration, and cause. So `mcp.call` on two providers stays two facts, and two
- * causes of one tool stay two facts.
+ * governing integration, server tool, and cause. So `mcp.call` on two providers, or on two tools
+ * of one server, stays two facts, and two causes of one tool stay two facts. Each server tool has
+ * its own rule (ADR-0130 amendment (c)), so the model must see each one.
  */
 function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] {
   const byRule = new Map<string, ApprovalCauseFact>();
@@ -149,7 +150,13 @@ function approvalFactsOf(ledger: readonly HostCallEntry[]): ApprovalCauseFact[] 
     if (cause === undefined) continue;
 
     const { reason } = cause;
-    const key = `${reason.toolName}:${reason.cause === "high_risk" ? "" : reason.integration}:${reason.cause}`;
+
+    const rule =
+      reason.cause === "high_risk"
+        ? ""
+        : `${reason.integration}:${reason.serverTool?.connectionId ?? ""}:${reason.serverTool?.remoteName ?? ""}`;
+
+    const key = `${reason.toolName}:${rule}:${reason.cause}`;
 
     if (!byRule.has(key)) byRule.set(key, approvalCauseFact(cause));
   }

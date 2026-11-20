@@ -4,6 +4,7 @@
  * The approval gate is `user_action_policies` (ADR-0034).
  */
 
+import type { PolicyTarget } from "@alfred/assistant/action-policies";
 import type { ApprovalCause } from "../approval-rule";
 import type {
   ActionSlug,
@@ -358,14 +359,12 @@ export interface ToolArgsCommon<
   /** Permits a downgrade below `riskTier`. Requires `resolveRiskTier`. */
   riskTierDowngradeReason?: string;
   /**
-   * The integration whose policy rule governs this call, when the input names it and the tool
-   * name does not: `mcp.call` on a built-in server follows its provider's rule. Absent: the
-   * rule of the tool's own integration. Must be side-effect free.
+   * The policy rule that governs this call, when the input names it and the tool name does not:
+   * `mcp.call` on a built-in server follows its provider's rule, and a call on one server tool
+   * reads the rule on that tool (ADR-0130 amendment (c)). Absent: the rule of the tool's own
+   * integration. Must be side-effect free.
    */
-  resolvePolicyIntegration?: (
-    input: z.infer<S>,
-    ctx: ToolExecuteContext,
-  ) => Promise<IntegrationSlug>;
+  resolvePolicyTarget?: (input: z.infer<S>, ctx: ToolExecuteContext) => Promise<PolicyTarget>;
   /** Defaults to `"staged"`. */
   staging?: ToolStagingPolicy;
   /** No default: every tool states it. `fast_path`, `join`, and `question` must be `"safe"`. */
@@ -553,8 +552,8 @@ export interface BoundToolCall {
    * time for each decision.
    */
   effectiveRiskTier: (ctx: ToolExecuteContext) => Promise<ToolRiskTier>;
-  /** See {@link ToolArgsCommon.resolvePolicyIntegration}. The tool's integration when it declares none. */
-  policyIntegration: (ctx: ToolExecuteContext) => Promise<IntegrationSlug>;
+  /** See {@link ToolArgsCommon.resolvePolicyTarget}. The tool's integration when it declares none. */
+  policyTarget: (ctx: ToolExecuteContext) => Promise<PolicyTarget>;
   /**
    * See {@link LiveToolArgs.redactInput}. The input itself when the tool declares no redactor.
    * The only value the trace sinks (`ToolSpanInput`, `DispatchRejectionInput`) take.
@@ -578,8 +577,8 @@ export interface RegisteredTool {
   resolvesRiskTier: boolean;
   /** See {@link LiveToolArgs.riskTierDowngradeReason}. */
   riskTierDowngradeReason?: string | undefined;
-  /** Whether the tool declares {@link ToolArgsCommon.resolvePolicyIntegration}, so its policy rule depends on input. */
-  resolvesPolicyIntegration: boolean;
+  /** Whether the tool declares {@link ToolArgsCommon.resolvePolicyTarget}, so its policy rule depends on input. */
+  resolvesPolicyTarget: boolean;
   /** See {@link ToolStagingPolicy}. Resolved from the optional declaration. */
   staging: ToolStagingPolicy;
   /** See {@link ToolReplay}. */
@@ -709,7 +708,7 @@ function staticReadRoute(tool: RegisteredTool): ReadRoute | null {
 export function toolCanWaitForApproval(tool: RegisteredTool): boolean {
   if (tool.staging === "fast_path" || tool.staging === "join") return false;
 
-  if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyIntegration) {
+  if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyTarget) {
     return true;
   }
 
@@ -942,7 +941,7 @@ export function liveTool<
   const {
     redactInput,
     resolveRiskTier,
-    resolvePolicyIntegration,
+    resolvePolicyTarget,
     refuseInput,
     refuseProposal,
     resolveReadFacts,
@@ -989,7 +988,7 @@ export function liveTool<
     riskTier: args.riskTier,
     resolvesRiskTier: resolveRiskTier !== undefined,
     riskTierDowngradeReason: args.riskTierDowngradeReason,
-    resolvesPolicyIntegration: resolvePolicyIntegration !== undefined,
+    resolvesPolicyTarget: resolvePolicyTarget !== undefined,
     staging: args.staging ?? "staged",
     replay: args.replay,
     codeModeRead: args.codeModeRead !== undefined,
@@ -1078,8 +1077,10 @@ export function liveTool<
             resolveRiskTier
               ? clampResolvedRiskTier(tool, await resolveRiskTier(input, ctx), ctx.runId)
               : tool.riskTier,
-          policyIntegration: async (ctx) =>
-            resolvePolicyIntegration ? resolvePolicyIntegration(input, ctx) : tool.integration,
+          policyTarget: async (ctx) =>
+            resolvePolicyTarget
+              ? resolvePolicyTarget(input, ctx)
+              : { integration: tool.integration },
           redactedInput: () => markRedacted(redactInput ? redactInput(input) : input),
           execute: async (ctx) => {
             if (args.availability?.requiresLiveChat !== true) {

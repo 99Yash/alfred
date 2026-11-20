@@ -16,6 +16,8 @@ import {
   policySetDefaultModeClient,
   policySetIntegrationModeArgsSchema,
   policySetIntegrationModeClient,
+  policySetServerToolModeArgsSchema,
+  policySetServerToolModeClient,
   policySetToolModeArgsSchema,
   policySetToolModeClient,
 } from "./policy";
@@ -81,6 +83,8 @@ export {
   type PolicySetIntegrationModeArgs,
   policySetToolModeArgsSchema,
   type PolicySetToolModeArgs,
+  policySetServerToolModeArgsSchema,
+  type PolicySetServerToolModeArgs,
   policySetDefaultModeArgsSchema,
   type PolicySetDefaultModeArgs,
 } from "./policy";
@@ -154,6 +158,7 @@ export const clientMutators = {
   policySetIntegrationMode: policySetIntegrationModeClient,
   policySetDefaultMode: policySetDefaultModeClient,
   policySetToolMode: policySetToolModeClient,
+  policySetServerToolMode: policySetServerToolModeClient,
   workflowUpdate: workflowUpdateClient,
   todoCreate: todoCreateClient,
   todoComplete: todoCompleteClient,
@@ -189,6 +194,7 @@ export const mutatorArgsSchemas = {
   policySetIntegrationMode: policySetIntegrationModeArgsSchema,
   policySetDefaultMode: policySetDefaultModeArgsSchema,
   policySetToolMode: policySetToolModeArgsSchema,
+  policySetServerToolMode: policySetServerToolModeArgsSchema,
   workflowUpdate: workflowUpdateArgsSchema,
   todoCreate: todoCreateArgsSchema,
   todoComplete: todoCompleteArgsSchema,

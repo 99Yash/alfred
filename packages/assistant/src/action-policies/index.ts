@@ -21,6 +21,7 @@ export {
   resolvePolicyDecision,
   resolvePolicyMode,
   type PolicyDecision,
+  type PolicyTarget,
   resolveApprovalNotifyDelayMs,
   bustPolicyCache,
   publishPolicyBust,

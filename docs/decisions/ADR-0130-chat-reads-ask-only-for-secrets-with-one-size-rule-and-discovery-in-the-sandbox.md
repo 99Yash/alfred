@@ -136,6 +136,17 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 - **All approval surfaces.** The chat card, the saved reply, the `/approvals` queue, and the workflow approvals tab show the settings (ADR-0034).
 - **The acceptance case.** A confirmed secret read, for example `vercel.request` under `gated`, gives a reason that the model receives. The owner can reach each named control. The Linear example of #1800 changes with #1804, so it is not the acceptance case.
 
+**Owner decision 2026-11-20 (#1818): the switch.** "Always allow this action" shows on only for a rule that allows the action. Turning it off removes the rule, so the integration mode governs the action again. It does not write an "ask first" rule.
+
+**The rule on one server tool (#1819).**
+
+- **Where it is kept:** in the policy row beside the tool overrides, `integrationRules[integration].serverToolOverrides[connectionId][remoteName] = { mode, descriptorHash }`. `integration` is the server's provider, else `mcp`. The rule is synced and cached with the rest of the policy.
+- **Not in `mcp_tool_policy`:** a row there is an owner review. A review changes the tier rules of ADR-0096: it beats a code pin, and a drifted review keeps the floor. "Always allow" must not change the tier.
+- **The bind:** the rule applies only while the tool keeps `descriptorHash`. One connection keeps one rule for each remote tool, so a new rule replaces an old one.
+- **The write:** the server accepts the rule only for a connection that the user owns, under the integration of that connection. It sets the rule only at the descriptor of the current catalog. A clear always applies.
+- **The places:** the Permissions menu of a card, and the tool's switch in "View tools" of the server's connection. "View tools" also lists the rules of the connection, with Reset, so a rule on a tool that left the catalog can be removed. The page of a live provider lists the rules of its server tools under "Action exceptions", and it can add a tool exception.
+- **Residual risk:** a removed connection leaves its rules in the policy row. They match no call. A list does not know the current descriptor, so it says that a changed tool asks again, and it does not mark an old rule.
+
 **Rejected.**
 
 - **Keep the stored list and fix each fault.** The list can be out of date, and each fix stays a patch on two copies of the rule.
