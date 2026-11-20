@@ -26,6 +26,11 @@ export const eventsOutbox = pgTable(
     index("events_outbox_unpublished_idx")
       .on(t.id)
       .where(sql`${t.publishedAt} IS NULL`),
+    // The reaper pages `published_at < cutoff ORDER BY id LIMIT batch`; walking
+    // this partial index in id order needs no sort and stops at the batch size.
+    index("events_outbox_published_idx")
+      .on(t.id)
+      .where(sql`${t.publishedAt} IS NOT NULL`),
   ],
 );
 

@@ -71,7 +71,9 @@ export async function selfIngestionCount(userId: string): Promise<MetricResult |
       and(
         eq(documents.userId, userId),
         eq(documents.source, "gmail"),
-        sql`${documents.createdAt} >= now() - interval '7 days'`,
+        // ingested_at, not created_at: the metric measures ingestion, and the
+        // (user_id, source, ingested_at) index seeks the window.
+        sql`${documents.ingestedAt} >= now() - interval '7 days'`,
         sql`lower(${documents.metadata}->>'from') like ${"%" + self + "%"}`,
       ),
     );

@@ -44,7 +44,9 @@ export const artifacts = pgTable(
     ...lifecycle_dates,
   },
   (t) => [
-    index("artifacts_user_idx").on(t.userId),
+    // Replicache pull window (`recentArtifacts`): user_id filter + created_at DESC,
+    // id DESC order, served by a backward scan of these plain columns.
+    index("artifacts_user_created_idx").on(t.userId, t.createdAt, t.id),
     index("artifacts_thread_created_idx").on(t.threadId, t.createdAt),
     index("artifacts_run_idx").on(t.runId),
   ],
