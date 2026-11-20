@@ -1,6 +1,6 @@
 # The evidence map: the model knows what it can find out
 
-Status: draft for owner review, 2026-11-14. The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. The page is on main (#1754) and awaits owner review.
+Status: accepted (owner, 2026-11-20). The decisions dated 2026-11-14 are owner direction from the grill on the core-agent handoff. The page came to main as a draft in #1754.
 
 Read first: [README principles](./README.md#2-the-principles), [memory.md §2](./memory.md#2-the-frame) (the frame), [ADR-0124](../decisions/ADR-0124-code-mode-is-the-chat-read-path.md) (Code Mode as the read path), and the [probe table §6](../research/user-questions-probe-table-2026-11-14.md) (the source of this theory).
 

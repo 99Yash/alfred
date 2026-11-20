@@ -13,7 +13,7 @@ Read this page before you design a change, add a prompt rule, a floor, a table, 
 | [journal.md](./journal.md)                   | The theory of the journal: recall a past talk, and connect it to what happens later. |
 | [core-agent.md](./core-agent.md)             | The settled theory of the core agent: one runner, its destination, the push, and the voice. |
 | [workflows.md](./workflows.md)               | The settled theory of the workflow class: defaults, implicit, and user-authored as metadata on one row. |
-| [evidence-map.md](./evidence-map.md)         | Draft, awaiting owner review: which stores exist, how far back each reaches, what each answers. |
+| [evidence-map.md](./evidence-map.md)         | The accepted theory of the evidence map: which stores exist, how far back each reaches, what each answers. |
 | [stores.md](./stores.md)                     | Draft, awaiting owner review: one copy of what came in, what Alfred derives from it, and the two times of each row. |
 | [product-direction.md](./product-direction.md) | The owner's plan compared with Dimension and with the built code.          |
 | [state-machines.md](../reference/state-machines.md) | Each status machine, its transitions, and its invariants.              |
