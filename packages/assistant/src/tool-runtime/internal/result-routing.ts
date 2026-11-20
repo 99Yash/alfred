@@ -13,12 +13,14 @@ import {
   type JsonValue,
   type ResultTruncation,
   type ToolUnavailabilityCode,
+  withHandle,
 } from "@alfred/contracts";
 
-import type { CompletedToolCall, ProposedToolCall } from "../index";
+import type { CompletedToolCall, ProposedToolCall, ToolCallRun } from "../index";
 import type { PublicAppError } from "@alfred/contracts/app-errors";
 import type { CardOutcome, RejectedToolResult, ToolCallDispatchResult } from "./adapter";
 import { NO_TOOL_EFFECTS } from "./registry";
+import { parkResult } from "./result-handles";
 import { approvalCauseFact, type ApprovalCauseFact } from "../approval-rule";
 import type { ToolResultPart } from "ai";
 
@@ -27,10 +29,15 @@ export type TerminalToolCallDispatchResult = Exclude<
   { kind: "staged" | "parked" }
 >;
 
-export function toolResultMessage(
+/**
+ * The transcript message of one call. An executed result of a chat turn on the script read path
+ * may get a handle first (`parkResult`), so the model can read its whole copy in a later script.
+ */
+export async function toolResultMessage(
   call: ProposedToolCall,
   result: TerminalToolCallDispatchResult,
-): TranscriptMessage {
+  run: ToolCallRun,
+): Promise<TranscriptMessage> {
   return {
     role: "tool",
     content: [
@@ -38,22 +45,24 @@ export function toolResultMessage(
         type: "tool-result",
         toolCallId: call.toolCallId,
         toolName: call.toolName,
-        output: dispatchResultToToolOutput(result),
+        output: await dispatchResultToToolOutput(call, result, run),
       },
     ],
   };
 }
 
-function dispatchResultToToolOutput(
+async function dispatchResultToToolOutput(
+  call: ProposedToolCall,
   result: TerminalToolCallDispatchResult,
-): Extract<ToolResultPart["output"], { type: "json" | "error-json" }> {
+  run: ToolCallRun,
+): Promise<Extract<ToolResultPart["output"], { type: "json" | "error-json" }>> {
   switch (result.kind) {
     case "executed":
       return {
         type: "json",
         value: toJsonValue({
           status: "executed",
-          ...boundedResultFields(result.toolResult),
+          ...(await boundedResultFields(call, result.toolResult, run)),
           editedByUser: result.editedByUser,
           ...(result.sanitized
             ? {
@@ -108,17 +117,30 @@ function boundedWithApprovalCause(envelope: CardEnvelope, result: CardOutcome): 
 
 /**
  * The tool result under the one size rule (ADR-0130 decision 5), with its truncation note beside it.
- * A direct MCP or passthrough read bounds its own result to fit, so this pass leaves it as it is.
+ * A stored result gives its handle, and a cut note points at it.
  */
-function boundedResultFields(toolResult: unknown): {
-  result: JsonValue;
-  truncation?: ResultTruncation;
-} {
-  const bounded = boundForModel(toJsonValue(toolResult));
+async function boundedResultFields(
+  call: ProposedToolCall,
+  toolResult: unknown,
+  run: ToolCallRun,
+): Promise<{ result: JsonValue; truncation?: ResultTruncation; handle?: string }> {
+  const whole = toJsonValue(toolResult);
+  const bounded = boundForModel(whole);
 
-  return bounded.truncation
-    ? { result: bounded.value, truncation: bounded.truncation }
-    : { result: bounded.value };
+  const handle = await parkResult({
+    run,
+    call,
+    toolResult: whole,
+    modelCopyCut: bounded.truncation !== undefined,
+  });
+
+  if (!bounded.truncation) {
+    return handle ? { result: bounded.value, handle } : { result: bounded.value };
+  }
+
+  return handle
+    ? { result: bounded.value, truncation: withHandle(bounded.truncation, handle), handle }
+    : { result: bounded.value, truncation: bounded.truncation };
 }
 
 /** An envelope under the one size rule. A cut record carries its note as a field. */

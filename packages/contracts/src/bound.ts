@@ -75,6 +75,11 @@ export interface ResultTruncation {
   cuts: ResultCut[];
   /** The count of cuts that `cuts` does not list. */
   moreCuts?: number;
+  /**
+   * The handle of the whole result, when Alfred stored it (ADR-0087, ADR-0130 decision 5). A
+   * script reads it with `system.load_result({ handle })`. Absent when nothing was stored.
+   */
+  handle?: string;
   note: string;
 }
 
@@ -93,6 +98,20 @@ const TRUNCATION_NOTE =
 const DROPPED_NOTE =
   "This result is too large to show any part of it. Read it in a script and filter by known " +
   "fields there.";
+
+/** The note of a cut result whose whole copy Alfred stored. */
+function handleNote(handle: string): string {
+  return (
+    "This result is over the size limit, so each cut kept the start of a list or a string. The " +
+    `whole result is stored as handle "${handle}". To read the cut part, call ` +
+    `system.load_result({ handle: "${handle}" }) in a script and filter by known fields there.`
+  );
+}
+
+/** The note with the handle of the stored whole result, which replaces the read-again advice. */
+export function withHandle(truncation: ResultTruncation, handle: string): ResultTruncation {
+  return { ...truncation, handle, note: handleNote(handle) };
+}
 
 const encoder = new TextEncoder();
 

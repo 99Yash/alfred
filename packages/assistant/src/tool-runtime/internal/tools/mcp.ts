@@ -28,6 +28,7 @@ import {
   type ResultRecipient,
   type ResultTruncation,
 } from "@alfred/contracts";
+import { HOST_READ_DELIVERY_MAX_BYTES } from "../../code-mode/result-budget";
 import { resultRecipientOf } from "./passthrough";
 import { itemEvidence, type DeliveredItem } from "../../item-evidence";
 import { AppError, publicAppError } from "@alfred/contracts/app-errors";
@@ -82,7 +83,7 @@ export interface McpBrokerToolResult {
   message?: string;
   /** Raw response fact, kept outside the bounded payload and saved for script-read replay. */
   hasBinaryContent?: true;
-  /** Set when the one size rule cut the payload of a direct call (`withResponseFacts`). */
+  /** Set when the stored cap cut the payload of a direct call (`withResponseFacts`). */
   truncation?: ResultTruncation;
 }
 
@@ -137,10 +138,10 @@ function proposalFacts(input: McpCallInput, userId: string): Promise<McpCallProp
 
 /**
  * Who receives the result (ADR-0124 amendment 2026-11-18 (b)). `model`: a direct call, so the
- * ADR-0074 bounds apply before the model sees it. `script`: a script read gets the whole sanitized
- * response, and dispatch refuses one above the host's delivery cap before it saves it.
+ * copy stays within the stored cap, and the chat boundary bounds what the model reads. `script`: a
+ * script read gets the whole sanitized response, and dispatch refuses one above the host's delivery
+ * cap before it saves it.
  */
-
 function brokerResult(outcome: McpBrokerOutcome, recipient: ResultRecipient): McpBrokerToolResult {
   switch (outcome.status) {
     case "completed":
@@ -188,9 +189,9 @@ async function refuseGoogleWorkspaceWrite(
 }
 
 /**
- * The response for its recipient. A script gets the whole result. The model gets the copy that the
- * one size rule bounds (`boundPassthroughBody`), so the result fits and the chat boundary does not
- * cut it again.
+ * The response for its recipient. A script gets the whole result. A direct call keeps a copy within
+ * the stored cap, so its staging row and its handle stay bounded. The chat boundary bounds the
+ * model's copy (ADR-0130 decision 5) and stores the whole copy for a later script.
  */
 function withResponseFacts(
   head: Pick<McpBrokerToolResult, "ok" | "status">,
@@ -201,7 +202,10 @@ function withResponseFacts(
 
   if (recipient === "script") return { ...head, result: envelope.result, ...binary };
 
-  const bounded = boundPassthroughBody(withParsedJsonText(envelope.result));
+  const bounded = boundPassthroughBody(
+    withParsedJsonText(envelope.result),
+    HOST_READ_DELIVERY_MAX_BYTES,
+  );
 
   return {
     ...head,

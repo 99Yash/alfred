@@ -8,6 +8,8 @@ export interface BootPort<T> {
   install(value: T): () => void;
   /** Throws when the slot is empty. */
   read(): T;
+  /** The value, or `undefined` when the slot is empty. For a peer that has a fallback. */
+  peek(): T | undefined;
 }
 
 export interface BootPortOptions {
@@ -35,6 +37,9 @@ export function bootPort<T>(label: string, options?: BootPortOptions): BootPort<
         throw options?.missing?.() ?? new Error(`No ${label} is registered`);
       }
 
+      return current;
+    },
+    peek(): T | undefined {
       return current;
     },
   };

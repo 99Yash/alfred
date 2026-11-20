@@ -1261,6 +1261,13 @@
       "when": 1795163893139,
       "tag": "0179_eager_karma",
       "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1795185329664,
+      "tag": "0180_legal_bruce_banner",
+      "breakpoints": true
     }
   ]
 }

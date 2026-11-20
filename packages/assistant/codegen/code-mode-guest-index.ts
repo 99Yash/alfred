@@ -29,6 +29,7 @@ import type {
 import type { CorpusSearchToolResult } from "../src/tool-runtime/internal/tools/corpus";
 import type { FetchUrlResult } from "../src/tool-runtime/internal/tools/fetch-url";
 import type { McpInspectToolResult, McpListToolsResult } from "../src/connections/mcp/list-tools";
+import type { LoadResultOutput } from "../src/tool-runtime/internal/tools/load-result";
 import type { McpBrokerToolResult } from "../src/tool-runtime/internal/tools/mcp";
 import type { ReadScratchResult } from "../src/tool-runtime/internal/tools/system";
 import type {
@@ -95,6 +96,7 @@ export const GUEST_OUTPUTS = {
   "system.list_instructions": guest<ListInstructionsResult>(),
   "system.list_todos": guest<ListTodosResult>(),
   "system.read_scratch": guest<ReadScratchResult>(),
+  "system.load_result": guest<LoadResultOutput>(),
   "mcp.list_tools": guest<McpListToolsResult>(),
   "mcp.inspect_tool": guest<McpInspectToolResult>(),
   "mcp.read": guest<McpBrokerToolResult>(),

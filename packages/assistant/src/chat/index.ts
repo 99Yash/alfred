@@ -9,6 +9,8 @@ export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachm
 
 export { conversationCompactionWorker, scheduleConversationCompactionIfNeeded } from "./compaction";
 
+export { resultHandleSweepWorker } from "./result-handle-sweep-worker";
+
 export { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 
 export {

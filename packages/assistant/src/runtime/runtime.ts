@@ -19,7 +19,11 @@ import {
   startMcpConnectionRecovery,
   stopMcpConnectionRecovery,
 } from "@alfred/assistant/connections/mcp";
-import { chatMemoryWorker, conversationCompactionWorker } from "@alfred/assistant/chat";
+import {
+  chatMemoryWorker,
+  conversationCompactionWorker,
+  resultHandleSweepWorker,
+} from "@alfred/assistant/chat";
 import {
   agentWorker,
   approvalExpiryWorker,
@@ -104,7 +108,7 @@ const SHUTDOWN_ORDER = [
   ["ingestion"],
   ["memory"],
   ["briefing"],
-  ["priceSync"],
+  ["priceSync", "resultHandleSweep"],
   ["workflows"],
 ] as const;
 
@@ -131,6 +135,8 @@ function backgroundServices(config: RuntimeConfig) {
     briefing: briefingWorker,
     // Daily models.dev price sync. Ungated: it runs in dev too.
     priceSync: priceSyncWorker,
+    // Daily sweep of expired result handles (ADR-0087). Ungated: it runs in dev too.
+    resultHandleSweep: resultHandleSweepWorker,
     workflows: workflowsWorker,
     approvalNotification: approvalNotificationWorker,
     approvalExpiry: approvalExpiryWorker,

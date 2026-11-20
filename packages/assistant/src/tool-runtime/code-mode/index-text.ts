@@ -56,6 +56,11 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
       `${READ_PROGRAM_LIMITS.maxResultBytes / 1024} KiB. You read at most ` +
       `${MODEL_RESULT_MAX_BYTES / 1024} KiB of it: a larger value keeps whole list items from the ` +
       "start, and its `truncation` names each cut with the kept and total counts.",
+    "- Alfred stores each value that a script returns, for 3 days, and gives its `handle`. A later " +
+      "script reads the whole value with `system.load_result({ handle })`, so do not read the " +
+      "same data again. Each earlier turn ends with a line for each stored result: its handle, " +
+      "the input that made it, the item count, and the fetch time. Fetch again only when the data " +
+      "is too old for the question.",
     "- Code can filter by known fields (state, labels, dates, authors). Code cannot judge prose, " +
       "so return the text that you must read to answer.",
     "- Wrap each read in try/catch. A failed read throws an Error whose `code` says why: " +

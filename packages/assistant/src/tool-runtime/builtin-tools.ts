@@ -13,6 +13,7 @@ import { codeRunTool } from "./internal/tools/code-run";
 import { contactsTools } from "./internal/tools/contacts";
 import { contextSearchTools } from "./internal/tools/context-search";
 import { corpusTools } from "./internal/tools/corpus";
+import { loadResultTool } from "./internal/tools/load-result";
 import { mcpTools } from "./internal/tools/mcp";
 import { sheetsTools } from "./internal/tools/sheets";
 import { systemTools } from "./internal/tools/system";
@@ -40,6 +41,7 @@ export function registerBuiltinTools(): BuiltinToolRegistry {
   registerTools(contactsTools);
   registerTools(vercelTools);
   registerTools(mcpTools);
+  registerTools([loadResultTool]);
   // Last: its index lists the read tools registered above (ADR-0124). Built one time, so a second
   // call registers the same object again, as it does for every other tool.
   codeRun ??= codeRunTool(listRegisteredTools().filter((tool) => tool.codeModeRead));

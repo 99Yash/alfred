@@ -57,6 +57,7 @@ const BRANDLESS_TOOL_ICONS = {
   "system.read_user_context": ScanText,
   "system.read_chat_history": MessagesSquare,
   "system.read_scratch": Notebook,
+  "system.load_result": Notebook,
   "system.write_scratch": NotebookPen,
   "system.promote": Bookmark,
   "system.remember": Brain,

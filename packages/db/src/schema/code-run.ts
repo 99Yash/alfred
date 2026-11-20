@@ -21,6 +21,7 @@ import { createId, inList } from "../helpers";
 import { actionStagings } from "./action-policies";
 import { agentRuns } from "./agent";
 import { user } from "./auth";
+import { chatThreads } from "./chat";
 
 /**
  * The evidence record of a `system.code_run` script (ADR-0124 amendment 2026-11-18): one row for
@@ -99,3 +100,55 @@ export const codeRunHostCalls = pgTable(
 export type CodeRunHostCall = typeof codeRunHostCalls.$inferSelect;
 
 export type NewCodeRunHostCall = typeof codeRunHostCalls.$inferInsert;
+
+/**
+ * A stored tool result that a later script reads with `system.load_result` (ADR-0087 points 1 and
+ * 2, ADR-0130 decision 5). The JSON is in object storage at `storage_key`; this row is its
+ * metadata. A chat turn on the script read path stores each script value, and each other result
+ * whose model copy was cut. The next turn gets one transcript line for each live row of a message.
+ *
+ * The row is thread-scoped, and it expires 3 days after the fetch (owner, 2026-11-20). A daily job
+ * deletes expired rows and their objects. A thread delete cascades the rows, and the thread's
+ * storage prefix cleanup removes the objects.
+ */
+export const resultHandles = pgTable(
+  "result_handles",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("rh")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    /** The assistant message of the turn. The message row can come after this row, so no FK. */
+    messageId: text("message_id").notNull(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: "cascade" }),
+    /** With `run_id`, the call that made the result. A replay of the call finds this row. */
+    toolCallId: text("tool_call_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    /** The call input as compact JSON, cut to a short line for the transcript. */
+    query: text("query").notNull(),
+    /** The items of the largest list in the value. Null when the value has no list. */
+    itemCount: integer("item_count"),
+    /** The JSON bytes of the stored value. */
+    byteSize: integer("byte_size").notNull(),
+    storageKey: text("storage_key").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("result_handles_run_call_idx").on(t.runId, t.toolCallId),
+    index("result_handles_thread_message_idx").on(t.threadId, t.messageId),
+    index("result_handles_expires_idx").on(t.expiresAt),
+  ],
+);
+
+export type ResultHandle = typeof resultHandles.$inferSelect;
+
+export type NewResultHandle = typeof resultHandles.$inferInsert;

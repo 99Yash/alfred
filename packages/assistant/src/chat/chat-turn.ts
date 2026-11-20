@@ -81,6 +81,7 @@ import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { clearChatStop, isChatStopRequested } from "./stop-signal";
+import { resultHandleLinesByMessage } from "./result-handle-store";
 import { streamModelTurn } from "./stream-model-turn";
 import { isStreamTimeoutAbort } from "./stream-timeout";
 import { createTurnStopController } from "./turn-stop-controller";
@@ -1032,6 +1033,14 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       ex,
     );
 
+    // A new turn replays no tool result, so each stored result of an earlier turn gets one line
+    // after its assistant message (ADR-0130 decision 5).
+    const handleLines = await resultHandleLinesByMessage({
+      userId: input.userId,
+      threadId,
+      messageIds: verbatimRows.filter((row) => row.role === "assistant").map((row) => row.id),
+    });
+
     const out: TranscriptMessage[] = assembled.summaryMessage ? [assembled.summaryMessage] : [];
 
     for (const r of verbatimRows) {
@@ -1040,10 +1049,24 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
 
       // Check the produced content, not `atts`: an attachment can degrade to no parts.
       if (content.length === 0) continue;
+
       // Attachments belong to user messages, so an assistant row keeps its text.
-      out.push(
-        r.role === "user" ? { role: "user", content } : { role: "assistant", content: r.content },
-      );
+      if (r.role === "user") {
+        out.push({ role: "user", content });
+        continue;
+      }
+
+      const lines = handleLines.get(r.id);
+
+      out.push({
+        role: "assistant",
+        content: lines
+          ? [
+              { type: "text", text: r.content },
+              { type: "text", text: lines },
+            ]
+          : r.content,
+      });
     }
 
     return out;
