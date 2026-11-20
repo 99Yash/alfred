@@ -127,6 +127,19 @@ function isChatTurnRun(t: Pick<ChatThreadRunColumns, "workflowSlug">): SQL {
   return sql`${t.workflowSlug} = ${sql.raw(`'${CHAT_TURN_WORKFLOW_SLUG}'`)}`;
 }
 
+/**
+ * The chat thread whose Full Autonomy flag governs the cards of a run (ADR-0069 amendment): the
+ * thread of a chat-turn run, or the parent thread of a chat sub-agent (`approvalThreadId`).
+ * `NULL` for any other run, such as a workflow.
+ */
+export function approvalThreadIdOf(
+  t: Pick<ChatThreadRunColumns, "workflowSlug" | "metadata">,
+): SQL<string | null> {
+  return sql<
+    string | null
+  >`COALESCE(CASE WHEN ${isChatTurnRun(t)} THEN ${chatThreadIdExpr(t)} END, (${t.metadata} -> 'subAgent' -> 'chat' ->> 'threadId'))`;
+}
+
 /** WHERE for the chat-turn runs of one thread, built from the same expressions as the index. */
 export function chatThreadRunMatch(
   t: ChatThreadRunColumns,

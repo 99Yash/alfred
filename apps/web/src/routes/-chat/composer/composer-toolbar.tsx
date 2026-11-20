@@ -29,6 +29,7 @@ export function ComposerToolbar({
   onVoiceConfirm,
   onStopGeneration,
   approvalMode,
+  approvalModeThreadId,
   approvalModePending,
   onApprovalModeChange,
   tier,
@@ -57,6 +58,8 @@ export function ComposerToolbar({
   onVoiceConfirm: () => void;
   onStopGeneration?: (() => void) | undefined;
   approvalMode?: ChatApprovalMode | undefined;
+  /** The thread whose picker a Full Autonomy control can open. `undefined` in a new chat. */
+  approvalModeThreadId?: string | undefined;
   approvalModePending?: boolean | undefined;
   onApprovalModeChange?: ((mode: ChatApprovalMode) => void) | undefined;
   tier: ChatModelTier;
@@ -103,6 +106,7 @@ export function ComposerToolbar({
         {onApprovalModeChange && approvalMode ? (
           <ApprovalModePicker
             mode={approvalMode}
+            threadId={approvalModeThreadId}
             disabled={Boolean(approvalModePending)}
             onChange={onApprovalModeChange}
           />

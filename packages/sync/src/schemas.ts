@@ -161,6 +161,13 @@ export const syncedActionStagingSchema = z.object({
   workflowSlug: z.string(),
   /** Display name from `workflows.name`; falls back to the slug. */
   workflowName: z.string(),
+  /**
+   * The chat thread whose Full Autonomy flag governs the run: a chat turn's thread, or the parent
+   * thread of a chat sub-agent. `null` for a workflow run. Full Autonomy applies only in a thread
+   * (ADR-0130 amendment (c)). Defaults to `null`, so a row cached before the field
+   * still parses.
+   */
+  threadId: z.string().nullable().default(null),
   /** Display-only subset of `agent_runs.trigger`. Never the raw payload or document ids (ADR-0034). */
   trigger: z.object({
     kind: agentRunTriggerKindSchema,

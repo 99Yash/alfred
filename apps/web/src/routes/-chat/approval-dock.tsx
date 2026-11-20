@@ -1,19 +1,11 @@
-import type { ApprovalSetting, IntegrationSlug, ToolRiskTier } from "@alfred/contracts";
-import {
-  approvalSettings,
-  APPROVAL_CONTROL_LABELS,
-  assertNever,
-  humanizeToolName,
-} from "@alfred/contracts";
-import type { SyncedActionPolicy, SyncedActionStaging } from "@alfred/sync";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { assertNever } from "@alfred/contracts";
+import type { SyncedActionStaging } from "@alfred/sync";
 import { Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
   ArrowDown,
   Ban,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -25,9 +17,11 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, m } from "motion/react";
-import { useEffect, useImperativeHandle, useRef, use, useId, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { QuestionStaging, StagedRow } from "~/components/approvals/ask-user";
+import { approvalReasonLine } from "~/components/approvals/approval-reason";
 import { decideApproval } from "~/components/approvals/decide-approval";
+import { PermissionsMenu, type PermissionsPolicy } from "~/components/approvals/permissions-menu";
 import { describeApprovalWait } from "./conversation-helpers";
 import { approveButtonLabel, cardTitle } from "~/components/approvals/card-spec";
 import { MayHaveRunNotice } from "~/components/approvals/may-have-run-notice";
@@ -44,11 +38,9 @@ import {
   type RecordedDecision,
   type WriteDecision,
 } from "~/components/approvals/use-approval-decision";
-import { AppButton, AppSwitch, AppTextarea } from "~/components/ui/v2";
+import { AppButton, AppTextarea } from "~/components/ui/v2";
 import { Kbd } from "~/components/ui/kbd";
-import { AppThemeContext } from "~/components/ui/v2/theme";
-import { getIntegrationPage } from "~/lib/integrations/integrations";
-import type { ActionPolicyState } from "~/lib/replicache/use-action-policy";
+import { requestApprovalModePicker } from "~/lib/chat/approval-mode-picker-request";
 import { callToast, toast } from "~/lib/toast";
 import { cn } from "~/lib/utils";
 import { CHAT_EASE, CHAT_SWAP, usePrefersReducedMotion, type LiveTransition } from "./motion";
@@ -93,13 +85,16 @@ export function ChatApprovalDock({
   runId,
   approvals,
   policy,
+  threadId,
   ref,
 }: {
   runId: string | undefined;
   /** Pending rows for the run, in tool-trail order. */
   approvals: readonly StagedRow[];
   /** The chat's action policy read, for the "Always allow" switches. */
-  policy: DockPolicy;
+  policy: PermissionsPolicy;
+  /** The chat thread, whose approval mode picker the Full Autonomy control opens. */
+  threadId: string | undefined;
   ref?: React.Ref<ApprovalDockHandle> | undefined;
 }) {
   const reduceMotion = usePrefersReducedMotion();
@@ -271,6 +266,7 @@ export function ChatApprovalDock({
               <DockApprovalCard
                 staging={current.staging}
                 policy={policy}
+                threadId={threadId}
                 renderPager={renderPager}
                 primaryRef={primaryRef}
                 onDecisionStart={() => dismissChime(current.staging.id)}
@@ -402,11 +398,6 @@ function useRecordDecision<Decision extends RecordedDecision>({
   return { decisionKind, decide };
 }
 
-type DockPolicy = Pick<
-  ActionPolicyState,
-  "policy" | "modeFor" | "toolModeFor" | "setIntegrationMode" | "setToolMode"
->;
-
 interface DockCardProps {
   /** The "1 of 2" control, or `null` for a lone card. Pass the card's `busy`. */
   renderPager: (busy: boolean) => React.ReactNode;
@@ -419,11 +410,16 @@ interface DockCardProps {
 function DockApprovalCard({
   staging,
   policy,
+  threadId,
   renderPager,
   primaryRef,
   onDecisionStart,
   onDecision,
-}: DockCardProps & { staging: SyncedActionStaging; policy: DockPolicy }) {
+}: DockCardProps & {
+  staging: SyncedActionStaging;
+  policy: PermissionsPolicy;
+  threadId: string | undefined;
+}) {
   const {
     draftInput,
     setDraftInput,
@@ -445,7 +441,6 @@ function DockApprovalCard({
     run,
   } = useApprovalDecision(staging);
 
-  const { modeFor, toolModeFor, setIntegrationMode, setToolMode } = policy;
   // The facts list by default; Edit swaps in the field editor.
   const [editing, setEditing] = useState(false);
 
@@ -479,12 +474,6 @@ function DockApprovalCard({
 
   const approved = decisionKind === "approve";
 
-  // Only the settings that remove this card, from its reason and current policy (ADR-0130).
-  const { integrationSetting, toolSetting, fullAutonomySetting } = cardSettings(
-    staging,
-    policy.policy,
-  );
-
   // An `mcp.call` shows the server it will reach, not a generic gear. The draft, not the
   // proposal: an edit that picks another server changes what Approve runs.
   const mcpServer = useMcpCallServer(staging.toolName, draftInput);
@@ -509,7 +498,7 @@ function DockApprovalCard({
             {decided && decisionKind !== null ? (
               <ResolvedCopy kind={decisionKind} edited={edited} mayHaveRun={staging.mayHaveRun} />
             ) : (
-              policyCopy(staging.riskTier)
+              approvalReasonLine(staging.approvalReason)
             )}
           </p>
         </div>
@@ -530,38 +519,14 @@ function DockApprovalCard({
         ) : (
           <>
             {renderPager(busy)}
-            {integrationSetting || toolSetting || fullAutonomySetting ? (
-              <PermissionsAffordance
-                staging={staging}
-                integration={integrationSetting?.integration}
-                integrationAllowed={
-                  integrationSetting !== undefined &&
-                  modeFor(integrationSetting.integration) === "autonomy"
-                }
-                showTool={toolSetting !== undefined}
-                toolAllowed={toolModeFor(staging.toolName) === "autonomy"}
-                showFullAutonomy={fullAutonomySetting !== undefined}
-                onFlipIntegration={(autonomy) => {
-                  if (!integrationSetting) return;
-
-                  setError(null);
-                  setIntegrationMode(
-                    integrationSetting.integration,
-                    autonomy ? "autonomy" : "gated",
-                  ).catch((err: unknown) => {
-                    setError(err instanceof Error ? err.message : "Failed to update policy");
-                  });
-                }}
-                onFlipTool={(autonomy) => {
-                  setError(null);
-                  setToolMode(staging.toolName, autonomy ? "autonomy" : "gated").catch(
-                    (err: unknown) => {
-                      setError(err instanceof Error ? err.message : "Failed to update policy");
-                    },
-                  );
-                }}
-              />
-            ) : null}
+            <PermissionsMenu
+              staging={staging}
+              policy={policy}
+              onFullAutonomy={
+                threadId === undefined ? undefined : () => requestApprovalModePicker(threadId)
+              }
+              onError={setError}
+            />
           </>
         )}
       </div>
@@ -865,147 +830,6 @@ function DockQuestionCard({
   );
 }
 
-/**
- * "Always allow this action" and "Always allow {integration}" in a popover in the card head.
- * Policy writes are optimistic. The staged row is frozen at dispatch, so this action still
- * needs Approve.
- */
-function PermissionsAffordance({
-  staging,
-  integration,
-  integrationAllowed,
-  showTool,
-  toolAllowed,
-  showFullAutonomy,
-  onFlipIntegration,
-  onFlipTool,
-}: {
-  staging: SyncedActionStaging;
-  /** The integration whose mode removes the card, or `undefined` when its mode does not. */
-  integration: IntegrationSlug | undefined;
-  integrationAllowed: boolean;
-  showTool: boolean;
-  toolAllowed: boolean;
-  showFullAutonomy: boolean;
-  onFlipIntegration: (autonomy: boolean) => void;
-  onFlipTool: (autonomy: boolean) => void;
-}) {
-  const popoverId = useId();
-
-  const integrationName =
-    integration === undefined ? undefined : (getIntegrationPage(integration)?.name ?? integration);
-
-  const toolTitle = humanizeToolName(staging.toolName);
-
-  // The popover portals out of `.app`, so stamp the resolved theme on the content.
-  const dataTheme = use(AppThemeContext)?.resolved;
-
-  return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          aria-controls={popoverId}
-          className={cn(
-            "inline-flex h-7 shrink-0 items-center gap-1 rounded-control-sm px-2 text-[12px] font-medium text-app-fg-3",
-            "app-focus app-press transition-[box-shadow,color,background-color]",
-            "hover:bg-app-bg-a2 hover:text-app-fg-4",
-          )}
-        >
-          <ShieldCheck size={12} className="shrink-0" />
-          <span className="hidden sm:inline">{APPROVAL_CONTROL_LABELS.permissions}</span>
-          <ChevronDown size={12} className="shrink-0 text-app-fg-2" />
-        </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          id={popoverId}
-          side="top"
-          align="end"
-          sideOffset={8}
-          collisionPadding={16}
-          data-app-theme={dataTheme}
-          className={cn(
-            "app app-frost-overlay z-50 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-hidden rounded-surface p-3",
-            "app-fade-in outline-none",
-          )}
-        >
-          <p className="text-[11px] font-medium tracking-tight text-app-fg-2">
-            Default permissions
-          </p>
-          {showTool ? (
-            <PermissionSwitch
-              id={`permissions-tool-${staging.id}`}
-              checked={toolAllowed}
-              onCheckedChange={onFlipTool}
-              label={APPROVAL_CONTROL_LABELS.alwaysAllowAction}
-              hint={
-                toolAllowed
-                  ? `Alfred can ${toolTitle} without asking.`
-                  : `Alfred asks before it can ${toolTitle}.`
-              }
-            />
-          ) : null}
-          {integrationName !== undefined ? (
-            <PermissionSwitch
-              id={`permissions-integration-${staging.id}`}
-              checked={integrationAllowed}
-              onCheckedChange={onFlipIntegration}
-              label={`Always allow ${integrationName}`}
-              hint={
-                integrationAllowed
-                  ? `Alfred acts without asking for ${integrationName} actions like this.`
-                  : `Alfred asks before every ${integrationName} action.`
-              }
-            />
-          ) : null}
-          {showFullAutonomy ? (
-            <p className="text-[11.5px] leading-snug text-app-fg-2">
-              Full Autonomy in the mode menu skips every card in this chat.
-            </p>
-          ) : null}
-          {showTool || integrationName !== undefined ? (
-            <p className="text-[11.5px] leading-snug text-app-fg-2">
-              Applies from Alfred's next action. This one still needs your approval.
-            </p>
-          ) : null}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
-  );
-}
-
-function PermissionSwitch({
-  id,
-  checked,
-  onCheckedChange,
-  label,
-  hint,
-}: {
-  id: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  label: string;
-  hint: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <AppSwitch
-        id={id}
-        checked={checked}
-        onCheckedChange={(next) => onCheckedChange(next === true)}
-        className="mt-0.5 shrink-0"
-      />
-      <div className="min-w-0">
-        <label htmlFor={id} className="block text-[13px] leading-5 font-medium text-app-fg-4">
-          {label}
-        </label>
-        <p className="mt-0.5 text-[11.5px] leading-snug text-app-fg-2">{hint}</p>
-      </div>
-    </div>
-  );
-}
-
 /** Head subline after a decision. Write cards only. */
 function ResolvedCopy({
   kind,
@@ -1028,46 +852,6 @@ function ResolvedCopy({
     default:
       return assertNever(kind, "write decision");
   }
-}
-
-interface CardSettings {
-  integrationSetting: Extract<ApprovalSetting, { kind: "integration_mode" }> | undefined;
-  toolSetting: Extract<ApprovalSetting, { kind: "always_allow" }> | undefined;
-  fullAutonomySetting: Extract<ApprovalSetting, { kind: "full_autonomy" }> | undefined;
-}
-
-/**
- * The settings that remove this card, derived from the row's reason and current policy (ADR-0130
- * amendment (c)). A `high` card lists only Full Autonomy. An `mcp.call` names its provider's
- * mode, not an override on `mcp.call`. A row with no reason, or no synced policy yet, shows no
- * switch. The dock is in a chat thread, so Full Autonomy applies.
- */
-function cardSettings(
-  staging: SyncedActionStaging,
-  policy: SyncedActionPolicy | null,
-): CardSettings {
-  const settings =
-    staging.approvalReason === null || policy === null
-      ? []
-      : approvalSettings(staging.approvalReason, policy, true);
-
-  return {
-    integrationSetting: settings.find((setting) => setting.kind === "integration_mode"),
-    toolSetting: settings.find((setting) => setting.kind === "always_allow"),
-    fullAutonomySetting: settings.find((setting) => setting.kind === "full_autonomy"),
-  };
-}
-
-function policyCopy(riskTier: ToolRiskTier): string {
-  if (riskTier === "no_risk") {
-    return "This integration is set to ask first. This action does not change external data.";
-  }
-
-  if (riskTier === "low") {
-    return "This integration is set to ask first. Review the details before it runs.";
-  }
-
-  return "This action can change data outside Alfred. Review the details before it runs.";
 }
 
 /**

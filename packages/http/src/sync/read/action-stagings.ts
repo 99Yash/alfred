@@ -2,6 +2,7 @@ import type { DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  approvalThreadIdOf,
   workflows,
   type ActionStaging,
   type AgentRunTrigger,
@@ -29,6 +30,7 @@ type ActionStagingRow = {
   staging: ActionStaging;
   workflowSlug: string;
   workflowName: string | null;
+  threadId: string | null;
   trigger: AgentRunTrigger | null;
   brief: string | null;
   recentRejection: RecentRejection | null;
@@ -122,6 +124,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
         staging: actionStagings,
         workflowSlug: agentRuns.workflowSlug,
         workflowName: workflows.name,
+        threadId: approvalThreadIdOf(agentRuns),
         trigger: agentRuns.trigger,
         brief: agentRuns.brief,
       })
@@ -172,6 +175,7 @@ export const fetchActionStagings = syncEntity(SYNC_MODEL.actionstaging, {
       runId: s.runId,
       workflowSlug: row.workflowSlug,
       workflowName: row.workflowName ?? row.workflowSlug,
+      threadId: row.threadId,
       trigger: narrowTrigger(row.trigger),
       brief,
       stepId: s.stepId,

@@ -399,6 +399,7 @@ export function ChatShell({ threadId, thread, title }: ChatShellProps) {
                         runId={showStream ? stream.runId : undefined}
                         approvals={orderedApprovals}
                         policy={actionPolicy}
+                        threadId={threadId}
                       />
                     }
                     onApproveShortcut={hasPendingApproval ? runDockPrimary : undefined}
