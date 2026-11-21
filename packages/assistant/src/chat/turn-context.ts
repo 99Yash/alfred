@@ -1,4 +1,6 @@
 import type { StoredUserMessage } from "@alfred/ai";
+import type { ChatMessage } from "@alfred/db/schemas";
+import { z } from "zod";
 import { chatTurnContextSchema, type ChatTurnContext, type IanaTimezone } from "@alfred/contracts";
 import { chatTurnContexts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
@@ -21,13 +23,15 @@ import { formatDay, inZone } from "@alfred/assistant/time";
 export const TIME_NOTE_PAUSE_MS = 30 * 60_000;
 
 /** What a parked run waited on. The time note of the resumed run names it. */
-export type ParkWait = "approval" | "question" | "sub_agent";
+export const parkWaitSchema = z.enum(["approval", "question", "sub_agent"]);
 
-const WAIT_TEXT: Record<ParkWait, string> = {
+export type ParkWait = z.infer<typeof parkWaitSchema>;
+
+const WAIT_TEXT = {
   approval: "the user's approval",
   question: "the user's answer to a question",
   sub_agent: "a sub-agent",
-};
+} as const satisfies Record<ParkWait, string>;
 
 /** `Saturday, 21 November 2026, 14:05 (Asia/Kolkata, UTC+05:30)`. Seconds are noise here. */
 function formatLocalInstant(timezone: IanaTimezone, at: Date): string {
@@ -132,7 +136,7 @@ export async function captureTurnContext(args: {
   userId: string;
   threadId: string;
   artifactTargetId: string | undefined;
-  message: { id: string; createdAt: Date };
+  message: Pick<ChatMessage, "id" | "createdAt">;
   previousAt: Date | undefined;
 }): Promise<ChatTurnContext> {
   const timezone = await settings({ userId: args.userId }).timezone();
@@ -205,7 +209,7 @@ export function withTurnContext(
 ): StoredUserMessage["content"] {
   if (text.length === 0) return content;
 
-  if (typeof content === "string") return content.length > 0 ? `${content}\n\n${text}` : text;
+  if (Array.isArray(content)) return [...content, { type: "text", text }];
 
-  return [...content, { type: "text", text }];
+  return content.length > 0 ? `${content}\n\n${text}` : text;
 }

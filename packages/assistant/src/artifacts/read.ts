@@ -1,4 +1,4 @@
-import type { ArtifactFormat, ChatTurnContext } from "@alfred/contracts";
+import type { ArtifactFormat, ChatTurnArtifactReference } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { artifacts } from "@alfred/db/schemas";
 import type { Artifact } from "@alfred/db/schemas";
@@ -24,7 +24,7 @@ export interface ThreadArtifactsContext {
   /** Default id, selection, and a bounded index. */
   readonly threadFacts: string;
   /** The selected artifact, with lower-trust text that holds its body when it fits. */
-  readonly reference: NonNullable<ChatTurnContext["artifact"]>["reference"];
+  readonly reference: ChatTurnArtifactReference | null;
   /** Picks the one design guide to inject. */
   readonly designMedium: ArtifactFormat | undefined;
 }

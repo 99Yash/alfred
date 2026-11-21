@@ -117,6 +117,15 @@ export type ChatMessageUsage = z.infer<typeof chatMessageUsageSchema>;
  * What the model saw beside one user message, saved when the user sent it (ADR-0130 decision 7).
  * A later turn replays the same bytes, so the prompt cache holds across turns.
  */
+/** The selected artifact of a turn context. Its body shows only where its row version first appears. */
+export const chatTurnArtifactReferenceSchema = z.object({
+  artifactId: z.string(),
+  rowVersion: z.number().int(),
+  text: z.string(),
+});
+
+export type ChatTurnArtifactReference = z.infer<typeof chatTurnArtifactReferenceSchema>;
+
 export const chatTurnContextSchema = z.object({
   /** Null when the message came less than the pause after the previous one, on the same day. */
   timeNote: z.string().nullable(),
@@ -124,10 +133,7 @@ export const chatTurnContextSchema = z.object({
   artifact: z
     .object({
       facts: z.string(),
-      /** The selected artifact. Its body shows only where its row version first appears. */
-      reference: z
-        .object({ artifactId: z.string(), rowVersion: z.number().int(), text: z.string() })
-        .nullable(),
+      reference: chatTurnArtifactReferenceSchema.nullable(),
     })
     .nullable(),
 });

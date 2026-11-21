@@ -20,7 +20,7 @@ import {
 } from "@alfred/assistant/execution";
 import { inZone } from "@alfred/assistant/time";
 import type { IanaTimezone } from "@alfred/contracts";
-import { resumeTimeNote, TIME_NOTE_PAUSE_MS, type ParkWait } from "./turn-context";
+import { parkWaitSchema, resumeTimeNote, TIME_NOTE_PAUSE_MS, type ParkWait } from "./turn-context";
 
 /**
  * Durable chat turn state and the pure operations on it.
@@ -139,11 +139,9 @@ export const chatRunStateSchema = z
     /** Why the run parked: `join` = sub-agent await, `gate` = HIL approval. */
     parkKind: z.enum(["join", "gate"]).optional(),
     /** What the current park waits on. The time note of the resumed run names it. */
-    parkWait: z.enum(["approval", "question", "sub_agent"]).optional(),
+    parkWait: parkWaitSchema.optional(),
     /** A park that lasted the pause or longer. The next model step gets a time note for it. */
-    pausedWait: z
-      .object({ kind: z.enum(["approval", "question", "sub_agent"]), since: z.iso.datetime() })
-      .optional(),
+    pausedWait: z.object({ kind: parkWaitSchema, since: z.iso.datetime() }).optional(),
     /** The latest instant that the transcript states. A change of its local date adds a note. */
     clockAnchor: z.iso.datetime().optional(),
     // Children whose outcome the transcript already has, folded or awaited (ADR-0073).

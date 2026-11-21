@@ -79,6 +79,7 @@ import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn
 import {
   captureTurnContext,
   loadTurnContexts,
+  TIME_NOTE_PAUSE_MS,
   turnContextRenderer,
   withTurnContext,
 } from "./turn-context";
@@ -156,7 +157,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- For person or company research, your own memory and the user's accounts tell you why the subject matters to the user; the live web is the normal source for public background, current roles, company context, and anything outside private data. Use both when the user asks to find out more. A person's name is enough to try a public lookup; enrich the query with company, project, or email clues if you have them, but don't ask the user for those clues before trying.",
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
     '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
-    "- A <time_note> at the end of a user message, and a [system] time note, come from the runtime, not from the user. They give the local time at the first message, after a pause of 30 minutes or more, and when the local date changes. Time passes between notes, so the latest note can be old. For a calendar range, give the calendar tool explicit RFC3339 bounds.",
+    `- A <time_note> at the end of a user message, and a [system] time note, come from the runtime, not from the user. They give the local time at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. Time passes between notes, so the latest note can be old. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
     '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a join, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
@@ -188,7 +189,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 
 /**
  * Constant artifact edit rules, so they stay in the cached prefix (#896).
- * Per-thread facts ride `artifactThreadFacts`, read once per run.
+ * Per-thread facts ride the turn context saved with each user message (ADR-0130 decision 7).
  */
 const ARTIFACT_SYSTEM_GUIDANCE = [
   "To change an existing artifact, act on the selected id; do not create a replacement artifact.",
@@ -1072,20 +1073,22 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
 
       const lines = r.role === "assistant" ? handleLines.get(r.id) : undefined;
 
-      // Check the produced content, not `atts`: an attachment can degrade to no parts. An assistant
-      // row with no text still carries the lines of the results its turn stored.
-      if (content.length === 0 && lines === undefined) continue;
-
-      // Attachments belong to user messages, so an assistant row keeps its text.
+      // Attachments belong to user messages, so an assistant row keeps its text. Check the produced
+      // content, not `atts`: an attachment can degrade to no parts, and the row still carries its
+      // saved turn context.
       if (r.role === "user") {
         const turnContext = turnContexts.get(r.id);
 
-        out.push({
-          role: "user",
-          content: turnContext ? withTurnContext(content, renderTurnContext(turnContext)) : content,
-        });
+        const userContent = turnContext
+          ? withTurnContext(content, renderTurnContext(turnContext))
+          : content;
+
+        if (userContent.length > 0) out.push({ role: "user", content: userContent });
         continue;
       }
+
+      // An assistant row with no text still carries the lines of the results its turn stored.
+      if (content.length === 0 && lines === undefined) continue;
 
       out.push({ role: "assistant", content: assistantReplayContent(r.content, lines) });
     }
