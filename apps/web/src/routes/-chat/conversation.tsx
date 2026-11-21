@@ -22,7 +22,7 @@ import {
   type VirtuosoHandle,
 } from "react-virtuoso";
 import type { StagedRow } from "~/components/approvals/ask-user";
-import { markChatTimingByAssistant } from "~/lib/chat/timing";
+import { CHAT_TIMING_DEV, markChatTimingByAssistant } from "~/lib/chat/timing";
 import { useChatAttachmentsByMessage } from "~/lib/replicache/use-chat";
 import type { StreamingMessage } from "~/lib/chat/chat-stream-state";
 import type { ArtifactStreamState } from "~/lib/chat/use-artifact-stream";
@@ -200,9 +200,17 @@ export function Conversation({
     virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
   }, [threadId, anchored]);
 
+  // Timing marks are first-time-only (`repeat: "ignore"`), so a rendered-id set
+  // skips the re-marks instead of rebuilding every assistant message's detail
+  // on each sync tick. The whole loop is instrumentation that no-ops outside dev.
+  const renderedTimingIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
+    if (!CHAT_TIMING_DEV) return;
+
     for (const message of messages) {
-      if (message.role !== "assistant") continue;
+      if (message.role !== "assistant" || renderedTimingIdsRef.current.has(message.id)) continue;
+      renderedTimingIdsRef.current.add(message.id);
       markChatTimingByAssistant(
         message.id,
         "persisted_assistant_rendered",
