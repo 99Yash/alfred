@@ -19,7 +19,7 @@ import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
-import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
+import { readHostBindings, timeNowBinding } from "../src/tool-runtime/code-mode/host-bindings";
 import { jsonBytes } from "../src/tool-runtime/code-mode/result-budget";
 import { runReadProgram } from "../src/tool-runtime/code-mode/run-read-program";
 import { newHostCallLedger } from "../src/tool-runtime/internal/dispatch/host-call-ledger";
@@ -30,6 +30,7 @@ import {
   type HostReadOutcome,
   type HostReadRequest,
 } from "../src/tool-runtime/internal/registry";
+import { currentTimeSnapshot } from "../src/tool-runtime/internal/tools/system";
 
 // ADR-0124: the driver run `run_s7yi1ymxakcj` (2026-11-08). The user asked chat for "alfred's
 // issues", and the boss made 41 `github.get_issue` calls, one model step each. The context grew
@@ -467,12 +468,16 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
   const ledger: HostCallEntry[] = [];
   const scripts: ScriptRecord[] = [];
 
-  const hosts = readHostBindings({
-    readTools: READ_TOOLS,
-    hostRead: (request) => withCallFacts(request, fakeHostRead(request, record)),
-    // One fixed catalog: the pass pins this revision (ADR-0116 amendment 2026-11-18).
-    readCatalogRevision: async () => "rev_github_code_mode_eval",
-  });
+  const hosts = [
+    ...readHostBindings({
+      readTools: READ_TOOLS,
+      hostRead: (request) => withCallFacts(request, fakeHostRead(request, record)),
+      // One fixed catalog: the pass pins this revision (ADR-0116 amendment 2026-11-18).
+      readCatalogRevision: async () => "rev_github_code_mode_eval",
+    }),
+    // The clock of the fixture, so a script's local dates match the fixture's mail and events.
+    timeNowBinding(() => currentTimeSnapshot(TIMEZONE, NOW)),
+  ];
 
   const result = await generateText({
     model: route("standard").model(),

@@ -8,7 +8,7 @@ import { collapseWhitespace, MODEL_RESULT_MAX_BYTES } from "@alfred/contracts";
 import { z } from "zod";
 import type { RegisteredTool } from "../internal/registry";
 import { GUEST_OUTPUT_TYPES } from "./guest-index.generated";
-import { MCP_READ_PATH } from "./host-bindings";
+import { MCP_READ_PATH, TIME_NOW_PATH } from "./host-bindings";
 import { HOST_READ_DELIVERY_MAX_BYTES } from "./result-budget";
 import { RESULT_HANDLE_TTL_DAYS } from "../result-handle-store";
 import { HOST_READS_IN_FLIGHT, READ_PROGRAM_LIMITS } from "./run-read-program";
@@ -21,7 +21,8 @@ type GuestPath = keyof typeof GUEST_OUTPUT_TYPES;
  */
 export function codeRunDescription(readTools: readonly RegisteredTool[]): string {
   const indexed = new Set<string>(Object.keys(GUEST_OUTPUT_TYPES));
-  const declared = new Set<string>([...readTools.map((tool) => tool.name), MCP_READ_PATH]);
+  const hostPaths = [MCP_READ_PATH, TIME_NOW_PATH];
+  const declared = new Set<string>([...readTools.map((tool) => tool.name), ...hostPaths]);
   const missing = [...declared].filter((path) => !indexed.has(path));
   const extra = [...indexed].filter((path) => !declared.has(path));
 
@@ -43,6 +44,12 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
       "Call one read-only tool of a connected MCP server (Gmail, Calendar, GitHub, and others).",
       'ref: <a ref whose route is "script", from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }',
       outputType(MCP_READ_PATH),
+    ),
+    indexLine(
+      TIME_NOW_PATH,
+      "The time now, in the user's timezone.",
+      "",
+      outputType(TIME_NOW_PATH),
     ),
   );
 
@@ -72,7 +79,8 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
       `${HOST_READS_IN_FLIGHT} at once and queues the rest. Await every read.`,
     `- The script stops after ${READ_PROGRAM_LIMITS.timeoutMs / 1000} s and ` +
       `${READ_PROGRAM_LIMITS.maxBridgeRequests} reads. It has no network, no imports, and no ` +
-      "timers. `Date.now()` and `Math.random()` are fixed for the run.",
+      "timers. `Date.now()` and `Math.random()` are fixed for the run, and `Date` uses the server's " +
+      "timezone: get the user's date and time from `time.now()`.",
     "- MCP tools: find one with `mcp.list_tools({ query })`, read its schemas with " +
       '`mcp.inspect_tool({ ref })`, and call a hit whose `route` is `"script"` with ' +
       '`mcp.read(ref, args)`. A `"direct"` hit runs only as a direct mcp.call. `mcp.read` returns ' +
