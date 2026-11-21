@@ -246,6 +246,35 @@ This amendment replaces the rule "a time line on each message is noise" in decis
 - **The eval.** `time-awareness.eval.ts` scores the answer, not the tool call. The question comes 28 minutes after the last message (a stamp) or hours after it (a full note). A past event must not show as left or next.
 - **The cost.** A message replays its saved stamp, so the cache holds. A call of `system.current_time` adds the tool to the list for the next step, and that step does not hit the cache. That call is now rare.
 
+#### Amendment 2026-11-21 (f): no send stamp; the model looks up the time; the clock goes back to the kernel (#1802)
+
+This amendment replaces the send stamp, the lazy clock, and the eval of amendment (e). The other rules of amendment (e) do not change.
+
+- **The owner rule (2026-11-21).** A stamp that the model sees on each message, but does not analyze, does nothing. The model must look up the time when the answer depends on now. The runtime gives the time only at the points in the rule below.
+- **No send stamp.** A user message carries no time, except a message that gets a full `<time_note>`.
+- **The time note** stays on three messages: the first message of a thread, a message after a pause of `TIME_NOTE_PAUSE_MS` or more, and a message on a new local date.
+  - The pause is the time since the previous **user** message. An assistant row shows no time to the model, so the gap between user messages is the gap that the model can check.
+  - The date-change note copies OpenCode (`session/message-updater.ts`, commit `56dc95b`) and Codex CLI (`world_state.rs`). Neither of them has a rule for a pause. The pause rule is Alfred's own. A question such as "is it too late to mail them today?" depends on the hour, and a coding agent seldom gets such a question. The eval decides if the pause rule stays.
+- **The check at the start of the worker.** On the first step of a run, the clock anchor is the send time of the newest user message, not the time of admission. If the pause rule or the date rule applies at that point, the run gets a `[system]` time note. A new attempt (a retry) uses the same check, so its note gives the time when the worker starts, not the time of admission.
+- **A wait across midnight.** A resumed run names what it waited on and the wait time when the local date changed during the wait, also if the wait is shorter than `TIME_NOTE_PAUSE_MS`.
+- **A long step inside a run (owner, 2026-11-21).** Before a model step, if `TIME_NOTE_PAUSE_MS` or more passed since the previous step, the run gets a `[system]` time note. This is the rule for "a run that continues" of decision 7, applied to any long step and not only to a park. The eval showed the reason: after a slow export, the model took "now" from the earlier note and ignored the finish time in the tool result.
+- **The clock.** `system.current_time` goes back into the kernel, with the short description. In a script, `time.now()` gives the same snapshot. It ships alone, split from #1805, because it is a pure read of the clock and does not need the discovery eval.
+- **The instruction.** The time line of the chat prompt says when the runtime adds a note, and that the model calls `system.current_time` when the answer depends on the current time.
+- **The eval.** `time-awareness.eval.ts` runs the real `code_run` path, a calendar stub that needs RFC3339 bounds, and a scorer of the event, the direction, and the wait. It records each clock call: when the question needs it, and when it does not (a cost).
+
+#### Amendment 2026-11-21 (g): the turn context holds values, and the projection renders them (#1802)
+
+This amendment replaces the rules **Storage** and **Place** of amendment (d). The body rule, the open items, and the note of a resumed run do not change.
+
+- **The owner rule (2026-11-21).** The record is the source, and the prompt is a projection of the record. The user's words, the time note, and the artifact version stay separate values until the model boundary.
+- **Storage.** The row in `chat_turn_contexts` holds values: the time note text, or none, and the reference `(artifactId, rowVersion)` of the selected artifact. It does not hold the artifact body.
+- **Artifact versions.** `artifact_versions` holds one body for each `(artifactId, rowVersion)`. Admission writes the body when the turn context names a version that is not yet stored. Thus a body is stored one time for each version, not one time for each message. A later compaction handle can name an exact old version.
+- **Projection.** The projection runs after the final replay window is set: after the background summary, the foreground guard, and compaction inside a run. It adds the rendered context of each message after the user's text, in the same user message. The body shows where its version first appears in the final window. A later message with the same version shows the pointer line. For a fixed window, the bytes do not change, so the cache holds.
+- **The user's request.** Tool preload, the last-user rule of compaction, and the summary of an oversized message read only the user's own text. A `[system]` note is never the user's request.
+- **Trust.** The artifact body stays in the user message (owner, 2026-11-21). Its JSON escapes `<` as `<`, so a body cannot imitate a runtime tag.
+- **Budget.** The estimate of background compaction counts the rendered context, not only the message rows and attachments.
+- **Later, in its own ADR.** Compaction by reference: the summary names turns and artifact versions by handle, and Code Mode reads the exact turn. This needs a chat-turn read in Code Mode. The owner gave the direction on 2026-11-21. The theory is not yet written.
+
 ### 8. Rejected wording from the first draft (settled)
 
 - The first draft split reads into `metadata` and `private_content`, so mail bodies and files still asked. The owner rejected that split: only secrets ask.

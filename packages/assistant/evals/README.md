@@ -37,9 +37,13 @@ it.
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). It reads the
   calendar through the Google Calendar MCP server. Deterministic only.
-- `time-awareness.eval.ts` — ADR-0130 decision 7, amendment (e): the question comes with a
-  `<sent>` stamp or a full time note, and the answer must use that time (no past event is
-  "left" or "next"). Deterministic only.
+- `time-awareness.eval.ts` — ADR-0130 decision 7 (owner decision 2026-11-21: no `<sent>`
+  stamp). A message gets a time note only at the first message, after the pause, or on a new
+  date, so the model must look up the time when the answer needs it. Six cases: a question 28 min
+  after the last message (direct and Code Mode), the same question hours later with a note, a
+  40 min export that moves "now" inside the run, and a control question that needs no time. The
+  clock is lazy, as in prod. Two scores: the answer (event, direction, wait within 5 min), and the
+  lookup. A lookup that the answer does not need is a cost metric, not a fault. Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.
@@ -76,6 +80,7 @@ it.
 - `lib/github-repo-fixture.ts` — the synthetic GitHub repo and the fake GitHub MCP
   protocol client behind the captured catalog (`fixtures/github-mcp-catalog.json`).
 - `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
+- `lib/time-answer.ts` — the scores of an answer that depends on the current time.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
 - `lib/triage-classify-retry.ts` — the provider-weather guards the two triage suites share.
 
