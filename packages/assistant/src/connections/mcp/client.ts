@@ -29,7 +29,12 @@ import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { boundedMcpErrorText, isMcpAuthorizationChallenge, McpClientError } from "./errors";
+import {
+  boundedMcpErrorText,
+  isMcpAuthorizationChallenge,
+  McpClientError,
+  type McpClientErrorCode,
+} from "./errors";
 import type {
   McpApiKeyCredentialReader,
   McpAuthorizedEndpoint,
@@ -334,7 +339,7 @@ type McpReadSideListing =
  * Read-side errors after which the read client cannot serve the next call as it is: its session
  * or its grant is blocked, or its catalog moved. The next refresh opens a fresh read side.
  */
-const READ_SIDE_RESET_CODES: ReadonlySet<string> = new Set([
+const READ_SIDE_RESET_CODES: ReadonlySet<McpClientErrorCode> = new Set([
   "not_connected",
   "session_expired",
   "authorization_required",
@@ -648,17 +653,24 @@ export class McpRawClient {
       cursor = nextCursor;
     }
 
-    const readSide = await this.#listReadSide(generation, signal, trace);
-    const mergedTools = new Map(tools.map((tool) => [tool.name, tool]));
+    let readSide = await this.#listReadSide(generation, signal, trace);
+    let mergedTools: readonly Tool[] = tools;
 
-    // A read-endpoint descriptor replaces the main one, so the model sees what that endpoint runs.
     if (readSide?.kind === "listed") {
-      for (const tool of readSide.catalog.tools) mergedTools.set(tool.name, tool);
-      ttlMs = Math.min(ttlMs, readSide.catalog.ttlMs);
+      try {
+        mergedTools = this.#mergeReadEndpointTools(tools, readSide.catalog.tools);
+        ttlMs = Math.min(ttlMs, readSide.catalog.ttlMs);
+      } catch (error) {
+        if (!(error instanceof McpClientError)) throw error;
+
+        // The main listing passed the caps alone, so the read side caused the excess: drop it.
+        this.#dropReadSide(generation, readSide.client);
+        readSide = { kind: "dropped", fault: boundedMcpErrorText(error) };
+      }
     }
 
     const sortedTools = Object.freeze(
-      [...mergedTools.values()]
+      mergedTools
         .map((tool) => deepFreeze(structuredClone(tool)))
         // Code-point order, not `localeCompare`: ICU collation varies by host and would change the hash.
         .toSorted((a, b) => compareMcpToolNames(a.name, b.name)),
@@ -899,6 +911,39 @@ export class McpRawClient {
     };
 
     return { ...fields, result: sanitized };
+  }
+
+  /**
+   * The union of the main and the read-endpoint tools. A read-endpoint descriptor replaces the
+   * main one, so the model sees what that endpoint runs. A read-endpoint tool that the main
+   * endpoint does not list adds to the union, so the union must hold the catalog caps again.
+   */
+  #mergeReadEndpointTools(mainTools: readonly Tool[], readTools: readonly Tool[]): Tool[] {
+    const merged = new Map(mainTools.map((tool) => [tool.name, tool]));
+
+    for (const tool of readTools) merged.set(tool.name, tool);
+
+    if (merged.size > this.#limits.maxCatalogTools) {
+      throw new McpClientError(
+        "catalog_limit",
+        `MCP catalog exceeded ${this.#limits.maxCatalogTools} tools`,
+      );
+    }
+
+    let catalogBytes = 0;
+
+    for (const tool of merged.values()) {
+      catalogBytes += encodedBytes(canonicalJson(tool));
+
+      if (catalogBytes > MAX_CATALOG_BYTES) {
+        throw new McpClientError(
+          "catalog_limit",
+          `MCP catalog exceeded ${MAX_CATALOG_BYTES} descriptor bytes`,
+        );
+      }
+    }
+
+    return [...merged.values()];
   }
 
   /**
