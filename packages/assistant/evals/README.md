@@ -37,9 +37,9 @@ it.
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). It reads the
   calendar through the Google Calendar MCP server. Deterministic only.
-- `time-awareness.eval.ts` — ADR-0130 decision 7: the thread's only time note is hours old,
-  and the model must call `system.current_time` when the answer depends on the current
-  time. Deterministic only.
+- `time-awareness.eval.ts` — ADR-0130 decision 7, amendment (e): the question comes with a
+  `<sent>` stamp or a full time note, and the answer must use that time (no past event is
+  "left" or "next"). Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.

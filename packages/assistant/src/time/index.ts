@@ -4,6 +4,7 @@ export {
   // Free functions on the day key.
   addDays,
   formatDay,
+  formatHourMinute,
   isLocalDateKey,
   parseLocalDateKey,
   weekdayIndex,

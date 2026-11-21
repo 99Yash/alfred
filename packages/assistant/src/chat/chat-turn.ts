@@ -80,6 +80,7 @@ import {
   captureTurnContext,
   loadTurnContexts,
   TIME_NOTE_PAUSE_MS,
+  retryTimeNote,
   turnContextRenderer,
   withTurnContext,
 } from "./turn-context";
@@ -157,7 +158,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- For person or company research, your own memory and the user's accounts tell you why the subject matters to the user; the live web is the normal source for public background, current roles, company context, and anything outside private data. Use both when the user asks to find out more. A person's name is enough to try a public lookup; enrich the query with company, project, or email clues if you have them, but don't ask the user for those clues before trying.",
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
     '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
-    `- A <time_note> at the end of a user message, and a [system] time note, come from the runtime, not from the user. They give the local time at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. Time passes between notes, so the latest note can be old. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
+    `- The runtime, not the user, ends each user message with its local send time: a <sent> stamp, or a <time_note> with the full date at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. The time on the newest message is the time when your reply starts. A [system] time note gives the current time when a reply continues after a wait or starts again later. If your work takes long and the answer depends on the current minute, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
     '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a join, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
@@ -1050,6 +1051,8 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
 
     const ownIndex = rows.findIndex((row) => row.id === userMessageId);
     const ownRow = rows[ownIndex];
+    // A saved context means an earlier run already took this message: this run is a new attempt.
+    const newAttempt = ownRow !== undefined && turnContexts.has(ownRow.id);
 
     if (ownRow && verbatimMessageIds.has(ownRow.id) && !turnContexts.has(ownRow.id)) {
       const captured = await captureTurnContext({
@@ -1091,6 +1094,17 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       if (content.length === 0 && lines === undefined) continue;
 
       out.push({ role: "assistant", content: assistantReplayContent(r.content, lines) });
+    }
+
+    // The saved note of the message gives its send time, so a late attempt states the time now.
+    if (newAttempt) {
+      const note = retryTimeNote({
+        timezone: await settings({ userId: input.userId }).timezone(),
+        sentAt: ownRow.createdAt,
+        now: new Date(),
+      });
+
+      if (note) return appendSystemNote(out, note);
     }
 
     return out;

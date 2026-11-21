@@ -1,6 +1,6 @@
 # ADR-0130 — Chat reads ask only for secrets, with one size rule and discovery in the sandbox (ACCEPTED — 2026-11-19)
 
-**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Amendment (c), 2026-11-20, replaces the stored list of amendment (b): the row keeps the reason, and one function derives the settings from current policy. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
+**Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Amendment (c), 2026-11-20, replaces the stored list of amendment (b): the row keeps the reason, and one function derives the settings from current policy. Decision 7 has amendment (d), 2026-11-21: where the turn context is saved. Amendment (e), 2026-11-21, replaces one rule of decision 7: each user message carries a short send stamp, and `system.current_time` leaves the kernel. Decision 9 waits for a probe of the Linear read-only endpoint. The value of X in decision 7 comes from an eval.
 
 Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
 
@@ -204,7 +204,7 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 
 ### 7. The model asks for the time, and the runtime tells it only when time has passed (settled)
 
-- **The owner rule:** the model must be able to know the current time, and the time must not break the prompt cache. A time line on each message is noise. The model must see when a message arrives after a long pause, and when a task or a wait was open during that pause.
+- **The owner rule:** the model must be able to know the current time, and the time must not break the prompt cache. A time line on each message is noise (amendment (e) replaces this sentence). The model must see when a message arrives after a long pause, and when a task or a wait was open during that pause.
 - **The model asks.** The model gets the time when it needs it:
   - Until decision 6 ships, it calls `system.current_time`.
   - After decision 6 ships, it calls a host function `time.now()` in the sandbox. The function gives the local time, the user's timezone, and the UTC offset. A script's own `new Date()` uses the server timezone, so it is not sufficient.
@@ -230,6 +230,21 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 - **The body rule (owner, 2026-11-21).** The full body of the selected artifact shows only where its row version first appears in the replayed window. A later message with the same row version shows one line that points to that copy. The window changes only at compaction, and compaction replaces the cached prefix in any case.
 - **Open items (owner, 2026-11-21).** At a new message, the note lists no open items. A thread has one run at a time, and a parent run waits for its sub-agents before it answers, so no item of the thread can be open. A resumed run names what it waited on (an approval, a question, or a sub-agent), the wait time, and the run's age.
 - **The note of a resumed run** is a `[system]` note at the end of the run transcript. It is saved with the step. The next turn does not replay it, the same as tool results.
+
+#### Amendment 2026-11-21 (e): each message carries its send time, and `system.current_time` leaves the kernel (#1802)
+
+This amendment replaces the rule "a time line on each message is noise" in decision 7.
+
+- **The owner rule (2026-11-21).** A full time line on each message is not necessary. But the model must always have a sense of the time. It must see the time between messages when that time is important, and not only when it asks.
+- **The send stamp.** The send stamp is the short form of the time note. Each user message gets a short saved stamp of its local send date and time, for example `<sent>Sat Nov 21, 17:42</sent>`. The stamp costs about 12 tokens. It holds the date for two reasons. Compaction can remove the last full note. A message from before #1802 has no note.
+- **The full note stays.** The first message of a thread, a message after a pause of `TIME_NOTE_PAUSE_MS` or more, and a message on a new local date get the full `<time_note>` in place of the stamp. Thus each user message has exactly one of the two.
+- **What the model knows.** The time on the newest message is the time when the reply starts. The model compares the times on two messages to see the gap.
+- **`system.current_time` is lazy.** The model needs the tool only when work inside one run takes long and the answer depends on the current time. Thus the tool leaves the kernel. The model can call it by name: the call loads it for the next step. The kernel loses 393 B on each prompt.
+- **The resumed run.** The `[system]` note of amendment (d) does not change.
+- **A new attempt.** A run can take a user message that an earlier run already took, for example a retry after a failure. The saved note gives the send time, not the time of the attempt. If the attempt comes after the pause or on a new local date, the run gets a `[system]` time note with the current time and the time since the send. The note goes at the end of the run transcript, so it does not break the cache.
+- **One byte gate for each read path.** `schema-budget.test.ts` keeps the kernel ceiling of the direct path. It adds a ceiling for the first step of a Code Mode chat: the kernel without the reads that run only in a script, plus `system.code_run`. Code Mode is the default read path, so prod sends this list. Measured 2026-11-21: 23,878 B, and `system.code_run` is 17,863 B of it. #1806 cuts the `code_run` index.
+- **The eval.** `time-awareness.eval.ts` scores the answer, not the tool call. The question comes 28 minutes after the last message (a stamp) or hours after it (a full note). A past event must not show as left or next.
+- **The cost.** A message replays its saved stamp, so the cache holds. A call of `system.current_time` adds the tool to the list for the next step, and that step does not hit the cache. That call is now rare.
 
 ### 8. Rejected wording from the first draft (settled)
 

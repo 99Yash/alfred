@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 
-import type { ToolName } from "@alfred/contracts";
+import { CODE_RUN_TOOL, type ToolName, type ToolRunContext } from "@alfred/contracts";
 import { z } from "zod";
 
 import { systemToolKernel } from "@alfred/assistant/execution/tool-surface";
@@ -10,19 +10,37 @@ import {
   toolSchemaSize,
 } from "@alfred/assistant/tool-runtime/schema-budget";
 import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
-import { getTool, listRegisteredTools } from "../../src/tool-runtime/internal/registry";
+import {
+  evaluateToolRunContext,
+  getTool,
+  listRegisteredTools,
+} from "../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 
 /**
  * Ceilings on tool-schema size. The kernel is paid on every prompt, so its
- * ceiling sits about 10% above the measurement. The full-surface ceiling sits
+ * ceiling sits about 10% above the measurement. Each read path gets its own ceiling. The full-surface ceiling sits
  * about one small tool above it. Raise a ceiling on purpose: the bump is the review signal.
  */
 
 // Measured 2026-10-12: kernel 12,386 B / ~3,097 tok across 10 tools; full 89,881 B across 72 tools.
+// 2026-11-21: kernel 12,525 B / ~3,132 tok across 9 tools, after system.current_time left it.
 const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
+
+// What a Code Mode chat sends on its first step: the kernel minus the reads that run only in a
+// script, plus `system.code_run`. Code Mode is the default chat read path (ADR-0124), so this is
+// the list that prod sends. #1806 cuts the `code_run` index.
+// Measured 2026-11-21: 23,878 B / ~5,969 tok across 6 tools; system.code_run alone is 17,863 B.
+const CODE_RUN_FIRST_STEP_BYTES_CEILING = 26_000;
+
+/** The context of a Code Mode chat turn (`chat-turn.ts` `chatToolRunIdentity`). */
+const CODE_RUN_CHAT_CONTEXT = {
+  caller: "boss",
+  interaction: "live_chat",
+  readPath: "code_run",
+} as const satisfies ToolRunContext;
 
 // Tools load lazily through system.load_tool, so only the kernel ceiling bounds the bytes
 // that one prompt carries. This ceiling only catches a schema that grows by mistake.
@@ -58,6 +76,19 @@ describe("tool-schema budget", () => {
     assert.ok(
       budget.schemaTokens <= KERNEL_SCHEMA_TOKENS_CEILING,
       `kernel schema is ~${budget.schemaTokens} tok, over the ${KERNEL_SCHEMA_TOKENS_CEILING} tok ceiling`,
+    );
+  });
+
+  test("the first step of a Code Mode chat stays within its byte budget", () => {
+    const tools = toolsByName([...systemToolKernel(), CODE_RUN_TOOL]).filter(
+      (tool) => evaluateToolRunContext(tool, CODE_RUN_CHAT_CONTEXT).available,
+    );
+
+    assert.ok(tools.some((tool) => tool.name === CODE_RUN_TOOL));
+    const budget = estimateToolSurfaceBudget(tools);
+    assert.ok(
+      budget.schemaBytes <= CODE_RUN_FIRST_STEP_BYTES_CEILING,
+      `the Code Mode first step is ${budget.schemaBytes} B, over the ${CODE_RUN_FIRST_STEP_BYTES_CEILING} B ceiling`,
     );
   });
 

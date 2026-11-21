@@ -7,13 +7,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
 import { settings } from "@alfred/assistant/settings";
-import { formatDay, inZone } from "@alfred/assistant/time";
+import { formatDay, formatHourMinute, inZone } from "@alfred/assistant/time";
 
 /**
- * The turn context (ADR-0130 decision 7): the time note and the artifact context of one user
- * message. Admission saves it once, and each later turn replays the same bytes after that
- * message. Thus no part of it breaks the prompt cache, and the model sees the time only when
- * time has passed.
+ * The turn context (ADR-0130 decision 7, amendment (e)): the time note and the artifact context
+ * of one user message. Admission saves it once, and each later turn replays the same bytes after
+ * that message. Thus no part of it breaks the prompt cache. Each message carries its local send
+ * time, and the full date shows only when time has passed.
  */
 
 /**
@@ -33,11 +33,11 @@ const WAIT_TEXT = {
   sub_agent: "a sub-agent",
 } as const satisfies Record<ParkWait, string>;
 
-/** `Saturday, 21 November 2026, 14:05 (Asia/Kolkata, UTC+05:30)`. Seconds are noise here. */
+/** `Saturday, 21 November 2026, 14:05 (Asia/Kolkata, UTC+05:30)`. The model does not need seconds. */
 function formatLocalInstant(timezone: IanaTimezone, at: Date): string {
-  const { localDate, localTime, utcOffset } = inZone(timezone).clock(at);
+  const clock = inZone(timezone).clock(at);
 
-  return `${formatDay(localDate, "long")}, ${localTime.slice(0, 5)} (${timezone}, UTC${utcOffset})`;
+  return `${formatDay(clock.localDate, "long")}, ${formatHourMinute(clock)} (${timezone}, UTC${clock.utcOffset})`;
 }
 
 /** `45 min`, `2 h 14 min`, or `3 days 2 h`. */
@@ -61,22 +61,56 @@ export function isTimeNoteDue(timezone: IanaTimezone, previous: Date, now: Date)
   return here.day(previous) !== here.day(now);
 }
 
-/** The note of a user message: the first one of a thread, or one after a pause or a date change. */
+/**
+ * `Sat Nov 21, 14:05`. The send stamp holds the date too: compaction can remove the last full
+ * note, and a message from before #1802 has no note.
+ */
+function formatSendStamp(timezone: IanaTimezone, at: Date): string {
+  const clock = inZone(timezone).clock(at);
+
+  return `${clock.weekday.slice(0, 3)} ${formatDay(clock.localDate, "short")}, ${formatHourMinute(clock)}`;
+}
+
+/**
+ * The time note of a user message. The first message of a thread, and a message after a pause
+ * or a date change, get the full note. Every other message gets the short form, the send stamp
+ * `<sent>Sat Nov 21, 14:05</sent>` (amendment (e)). Thus the model sees each gap and knows the
+ * time when its reply starts.
+ */
 export function messageTimeNote(args: {
   timezone: IanaTimezone;
   sentAt: Date;
   previousAt: Date | undefined;
-}): string | null {
+}): string {
   const sent = formatLocalInstant(args.timezone, args.sentAt);
 
   if (args.previousAt === undefined) {
     return `<time_note>Sent ${sent}. This is the first message of the conversation.</time_note>`;
   }
 
-  if (!isTimeNoteDue(args.timezone, args.previousAt, args.sentAt)) return null;
+  if (!isTimeNoteDue(args.timezone, args.previousAt, args.sentAt)) {
+    return `<sent>${formatSendStamp(args.timezone, args.sentAt)}</sent>`;
+  }
+
   const elapsed = formatElapsed(args.sentAt.getTime() - args.previousAt.getTime());
 
   return `<time_note>Sent ${sent}, ${elapsed} after the previous message.</time_note>`;
+}
+
+/**
+ * The note of a new attempt at a user message, for example a retry after a failed run. The saved
+ * note gives the send time, so a late attempt must say that time has passed. Null when the attempt
+ * comes before the pause, on the same local date.
+ */
+export function retryTimeNote(args: {
+  timezone: IanaTimezone;
+  sentAt: Date;
+  now: Date;
+}): string | null {
+  if (!isTimeNoteDue(args.timezone, args.sentAt, args.now)) return null;
+  const elapsed = formatElapsed(args.now.getTime() - args.sentAt.getTime());
+
+  return `Time note: it is now ${formatLocalInstant(args.timezone, args.now)}. This reply is a new attempt, ${elapsed} after the user sent the message.`;
 }
 
 /** The note of a run that continues after a long park, or after the local date changed. */
@@ -196,7 +230,7 @@ export function turnContextRenderer(): (context: ChatTurnContext) => string {
       blocks.push(`<artifact_context>\n${lines.join("\n\n")}\n</artifact_context>`);
     }
 
-    if (context.timeNote) blocks.push(context.timeNote);
+    blocks.push(context.timeNote);
 
     return blocks.join("\n\n");
   };

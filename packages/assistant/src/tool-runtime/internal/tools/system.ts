@@ -251,9 +251,9 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "current_time",
     riskTier: "no_risk",
     replay: "safe",
-    availability: { surface: "kernel" },
+    // Not in the kernel: each chat message carries its send time (ADR-0130 amendment (e)).
     description:
-      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset. A time note in a chat gives the time when that message was sent, and the latest note can be hours old, so it is not the current time. Call this first when the answer depends on the current time: what is left or next today, whether it is too late to send something, or a range like this week.",
+      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset. A chat message gives only its send time, so call this when work took long and the answer depends on the current time.",
     discovery: {
       title: "Current time",
       summary: "Read the current time in the user's operational timezone.",

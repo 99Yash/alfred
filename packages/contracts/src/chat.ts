@@ -127,8 +127,11 @@ export const chatTurnArtifactReferenceSchema = z.object({
 export type ChatTurnArtifactReference = z.infer<typeof chatTurnArtifactReferenceSchema>;
 
 export const chatTurnContextSchema = z.object({
-  /** Null when the message came less than the pause after the previous one, on the same day. */
-  timeNote: z.string().nullable(),
+  /**
+   * The full `<time_note>` at the first message, after a pause, or at a date change. Else the
+   * short `<sent>` stamp of the local send time (ADR-0130 amendment (e)).
+   */
+  timeNote: z.string(),
   /** Null when the thread had no artifact. */
   artifact: z
     .object({
