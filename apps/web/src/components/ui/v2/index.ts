@@ -22,7 +22,10 @@ export type { AppSelectOption } from "./select";
 
 export { AppField, AppFieldError } from "./field";
 
-export { useAppForm } from "./form";
+// `useAppForm` is deliberately NOT re-exported here. The shell imports this
+// barrel eagerly, and `./form` pulls `@tanstack/react-form`, so a re-export
+// put the whole form engine in the entry chunk. Form consumers import
+// `~/components/ui/v2/form` directly (see ./README.md).
 
 export { AppModal } from "./modal";
 
