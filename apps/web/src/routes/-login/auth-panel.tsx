@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { AppButton } from "~/components/ui/v2";
 import { authClient } from "~/lib/auth/auth-client";
+import { LOCAL_STORAGE_KEY, setLocalStorageItem } from "~/lib/storage/storage";
 import { GoogleMark } from "./google-mark";
 
 const GOOGLE_LEADING = <GoogleMark />;
@@ -16,6 +17,12 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
     setLoading(true);
     setError(null);
 
+    // Optimistic first-paint hint: the OAuth return lands on `/` while the
+    // session is still pending. Without this the landing page renders for the
+    // whole round trip (a flash of unauthenticated content) before the
+    // redirect to /chat.
+    setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, true);
+
     try {
       const { error: signInError } = await authClient.signIn.social({
         provider: "google",
@@ -26,11 +33,13 @@ export function AuthPanel({ redirect }: { redirect?: string | undefined }) {
 
       if (signInError) {
         setError(signInError.message ?? "Couldn't start Google sign-in");
+        setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, false);
         setLoading(false);
       }
       // On success the browser goes to Google.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start Google sign-in");
+      setLocalStorageItem(LOCAL_STORAGE_KEY.MAYBE_AUTHED, false);
       setLoading(false);
     }
   };

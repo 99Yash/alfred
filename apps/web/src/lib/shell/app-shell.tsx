@@ -18,6 +18,7 @@ import {
   type SetStateAction,
 } from "react";
 import { ChatContext } from "~/components/chat-context";
+import { AppThemed } from "~/components/ui/v2/themed";
 import { AppThemeProvider } from "~/components/ui/v2/theme";
 import { authClient } from "~/lib/auth/auth-client";
 import { client } from "~/lib/eden";
@@ -462,5 +463,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function AuthedShellFallback() {
-  return <div className="min-h-dvh bg-app-background-subtle" aria-hidden />;
+  // Wrap in AppThemed like AuthedAppShell: bare `bg-app-background-subtle`
+  // outside an `.app[data-app-theme]` ancestor resolves the light `:root`
+  // token (#fafafa) for every theme, painting a white frame while the shell
+  // chunk loads or the /login redirect is in flight.
+  return <AppThemed className="min-h-dvh bg-app-background-subtle" aria-hidden />;
 }
