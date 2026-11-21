@@ -104,7 +104,7 @@ export type McpNegotiatedServer = McpServerFacts & McpProtocolProfile;
 
 /** The narrow protocol surface Alfred uses, so SDK details stay below the broker. */
 export interface McpProtocolClient {
-  connect(trace?: McpTraceContext): Promise<McpProtocolServer>;
+  connect(trace?: McpTraceContext, signal?: AbortSignal): Promise<McpProtocolServer>;
   close(terminateSession: boolean): Promise<void>;
   listTools(
     cursor: string | undefined,
@@ -192,14 +192,14 @@ export class SdkMcpProtocolClient implements McpProtocolClient {
     this.#connectionUnhealthyHandler = handler;
   }
 
-  async connect(trace?: McpTraceContext): Promise<McpProtocolServer> {
+  async connect(trace?: McpTraceContext, signal?: AbortSignal): Promise<McpProtocolServer> {
     this.#closing = false;
     this.#connectTrace = trace;
 
     try {
       await this.#client.connect(
         this.#transport,
-        requestOptions(this.#requestTimeoutMs, undefined, trace),
+        requestOptions(this.#requestTimeoutMs, signal, trace),
       );
     } finally {
       this.#connectTrace = undefined;
