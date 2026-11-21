@@ -271,6 +271,17 @@ async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promis
   return { mode: "none" };
 }
 
+/**
+ * The owner-facing note of a ready connection whose read endpoint dropped (ADR-0130 decision 9).
+ * The main endpoint still serves every tool, so the reads ask for approval until a refresh lists
+ * the read endpoint again.
+ */
+function readEndpointDroppedNote(fault: string): string {
+  return boundedMcpErrorText(
+    new Error(`Reads ask for approval: the read-only endpoint failed. ${fault}`),
+  );
+}
+
 /** Production factory. The transport gets only a token reader, so it cannot refresh and replay a call. */
 function liveClientFactory(): McpClientFactory {
   const endpointAuthorizer = getMcpEndpointAuthorizer();
@@ -803,6 +814,7 @@ export class McpConnectionManager {
         connectionId,
         revisionHash: snapshot.revision,
         descriptors: snapshot.tools,
+        readEndpointTools: snapshot.readEndpointTools,
       })
       .pipe(Effect.map((revision) => revision.id));
   }
@@ -812,7 +824,15 @@ export class McpConnectionManager {
     expectedCurrentRevisionId: string | null,
     revisionId: string,
     negotiated: McpNegotiatedServer | null,
+    readEndpointFault: string | undefined,
   ): Effect.Effect<boolean, unknown> {
+    if (readEndpointFault !== undefined) {
+      logger.warn(
+        { event: "mcp_read_endpoint_dropped", connectionId, fault: readEndpointFault },
+        "Dropped the MCP read endpoint for this catalog; its reads need approval",
+      );
+    }
+
     return this.#store
       .compareAndSetCatalogRevision({
         connectionId,
@@ -821,7 +841,9 @@ export class McpConnectionManager {
         patch: {
           status: "ready",
           lastConnectedAt: new Date(),
-          lastError: null,
+          // A ready connection keeps a note only when its read side dropped (ADR-0130 decision 9).
+          lastError:
+            readEndpointFault === undefined ? null : readEndpointDroppedNote(readEndpointFault),
           ...(negotiated
             ? {
                 negotiatedProtocolVersion: negotiated.protocolVersion,
@@ -930,6 +952,7 @@ export class McpConnectionManager {
           durableBefore.currentCatalogRevisionId,
           revisionId,
           client.negotiatedServer,
+          snapshot.readEndpointFault,
         );
 
         if (!activated) {

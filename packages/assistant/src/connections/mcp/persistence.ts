@@ -962,6 +962,11 @@ export interface PublishCatalogRevisionInput {
    * and count derive from them ({@link projectCatalogRevision}).
    */
   descriptors: readonly Tool[];
+  /**
+   * The tools whose descriptor came from the built-in's read-only endpoint
+   * (`McpCatalogSnapshot.readEndpointTools`). Absent for a connection with no read endpoint.
+   */
+  readEndpointTools?: readonly string[] | undefined;
 }
 
 /** Require strict `compareMcpToolNames` order, which also proves names are unique. */
@@ -1017,7 +1022,7 @@ async function insertCatalogRevisionInTx(
   tx: DbRunner,
 ): Promise<McpCatalogRevision> {
   assertCanonicalCatalogPublication(input.descriptors);
-  const projection = projectCatalogRevision(input.descriptors);
+  const projection = projectCatalogRevision(input.descriptors, input.readEndpointTools ?? []);
 
   const [inserted] = await tx
     .insert(mcpCatalogRevisions)
@@ -1027,6 +1032,7 @@ async function insertCatalogRevisionInTx(
       descriptors: input.descriptors,
       descriptorHashes: projection.descriptorHashes,
       readOnlyHints: projection.readOnlyHints,
+      readEndpointTools: projection.readEndpointTools,
       toolCount: input.descriptors.length,
     })
     .onConflictDoNothing({

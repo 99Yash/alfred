@@ -1,6 +1,6 @@
 import type { McpConnection } from "~/lib/integrations/mcp-connections";
 
-/** The one-line amber alert. Present only for `failed`, or `connecting` after an error. */
+/** The one-line amber alert. Present for `failed`, `connecting` after an error, and `ready` with a dropped read endpoint. */
 export interface McpConnectionAlert {
   readonly text: string;
   /** The stored diagnostic, shown on hover and to screen readers. */
@@ -26,7 +26,13 @@ export function mcpConnectionPresentation(
 
   switch (connection.status) {
     case "ready":
-      return { statusText: "Connected", alert: null };
+      // A ready row holds a note only when its read-only endpoint dropped (ADR-0130 decision 9).
+      return lastError === null
+        ? { statusText: "Connected", alert: null }
+        : {
+            statusText: "Connected",
+            alert: { text: "Reads ask for approval", diagnostic: lastError },
+          };
     case "auth_required":
       return {
         statusText: lastError ?? "Additional permissions require your consent.",

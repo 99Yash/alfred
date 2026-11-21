@@ -19,7 +19,7 @@ import {
   type ToolReadClass,
   type ToolRiskTier,
 } from "@alfred/contracts";
-import { builtInProviderForEndpoint, builtInReadOnlyResource } from "./built-ins";
+import { builtInProviderForEndpoint } from "./built-ins";
 import { BUILT_IN_READ_TOOL_PINS, type BuiltInReadToolPins } from "./built-in-tool-pins";
 import type { BuiltInProvider } from "./built-ins";
 
@@ -45,13 +45,32 @@ const BUILT_IN_READ_POLICY: BuiltInToolPolicy = {
 };
 
 /**
- * The pinned reads whose output is file content, not structured data. Drive's
- * `download_file_content` returns the bytes as base64 text, so no result block shows it.
+ * The reads whose output is file content, not structured data, for a pin or a read-only resource.
+ * Drive's `download_file_content` returns the bytes as base64 text, so no result block shows it.
+ * Linear's `extract_images` returns images, and its `get_attachment` fetches the file by default.
  */
 const BUILT_IN_BINARY_READS: ReadonlyMap<BuiltInProvider, readonly string[]> = new Map<
   BuiltInProvider,
   readonly string[]
->([["drive", ["download_file_content"]]]);
+>([
+  ["drive", ["download_file_content"]],
+  ["linear", ["extract_images", "get_attachment"]],
+]);
+
+/**
+ * One tool of a stored revision, as the code-owned policy reads it. `readOnlyResource` is
+ * `builtInReadOnlyResourceTool` for the tool: the endpoint, or the route that the revision records.
+ */
+export interface BuiltInToolRef {
+  readonly endpointUrl: string;
+  readonly remoteName: string;
+  readonly descriptorHash: string;
+  readonly readOnlyResource: boolean;
+}
+
+function isBinaryRead(provider: BuiltInProvider, remoteName: string): boolean {
+  return BUILT_IN_BINARY_READS.get(provider)?.includes(remoteName) ?? false;
+}
 
 /**
  * The reads of a built-in that can return a secret (ADR-0130 decision 1), by name under any
@@ -73,12 +92,9 @@ export function builtInReadToolPinsOf(
 }
 
 /** The entry for one exact descriptor of a built-in, or `undefined` for any doubt. */
-export function builtInToolPolicy(
-  endpointUrl: string,
-  remoteName: string,
-  descriptorHash: string,
-): BuiltInToolPolicy | undefined {
-  const provider = builtInProviderForEndpoint(endpointUrl);
+export function builtInToolPolicy(tool: BuiltInToolRef): BuiltInToolPolicy | undefined {
+  const { remoteName, descriptorHash } = tool;
+  const provider = builtInProviderForEndpoint(tool.endpointUrl);
 
   if (provider === undefined) return undefined;
   const pins = builtInReadToolPinsOf(provider);
@@ -88,7 +104,7 @@ export function builtInToolPolicy(
 
   if (pins[remoteName] !== descriptorHash) return undefined;
 
-  return BUILT_IN_BINARY_READS.get(provider)?.includes(remoteName)
+  return isBinaryRead(provider, remoteName)
     ? { ...BUILT_IN_READ_POLICY, outputKind: "binary" }
     : BUILT_IN_READ_POLICY;
 }
@@ -98,16 +114,17 @@ export function builtInToolPolicy(
  * descriptor carries it in its entry. A tool of a read-only built-in endpoint (GitHub) is
  * structured: a binary block in its response fails by name at the script's read boundary.
  */
-export function builtInOutputKind(
-  endpointUrl: string,
-  remoteName: string,
-  descriptorHash: string,
-): ToolOutputKind | undefined {
-  const entry = builtInToolPolicy(endpointUrl, remoteName, descriptorHash);
+export function builtInOutputKind(tool: BuiltInToolRef): ToolOutputKind | undefined {
+  const entry = builtInToolPolicy(tool);
 
   if (entry !== undefined) return entry.outputKind;
 
-  return builtInReadOnlyResource(endpointUrl) ? "structured" : undefined;
+  if (!tool.readOnlyResource) return undefined;
+  const provider = builtInProviderForEndpoint(tool.endpointUrl);
+
+  return provider !== undefined && isBinaryRead(provider, tool.remoteName)
+    ? "binary"
+    : "structured";
 }
 
 /**
@@ -115,15 +132,8 @@ export function builtInOutputKind(
  * a code pin of the descriptor, or a built-in read-only endpoint. An owner review of such a read
  * still decides the effect, but its class and its output have no effect.
  */
-export function codeOwnsReadClass(
-  endpointUrl: string,
-  remoteName: string,
-  descriptorHash: string,
-): boolean {
-  return (
-    builtInToolPolicy(endpointUrl, remoteName, descriptorHash) !== undefined ||
-    builtInReadOnlyResource(endpointUrl)
-  );
+export function codeOwnsReadClass(tool: BuiltInToolRef): boolean {
+  return builtInToolPolicy(tool) !== undefined || tool.readOnlyResource;
 }
 
 /**
@@ -133,18 +143,14 @@ export function codeOwnsReadClass(
  * gets its integration's default, so a drifted GitHub pin is `secret` and asks. A user-added
  * server has no class. The class matters only for a confirmed read.
  */
-export function builtInReadClass(
-  endpointUrl: string,
-  remoteName: string,
-  descriptorHash: string,
-): ToolReadClass | undefined {
-  const provider = builtInProviderForEndpoint(endpointUrl);
+export function builtInReadClass(tool: BuiltInToolRef): ToolReadClass | undefined {
+  const provider = builtInProviderForEndpoint(tool.endpointUrl);
 
   if (provider === undefined) return undefined;
 
-  if (BUILT_IN_SECRET_READS.get(provider)?.includes(remoteName)) return "secret";
+  if (BUILT_IN_SECRET_READS.get(provider)?.includes(tool.remoteName)) return "secret";
 
-  if (builtInToolPolicy(endpointUrl, remoteName, descriptorHash) !== undefined) return "ordinary";
+  if (builtInToolPolicy(tool) !== undefined) return "ordinary";
 
   return INTEGRATIONS[BUILT_IN_MCP_CATALOG[provider].slug].readClassDefault ?? undefined;
 }

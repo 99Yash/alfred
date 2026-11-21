@@ -13,23 +13,38 @@ export function descriptorHash(tool: Tool): string {
 
 /**
  * By-name maps derived from the descriptors, so `mcp.call` reads one tool without
- * scanning the catalog (ADR-0096). A missing `readOnlyHint` is `false`.
+ * scanning the catalog (ADR-0096). A missing `readOnlyHint` is `false`. `readEndpointTools` holds
+ * `true` for each tool that a built-in's read-only endpoint serves (ADR-0130 decision 9).
  */
 export interface McpCatalogProjection {
   readonly descriptorHashes: Record<string, string>;
   readonly readOnlyHints: Record<string, boolean>;
+  readonly readEndpointTools: Record<string, boolean>;
 }
 
-export function projectCatalogRevision(tools: readonly Tool[]): McpCatalogProjection {
+/** Each read-endpoint name must be a published descriptor, so the map cannot route a tool the revision lacks. */
+export function projectCatalogRevision(
+  tools: readonly Tool[],
+  readEndpointNames: readonly string[] = [],
+): McpCatalogProjection {
   const descriptorHashes: Record<string, string> = {};
   const readOnlyHints: Record<string, boolean> = {};
+  const readEndpointTools: Record<string, boolean> = {};
 
   for (const tool of tools) {
     defineRemoteNameKey(descriptorHashes, tool.name, descriptorHash(tool));
     defineRemoteNameKey(readOnlyHints, tool.name, tool.annotations?.readOnlyHint === true);
   }
 
-  return { descriptorHashes, readOnlyHints };
+  for (const name of readEndpointNames) {
+    if (!Object.hasOwn(descriptorHashes, name)) {
+      throw new Error(`MCP read-endpoint tool '${name}' is not in the published catalog`);
+    }
+
+    defineRemoteNameKey(readEndpointTools, name, true);
+  }
+
+  return { descriptorHashes, readOnlyHints, readEndpointTools };
 }
 
 /**
