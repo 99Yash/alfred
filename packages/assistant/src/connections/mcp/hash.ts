@@ -22,7 +22,11 @@ export interface McpCatalogProjection {
   readonly readEndpointTools: Record<string, boolean>;
 }
 
-/** Each read-endpoint name must be a published descriptor, so the map cannot route a tool the revision lacks. */
+/**
+ * Each read-endpoint name must be a published descriptor, so the stored map cannot mark a tool
+ * that the revision lacks. The map routes no call: the client's in-memory read route does. The
+ * risk gate reads the map.
+ */
 export function projectCatalogRevision(
   tools: readonly Tool[],
   readEndpointNames: readonly string[] = [],

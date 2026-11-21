@@ -100,7 +100,7 @@ type BuiltInDefinition = {
    * one grant and one catalog. Each tool that this endpoint lists takes its descriptor from it, and
    * a call to that tool goes to it, so the tool has structural read authority. If this catalog
    * breaks the ADR-0094 rule or fails to list, the client drops it for that refresh: the reads go
-   * back to the main endpoint and its gates. Same origin as `endpointHref`.
+   * back to the main endpoint and its gates. Same origin as `endpointHref`: module load checks it.
    */
   readonly readEndpointHref?: string | undefined;
   /**
@@ -280,19 +280,11 @@ type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegac
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
-  const readEndpointHref = definition?.readEndpointHref;
 
   return {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
-    ...(readEndpointHref
-      ? {
-          readEndpoint: {
-            endpointUrl: readEndpointHref,
-            endpointOrigin: new URL(readEndpointHref).origin,
-          },
-        }
-      : {}),
+    ...(definition?.readEndpoint ? { readEndpoint: definition.readEndpoint } : {}),
   };
 }
 
@@ -330,12 +322,36 @@ type ResolvedDefinition = BuiltInDefinition & {
   readonly provider: BuiltInProvider;
   /** Origin of {@link BuiltInDefinition.staticClient}'s issuer, absent without one. */
   readonly issuerOrigin?: string;
+  /** {@link BuiltInDefinition.readEndpointHref}, checked same-origin at module load. */
+  readonly readEndpoint?: McpEndpointConnection;
 };
+
+/**
+ * The read endpoint of a built-in. The read side sends this connection's token there, so a read
+ * endpoint on another origin fails module load instead of leaking the token.
+ */
+function resolveReadEndpoint(
+  provider: BuiltInProvider,
+  definition: BuiltInDefinition,
+): McpEndpointConnection | undefined {
+  if (definition.readEndpointHref === undefined) return undefined;
+
+  const endpointOrigin = new URL(definition.readEndpointHref).origin;
+
+  if (endpointOrigin !== new URL(definition.endpointHref).origin) {
+    throw new Error(
+      `Built-in MCP '${provider}': the read endpoint ${definition.readEndpointHref} is not on the origin of ${definition.endpointHref}`,
+    );
+  }
+
+  return { endpointUrl: definition.readEndpointHref, endpointOrigin };
+}
 
 const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
   typedEntries(BUILT_IN_REGISTRY).map(([provider, entry]): [string, ResolvedDefinition] => {
     // Widen so entries without `staticClient` still type the property.
     const definition: BuiltInDefinition = entry;
+    const readEndpoint = resolveReadEndpoint(provider, definition);
 
     return [
       hostedEndpointKey(new URL(definition.endpointHref)),
@@ -345,6 +361,7 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
         ...(definition.staticClient
           ? { issuerOrigin: new URL(definition.staticClient.issuer).origin }
           : {}),
+        ...(readEndpoint ? { readEndpoint } : {}),
       },
     ];
   }),
