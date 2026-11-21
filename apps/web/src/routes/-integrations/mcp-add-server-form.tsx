@@ -18,9 +18,9 @@ import {
   AppModal,
   AppSegmented,
   omitBlankStringFields,
-  useAppForm,
   type AppSegmentedItem,
 } from "~/components/ui/v2";
+import { useAppForm } from "~/components/ui/v2/form";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import {
