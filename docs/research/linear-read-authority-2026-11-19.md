@@ -286,7 +286,7 @@ All four options need the Linear rule set to Auto for the script route. [I, from
 
 ## 9. Probe result 2026-11-21
 
-Two throwaway OAuth clients ran with the owner's consent. They read only (`tools/list`, `list_teams`) and wrote nothing to Linear. No token was printed or stored. The raw results are in `references/scratch/1804-linear-readonly-probe-result.json` and `references/scratch/1804-linear-rw-probe-result.json` (not tracked).
+The probe used two temporary OAuth clients with the owner's consent. They read only (`tools/list`, `list_teams`) and wrote nothing to Linear. The probe did not print or store a token. The raw results are in `references/scratch/1804-linear-readonly-probe-result.json` and `references/scratch/1804-linear-rw-probe-result.json` (not tracked).
 
 - A grant with the ask `read` and the resource `/mcp/readonly` got the scope `read`. [F]
 - `/mcp/readonly` lists 38 tools. Each one has `readOnlyHint: true`. `whoami` is not on the list. [F] So the ADR-0094 rule does not refuse this catalog. [I]

@@ -2,7 +2,7 @@
 
 **Status.** Accepted. Owner decisions, given in session on 2026-11-19. Decision 1 has amendment (a), 2026-11-19: the owner's review sets the class and the output of a read that code does not confirm. Decision 4 has amendment (b), 2026-11-19: the result of each card carries the cause. Amendment (c), 2026-11-20, replaces the stored list of amendment (b): the row keeps the reason, and one function derives the settings from current policy. Decision 7 has amendment (d), 2026-11-21: where the turn context is saved. Amendment (e), 2026-11-21, replaces one rule of decision 7: each user message carries a short send stamp, and `system.current_time` leaves the kernel. Amendment (f), 2026-11-21, replaces the send stamp and the lazy clock of amendment (e): a time note comes only at the first message, after a pause, or on a new local date, and `system.current_time` goes back into the kernel. Amendment (g), 2026-11-21: the turn context holds values, and the projection renders them after the final replay window. Decision 7: the host function `time.now()` shipped alone on 2026-11-21 (#1834), split from #1805. Decision 9 has amendment (h), 2026-11-21: the probe passed, and Linear reads go to the read-only endpoint through one grant and one merged catalog. The value of X in decision 7 comes from an eval.
 
-Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
+Amends: [ADR-0034](./ADR-0034-human-in-the-loop-approval-taxonomy-action.md) (the tier is only a UX hint), [ADR-0069](./ADR-0069-high-risktier-tools-always-confirm-a-hard.md) (the approval formula), [ADR-0087](./ADR-0087-code-mode-rung-b-v1-is-context-virtualization.md) (handles), [ADR-0094](./ADR-0094-mcp-read-only-surface-is-a-pinned-resource.md) (amendment (h): the Linear read side drops and does not refuse the catalog), [ADR-0096](./ADR-0096-a-read-only-mcp-surface-downgrades-structurally.md) and its 2026-11-13 amendment, [ADR-0124](./ADR-0124-code-mode-is-the-chat-read-path.md) amendment (b) and decision 8, [ADR-0125](./ADR-0125-the-model-reads-github-through-the-github-mcp-only.md) decision 2, [ADR-0126](./ADR-0126-the-model-uses-google-workspace-through-the-google-mcp-servers.md) decision 4, and `CONTEXT.md:45-46`.
 
 Research inputs (untracked, in `docs/research/`):
 
@@ -297,7 +297,7 @@ This amendment replaces the rules **Storage** and **Place** of amendment (d). Th
 
 #### Amendment 2026-11-21 (h): the probe passed; one grant, one merged catalog, and a read side that can drop (#1804)
 
-**The probe.** Two throwaway OAuth clients ran on 2026-11-21. They read only and wrote nothing to Linear. The results are in `references/scratch/1804-linear-*-probe-result.json` (not tracked) and in `docs/research/linear-read-authority-2026-11-19.md`.
+**The probe.** The probe used two temporary OAuth clients on 2026-11-21. They read only and wrote nothing to Linear. The results are in `references/scratch/1804-linear-*-probe-result.json` (not tracked) and in `docs/research/linear-read-authority-2026-11-19.md`.
 
 - A grant with the scope `read` on `/mcp/readonly` lists 38 tools. Each tool declares `readOnlyHint: true`. `whoami` is not on the list, so the ADR-0094 rule does not refuse the catalog.
 - The 401 challenge of `/mcp/readonly` asks for `scope="read write"`. The consent with the ask `read` grants only `read`.
@@ -307,7 +307,7 @@ This amendment replaces the rules **Storage** and **Place** of amendment (d). Th
 **Owner decisions, 2026-11-21.**
 
 1. **One grant and one merged catalog.** The Linear connection keeps its one grant on `/mcp`. The client lists both endpoints with that token. A tool that `/mcp/readonly` lists takes its descriptor from that endpoint. Every other tool takes its descriptor from `/mcp`. The revision records the tools of the read endpoint (`mcp_catalog_revisions.read_endpoint_tools`), and the revision hash covers that record. A call goes to the endpoint whose descriptor the model saw. So a read with no card always lands on the read-only resource. Rejected: the model sees the `/mcp` catalog, and a call goes to `/mcp/readonly` only when both endpoints give the same descriptor hash. That rule depends on equal descriptors, which the probe did not check. A small text change would send each read back to a card.
-2. **A bad read side drops; it does not refuse.** The read endpoint must pass the ADR-0094 rule: each tool declares `readOnlyHint: true`. If its catalog breaks the rule or fails to list, the client drops the read side for that refresh. All tools then come from `/mcp`. The reads lose their structural authority and ask again, and the writes keep working. The connection stays `ready`, and its tile shows "Reads ask for approval" with the cause. Rejected: refuse the whole Linear catalog, as GitHub does. GitHub has only the read-only resource, so it has nothing to fall back to.
+2. **A bad read side drops; it does not refuse.** The read endpoint must pass the ADR-0094 rule: each tool declares `readOnlyHint: true`. If its catalog breaks the rule or fails to list, the client drops the read side for that refresh. All tools then come from `/mcp`. The reads lose their structural authority and ask again, and the writes keep working. The connection stays `ready`. The catalog activation writes the cause to `mcp_connections.read_endpoint_fault`, and clears it when the read side lists again. The tile shows "Reads ask for approval" with that cause. The cause does not go in `last_error`: other paths write that column, so they could hide the cause or show it falsely. Rejected: refuse the whole Linear catalog, as GitHub does. GitHub has only the read-only resource, so it has nothing to fall back to.
 
 **What follows.**
 
@@ -315,8 +315,12 @@ This amendment replaces the rules **Storage** and **Place** of amendment (d). Th
 - Linear's `extract_images` and `get_attachment` return file content, so their output is `binary`. The other Linear reads are `structured`.
 - The read side borrows the token of the main session. It never holds a session of its own, because a session bound to `/mcp/readonly` could refresh the grant with that resource and lose the writes.
 - A connection with no read endpoint keeps the old revision hash, so its stored revisions do not change.
+- The read endpoint must have the origin of the main endpoint, because the read side sends the token there. Module load refuses a read endpoint on another origin.
+- The merged catalog must stay in the catalog caps (`maxCatalogTools` and `MAX_CATALOG_BYTES`). If a read-endpoint tool pushes the union over a cap, the client drops the read side with a `catalog_limit` cause.
 
-**Not done in this slice.** The end-to-end script read through a live Linear connection (the last item of the proposal) needs a connected dev server. It is the acceptance check of #1804.
+**The live check.** On 2026-11-21, after a reconnect, the dev Linear revision held 70 tools, and 38 of them came from the read endpoint. A script under `gated` ran `list_issues` for "See my Linear issues" with no card. The effect class was `read`, and the outcome was `succeeded`.
+
+**A finding of the live check.** An existing connection keeps its old revision until a client opens, after a reconnect or a call. Until then, its reads ask for approval. Prod has no Linear connection.
 
 ## Slices
 
