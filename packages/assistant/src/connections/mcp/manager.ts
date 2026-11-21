@@ -829,13 +829,13 @@ export class McpConnectionManager {
         connectionId,
         expectedCurrentRevisionId,
         nextRevisionId: revisionId,
+        // The cause of a dropped read side lives with the catalog that it belongs to, so this
+        // activation sets or clears it (ADR-0130 decision 9). The client bounded the text.
+        readEndpointFault: readEndpointFault ?? null,
         patch: {
           status: "ready",
           lastConnectedAt: new Date(),
           lastError: null,
-          // The cause of a dropped read side lives with the catalog that it belongs to, so only
-          // this write sets or clears it (ADR-0130 decision 9). The client bounded the text.
-          readEndpointFault: readEndpointFault ?? null,
           ...(negotiated
             ? {
                 negotiatedProtocolVersion: negotiated.protocolVersion,

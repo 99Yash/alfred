@@ -55,7 +55,6 @@ export type McpConnectionUpdate = Partial<
     | "currentCatalogRevisionId"
     | "lastConnectedAt"
     | "lastError"
-    | "readEndpointFault"
     | "authServerIdentity"
     | "grantedScopes"
     | "requiredScopes"
@@ -879,12 +878,19 @@ export async function deleteOwnedConnection(
   });
 }
 
-export interface CompareAndSetCatalogRevisionInput {
+/**
+ * `readEndpointFault` belongs to the catalog that the pointer names (ADR-0130 decision 9), so only
+ * an activation (a non-null `nextRevisionId`) writes it, and each activation must. No other write
+ * of a connection can set or clear it.
+ */
+export type CompareAndSetCatalogRevisionInput = {
   connectionId: string;
   expectedCurrentRevisionId: string | null;
-  nextRevisionId: string | null;
   patch: Omit<McpConnectionUpdate, "currentCatalogRevisionId">;
-}
+} & (
+  | { nextRevisionId: string; readEndpointFault: McpConnection["readEndpointFault"] }
+  | { nextRevisionId: null; readEndpointFault?: never }
+);
 
 /** Compare-and-set on the revision pointer, so a stale worker cannot overwrite a newer one. */
 export async function compareAndSetCatalogRevision(
@@ -900,6 +906,7 @@ export async function compareAndSetCatalogRevision(
     .set({
       ...input.patch,
       currentCatalogRevisionId: input.nextRevisionId,
+      ...(input.nextRevisionId === null ? {} : { readEndpointFault: input.readEndpointFault }),
     })
     .where(and(eq(mcpConnections.id, input.connectionId), expectedPointer))
     .returning();
