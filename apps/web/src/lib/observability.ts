@@ -11,12 +11,10 @@ export function initObservability() {
       dsn: sentryDsn,
       environment: import.meta.env.MODE,
       tracesSampleRate: import.meta.env.MODE === "production" ? 0.1 : 1.0,
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-      integrations: [
-        Sentry.browserTracingIntegration(),
-        Sentry.replayIntegration({ maskAllText: true, blockAllMedia: true }),
-      ],
+      // No session replay: one owner, so recordings have little value, and the
+      // recorder watches every DOM change (heavy while a reply streams). PostHog
+      // recording is off below for the same reason.
+      integrations: [Sentry.browserTracingIntegration()],
     });
   }
 
@@ -27,6 +25,16 @@ export function initObservability() {
       api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
       person_profiles: "identified_only",
       capture_pageview: "history_change",
+      // A PostHog project setting cannot turn session recording on.
+      disable_session_recording: true,
     });
   }
+}
+
+/**
+ * Sends an error to Sentry. A no-op when Sentry is not initialized. Callers import this module
+ * instead of `@sentry/react`, so the bundle keeps only the Sentry parts used here.
+ */
+export function reportError(error: unknown) {
+  Sentry.captureException(error);
 }

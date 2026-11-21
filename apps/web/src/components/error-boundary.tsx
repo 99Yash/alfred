@@ -1,6 +1,6 @@
 /**
  * The router's `defaultErrorComponent`: a recoverable panel instead of a white screen.
- * Sentry loads lazily, so it stays out of the main bundle.
+ * Observability (Sentry) loads lazily, so it stays out of the main bundle.
  */
 
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
@@ -16,9 +16,9 @@ export function DefaultCatchBoundary({ error, reset }: ErrorComponentProps) {
 
   useEffect(() => {
     console.error("Uncaught render error:", error);
-    void import("@sentry/react")
-      .then((Sentry) => {
-        Sentry.captureException(error);
+    void import("~/lib/observability")
+      .then(({ reportError }) => {
+        reportError(error);
       })
       // oxlint-disable-next-line alfred/no-swallowed-catch -- the render error is already in console.error above; a failed Sentry chunk load has no other reporter
       .catch(() => {});
