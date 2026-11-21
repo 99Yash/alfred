@@ -9,6 +9,7 @@ import {
   Tailwind,
 } from "@react-email/components";
 import * as React from "react";
+import { EMAIL_FONT_FACE_CSS, EMAIL_FONT_STACK } from "./_fonts";
 
 /**
  * The frame every Alfred email uses: logo, white card, footer with time and an optional CTA.
@@ -93,6 +94,9 @@ export const EmailShell = ({
             `,
           }}
         />
+        {/* Open Runde as base64 data: faces. Clients that strip @font-face fall
+         * through EMAIL_FONT_STACK to the system stack, unchanged. */}
+        <style dangerouslySetInnerHTML={{ __html: EMAIL_FONT_FACE_CSS }} />
       </Head>
       <Preview>{previewText}</Preview>
       <Tailwind>
@@ -100,8 +104,7 @@ export const EmailShell = ({
           style={{
             margin: 0,
             padding: 0,
-            fontFamily:
-              '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            fontFamily: EMAIL_FONT_STACK,
             backgroundColor: "#f9fafb",
           }}
         >
