@@ -9,12 +9,9 @@ import {
   estimateToolSurfaceBudget,
   toolSchemaSize,
 } from "@alfred/assistant/tool-runtime/schema-budget";
-import type { RegisteredTool } from "@alfred/assistant/tool-runtime";
-import {
-  evaluateToolRunContext,
-  getTool,
-  listRegisteredTools,
-} from "../../src/tool-runtime/internal/registry";
+import { resolveToolSurface, type RegisteredTool } from "@alfred/assistant/tool-runtime";
+import { registerToolsRuntimeAdapter } from "@alfred/assistant/tool-runtime/surface-adapter";
+import { getTool, listRegisteredTools } from "../../src/tool-runtime/internal/registry";
 import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 
 /**
@@ -24,15 +21,17 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
  */
 
 // Measured 2026-10-12: kernel 12,386 B / ~3,097 tok across 10 tools; full 89,881 B across 72 tools.
-// 2026-11-21: kernel 12,525 B / ~3,132 tok across 9 tools, after system.current_time left it.
+// 2026-11-21: kernel 12,800 B / ~3,201 tok across 10 tools, with the short system.current_time
+// text (275 B).
 const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
 
 const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 
-// What a Code Mode chat sends on its first step: the kernel minus the reads that run only in a
-// script, plus `system.code_run`. Code Mode is the default chat read path (ADR-0124), so this is
-// the list that prod sends. #1806 cuts the `code_run` index.
-// Measured 2026-11-21: 23,878 B / ~5,969 tok across 6 tools; system.code_run alone is 17,863 B.
+// The minimum first step of a Code Mode chat: the kernel plus `system.code_run`, through the same
+// projection that the chat surface uses (`resolveToolSurface`), so the reads that run only in a
+// script drop out. Code Mode is the default chat read path (ADR-0124). A preload or a carried tool
+// adds to it, so a real first step can be larger. #1806 cuts the `code_run` index.
+// Measured 2026-11-21: 24,153 B / ~6,038 tok across 7 tools; system.code_run alone is 17,863 B.
 const CODE_RUN_FIRST_STEP_BYTES_CEILING = 26_000;
 
 /** The context of a Code Mode chat turn (`chat-turn.ts` `chatToolRunIdentity`). */
@@ -65,7 +64,10 @@ function toolsByName(names: readonly ToolName[]): RegisteredTool[] {
 }
 
 describe("tool-schema budget", () => {
-  before(() => registerBuiltinTools());
+  before(() => {
+    registerBuiltinTools();
+    registerToolsRuntimeAdapter();
+  });
 
   test("the kernel surface stays within its byte and token budget", () => {
     const budget = estimateToolSurfaceBudget(toolsByName(systemToolKernel()));
@@ -79,16 +81,16 @@ describe("tool-schema budget", () => {
     );
   });
 
-  test("the first step of a Code Mode chat stays within its byte budget", () => {
-    const tools = toolsByName([...systemToolKernel(), CODE_RUN_TOOL]).filter(
-      (tool) => evaluateToolRunContext(tool, CODE_RUN_CHAT_CONTEXT).available,
-    );
+  test("the minimum first step of a Code Mode chat stays within its byte budget", () => {
+    const surface = resolveToolSurface({
+      activeNames: [...systemToolKernel(), CODE_RUN_TOOL],
+      context: CODE_RUN_CHAT_CONTEXT,
+    });
 
-    assert.ok(tools.some((tool) => tool.name === CODE_RUN_TOOL));
-    const budget = estimateToolSurfaceBudget(tools);
+    assert.ok(surface.surfacedNames.includes(CODE_RUN_TOOL));
     assert.ok(
-      budget.schemaBytes <= CODE_RUN_FIRST_STEP_BYTES_CEILING,
-      `the Code Mode first step is ${budget.schemaBytes} B, over the ${CODE_RUN_FIRST_STEP_BYTES_CEILING} B ceiling`,
+      surface.schemaBytes <= CODE_RUN_FIRST_STEP_BYTES_CEILING,
+      `the minimum Code Mode first step is ${surface.schemaBytes} B, over the ${CODE_RUN_FIRST_STEP_BYTES_CEILING} B ceiling`,
     );
   });
 
