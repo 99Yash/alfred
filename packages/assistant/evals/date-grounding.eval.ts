@@ -11,9 +11,8 @@ import { serverEnv } from "@alfred/env/server";
 import { generateText, isStepCount, tool } from "ai";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
-import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import { toolCallArgs } from "./lib/grounding";
+import { firstUserMessage, toolCallArgs } from "./lib/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0055: asked about "october 2026", chat once replied "which year?" because it had no "now".
@@ -152,16 +151,13 @@ evalite<string, TaskOutput, TargetWindow | null>("Agent date grounding", {
   data: () => CASES.map((c) => ({ input: c.input, expected: c.target })),
   task: async (input) => {
     serverEnv();
-    // Like prod: the system prompt has no date. "Now" comes from the runtime line (#410).
+    // Like prod: the system prompt has no date. "Now" comes from the saved time note (ADR-0130).
     const system = buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding());
 
     const result = await generateText({
       model: route("standard").model(),
       instructions: system,
-      messages: [
-        { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },
-        { role: "user", content: input },
-      ],
+      messages: [{ role: "user", content: firstUserMessage(input, TIMEZONE, NOW) }],
       temperature: 0,
       timeout: { totalMs: EVAL_TIMEOUT_MS },
       // The catalog lookup, then the remote call.

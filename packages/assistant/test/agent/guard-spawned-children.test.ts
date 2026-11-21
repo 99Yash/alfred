@@ -267,10 +267,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
   ];
 
   test("parking strips the premature assistant tail (no illegal-prefill 400 on resume)", async () => {
-    const state = baseState({
-      assistantText: "premature answer",
-      runtimeGroundingAnchor: "2026-07-15T03:58:00.000Z",
-    });
+    const state = baseState({ assistantText: "premature answer" });
 
     const rec = recorder({
       children: [{ id: "child_a" }],
@@ -279,11 +276,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
     assert.equal(result?.kind, "interrupt", "a still-running child parks");
-    assert.equal(
-      state.runtimeGroundingAnchor,
-      "2026-07-15T03:58:00.000Z",
-      "the park preserves grounding; the wake seam decides it once the gap is known",
-    );
+    assert.equal(state.parkWait, "sub_agent", "the resumed run's time note names the wait");
     const forwarded = result.transcript ?? [];
     assert.notEqual(
       forwarded.at(-1)?.role,

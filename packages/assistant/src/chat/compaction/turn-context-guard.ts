@@ -17,28 +17,6 @@ import { waitForActiveConversationCompaction } from "./conversation-compaction-w
 /** A wedged synchronous compaction must not hold the turn open. */
 const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
 
-/** Place ephemeral assistant-known run context immediately before the request. */
-export function withEphemeralReference(
-  transcript: readonly TranscriptMessage[],
-  reference: string,
-): TranscriptMessage[] {
-  if (!reference) return [...transcript];
-  let userIndex = -1;
-
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (transcript[index]?.role === "user") {
-      userIndex = index;
-      break;
-    }
-  }
-
-  const message = { role: "assistant", content: reference } satisfies TranscriptMessage;
-
-  if (userIndex < 0) return [message, ...transcript];
-
-  return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
-}
-
 /** Two views with the same message boundaries. Only the model view holds hydrated bytes. */
 export interface CompactedChatTranscriptPair {
   modelTranscript: TranscriptMessage[];
@@ -129,7 +107,6 @@ async function applyForegroundContextGuard({
   model,
   storedTranscript,
   hydratedTranscript,
-  artifactReference,
   pendingGuidance,
   abortSignal,
   onCompactionStart,
@@ -146,7 +123,6 @@ async function applyForegroundContextGuard({
   model: LanguageModel;
   storedTranscript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
-  artifactReference: string;
   pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
@@ -166,9 +142,7 @@ async function applyForegroundContextGuard({
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
 
-  const initialPressure = await assess(
-    withEphemeralReference(hydratedTranscript, artifactReference),
-  );
+  const initialPressure = await assess(hydratedTranscript);
 
   if (!initialPressure.requiresSynchronousCompaction) {
     return {
@@ -189,9 +163,7 @@ async function applyForegroundContextGuard({
       const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
       const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
 
-      const reusedPressure = await assess(
-        withEphemeralReference(reused.modelTranscript, artifactReference),
-      );
+      const reusedPressure = await assess(reused.modelTranscript);
 
       if (!reusedPressure.requiresSynchronousCompaction) {
         return reused;
@@ -228,9 +200,7 @@ async function applyForegroundContextGuard({
       replayTail,
     );
 
-    const rebuiltPressure = await assess(
-      withEphemeralReference(rebuilt.modelTranscript, artifactReference),
-    );
+    const rebuiltPressure = await assess(rebuilt.modelTranscript);
 
     if (!rebuiltPressure.requiresSynchronousCompaction) {
       return rebuilt;
@@ -284,9 +254,7 @@ async function applyForegroundContextGuard({
       boundedModelTail,
     );
 
-    const boundedPressure = await assess(
-      withEphemeralReference(bounded.modelTranscript, artifactReference),
-    );
+    const boundedPressure = await assess(bounded.modelTranscript);
 
     if (boundedPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after oversized user message summarization");
@@ -309,7 +277,6 @@ async function applyWithinRunContextGuard({
   transcript,
   hydratedTranscript,
   inFlightTailStart,
-  artifactReference,
   pendingGuidance,
   abortSignal,
   onCompactionStart,
@@ -325,7 +292,6 @@ async function applyWithinRunContextGuard({
   transcript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
   inFlightTailStart: number;
-  artifactReference: string;
   pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
@@ -341,10 +307,7 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      transcript: withEphemeralReference(
-        pendingGuidance ? [...candidate, pendingGuidance] : candidate,
-        artifactReference,
-      ),
+      transcript: pendingGuidance ? [...candidate, pendingGuidance] : candidate,
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -427,7 +390,6 @@ async function guardExistingTurnContext(args: {
   model: LanguageModel;
   storedTranscript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
-  artifactReference: string;
   pendingGuidance?: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onPhase: (
@@ -466,7 +428,6 @@ async function guardExistingTurnContext(args: {
       model: args.model,
       storedTranscript: args.storedTranscript,
       hydratedTranscript: args.hydratedTranscript,
-      artifactReference: args.artifactReference,
       pendingGuidance: args.pendingGuidance,
       abortSignal: guardAbortSignal,
       onCompactionStart: () => args.onPhase("compaction_started", "foreground"),
@@ -492,7 +453,6 @@ async function guardExistingTurnContext(args: {
     transcript: args.storedTranscript,
     hydratedTranscript: args.hydratedTranscript,
     inFlightTailStart: args.inFlightTailStart,
-    artifactReference: args.artifactReference,
     pendingGuidance: args.pendingGuidance,
     abortSignal: guardAbortSignal,
     onCompactionStart: () => args.onPhase("compaction_started", "within_run"),

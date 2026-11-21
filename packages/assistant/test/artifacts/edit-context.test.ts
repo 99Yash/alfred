@@ -9,8 +9,7 @@ import {
 } from "@alfred/artifacts-design";
 import { toDisplayText, updateArtifactInput, type AgentTranscriptMessage } from "@alfred/contracts";
 import { z } from "zod";
-import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
-import { guardTurnContext, withEphemeralReference } from "@alfred/assistant/chat/compaction/index";
+import { guardTurnContext } from "@alfred/assistant/chat/compaction/index";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import {
   admitPdfDesignGuide,
@@ -171,7 +170,6 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
     model: "unused-on-passthrough",
     storedTranscript: transcript,
     hydratedTranscript: transcript,
-    artifactReference: "",
     pendingGuidance: admitPdfDesignGuide(state),
     abortSignal: new AbortController().signal,
     onPhase: async () => {
@@ -193,33 +191,13 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
   assert.equal(admitPdfDesignGuide(state), undefined);
 });
 
-test("ephemeral run context is inserted before the request without entering the transcript", () => {
-  const transcript = [{ role: "user" as const, content: "What happened in the last 30h?" }];
-  const runtime = formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z"));
-
-  assert.deepEqual(withEphemeralReference(transcript, runtime), [
-    { role: "assistant", content: runtime },
-    transcript[0],
-  ]);
-  assert.deepEqual(transcript, [{ role: "user", content: "What happened in the last 30h?" }]);
-});
-
-test("chat's prod system prompt states no date — the runtime line is the single 'now' (#410)", () => {
+test("chat's prod system prompt states no date — saved time notes carry 'now' (ADR-0130)", () => {
   // A date in the cached prefix goes stale when a parked run resumes after midnight.
   const connected = "Connected: none";
   const prompt = buildChatSystemPrompt("", connected, "");
   assert.doesNotMatch(prompt, /current date/i);
   // The connected summary ends the prompt (ADR-0077).
   assert.ok(prompt.trimEnd().endsWith(connected));
-
-  // The date rides the transcript, just before the user turn.
-  const [reference] = withEphemeralReference(
-    [{ role: "user" as const, content: "anything on for tomorrow?" }],
-    formatRuntimeTimeGrounding("Asia/Calcutta", new Date("2026-07-14T02:50:11.451Z")),
-  );
-
-  assert.equal(reference.role, "assistant");
-  assert.match(toDisplayText(reference.content), /Current date and time: Tuesday, 14 July 2026/);
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {

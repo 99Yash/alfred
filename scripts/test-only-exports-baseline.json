@@ -242,7 +242,6 @@
   "packages/assistant/src/tool-runtime/internal/tools/passthrough/gate.ts": [
     "assertReadableGraphqlRequest"
   ],
-  "packages/assistant/src/tool-runtime/internal/tools/system.ts": ["currentTimeSnapshot"],
   "packages/assistant/src/tool-runtime/mcp/broker-policy.ts": ["MCP_BROKER_ADMISSION_CAPACITY"],
   "packages/assistant/src/tool-runtime/mcp/invocations.ts": ["readToolPolicy"],
   "packages/assistant/src/triage/classify.ts": [

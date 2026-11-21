@@ -16,8 +16,8 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import { formatRuntimeTimeGrounding } from "@alfred/assistant/execution/grounding";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
+import { firstUserMessage } from "./lib/grounding";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
 import { jsonBytes } from "../src/tool-runtime/code-mode/result-budget";
@@ -477,10 +477,7 @@ async function runCodeModeChat(prompt: string): Promise<TaskOutput> {
   const result = await generateText({
     model: route("standard").model(),
     instructions: buildChatSystemPrompt("", CONNECTED_SUMMARY, selfIdentityGrounding(), "code_run"),
-    messages: [
-      { role: "assistant", content: formatRuntimeTimeGrounding(TIMEZONE, NOW) },
-      { role: "user", content: prompt },
-    ],
+    messages: [{ role: "user", content: firstUserMessage(prompt, TIMEZONE, NOW) }],
     timeout: { totalMs: EVAL_TIMEOUT_MS },
     stopWhen: isStepCount(MAX_STEPS),
     tools: {

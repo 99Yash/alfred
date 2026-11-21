@@ -21,10 +21,10 @@ Every model call goes through the gateway, so there are no provider keys to set.
   DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
   `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
   cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — seven suites GENERATE on that route, because
+- `route("standard")` (Haiku 5.5) — eight suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
   `code-mode-paired`, `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
-  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
+  `time-awareness`, `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
 
@@ -37,6 +37,9 @@ it.
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). It reads the
   calendar through the Google Calendar MCP server. Deterministic only.
+- `time-awareness.eval.ts` — ADR-0130 decision 7: the thread's only time note is hours old,
+  and the model must call `system.current_time` when the answer depends on the current
+  time. Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.

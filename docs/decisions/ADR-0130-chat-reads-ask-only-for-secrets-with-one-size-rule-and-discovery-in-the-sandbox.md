@@ -223,6 +223,14 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 - **The risk, and its eval.** The model can fail to ask for the time when it needs it. An eval case on Haiku 5.5 checks this. Examples are "is it too late to mail them today?" and "what is left on my calendar?". If the model does not ask, the fix is a change to the tool description, not a time line on each message.
 - **Prior art.** opencode puts the date in the system prompt, and adds a saved message when the date changes. pi removed the date for cache reasons. In pi, code mode has no clock function (Ronacher, "What is Codemode", 2026-10-06).
 
+#### Amendment 2026-11-21 (d): where the turn context is saved, the body rule, and the open items (#1802)
+
+- **Storage.** The turn context of a user message is one row in `chat_turn_contexts`, keyed by the message id. Admission writes it once, in the transaction that creates the run. It is not a `chat_messages` column, because Replicache syncs each column of that table to the browser, and the context can hold an artifact body.
+- **Place.** The context goes after the user's own text, in the same user message. A separate message would move the replay tail of the foreground compaction.
+- **The body rule (owner, 2026-11-21).** The full body of the selected artifact shows only where its row version first appears in the replayed window. A later message with the same row version shows one line that points to that copy. The window changes only at compaction, and compaction replaces the cached prefix in any case.
+- **Open items (owner, 2026-11-21).** At a new message, the note lists no open items. A thread has one run at a time, and a parent run waits for its sub-agents before it answers, so no item of the thread can be open. A resumed run names what it waited on (an approval, a question, or a sub-agent), the wait time, and the run's age.
+- **The note of a resumed run** is a `[system]` note at the end of the run transcript. It is saved with the step. The next turn does not replay it, the same as tool results.
+
 ### 8. Rejected wording from the first draft (settled)
 
 - The first draft split reads into `metadata` and `private_content`, so mail bodies and files still asked. The owner rejected that split: only secrets ask.

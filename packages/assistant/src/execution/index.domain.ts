@@ -64,12 +64,6 @@ export {
 } from "./run-compaction";
 
 export {
-  formatRuntimeTimeGrounding,
-  resolveRuntimeGroundingAnchor,
-  RUNTIME_GROUNDING_PARK_GRACE_MS,
-} from "./grounding";
-
-export {
   foldToolSurfaceState,
   systemToolKernel,
   toolRuntimeForRun,

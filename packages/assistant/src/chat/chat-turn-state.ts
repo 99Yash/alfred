@@ -15,10 +15,12 @@ import { z } from "zod";
 import {
   foldToolSurfaceState,
   pendingToolCallSchema as basePendingToolCallSchema,
-  RUNTIME_GROUNDING_PARK_GRACE_MS,
   toolSurfaceStateFields,
   type StepResult,
 } from "@alfred/assistant/execution";
+import { inZone } from "@alfred/assistant/time";
+import type { IanaTimezone } from "@alfred/contracts";
+import { resumeTimeNote, TIME_NOTE_PAUSE_MS, type ParkWait } from "./turn-context";
 
 /**
  * Durable chat turn state and the pure operations on it.
@@ -95,13 +97,9 @@ export const chatRunStateSchema = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Ephemeral text, read once per run. An edit does not rebuild it (see `artifactMediumStale`).
-    artifactThreadFacts: z.string().optional(),
-    // The selected artifact body, sent as a lower-trust assistant message, not system text.
-    artifactReference: z.string().optional(),
     // `pdf` admits the PDF guide to the transcript.
     artifactDesignMedium: artifactFormatSchema.optional(),
-    // Set by an artifact edit. A create can change the medium; the run-start reference stays.
+    // Set by an artifact edit. A create can change the medium; the saved turn context stays.
     artifactMediumStale: z.literal(true).optional(),
     // The PDF guide enters the transcript once per run.
     pdfDesignGuideAdmitted: z.literal(true).optional(),
@@ -140,8 +138,14 @@ export const chatRunStateSchema = z
     parkedAt: z.iso.datetime().optional(),
     /** Why the run parked: `join` = sub-agent await, `gate` = HIL approval. */
     parkKind: z.enum(["join", "gate"]).optional(),
-    // The instant `<runtime_context>` states (#410). Held stable so the cached tail survives.
-    runtimeGroundingAnchor: z.iso.datetime().optional(),
+    /** What the current park waits on. The time note of the resumed run names it. */
+    parkWait: z.enum(["approval", "question", "sub_agent"]).optional(),
+    /** A park that lasted the pause or longer. The next model step gets a time note for it. */
+    pausedWait: z
+      .object({ kind: z.enum(["approval", "question", "sub_agent"]), since: z.iso.datetime() })
+      .optional(),
+    /** The latest instant that the transcript states. A change of its local date adds a note. */
+    clockAnchor: z.iso.datetime().optional(),
     // Children whose outcome the transcript already has, folded or awaited (ADR-0073).
     foldedChildRunIds: z.array(z.string()).default([]),
     // Failures the honesty guard already noted (#346), so it never loops on one.
@@ -195,10 +199,10 @@ export function interruptChatRun(
   transcript: TranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
-  // Keep the grounding anchor: `foldResumedPark` knows the park length and decides.
-  // A signal wake is a sub-agent join; an HIL wake is an approval.
+  // A signal wake is a sub-agent join; an HIL wake is an approval or a question.
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
+  state.parkWait = parkWaitOf(wake);
 
   // An approval wait is the user's time, not the model's.
   if (state.parkKind === "gate") freezeReasoningMs(state, Date.now());
@@ -223,13 +227,21 @@ export function freezeReasoningMs(
   if (Number.isFinite(startedAtMs)) state.reasoningMs = Math.max(1, now - startedAtMs);
 }
 
+function parkWaitOf(
+  wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
+): ParkWait {
+  if (wake.kind !== "hil") return "sub_agent";
+
+  return wake.approvalKind === "question" ? "question" : "approval";
+}
+
 /**
  * Close a park on resume (#902). A join park counts as dispatch; an approval park
- * is human time and lands in `other`. Clear the anchor only past
- * {@link RUNTIME_GROUNDING_PARK_GRACE_MS}. Returns the gap.
+ * is human time and lands in `other`. A park of {@link TIME_NOTE_PAUSE_MS} or longer
+ * leaves a wait for the next time note (ADR-0130 decision 7). Returns the gap.
  */
 export function foldResumedPark(
-  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs" | "runtimeGroundingAnchor">,
+  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "parkWait" | "pausedWait" | "dispatchMs">,
   now: number,
 ): number {
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
@@ -238,13 +250,47 @@ export function foldResumedPark(
 
   if (state.parkKind === "join") state.dispatchMs += gap;
 
-  // Past the grace the cached prefix is gone anyway, so the re-stamp is free.
-  if (gap >= RUNTIME_GROUNDING_PARK_GRACE_MS) state.runtimeGroundingAnchor = undefined;
+  // An older checkpoint has no `parkWait`; its kind is the best guess.
+  if (gap >= TIME_NOTE_PAUSE_MS) {
+    state.pausedWait = {
+      kind: state.parkWait ?? (state.parkKind === "join" ? "sub_agent" : "approval"),
+      since: state.parkedAt,
+    };
+  }
 
   state.parkedAt = undefined;
   state.parkKind = undefined;
+  state.parkWait = undefined;
 
   return gap;
+}
+
+/**
+ * The time note for a run that continues after a long park or past a change of the local date
+ * (ADR-0130 decision 7). The first step only sets the anchor: the saved note of the user message
+ * covers it. The note goes at the end of the transcript and is saved with the step.
+ */
+export function takeResumeTimeNote(
+  state: Pick<ChatRunState, "clockAnchor" | "pausedWait" | "startedAt">,
+  timezone: IanaTimezone,
+  now: Date,
+): string | undefined {
+  const anchor = state.clockAnchor === undefined ? undefined : new Date(state.clockAnchor);
+  const wait = state.pausedWait;
+  const here = inZone(timezone);
+
+  if (anchor !== undefined && wait === undefined && here.day(anchor) === here.day(now)) return;
+  state.clockAnchor = now.toISOString();
+  state.pausedWait = undefined;
+
+  if (anchor === undefined) return;
+
+  return resumeTimeNote({
+    timezone,
+    now,
+    runStartedAt: state.startedAt === undefined ? undefined : new Date(state.startedAt),
+    wait: wait && { kind: wait.kind, since: new Date(wait.since) },
+  });
 }
 
 /** The two ways the lead-in close and the guard close differ. */
