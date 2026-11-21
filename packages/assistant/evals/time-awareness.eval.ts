@@ -1,5 +1,5 @@
 import path from "node:path";
-import { route } from "@alfred/ai";
+import { route, toModelMessages } from "@alfred/ai";
 import {
   CODE_RUN_TOOL,
   codeRunInput,
@@ -19,7 +19,12 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import { z } from "zod";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
-import type { ChatReadPath } from "@alfred/assistant/chat/chat-turn-state";
+import {
+  takeTimeNote,
+  type ChatReadPath,
+  type ChatRunState,
+} from "@alfred/assistant/chat/chat-turn-state";
+import { appendSystemNote } from "@alfred/assistant/execution/transcript-notes";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
@@ -45,7 +50,10 @@ import { scoreTimeAnswer, type TimeAnswerExpectation } from "./lib/time-answer";
 //
 // The eval uses the production prompt, the production clock description, and the production time
 // note. The clock is in the kernel, so each step offers it. Each step is one model call, and the
-// eval dispatches the calls itself, as `chat-turn.ts` does.
+// eval dispatches the calls itself, as `chat-turn.ts` does. Before each step the eval asks the
+// production `takeTimeNote` for the `[system]` note of a long step, and adds it with the
+// production `appendSystemNote`. Only the export of case (d) moves the clock, so only case (d)
+// can get a note. Its "model alone" control runs with no note.
 // Run with apps/server/.env populated:
 // `pnpm --filter @alfred/assistant exec evalite run time-awareness`.
 
@@ -209,8 +217,8 @@ interface RunClock {
 }
 
 interface RunRecord {
-  /** Each tool call in order, with the eval clock's time at its dispatch. */
-  calls: { toolName: string; at: string }[];
+  /** Each tool call in order, with its model step and the eval clock's time at its dispatch. */
+  calls: { toolName: string; step: number; at: string }[];
   /** The local times that `system.current_time` returned. */
   clockReads: Date[];
   /** True when a script read `Date`, which is not the user's clock. */
@@ -384,13 +392,18 @@ interface DispatchContext {
   clock: RunClock;
   record: RunRecord;
   offered: ReadonlySet<string>;
+  step: number;
 }
 
 async function dispatch(
   call: { toolName: string; input: unknown; invalid?: boolean | undefined },
   ctx: DispatchContext,
 ): Promise<JsonValue> {
-  ctx.record.calls.push({ toolName: call.toolName, at: ctx.clock.now.toISOString() });
+  ctx.record.calls.push({
+    toolName: call.toolName,
+    step: ctx.step,
+    at: ctx.clock.now.toISOString(),
+  });
 
   if (!ctx.offered.has(call.toolName)) {
     return {
@@ -545,6 +558,8 @@ interface Case {
   readPath: ChatReadPath;
   lookup: LookupNeed;
   expected: TimeAnswerExpectation;
+  /** `production`: the run notes of `chat-turn.ts`. `none`: the "model alone" control. */
+  runNotes: "production" | "none";
 }
 
 const OTHERS_OF = (next: RegExp) =>
@@ -559,6 +574,7 @@ const CASES: Case[] = [
     question: "how long until my next meeting?",
     askedAt: AFTER_GAP,
     readPath: "direct",
+    runNotes: "production",
     lookup: "any",
     expected: {
       kind: "next",
@@ -573,6 +589,7 @@ const CASES: Case[] = [
     question: "what is left on my calendar today?",
     askedAt: AFTER_GAP,
     readPath: "direct",
+    runNotes: "production",
     lookup: "any",
     expected: { kind: "left", ahead: [VENDOR, SAM, DINNER], past: [STANDUP] },
   },
@@ -581,6 +598,7 @@ const CASES: Case[] = [
     question: "how long until my next meeting?",
     askedAt: ist("17:50"),
     readPath: "direct",
+    runNotes: "production",
     lookup: "none",
     expected: {
       kind: "next",
@@ -595,6 +613,7 @@ const CASES: Case[] = [
     question: "how long until my next meeting?",
     askedAt: AFTER_GAP,
     readPath: "code_run",
+    runNotes: "production",
     lookup: "any",
     expected: {
       kind: "next",
@@ -606,11 +625,30 @@ const CASES: Case[] = [
   },
   {
     // The note says 13:15. The export takes 40 min, so the answer is from 13:55: 5 min, not 45.
-    label: "(d) next after a 40 min export, full note",
+    // Before the step after the export, the run gets the production long-step note.
+    label: "(d) next after a 40 min export, full note, long-step note",
     question:
       "export the Q2 vendor spend sheet from drive as a pdf, then tell me how long i have until my next meeting",
     askedAt: ist("13:15"),
     readPath: "direct",
+    runNotes: "production",
+    lookup: "after_work",
+    expected: {
+      kind: "next",
+      next: VENDOR,
+      waitMinutes: 5,
+      others: OTHERS_OF(VENDOR),
+      past: [STANDUP],
+    },
+  },
+  {
+    // The "model alone" control of case (d): no long-step note, so only a clock read gives 13:55.
+    label: "(d) control: model alone, no long-step note",
+    question:
+      "export the Q2 vendor spend sheet from drive as a pdf, then tell me how long i have until my next meeting",
+    askedAt: ist("13:15"),
+    readPath: "direct",
+    runNotes: "none",
     lookup: "after_work",
     expected: {
       kind: "next",
@@ -625,6 +663,7 @@ const CASES: Case[] = [
     question: "what time does the vendor review start today?",
     askedAt: AFTER_GAP,
     readPath: "direct",
+    runNotes: "production",
     lookup: "none",
     expected: {
       kind: "fact",
@@ -635,7 +674,9 @@ const CASES: Case[] = [
 ];
 
 interface TaskOutput {
-  calls: { toolName: string; at: string }[];
+  calls: { toolName: string; step: number; at: string }[];
+  /** The run notes, with the step that each one came before. */
+  notes: { beforeStep: number; text: string }[];
   clockReads: string[];
   exportedAt: string | null;
   scriptReadDate: boolean;
@@ -656,17 +697,33 @@ async function runChat(input: Case): Promise<TaskOutput> {
     input.readPath === "code_run" ? CODE_RUN_SUMMARY : DIRECT_SUMMARY,
   );
 
-  const messages: ModelMessage[] = [
+  let messages: ModelMessage[] = [
     ...HISTORY,
     userMessage(input.question, TIMEZONE, input.askedAt, MORNING[2]),
   ];
 
   let text = "";
   let steps = 0;
+  const notes: TaskOutput["notes"] = [];
+
+  // The run state that `takeTimeNote` reads, as `chat-turn.ts` sets it at the first step.
+  const noteState: Pick<
+    ChatRunState,
+    "clockAnchor" | "pausedWait" | "startedAt" | "lastModelStepAt"
+  > = { startedAt: input.askedAt.toISOString() };
 
   while (steps < MAX_STEPS) {
     steps++;
     const tools = stepTools(input.readPath);
+
+    if (input.runNotes === "production") {
+      const note = await takeTimeNote(noteState, TIMEZONE, clock.now, async () => input.askedAt);
+
+      if (note) {
+        messages = toModelMessages(appendSystemNote(messages, note));
+        notes.push({ beforeStep: steps, text: note });
+      }
+    }
 
     const result = await generateText({
       model: route("standard").model(),
@@ -690,6 +747,7 @@ async function runChat(input: Case): Promise<TaskOutput> {
       clock,
       record,
       offered: new Set(Object.keys(tools)),
+      step: steps,
     };
 
     const results = [];
@@ -710,6 +768,7 @@ async function runChat(input: Case): Promise<TaskOutput> {
 
   return {
     calls: record.calls,
+    notes,
     clockReads: record.clockReads.map((at) => at.toISOString()),
     exportedAt: record.exportedAt?.toISOString() ?? null,
     scriptReadDate: record.scriptReadDate,
@@ -734,7 +793,7 @@ function lookupFault(input: Case, output: TaskOutput): string | null {
 }
 
 function callSummary(output: TaskOutput): string {
-  return `calls=[${output.calls.map((call) => call.toolName).join(", ") || "none"}]; clock reads=${output.clockReads.length}; steps=${output.steps}${output.scriptReadDate ? "; a script read Date" : ""}`;
+  return `calls=[${output.calls.map((call) => `${call.step}:${call.toolName}`).join(", ") || "none"}]; clock reads=${output.clockReads.length}; notes before steps=[${output.notes.map((note) => note.beforeStep).join(", ")}]; steps=${output.steps}${output.scriptReadDate ? "; a script read Date" : ""}`;
 }
 
 evalite<Case, TaskOutput, null>(
@@ -749,6 +808,7 @@ evalite<Case, TaskOutput, null>(
       } catch (error) {
         return {
           calls: [],
+          notes: [],
           clockReads: [],
           exportedAt: null,
           scriptReadDate: false,
