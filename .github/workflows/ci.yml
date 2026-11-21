@@ -290,6 +290,15 @@ jobs:
   # stronger control, and it cannot be weakened by the `env:` block below growing
   # a key. The `delete` loop stays because it is what keeps the file honest in a
   # populated developer shell and inside `http-tests`.
+  #
+  # Every `services:` block in this workflow sets `--health-start-period 30s` and
+  # `--health-start-interval 1s`. Without them Docker runs the FIRST probe one full
+  # `--health-interval` (10 s) after the container starts. Postgres is ready in about
+  # 2 s, but the runner sat in "Waiting for all services to be ready" for about 15 s
+  # (run 44765522205, 2026-11-20) before checkout could start. During the start
+  # period Docker probes every second, so the runner sees `healthy` at its next poll.
+  # The runner still waits for `healthy`, so no job starts against a cold service.
+  # Keep the two flags in a new `services:` block too.
   http-tests:
     name: http-tests
     runs-on: ubuntu-latest
@@ -307,6 +316,8 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -316,6 +327,8 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -424,6 +437,8 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -433,6 +448,8 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -697,6 +714,8 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -706,6 +725,8 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -860,6 +881,8 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U ci -d alfred_ci"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -869,6 +892,8 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
+          --health-start-period 30s
+          --health-start-interval 1s
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
