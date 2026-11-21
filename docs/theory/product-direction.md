@@ -4,7 +4,7 @@ This document compares the owner's future plan with two references: Dimension (t
 
 File references are relative to `packages/` unless a different root is given. "Dimension" facts come from the past recon (memory `reference_dimension_product_behavior.md`, `.tmp-screens/dimension-briefing-research.md`, `git show b0e9dfe69^:dimension-dev-recon.md`, and the `-dimension-ai-*` sibling dumps).
 
-Last verified: 2026-10-21 at `fd13e6427`.
+Last verified: 2026-11-21 at `b23d0ed09`.
 
 ---
 
@@ -25,11 +25,11 @@ Last verified: 2026-10-21 at `fd13e6427`.
 | Plan item | Dimension | Alfred today | Gap |
 | --- | --- | --- | --- |
 | Workflows | Scheduled or trigger workflows, editor | **Built.** Prose brief + trigger + allowed tools. Each run is a full agent loop. | No compiled step graph. `steps` is always `null`. |
-| Code mode | Not present | **Absent.** Read-only passthrough (rung a) is built and default-off. | Everything. The owner's write scope conflicts with ADR-0087. |
+| Code mode | Not present | **Built** as the chat read path (ADR-0124): `system.code_run` runs read-only scripts, on by default. Writes stay direct calls. | Writes through code (ADR-0116) are still open. |
 | Context graph | Zep graph per user; see section 10 | **Partial.** Two graph substrates. Objects do not join people, threads, or todos. | The join. This is the same gap as the open-loop hypothesis. |
 | PA voice, past briefings | Composes from prior briefing bodies | **Built.** `list_prior_briefings` + voice prompt + `sanitizeVoice`. | Quality, not mechanism. |
 | Zep-like memory | Used for relationship context; not the source of continuity (section 10) | **Partial.** Valid-time facts with a supersession chain. pgvector chunks. | Chat capture is off by default. |
-| Code execution, review | **Not present.** Only "PRs that wait for you". | **Absent.** Research done. | All. This is a differentiator, not parity. |
+| Code execution, review | **Not present.** Only "PRs that wait for you". | **Partly.** Sandbox read execution is built (`system.code_run`, §3). The delegated-agent runner and the review lane are not built. | The runner and the review lane. This is a differentiator, not parity. |
 | Browser | Not recorded | **Absent** | All. |
 
 ---
@@ -50,13 +50,17 @@ Triggers: `cron`, `manual`, `event` (Gmail `message_received`, and `{type:"raw",
 
 ## 3. Code mode and permissions
 
-**Built.** Only ADR-0074 rung (a): read-only `<integration>.request` passthrough tools for 10 integrations, behind the default-off `feature.passthrough.<slug>` preference (`assistant/src/tool-runtime/internal/registry.ts:61`). A method gate allows GET/HEAD and allowlisted POST reads (`tools/passthrough/gate.ts:16`).
+**Built: the read path (ADR-0124).** Chat reads through one tool, `system.code_run` (`assistant/src/tool-runtime/internal/tools/code-run.ts`). Each call runs one read-only guest script whose host functions are the registered `codeModeRead` tools plus `mcp.read` (`code-mode/host-bindings.ts`), and each host read is a nested dispatch, so the gate, the staging row, and the span stay in dispatch. MCP reads enter through `mcp.read(ref, args)`. A later script reads a stored result with `system.load_result` (ADR-0130 decision 5). The read path is **on by default** (amendment 2026-11-19); the only off switch is the hidden per-user preference `feature.internal.code_mode_read_path` (`contracts/src/integration-availability.ts:50-58`), and the run pins the route once (`chat/chat-turn.ts:368`).
 
-**Not built.** ADR-0087 (object handles, `isolated-vm`, host functions with no network). No package or source file uses `isolated-vm` or QuickJS. The feasibility study (`docs/research/code-mode-sandbox-feasibility.md`) gives GO for `isolated-vm@6.1.2` in a forked worker. It also finds that Railway cannot block the network at the OS level, so the only boundary is app-level.
+**The sandbox substrate.** The engine is the npm package `run@2.1.13`, pinned exact in `pnpm-workspace.yaml`: QuickJS in WebAssembly in a worker thread, no runtime dependencies, no network, no credentials. The ADR-0087-era plan was `isolated-vm` in a forked worker (`docs/research/code-mode-sandbox-feasibility.md`), and no package uses `isolated-vm`; the `run` package took that slot. Limits: 90 s wall, 10 s CPU, 64 MiB memory, 256 host calls, a result byte cap, and 8 concurrent host reads. The probe at `apps/server/src/scripts/probes/probe-code-mode-sandbox.ts` holds the two open-verification items of the object-handles plan.
+
+**The legacy rung (a) remains, narrowed.** The read-only `<integration>.request` passthrough tools stay behind the default-off `feature.passthrough.<slug>` preference (`assistant/src/tool-runtime/internal/registry.ts:61`), with the GET/HEAD gate (`tools/passthrough/gate.ts:16`). Vercel is the only passthrough provider: ADR-0125 (2026-11-12) deleted the GitHub passthrough and ADR-0126 (2026-11-13) the six Google ones. ADR-0124's route table supersedes it for chat reads.
+
+**Not built: writes through code.** ADR-0116 stays Proposed. `mcp.call` is not a `codeModeRead` tool, the model writes directly as `integration.action` or through `mcp.call`, and only direct calls show an approval card (`execution/connected-summary.ts:37`).
 
 **How approval works today.** `requiresApproval = policyMode === "gated" || riskTier === "high"` (`tool-runtime/approval-rule.ts:17`, called from `tool-runtime/internal/dispatch/pipeline.ts:706`). The policy mode is per tool or per integration, from `user_action_policies` (`assistant/src/action-policies/resolve.ts:69-117`). The default is `gated`.
 
-**Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. ADR-0116 (proposed) records the write scope: writes are host calls through dispatch, planned before they apply, under the ADR-0115 record. The set of write capabilities is not decided yet. The user can turn on some of them in settings.
+**Owner decision (2026-10-22): code mode can write.** This supersedes the read-only scope of ADR-0087, which designs code mode as read-only and network-less for custody reasons. ADR-0116 (proposed) records the write scope: writes are host calls through dispatch, planned before they apply, under the ADR-0115 record. ADR-0116 names the v1 write scope `code.todos` (`todos.dismiss`, `todos.suggest`); writes are not built. The user can turn some capabilities on in settings.
 
 **The owner's permission example is a new axis.** Today, permission is per tool. The owner's example ("the agent may delete what it created") is per record: it depends on who made the record. The provenance data exists: `todos.created_by` (`user|agent`), `agent_run_id`, and the `todo_events` actor, authority, and run for each change (ADR-0115 slice 1). No rule reads it. `system.resolve_todo` is `no_risk` and does not check `createdBy` (`assistant/src/tasks/resolve.ts:196`). A provenance rule is small and can come before code mode. ADR-0115 stores the provenance for each change, and ADR-0116 rule 4 reads it for Code Mode writes.
 

@@ -143,7 +143,7 @@ The owner reads the journal and the remark records in the database. A script pri
 | Past chats are searchable | Settled | Not built | Chat messages have no embeddings, and context search does not read them. |
 | Journal entries with links and lookouts | Settled | Not built | No store exists. |
 | Write from capture, from a chat tool, and from the pass | Settled | Not built | Chat capture discards its output (memory.md section 8). |
-| Pre-briefing pass | Settled | Not built | No step runs before the gather. It needs Code Mode (ADR-0124, #535). |
+| Pre-briefing pass | Settled | Not built | No step runs before the gather. It reads through Code Mode (ADR-0124), which is built; the pass itself is not built (#535). |
 | Chat-time recall | Settled | Not built | Depends on searchable chats. |
 | Remark records, in the briefing and the next chat, and the handling of the reply | Settled | Not built | Chat cannot read briefings today. |
 | Back-test, the recall-miss signal, and the weekly report | Settled | Not built | |
