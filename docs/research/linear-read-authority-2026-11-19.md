@@ -293,5 +293,6 @@ The probe used two temporary OAuth clients with the owner's consent. They read o
 - The 401 challenge of `/mcp/readonly` asks for `scope="read write"`, but the consent with the ask `read` granted only `read`. [F]
 - The `read` token gets `401 invalid_token` on `/mcp`. [F]
 - A grant with the ask `read write` and the resource `/mcp` (Alfred's grant today) opens both endpoints: 70 tools on `/mcp` and 38 on `/mcp/readonly`. `list_teams` works on both. [F]
+- Linear's docs do not say that one token serves both paths. They give two read-only options: `/mcp/readonly`, or the scope `read` on `/mcp` (https://linear.app/docs/mcp, read 2026-11-21). [F] The `401` above came from a token asked for with the resource `/mcp/readonly`. So the probe shows a fact of one day, not a contract. [I]
 
 This closes open question 1 of section 8. The owner's answers to the design questions are in ADR-0130 amendment (h).
