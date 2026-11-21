@@ -8,6 +8,9 @@ const MIN_VISIBLE_MS = 400;
 /** Matches the tenths the sub-10s format shows. */
 const TICK_MS = 100;
 
+/** Whole-second formats only move each second, so past 10s a 1 Hz tick keeps the same display. */
+const SLOW_TICK_MS = 1000;
+
 /**
  * A duration that counts up while running and freezes when done.
  * Ticks on its own interval: the stream's frame loop parks when text catches up.
@@ -35,14 +38,18 @@ export function Elapsed({
     if (running && prevEndedTs !== null) setNow((n) => Math.max(n, prevEndedTs));
   }
 
+  const elapsed = Math.max(0, (endedTs ?? now) - startedTs);
+
+  // Tenths under 10s need the 10 Hz tick; past 10s the format shows whole seconds,
+  // which only move each second, so the chip re-renders 10x less on long runs.
+  const slow = elapsed >= 10_000;
+
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setNow(Date.now()), TICK_MS);
+    const id = setInterval(() => setNow(Date.now()), slow ? SLOW_TICK_MS : TICK_MS);
 
     return () => clearInterval(id);
-  }, [running]);
-
-  const elapsed = Math.max(0, (endedTs ?? now) - startedTs);
+  }, [running, slow]);
 
   if (elapsed < MIN_VISIBLE_MS) return null;
 
