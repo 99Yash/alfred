@@ -23,14 +23,6 @@ import {
 import type { Observations } from "@alfred/assistant/triage/observations";
 import { generateText, Output } from "ai";
 
-const clickUpSenderKind = {
-  kind: "service" as const,
-  confidence: 0.92,
-  evidenceCodes: ["email:local:service_strong"],
-  entityId: "ent_clickup",
-  displayName: "Oliv AI",
-};
-
 const baseObs = (over: Partial<Observations> = {}): Observations => ({
   persona: "work",
   thread: {
@@ -39,10 +31,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
     messageCount: 0,
     recentMessages: [],
   },
-  knownContact: false,
-  senderRelationship: null,
-  senderRelationshipIsCold: false,
-  senderKind: clickUpSenderKind,
+
   standingInstructions: null,
   userContext: null,
   userContextReadFailed: false,
@@ -222,7 +211,7 @@ async function main() {
         timezone: DEFAULT_USER_TIMEZONE,
         mailboxByAccountId: new Map(),
         userAddresses: new Set(),
-        knownContacts: new Set(),
+        correspondentHistory: new Map(),
         ownReplies: [],
       },
     );

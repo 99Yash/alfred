@@ -54,6 +54,8 @@ const RECRUITER_IN_SPAM: Scenario = {
       threadId: "thr_recruiter",
       from: "Priya N. <priya@talent.acme-example.com>",
       subject: "Re: Backend Engineer application: next step",
+      correspondentHistory:
+        "stored mail since 2026-09-05: you sent 1, last 2026-11-06; they sent 0",
       snippet:
         "Hi Yash, thanks for applying to the Backend Engineer role. The team liked your profile. The next step is a short take-home task; please send it back by Friday 6 pm IST, or tell me if you need more time. Best, Priya",
       triageCategory: null,
@@ -75,6 +77,7 @@ const SIGN_INVITE_IN_SPAM: Scenario = {
       documentId: "doc_sign_invite",
       threadId: "thr_sign_invite",
       from: "H. Blake <h.blake@studio-example.com>",
+      correspondentHistory: "stored mail since 2026-09-05: you sent 0; they sent 0",
       subject:
         "Invitation: Studio Project Collaboration @ Tue Nov 10, 2026 4pm - 5pm (EDT) (H. Blake)",
       snippet:

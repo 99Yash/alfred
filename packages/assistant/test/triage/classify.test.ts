@@ -46,10 +46,6 @@ function observations(overrides: Partial<Observations> = {}): Observations {
   return {
     persona: null,
     thread: { lastUserReplyAt: null, newestDirection: null, messageCount: 0, recentMessages: [] },
-    knownContact: false,
-    senderRelationship: null,
-    senderRelationshipIsCold: false,
-    senderKind: null,
     standingInstructions: null,
     userContext: null,
     userContextReadFailed: false,
@@ -88,7 +84,7 @@ function factsFor(document: ClassifyEmailArgs["document"]): MailFacts {
       timezone: parseIanaTimezone("UTC"),
       mailboxByAccountId: new Map(),
       userAddresses: new Set(),
-      knownContacts: new Set(),
+      correspondentHistory: new Map(),
       ownReplies: [],
     },
   );

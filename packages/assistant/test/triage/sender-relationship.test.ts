@@ -2,15 +2,12 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  NON_HUMAN_RELATIONSHIP,
-  RELATIONSHIP_READ_FAILED,
   isColdContactFromSignals,
   type SenderSignificanceBucket,
 } from "@alfred/assistant/triage/sender-relationship";
 
 // ---------------------------------------------------------------------------
-// isColdContactFromSignals (rule 16b). Consumers inject `isColdContact`, so only
-// this table tests the derivation.
+// The legacy proactive draft gate uses this calculation.
 // ---------------------------------------------------------------------------
 
 describe("isColdContactFromSignals", () => {
@@ -59,19 +56,4 @@ describe("isColdContactFromSignals", () => {
       );
     });
   }
-});
-
-// ---------------------------------------------------------------------------
-// Degrade constants. A failed read is not cold, so a DB blip cannot drop a real todo.
-// A successful read with no history is cold (`NO_PRIOR_CONTACT`).
-// ---------------------------------------------------------------------------
-
-describe("relationship degrade constants", () => {
-  test("read-failed keeps the todo (isColdContact false, no descriptor)", () => {
-    assert.deepEqual(RELATIONSHIP_READ_FAILED, { descriptor: null, isColdContact: false });
-  });
-
-  test("non-human sender carries no person-waiting stake (isColdContact false)", () => {
-    assert.deepEqual(NON_HUMAN_RELATIONSHIP, { descriptor: null, isColdContact: false });
-  });
 });

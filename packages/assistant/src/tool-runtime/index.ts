@@ -8,6 +8,7 @@ import type {
   ActivateWorkflowInput,
   AttributionActor,
   CancellationFence,
+  CorrespondentHistory,
   ChatConnectNudge,
   IanaTimezone,
   IntegrationAvailabilitySnapshot,
@@ -569,21 +570,7 @@ export interface ReadUserContextResult {
     readonly confidence: number;
   }[];
   readonly preferences: readonly { readonly key: string; readonly value: unknown }[];
-  readonly entities: readonly {
-    readonly id: string;
-    readonly kind: string;
-    readonly canonicalName: string;
-    readonly aliases: unknown;
-    readonly metadata: unknown;
-  }[];
-  readonly relations: readonly {
-    readonly relation: string;
-    readonly fromEntityId: string;
-    readonly from: string | null;
-    readonly toEntityId: string;
-    readonly to: string | null;
-    readonly metadata: unknown;
-  }[];
+  readonly people: readonly CorrespondentHistory[];
   readonly recentMemory: readonly { readonly kind: string; readonly preview: string }[];
 }
 

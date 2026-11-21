@@ -40,7 +40,7 @@ interface TestState {
   marker: string;
 }
 
-function traceFixture(senderRelationship: string): SenderExtractionEvent {
+function traceFixture(senderCorrespondentHistory: string): SenderExtractionEvent {
   return {
     fromKind: "unknown",
     bodyActor: null,
@@ -50,12 +50,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderAddress: null,
     senderDomain: null,
     persona: null,
-    knownContact: false,
-    senderRelationship,
-    senderKind: null,
-    senderKindConfidence: null,
-    senderKindEvidenceCodes: [],
-    senderKindDemotedPersonTreatment: false,
+    senderCorrespondentHistory,
     standingDemotedCategory: false,
     standingFloorOutcome: null,
     standingEffects: [],
@@ -228,12 +223,12 @@ describe("commit sanitizes executor jsonb sinks (DB-backed)", { skip: SKIP }, ()
     assert.ok(defaultTrace, "default trace row exists");
     assert.ok(secondaryTrace, "secondary trace row exists");
     assert.equal(
-      getPath(defaultTrace.trace, "senderRelationship"),
+      getPath(defaultTrace.trace, "senderCorrespondentHistory"),
       "relpoison",
       "NUL stripped from the trace jsonb",
     );
     assert.equal(
-      getPath(secondaryTrace.trace, "senderRelationship"),
+      getPath(secondaryTrace.trace, "senderCorrespondentHistory"),
       "secondarypoison",
       "lone surrogate stripped from the keyed trace jsonb",
     );

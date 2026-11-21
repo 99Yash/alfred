@@ -2,7 +2,6 @@ import type { AccountPersona } from "@alfred/contracts";
 // Top-level `import type`: an inline `{ type X }` survives as a side-effect import
 // and loads the whole knowledge barrel at runtime.
 import type { MailStandingInstructions, UserContextLine } from "../knowledge";
-import type { TriageSenderKindSignal } from "./sender-kind";
 import type { ThreadState } from "./thread-state";
 
 /**
@@ -118,13 +117,6 @@ export interface Observations {
   /** Null until detected on the credential. */
   persona: AccountPersona | null;
   thread: ThreadState;
-  knownContact: boolean;
-  /** Rendered relationship line for a human sender (ADR-0059); null for non-humans. */
-  senderRelationship: string | null;
-  /** Typed twin of `senderRelationship` for the cold-sender todo gate (rule 16b). */
-  senderRelationshipIsCold: boolean;
-  /** The projection says this sender is a non-person. Null means no opinion, not "person". */
-  senderKind: TriageSenderKindSignal | null;
   /**
    * The user's standing instructions for this mail (ADR-0113): the target hits that code
    * decided, and the scoped candidates for the model. Not rendered as a hint; the scoped
@@ -143,12 +135,6 @@ export interface Observations {
 export interface AssembleObservationsArgs {
   persona: AccountPersona | null;
   thread: ThreadState;
-  knownContact: boolean;
-  senderRelationship: string | null;
-  // The optional fields below default so evals and smokes can skip them;
-  // `gatherObservations` always passes them.
-  senderRelationshipIsCold?: boolean;
-  senderKind: TriageSenderKindSignal | null;
   standingInstructions?: MailStandingInstructions | null | undefined;
   /** Not capped here; `classify.ts` caps it at render. */
   userContext?: UserContextLine | null | undefined;
@@ -163,10 +149,6 @@ export function assembleObservations(args: AssembleObservationsArgs): Observatio
   return {
     persona: args.persona,
     thread: args.thread,
-    knownContact: args.knownContact,
-    senderRelationship: args.senderRelationship,
-    senderRelationshipIsCold: args.senderRelationshipIsCold ?? false,
-    senderKind: args.senderKind,
     standingInstructions: args.standingInstructions ?? null,
     userContext: args.userContext ?? null,
     userContextReadFailed: args.userContextReadFailed ?? false,

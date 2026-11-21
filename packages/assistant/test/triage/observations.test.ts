@@ -144,16 +144,7 @@ describe("assembleObservations", () => {
     const obs = assembleObservations({
       persona: "work",
       thread,
-      knownContact: false,
-      senderRelationship: "weak · one-way inbound (you never replied)",
-      senderRelationshipIsCold: true,
-      senderKind: {
-        kind: "group",
-        confidence: 0.99,
-        evidenceCodes: ["gmail:list_id"],
-        entityId: "ent_group",
-        displayName: "Engineering",
-      },
+
       labelIds: ["INBOX", "CATEGORY_UPDATES"],
       signalText: "Your invoice for $42.00 is ready. Unsubscribe",
     });
@@ -161,16 +152,7 @@ describe("assembleObservations", () => {
     assert.deepEqual(obs, {
       persona: "work",
       thread,
-      knownContact: false,
-      senderRelationship: "weak · one-way inbound (you never replied)",
-      senderRelationshipIsCold: true,
-      senderKind: {
-        kind: "group",
-        confidence: 0.99,
-        evidenceCodes: ["gmail:list_id"],
-        entityId: "ent_group",
-        displayName: "Engineering",
-      },
+
       standingInstructions: null,
       userContext: null,
       userContextReadFailed: false,
@@ -197,17 +179,11 @@ describe("assembleObservations", () => {
     const obs = assembleObservations({
       persona: null,
       thread,
-      knownContact: true,
-      senderRelationship: null,
-      senderKind: null,
+
       labelIds: [],
       signalText: "hey, quick question",
     });
 
     assert.equal(obs.persona, null);
-    assert.equal(obs.knownContact, true);
-    assert.equal(obs.senderRelationship, null);
-    assert.equal(obs.senderRelationshipIsCold, false);
-    assert.equal(obs.senderKind, null);
   });
 });

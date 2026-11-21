@@ -4,11 +4,9 @@ Terminology: see [`glossary.md`](./glossary.md).
 
 **Epic:** #218 (evolving user-model spine). **Design:** [user-model-p1-gmail-shadow.md](../plans/user-model-p1-gmail-shadow.md) / ADR-0067.
 
-This runbook operationalizes the **first manual activation** of the ADR-0067
-Gmail kind projection — the first activated projection-backed read model. It is
-the keystone that turns on work that is already shipped but **dormant**: the
-triage consumer (`resolveSenderKind`, PR I) is a no-op until a projection is
-activated for the user.
+This runbook gives the manual activation steps for the ADR-0067 Gmail kind projection.
+ADR-0127 moves triage and other direct readers to mail history. The automatic draft gate
+still uses the projection and the old graph until the owner settles draft eligibility.
 
 ## What activation does (and does not do)
 
@@ -17,8 +15,8 @@ projection run. Once active:
 
 - `userModelReader(userId).getProfileByIdentity(...)` returns the folded
   `entity_profiles` for that user.
-- Triage's `resolveSenderKind` reads those profiles and **demotes person
-  treatment for confident `group`/`service` senders only** (kind in
+- `resolveSenderKind` reads those profiles for the legacy automatic draft gate. It
+  reports only confident `group` or `service` senders (kind in
   `{group, service}` AND `confidence >= 0.8` — `TRIAGE_SENDER_KIND_CONFIDENCE_THRESHOLD`).
 
 It deliberately does **not**:
@@ -144,8 +142,7 @@ pointer. Query the committed run's `entity_profiles` (via `railway ssh` + a smal
 
 ## Step 5 — Activate (on explicit go-ahead)
 
-> **Requires the user's go-ahead.** This is the go-live: it changes triage
-> behavior for real inbound mail.
+> **Requires the user's go-ahead.** Activation can change automatic draft eligibility for real mail.
 
 ```bash
 node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committed.js \
@@ -159,12 +156,9 @@ node apps/server/dist/scripts/backfills/project-user-model-gmail-shadow-committe
 
 ## Step 6 — Post-activation verification
 
-- On the next triage of a distribution-list/service email from the activated
-  user, the decision trace carries the sender-kind demotion breadcrumb
-  (`senderKind`, `senderKindConfidence`, `senderKindDemotedPersonTreatment=true`,
-  `knownContact=false`) — see `senderExtractionEvent`.
-- Confirm no _person_ sender lost treatment (the demotion is subtractive and
-  gated at `confidence >= 0.8`, so this should not happen; verify anyway).
+- Confirm that an exact address read returns the expected profile for the active version.
+- Confirm that `senderRelationshipIsCold` is present in the triage snapshot that feeds the
+  automatic draft gate. Triage classification reads mail history.
 
 ## Rollback / de-activation
 
@@ -219,6 +213,7 @@ from Step 2; never re-run a completed version.
 - Consumer: `packages/assistant/src/triage/sender-kind.ts` — the reader call site.
   Its former demotion floor left with the theory prompt (triage-theory-v1 slice 3); the
   judgment is prompt evidence now.
+- Legacy draft gate input: `packages/assistant/src/triage/sender-relationship.ts`.
 - Scheduled re-fold + frozen-logic gate (PR J): `packages/assistant/src/knowledge/refold.ts`
   (sweep registered in `packages/assistant/src/connections/ingestion/worker.ts`,
   not in `packages/assistant/src/knowledge/worker.ts`).

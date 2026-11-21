@@ -86,7 +86,7 @@ function deckMailFacts(c: DeckCase, mail: DeckMail, index: number): MailFacts {
     authoredAt: new Date(mail.authoredAt),
     labelIds: mail.labelIds,
     headers: mail.headers,
-    knownContact: mail.knownContact,
+    history: mail.history,
     ownReplies: mail.ownReplies?.map((reply) => ({ at: new Date(reply.at), text: reply.text })),
   });
 }
@@ -111,16 +111,6 @@ function argsFor(
         snippet: message.snippet,
       })),
     },
-    knownContact: mail.knownContact ?? false,
-    senderRelationship: mail.senderRelationship ?? null,
-    senderKind: mail.senderKind
-      ? {
-          ...mail.senderKind,
-          evidenceCodes: [...mail.senderKind.evidenceCodes],
-          entityId: `ent_${c.label}`,
-          displayName: mail.from,
-        }
-      : null,
     standingInstructions: INSTRUCTIONS.forMail({ sender: mail.from, accountId: null }),
     userContext: USER_CONTEXT,
     labelIds: mailFacts.labelIds,

@@ -26,6 +26,7 @@ import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import type { MailFacts, MailRecipient } from "../knowledge";
+import { describeCorrespondentHistory } from "../knowledge";
 import {
   TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
   TRIAGE_MAX_OUTPUT_TOKENS,
@@ -243,9 +244,7 @@ How to weigh the evidence. The evidence has no fixed rank. These principles deci
 
 The evidence lines in the block below:
 
-- From, To, and Cc mark Yash's own addresses with (you) and known contacts with (known contact). A direct ask from a person Yash corresponds with is more likely a real reply.
-- Sender relationship describes the correspondence history with this sender: significance, reciprocity, and what either side is. "No prior contact on record" is a cold sender. reply needs a real person waiting on Yash — someone he corresponds with, or a known contact. Outbound, automated, or bulk cold mail stays quiet, however direct its ask reads.
-- Sender kind names a confident non-person classification for the address (a group mailbox or an automated sender) when one exists. Its absence means no opinion. Never infer a person from a display name.
+- Correspondent history beside a mailbox states the stored mail window with sent and received counts. A zero count covers only the stored window; it does not mean the addresses never exchanged mail. Judge the current mail from its own ask, stakes, and who owns the work. An earlier exchange can back a direct ask (ADR-0127).
 - Account persona frames what urgent and action mean for this account.
 - Gmail signals (categories, important, starred) are Gmail's own priors. Weigh them when they agree with the mail.
 - Content flags are cheap tells: unsubscribe, currency, security, calendar, investor notice, public event. They focus attention; they do not decide.
@@ -330,22 +329,6 @@ function renderObservations(obs: Observations): string {
 
   lines.push(`Account persona: ${obs.persona ?? "unknown"}`);
 
-  lines.push(`Known contact: ${obs.knownContact ? "yes" : "no"}`);
-
-  if (obs.senderRelationship) {
-    lines.push(`Sender relationship: ${obs.senderRelationship}`);
-  }
-
-  if (obs.senderKind) {
-    const evidence = obs.senderKind.evidenceCodes.length
-      ? `; evidence=${obs.senderKind.evidenceCodes.join(",")}`
-      : "";
-
-    lines.push(
-      `Sender kind: ${obs.senderKind.kind} (active projection confidence=${obs.senderKind.confidence.toFixed(2)}${evidence})`,
-    );
-  }
-
   const g = obs.gmail;
   lines.push(
     `Gmail signals: categories=[${g.categories.join(", ")}]; important=${g.important}; starred=${g.starred}; inbox=${g.inInbox}; spam=${g.spam}; trash=${g.trash}`,
@@ -365,20 +348,16 @@ function mailboxText(address: string, displayName: string | null): string {
   return displayName ? `${displayName} <${address}>` : address;
 }
 
-function recipientLine(label: string, list: readonly MailRecipient[] | null): string[] {
+function recipientLine(
+  label: string,
+  list: readonly MailRecipient[] | null,
+  withHistory: (recipient: MailRecipient) => string,
+): string[] {
   if (list === null) return [];
 
   if (list.length === 0) return [`${label}: (empty)`];
 
-  const entries = list.map((r) => {
-    const mailbox = mailboxText(r.address, r.displayName);
-
-    if (r.isUser) return `${mailbox} (you)`;
-
-    return r.knownContact ? `${mailbox} (known contact)` : mailbox;
-  });
-
-  return [`${label}: ${entries.join(", ")}`];
+  return [`${label}: ${list.map(withHistory).join(", ")}`];
 }
 
 /**
@@ -386,13 +365,25 @@ function recipientLine(label: string, list: readonly MailRecipient[] | null): st
  * authentication results nor the user's own replies (slice 3 decides those).
  */
 export function triageEmailHeaderLines(facts: MailFacts): string[] {
-  const { sender, stated } = facts;
+  const { arrivedAt, sender, stated } = facts;
+  const shown = new Set<string>();
+
+  const withHistory = ({ address, displayName, history, isUser }: MailRecipient): string => {
+    const mailbox = mailboxText(address, displayName);
+
+    if (isUser) return `${mailbox} (you)`;
+
+    if (!history || !arrivedAt || shown.has(address)) return mailbox;
+    shown.add(address);
+
+    return `${mailbox} (${describeCorrespondentHistory(history, arrivedAt.timezone)})`;
+  };
 
   return [
-    ...(sender.address ? [`From: ${mailboxText(sender.address, sender.displayName)}`] : []),
+    ...(sender.address ? [`From: ${withHistory({ ...sender, address: sender.address })}`] : []),
     ...(facts.replyTo ? [`Reply-To: ${facts.replyTo}`] : []),
-    ...recipientLine("To", facts.to),
-    ...recipientLine("Cc", facts.cc),
+    ...recipientLine("To", facts.to, withHistory),
+    ...recipientLine("Cc", facts.cc, withHistory),
     ...(facts.receivedBy ? [`Received by: your account ${facts.receivedBy}`] : []),
     // `Date`, because the prompt rules name "the email's Date". It carries the year.
     ...(facts.arrivedAt

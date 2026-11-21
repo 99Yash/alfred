@@ -9,7 +9,7 @@ import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { readUserContext } from "@alfred/assistant/knowledge";
+import { describeCorrespondentHistory, readUserContext } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
 import { getThreadState } from "@alfred/assistant/triage";
@@ -26,7 +26,6 @@ export const replyGatherSchema = z.object({
   authoredAt: z.string().nullable(),
   mailboxAddress: z.string().nullable(),
   audience: z.literal("generic"),
-  relationship: z.string(),
   now: z.string(),
   timezone: ianaTimezoneSchema,
   localDate: z.string(),
@@ -55,7 +54,6 @@ export async function gatherReplyContext(args: {
   document: NonNullable<Awaited<ReturnType<typeof loadReplyDocument>>>;
   sender: string | null;
   mailboxAddress: string | null;
-  relationship: string;
 }): Promise<ReplyGather> {
   const { document } = args;
 
@@ -69,7 +67,9 @@ export async function gatherReplyContext(args: {
   const [userContext, timezone, thread] = await Promise.all([
     readUserContext(args.userId, {
       subjectEmail: args.sender ?? undefined,
-      include: ["profile", "facts", "preferences", "entities", "relationships"],
+      include: args.sender
+        ? ["profile", "facts", "preferences", "people"]
+        : ["profile", "facts", "preferences"],
       settings: userSettings,
     }),
     userSettings.timezone(),
@@ -82,6 +82,14 @@ export async function gatherReplyContext(args: {
   ]);
 
   const now = new Date();
+  const { people, ...ownerContext } = userContext;
+
+  const history = people.map(
+    (person) =>
+      `Mail history for ${person.address}: ${describeCorrespondentHistory(person, timezone)}`,
+  );
+
+  const roomForOwnerContext = SOURCE_MAX_CHARS - history.join("\n").length;
 
   const body = extractGmailDocumentBody(document.content, {
     from: document.metadata.from,
@@ -100,7 +108,6 @@ export async function gatherReplyContext(args: {
     authoredAt: document.authoredAt?.toISOString() ?? null,
     mailboxAddress: args.mailboxAddress,
     audience: "generic",
-    relationship: args.relationship,
     now: now.toISOString(),
     timezone,
     localDate: inZone(timezone).day(now),
@@ -139,7 +146,7 @@ export async function gatherReplyContext(args: {
         kind: "user_context",
         ref: args.userId,
         status: "resolved",
-        facts: [JSON.stringify(userContext).slice(0, SOURCE_MAX_CHARS)],
+        facts: [...history, JSON.stringify(ownerContext).slice(0, roomForOwnerContext)],
       },
     ],
   } satisfies ReplyGather);
