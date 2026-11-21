@@ -70,9 +70,9 @@ export function HeroAtmosphere({
             style={{ opacity: cloudShadow }}
           />
 
-          {/* Rainbow lens flare at screen blend (dimension's hero/sun-halo.png). */}
+          {/* Rainbow lens flare at screen blend (dimension's hero/sun-halo.avif). */}
           <img
-            src="/images/landing/sun-halo.png"
+            src="/images/landing/sun-halo.avif"
             alt=""
             aria-hidden
             className="pointer-events-none absolute inset-0 size-full object-cover object-top-left mix-blend-screen transition-opacity duration-500 select-none"
