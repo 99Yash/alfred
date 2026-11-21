@@ -62,6 +62,11 @@ export interface RunBriefingAgentArgs {
    */
   officialWarnings?: BriefingGather["official_warnings"];
   /**
+   * The gather's weather read. `null`: the gather could not read it, and its statement says why.
+   * Absent on a run that gathered before this field; `list_weather` then returns `not_recorded`.
+   */
+  weather?: BriefingGather["weather"] | undefined;
+  /**
    * Connections the user must repair. The composer writes one notice per connection; the email
    * renders each notice with its repair link below the body.
    */
@@ -126,8 +131,9 @@ interface ComposerRead {
 /**
  * The inputs that the composer reads through its tools, and so the inputs that get a composer
  * fact. Warnings reach it as seed facts (`officialWarningFacts`) and through
- * `list_official_warnings`, so a warnings `fallback` (the default city) is a fact, while the same
- * weather `fallback` is a log line only: weather does not reach the composer. The activity record
+ * `list_official_warnings`, so a warnings `fallback` (the default city) is a fact, and the same
+ * weather `fallback` is a fact too, because the gather's weather read reaches the composer
+ * through `list_weather`. The activity record
  * reaches it through `list_activity` (ADR-0118 slice 3), so a gap in the record is a fact. The
  * verified pull is a separate input, `deploy_status`: `list_activity` never returns its items, and
  * `get_day_shape` counts them in `activityVolume`. So a failed pull names `get_day_shape`, whose
@@ -137,6 +143,7 @@ interface ComposerRead {
 const COMPOSER_READS = {
   email: { tool: "list_emails_since", hides: "your new email" },
   calendar: { tool: "list_calendar_events", hides: "your meetings" },
+  weather: { tool: "list_weather", hides: "the weather for your day" },
   github_merged: { tool: "get_day_shape", hides: "the work that merged on GitHub" },
   loops: {
     tool: "list_loops",
@@ -154,7 +161,6 @@ const COMPOSER_READS = {
     tool: "get_day_shape",
     hides: "the status of your deploys, and how active the day was",
   },
-  weather: null,
 } as const satisfies Record<GatherInput, ComposerRead | null>;
 
 type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
@@ -309,6 +315,7 @@ export async function runBriefingAgent(
     dayShape: args.dayShape,
     calendar: args.calendar,
     officialWarnings: args.officialWarnings,
+    weather: args.weather,
   });
 
   const seed: ModelMessage[] = [

@@ -22,6 +22,7 @@ import {
   type DayShape,
   type IanaTimezone,
   type OfficialWarning,
+  type WeatherContribution,
 } from "@alfred/contracts";
 import { ACTIVITY_SOURCE_SLUGS, type ActivityWindow } from "@alfred/assistant/connections";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
@@ -96,6 +97,11 @@ interface BuildArgs {
    * gives each of the three states its own tool result.
    */
   officialWarnings?: BriefingGather["official_warnings"];
+  /**
+   * The gather's weather read. `null`: the gather could not read it, and its statement says why.
+   * Absent on a run that gathered before this field; the tool then returns `not_recorded`.
+   */
+  weather?: BriefingGather["weather"] | undefined;
 }
 
 /**
@@ -118,6 +124,26 @@ export function officialWarningsRead(
   if (warnings === null) return { status: "not_read" };
 
   return { status: "read", items: warnings.items };
+}
+
+/**
+ * The `list_weather` result: one status for each state of the gather's weather field. Only `read`
+ * holds a value, so no other state can look like a read that found conditions.
+ *
+ * - `read`: Alfred read the forecast for the briefing day. `weather` holds it.
+ * - `not_read`: the gather could not read it (`null`). Its provenance statement says why.
+ * - `not_recorded`: the run gathered before Alfred read weather (absent). Alfred does not know.
+ */
+type WeatherRead =
+  | { readonly status: "read"; readonly weather: WeatherContribution }
+  | { readonly status: "not_read" | "not_recorded" };
+
+function weatherRead(weather: BriefingGather["weather"] | undefined): WeatherRead {
+  if (weather === undefined) return { status: "not_recorded" };
+
+  if (weather === null) return { status: "not_read" };
+
+  return { status: "read", weather };
 }
 
 /** Most activity lines that one `list_activity` call returns. */
@@ -312,6 +338,7 @@ export type BriefingToolName =
   | "read_email"
   | "list_prior_briefings"
   | "list_calendar_events"
+  | "list_weather"
   | "list_official_warnings"
   | "get_day_shape"
   | "list_activity"
@@ -407,6 +434,13 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
       },
     }),
 
+    list_weather: tool({
+      description:
+        "The weather for the briefing day, from the forecast read that this briefing's gather made: { status, weather? }. weather holds the current conditions (temperatureC, apparentTemperatureC, description) and the day's forecast (highC, lowC, precipitationMm, description) for the place that the gather read — the user's place, or the default city for their time zone when the briefing request says so. Use it only where it touches something real in the briefing: rain against an outdoor plan, heat against a walk, the day's first cold morning. Say nothing when nothing in the day's story needs it; weather with nothing to attach to is filler. Never invent numbers, and never mention the weather from memory or a prior briefing: only this result. status 'not_read': the gather could not read it, and the briefing request says why; follow that fact. status 'not_recorded': this run has no record of a weather read, so you do not know the weather: do not mention it.",
+      inputSchema: z.object({}),
+      execute: async (): Promise<WeatherRead> => weatherRead(args.weather),
+    }),
+
     list_official_warnings: tool({
       description:
         "The full details of the official hazard warnings that the briefing request lists: a cyclone, flood, earthquake, volcano, or wildfire alert from GDACS, or a district warning from India's NDMA Sachet (IMD, CWC, or a state authority). The briefing request already gives each warning's issuer, event, severity, area, and time, so call this tool only for a headline or a link. Returns { status, items }. status 'read': Alfred read at least one feed, and items holds each warning whose area contains the place that the briefing request names, most severe first. A geometry or district match selected each one, not a model. An empty items list means that the feeds Alfred read had no warning for the place, not that no hazard exists: do not mention it. status 'not_read': Alfred read no feed, and the briefing request says why. status 'not_recorded': this run has no record of a warnings read, so you do not know whether a warning exists: do not mention warnings. Neither status has items, and neither means that no warning exists.",
@@ -417,7 +451,7 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
 
     get_day_shape: tool({
       description:
-        "Deterministic read of how active the day actually was: { activityVolume: 'busy'|'normal'|'quiet', shipped: [{title, url}], shippedTotal?: number }, computed from connected-tool activity (GitHub) over the briefing window. `shipped` holds the newest merges; `shippedTotal`, when present, is the full merge count for the window and can be larger than `shipped`. Use it to ground the day's tone — NEVER call the day 'quiet' or 'slow' when activityVolume is 'busy' or 'normal'. In the evening slot, `shipped` is the recently-completed work you can recap in one collapsed clause ('a batch of the X work shipped'); never enumerate it.",
+        "Deterministic read of how active the day actually was: { activityVolume: 'busy'|'normal'|'quiet', shipped: [{title, url}], shippedTotal?: number }, computed from connected-tool activity (GitHub) over the briefing window. `shipped` holds the newest merges; `shippedTotal`, when present, is the full merge count for the window and can be larger than `shipped`. Use it to ground the day's tone — NEVER call the day 'quiet' or 'slow' when activityVolume is 'busy' or 'normal'. `shipped` is the source of what merged: summarize it in your own words when the day's story carries it ('a batch of the X work shipped'), and name PR numbers only when one merge is itself the story.",
       inputSchema: z.object({}),
       execute: async (): Promise<DayShape> => {
         if (args.dayShape) {

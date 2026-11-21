@@ -120,6 +120,12 @@ export const dailyBriefingStateSchema = z.object({
    */
   officialWarnings: briefingGatherSchema.shape.official_warnings,
   /**
+   * The gathered weather read. Compose gives it to `list_weather`, so the value and the weather
+   * statement in `provenance` come from one read. `null`: the gather could not read it. Absent on
+   * a run persisted before this field; the tool then returns `not_recorded`.
+   */
+  weather: briefingGatherSchema.shape.weather.optional(),
+  /**
    * Connections whose delivery broke (ADR-0100 amendment 2026-10-28). Send renders one row for
    * each below the prose. Absent on a run persisted before this field; send then renders none.
    */
@@ -336,6 +342,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       dayShape: gather.day_shape,
       calendar: gather.calendar,
       officialWarnings: gather.official_warnings,
+      weather: gather.weather,
       brokenConnections: gather.broken_connections ?? [],
       brokenMcpConnections: gather.broken_mcp_connections ?? [],
       provenance: gather.provenance ?? [],
@@ -424,6 +431,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         dayShape: ctx.state.dayShape,
         calendar: ctx.state.calendar,
         officialWarnings: ctx.state.officialWarnings,
+        weather: ctx.state.weather,
         brokenConnections,
         provenance,
         openAskViolations,

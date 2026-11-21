@@ -294,7 +294,7 @@ Roots: `WEB` = `-dimension-ai-web`, `AI` = `-dimension-ai-ai`.
 
 **Verdict.** Dimension had no "work item". Its open work was "one item for each source object, closed by that object's events". Alfred already has a stronger form of that model: object state (ADR-0062), evidence closure (ADR-0103, ADR-0109), and the referent (ADR-0092) that joins many messages on one real thing. The proposal for a separate work-item table is withdrawn. The real gaps are: one message about many referents, each with a person; the classifier `about` field (ADR-0092 D1), which is not built; and the notetaker input (10b).
 
-**Owner decision (2026-10-21).** "Briefings can tell anything that helps build a coherent narrative. The order is left to the agent." This removes the content bans in `prompt.ts:54` (drop completed work, never list merged PRs). Code still supplies the facts (closure, counts, streaks). The model selects and orders them. The prompt is not changed yet.
+**Owner decision (2026-10-21).** "Briefings can tell anything that helps build a coherent narrative. The order is left to the agent." This removes the content bans in `prompt.ts:54` (drop completed work, never list merged PRs). Code still supplies the facts (closure, counts, streaks). The model selects and orders them. The prompt now carries it: the composer's rank 4 states the rule, and the `get_day_shape` description matches it.
 
 ---
 
