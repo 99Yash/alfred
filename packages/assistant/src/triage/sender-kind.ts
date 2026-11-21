@@ -22,7 +22,7 @@ type TriageDemotingEntityKind = (typeof TRIAGE_DEMOTING_ENTITY_KINDS)[number];
 
 const TRIAGE_DEMOTING_ENTITY_KIND_SET = new Set<EntityNodeKind>(TRIAGE_DEMOTING_ENTITY_KINDS);
 
-export type TriageSenderKindSignal = {
+type TriageSenderKindSignal = {
   kind: TriageDemotingEntityKind;
   confidence: number;
   evidenceCodes: string[];

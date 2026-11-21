@@ -1,14 +1,12 @@
-import type { ComponentProps } from "react";
+import { Suspense, use, type ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { cn } from "~/lib/utils";
 import { altTextImageComponents } from "./alt-text-image";
 import { markdownComponents } from "./elements";
-
-import "katex/dist/katex.min.css";
+import { loadKatex } from "./katex";
 
 // The shared overrides, for surfaces with their own wrapper typography (the chat reply).
 export { markdownComponents } from "./elements";
@@ -17,6 +15,15 @@ export { markdownComponents } from "./elements";
 export { altTextImageComponents } from "./alt-text-image";
 
 type RemarkPlugins = ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
+
+type RehypePlugins = NonNullable<ComponentProps<typeof ReactMarkdown>["rehypePlugins"]>;
+
+/**
+ * remark-math with `singleDollarTextMath: false` reads `$$…$$` text math. The
+ * `\(`/`\[` pairs are matched too, so a false positive only costs the katex
+ * load; a false negative would print raw delimiters instead of math.
+ */
+const MATH_DELIMITERS = /\$\$[\s\S]+?\$\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/;
 
 interface MarkdownRendererProps {
   children: string;
@@ -102,8 +109,36 @@ const READING_SIZE = [
 /**
  * Render email/note bodies, assistant messages, and briefing prose as markdown.
  * `remark-breaks` keeps the hard line breaks of `text/plain` Gmail bodies.
+ * Math delimiters gate the katex load: `MarkdownBody` runs without katex until
+ * a text actually contains math, so the runtime and its CSS stay off the chat
+ * critical path (see ./katex.ts).
  */
-export function MarkdownRenderer({
+export function MarkdownRenderer(props: MarkdownRendererProps) {
+  if (MATH_DELIMITERS.test(props.children)) {
+    return (
+      <Suspense fallback={null}>
+        <KatexMarkdown {...props} />
+      </Suspense>
+    );
+  }
+
+  return <MarkdownBody {...props} rehypePlugins={[]} />;
+}
+
+/**
+ * A math text suspends on the katex load. `fallback={null}` keeps already
+ * visible prose (a streamed reply that just closed its `$$`) on screen instead
+ * of flashing the raw delimiters; a freshly mounted math message stays one
+ * chunk load behind, which the streaming layout absorbs.
+ */
+function KatexMarkdown(props: MarkdownRendererProps) {
+  const katex = use(loadKatex());
+
+  // Load failed (offline): print the raw delimiters rather than lose the message.
+  return <MarkdownBody {...props} rehypePlugins={katex ? [katex.rehypeKatex] : []} />;
+}
+
+function MarkdownBody({
   children,
   className,
   tone = "surface",
@@ -111,7 +146,8 @@ export function MarkdownRenderer({
   extraRemarkPlugins,
   extraComponents,
   images = "render",
-}: MarkdownRendererProps) {
+  rehypePlugins,
+}: MarkdownRendererProps & { rehypePlugins: RehypePlugins }) {
   // `alt-text` wins over `extraComponents`: it is a privacy guarantee, not a style.
   const components: Components = {
     ...markdownComponents,
@@ -162,7 +198,7 @@ export function MarkdownRenderer({
           [remarkMath, { singleDollarTextMath: false }],
           ...(extraRemarkPlugins ?? []),
         ]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {children}

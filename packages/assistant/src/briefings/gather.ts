@@ -686,9 +686,8 @@ export async function gatherBriefingWithSuppressionAudit(
   });
 
   // Demand over the final buckets (ADR-0064). Use the raw `from`, not the shortened
-  // `sender`, so bulk and significance lookups work.
-  const emailDemand = await scorePriorityEmailDemand(
-    args.userId,
+  // `sender`, so the recurrence scorer gets the address.
+  const emailDemand = scorePriorityEmailDemand(
     PRIORITY_CATEGORIES.flatMap((category) =>
       digest.buckets[category].map((item) => ({
         sender: item.from,

@@ -23,13 +23,8 @@ import {
 } from "@alfred/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-  AppButton,
-  AppSelect,
-  AppSwitch,
-  useAppForm,
-  type AppSelectOption,
-} from "~/components/ui/v2";
+import { AppButton, AppSelect, AppSwitch, type AppSelectOption } from "~/components/ui/v2";
+import { useAppForm } from "~/components/ui/v2/form";
 import { responseErrorMessage } from "~/lib/api-error";
 import { client } from "~/lib/eden";
 import { useActionPolicy } from "~/lib/replicache/use-action-policy";

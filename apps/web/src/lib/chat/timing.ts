@@ -10,6 +10,9 @@ const DEV =
   typeof window !== "undefined" &&
   typeof performance !== "undefined";
 
+/** Whether chat timing instrumentation is live (dev builds only). */
+export const CHAT_TIMING_DEV = DEV;
+
 type RepeatMode = "ignore" | "update";
 
 interface ChatTimingMark {

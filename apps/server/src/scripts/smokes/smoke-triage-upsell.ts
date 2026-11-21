@@ -18,10 +18,7 @@ const baseObs = (over: Partial<Observations> = {}): Observations => ({
     messageCount: 0,
     recentMessages: [],
   },
-  knownContact: false,
-  senderRelationship: null,
-  senderRelationshipIsCold: false,
-  senderKind: null,
+
   standingInstructions: null,
   userContext: null,
   userContextReadFailed: false,
@@ -136,7 +133,7 @@ async function main() {
         timezone: DEFAULT_USER_TIMEZONE,
         mailboxByAccountId: new Map(),
         userAddresses: new Set(),
-        knownContacts: new Set(),
+        correspondentHistory: new Map(),
         ownReplies: [],
       },
     );

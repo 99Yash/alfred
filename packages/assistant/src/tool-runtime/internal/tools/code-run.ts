@@ -1,7 +1,7 @@
 /**
  * `system.code_run`: the chat read path (ADR-0124). One read-only script whose host functions are
- * the `codeModeRead` tools and `mcp.read`. Each read is a nested dispatch, so it keeps its gate,
- * its staging row, and its span. Available only when the user's flag is on.
+ * the `codeModeRead` tools, `mcp.read`, and the clock `time.now()`. Each read is a nested dispatch,
+ * so it keeps its gate, its staging row, and its span. Available only when the user's flag is on.
  */
 
 import {
@@ -13,7 +13,7 @@ import {
 import { liveTool, type RegisteredTool } from "@alfred/assistant/tool-runtime";
 import { readCurrentMcpCatalogRevision } from "@alfred/assistant/tool-runtime/mcp";
 import type { HostCallEntry } from "../registry";
-import { readHostBindings } from "../../code-mode/host-bindings";
+import { readHostBindings, timeNowBinding } from "../../code-mode/host-bindings";
 import { codeRunDescription } from "../../code-mode/index-text";
 import {
   runReadProgram,
@@ -23,6 +23,7 @@ import {
 import { scriptSources } from "../../code-mode/script-sources";
 import { approvalCauseFact, type ApprovalCauseFact } from "../../approval-rule";
 import { RESULT_HANDLE_EVIDENCE_STORE } from "./load-result";
+import { currentTimeSnapshot } from "./system";
 
 /**
  * What the model reads. `reads` counts the host calls; `failed` includes `tool_error` results.
@@ -89,12 +90,16 @@ export function codeRunTool(readTools: readonly RegisteredTool[]): RegisteredToo
       const outcome = await runReadProgram({
         source: input.source,
         // One pass, one set of catalog pins (ADR-0116 amendment 2026-11-18).
-        hosts: readHostBindings({
-          readTools,
-          hostRead,
-          readCatalogRevision: (connectionId) =>
-            readCurrentMcpCatalogRevision({ userId: ctx.userId, connectionId }),
-        }),
+        hosts: [
+          ...readHostBindings({
+            readTools,
+            hostRead,
+            readCatalogRevision: (connectionId) =>
+              readCurrentMcpCatalogRevision({ userId: ctx.userId, connectionId }),
+          }),
+          // The same snapshot and zone as `system.current_time` (ADR-0130 decision 7).
+          timeNowBinding(() => currentTimeSnapshot(ctx.timezone)),
+        ],
         ledger: hostCalls,
         runId: ctx.runId,
       });

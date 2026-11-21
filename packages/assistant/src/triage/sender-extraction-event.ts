@@ -16,7 +16,6 @@ import {
 } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "../knowledge";
-import type { TriageSenderKindSignal } from "./sender-kind";
 import type { TriageTodoStandingRead } from "./todo-decision";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
@@ -123,13 +122,9 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   parserHit: SenderContextResult["parserHit"];
   senderAddress: SenderContextResult["senderAddress"];
   senderDomain: SenderContextResult["senderDomain"];
+  /** The one history line for the sender address (ADR-0127); null on a read failure. */
+  senderCorrespondentHistory: string | null;
   persona: AccountPersona | null;
-  knownContact: boolean;
-  senderRelationship: string | null;
-  senderKind: TriageSenderKindSignal["kind"] | null;
-  senderKindConfidence: number | null;
-  senderKindEvidenceCodes: string[];
-  senderKindDemotedPersonTreatment: boolean;
   threadMessages: number;
   threadNewest: Observations["thread"]["newestDirection"];
   gmailImportant: boolean;
@@ -179,6 +174,7 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
 
 export function senderExtractionEvent(args: {
   senderContextResult: SenderContextResult;
+  senderCorrespondentHistory: string | null;
   observations: Observations;
   audit: ClassifyAudit | null;
   classification: TriageClassification;
@@ -204,14 +200,9 @@ export function senderExtractionEvent(args: {
     parserHit: args.senderContextResult.parserHit,
     senderAddress: args.senderContextResult.senderAddress,
     senderDomain: args.senderContextResult.senderDomain,
+    senderCorrespondentHistory: args.senderCorrespondentHistory,
     // observations
     persona: obs.persona,
-    knownContact: obs.knownContact,
-    senderRelationship: obs.senderRelationship,
-    senderKind: obs.senderKind?.kind ?? null,
-    senderKindConfidence: obs.senderKind?.confidence ?? null,
-    senderKindEvidenceCodes: obs.senderKind?.evidenceCodes ?? [],
-    senderKindDemotedPersonTreatment: Boolean(obs.senderKind),
     // floors
     ...floorTraceFields(audit?.floors ?? null),
     ...standingTraceFields(audit?.standing ?? null),

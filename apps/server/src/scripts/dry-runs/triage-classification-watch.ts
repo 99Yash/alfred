@@ -172,26 +172,24 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
         coalesce(${traceText("senderDomain")}, '(none)') AS sender_domain,
         coalesce(${traceText("effectiveAuthor")}, '(none)') AS effective_author,
         coalesce(${traceText("fromKind")}, '(none)') AS from_kind,
-        coalesce(${traceText("senderKind")}, '-') AS sender_kind,
         count(*)::int AS n,
         count(*) FILTER (WHERE t.trace ? ${traceKey("effectiveAuthor")})::int AS effective_author_present,
         count(*) FILTER (WHERE t.trace ? ${traceKey("fromKind")})::int AS from_kind_present,
-        count(*) FILTER (WHERE t.trace ? ${traceKey("senderKind")})::int AS sender_kind_present
+        count(*) FILTER (WHERE ${traceText("senderCorrespondentHistory")} IS NOT NULL)::int AS history_available
       FROM t
       WHERE ${traceText("finalCategory")} = ${AWAITING_REPLY}
-      GROUP BY 1, 2, 3, 4, 5
-      ORDER BY 6 DESC, 1 ASC
+      GROUP BY 1, 2, 3, 4
+      ORDER BY 5 DESC, 1 ASC
     `),
     z.object({
       sender_address: z.string(),
       sender_domain: z.string(),
       effective_author: z.string(),
       from_kind: z.string(),
-      sender_kind: z.string(),
       n: z.number(),
       effective_author_present: z.number(),
       from_kind_present: z.number(),
-      sender_kind_present: z.number(),
+      history_available: z.number(),
     }),
   );
 
@@ -201,8 +199,7 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
     .filter((row) => row.effective_author !== PERSON_AUTHOR)
     .reduce((sum, row) => sum + row.n, 0);
 
-  // A '-' senderKind is an absent key, not a quiet parser.
-  const keyPresent = rows.reduce((sum, row) => sum + row.sender_kind_present, 0);
+  const historyAvailable = rows.reduce((sum, row) => sum + row.history_available, 0);
   const authorPresent = rows.reduce((sum, row) => sum + row.effective_author_present, 0);
   const fromKindPresent = rows.reduce((sum, row) => sum + row.from_kind_present, 0);
 
@@ -221,23 +218,22 @@ async function watchAwaitingReplySenders(total: number): Promise<void> {
   console.log(`   …finalCategory key present (window): ${share(laneKey?.n ?? 0, total)}`);
   console.log(`   …effectiveAuthor key present: ${share(authorPresent, inLane)}`);
   console.log(`   …fromKind key present: ${share(fromKindPresent, inLane)}`);
-  console.log(`   …senderKind key present: ${share(keyPresent, inLane)}`);
+  console.log(`   …sender history available: ${share(historyAvailable, inLane)}`);
 
   if (rows.length === 0) return;
 
-  console.log(`   n  author/fromKind/senderKind          sender`);
+  console.log(`   n  author/fromKind                     sender`);
   console.log(
-    `   ('-'/'(none)' = coalesced null; trailing [key absent] marks a group carrying no key)`,
+    `   ('(none)' = coalesced null; trailing [key absent] marks a group carrying no key)`,
   );
 
   for (const row of rows) {
     const mark = row.effective_author === PERSON_AUTHOR ? "   " : " * ";
-    const senderIdentity = `${row.effective_author}/${row.from_kind}/${row.sender_kind}`;
+    const senderIdentity = `${row.effective_author}/${row.from_kind}`;
 
     const absent = [
       row.effective_author_present === 0 ? "effectiveAuthor" : null,
       row.from_kind_present === 0 ? "fromKind" : null,
-      row.sender_kind_present === 0 ? "senderKind" : null,
     ].filter((key) => key !== null);
 
     const presence = absent.length > 0 ? ` [key absent: ${absent.join(", ")}]` : "";

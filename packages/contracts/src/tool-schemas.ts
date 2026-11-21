@@ -407,21 +407,13 @@ export const readUserContextInput = coerceJsonArrayFields(
           .max(500)
           .optional()
           .describe(
-            "Optional short natural-language focus, e.g. the person, project, preference, or relationship the user referenced.",
+            "Optional words to match against names and email addresses in the people section.",
           ),
         include: z
           .array(
-            z.enum([
-              "profile",
-              "integrations",
-              "facts",
-              "preferences",
-              "entities",
-              "relationships",
-              "recent_memory",
-            ]),
+            z.enum(["profile", "integrations", "facts", "preferences", "people", "recent_memory"]),
           )
-          .max(7)
+          .max(6)
           .optional()
           .describe(
             "Optional section hints. The result is still bounded and may include adjacent context needed for provenance.",
@@ -433,7 +425,7 @@ export const readUserContextInput = coerceJsonArrayFields(
           .regex(MODEL_TOOL_EMAIL_PATTERN, "Invalid email address")
           .max(320)
           .optional()
-          .describe("Optional person/contact email to focus on."),
+          .describe("Optional exact email address for the people section."),
       })
       .strict(),
   ),

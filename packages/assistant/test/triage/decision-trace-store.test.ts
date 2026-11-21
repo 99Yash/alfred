@@ -23,11 +23,11 @@ const createdUserIds: string[] = [];
 interface TestState {
   sourceThreadId: string;
   documentId: string;
-  senderRelationship: string;
+  senderCorrespondentHistory: string;
   throwAfterUpsert?: boolean;
 }
 
-function traceFixture(senderRelationship: string): SenderExtractionEvent {
+function traceFixture(senderCorrespondentHistory: string): SenderExtractionEvent {
   return {
     fromKind: "unknown",
     bodyActor: null,
@@ -37,12 +37,7 @@ function traceFixture(senderRelationship: string): SenderExtractionEvent {
     senderAddress: null,
     senderDomain: null,
     persona: null,
-    knownContact: false,
-    senderRelationship,
-    senderKind: null,
-    senderKindConfidence: null,
-    senderKindEvidenceCodes: [],
-    senderKindDemotedPersonTreatment: false,
+    senderCorrespondentHistory,
     standingDemotedCategory: false,
     standingFloorOutcome: null,
     standingEffects: [],
@@ -101,7 +96,7 @@ function decisionTraceWorkflow(slug: string): Workflow<TestState> {
     initialState: () => ({
       sourceThreadId: "thread_unused",
       documentId: "doc_unused",
-      senderRelationship: "unused",
+      senderCorrespondentHistory: "unused",
     }),
     initialStep: "classify",
     closure: { kind: "none" },
@@ -109,7 +104,7 @@ function decisionTraceWorkflow(slug: string): Workflow<TestState> {
       classify: {
         id: "classify",
         run: async (ctx): Promise<StepResult<TestState>> => {
-          const trace = traceFixture(ctx.state.senderRelationship);
+          const trace = traceFixture(ctx.state.senderCorrespondentHistory);
           await upsertTriage({
             userId: ctx.userId,
             sourceThreadId: ctx.state.sourceThreadId,
@@ -236,7 +231,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,
-      senderRelationship: "strong two-way",
+      senderCorrespondentHistory: "strong two-way",
     };
 
     const runId = await seedRunnableRun({ userId, workflowSlug, state });
@@ -251,7 +246,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     assert.equal(rows[0].stepId, "classify");
     assert.equal(rows[0].attempt, 0);
     assert.equal(rows[0].decisionKey, "default");
-    assert.equal(getPath(rows[0].trace, "senderRelationship"), "strong two-way");
+    assert.equal(getPath(rows[0].trace, "senderCorrespondentHistory"), "strong two-way");
   });
 
   test("a step failure after upsert keeps the canonical row and its trace together", async () => {
@@ -262,7 +257,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
     const state: TestState = {
       sourceThreadId: `thread_${randomUUID()}`,
       documentId: `doc_${randomUUID()}`,
-      senderRelationship: "weak one-way",
+      senderCorrespondentHistory: "weak one-way",
       throwAfterUpsert: true,
     };
 
@@ -283,7 +278,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
 
     const rows = await traceRows(runId);
     assert.equal(rows.length, 1, "trace committed with the canonical row despite step failure");
-    assert.equal(getPath(rows[0]?.trace, "senderRelationship"), "weak one-way");
+    assert.equal(getPath(rows[0]?.trace, "senderCorrespondentHistory"), "weak one-way");
   });
 
   test("a recency-loser upsert does not write a stale decision trace", async () => {
@@ -309,7 +304,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       state: {
         sourceThreadId,
         documentId: olderDocId,
-        senderRelationship: "older message",
+        senderCorrespondentHistory: "older message",
       },
     });
 
@@ -366,7 +361,7 @@ describe("triage decision trace persistence (DB-backed)", { skip: SKIP }, () => 
       state: {
         sourceThreadId: "unused",
         documentId: "unused",
-        senderRelationship: "unused",
+        senderCorrespondentHistory: "unused",
       },
     });
 

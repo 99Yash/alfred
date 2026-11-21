@@ -457,7 +457,7 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: "ordinary",
     description:
-      "Read Alfred's compact, bounded user context: profile, confirmed facts, preferences, known people/entities, relationship edges, and recent memory. Use before answering questions about people, relationships, standing instructions, preferences, or personal context.",
+      "Read Alfred's bounded user context: profile, confirmed facts, preferences, mail history by address, and recent memory. Use for questions about people, standing instructions, preferences, or personal context.",
     // Kernel: it has no intent-bearing discovery metadata, so it would never preload.
     availability: { surface: "kernel" },
     inputSchema: readUserContextInput,

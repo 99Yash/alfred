@@ -1,21 +1,14 @@
 import { db } from "@alfred/db";
-import {
-  entities,
-  type Entity,
-  entityRelations,
-  integrationCredentials,
-  memoryChunks,
-  type UserFact,
-  userFacts,
-} from "@alfred/db/schemas";
+import { integrationCredentials, memoryChunks, type UserFact, userFacts } from "@alfred/db/schemas";
 import {
   assertNever,
   isNonBlankString,
   memorySourceSchema,
+  type CorrespondentHistory,
   type IanaTimezone,
   type MemorySource,
 } from "@alfred/contracts";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import {
   settings,
   userIdentity,
@@ -23,7 +16,7 @@ import {
   type UserSettings,
 } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
-import { entityAliasMatch } from "./entity-graph";
+import { readCorrespondents } from "./correspondents";
 import { isUserStatedSource, readUserLocation, statedLocationLabel } from "./location";
 import { logger } from "@alfred/logging";
 
@@ -33,14 +26,13 @@ type UserContextSection =
   | "integrations"
   | "facts"
   | "preferences"
-  | "entities"
-  | "relationships"
+  | "people"
   | "recent_memory";
 
 export interface ReadUserContextOptions {
-  /** A contact always included, matched by email alias, even below the ranked cap. */
+  /** The exact address for the people section (ADR-0127), also for a first mail. */
   subjectEmail?: string | undefined;
-  /** Free text. Any entity whose name or alias matches a token is always included. */
+  /** Words matched against correspondent names and addresses (ADR-0127), until name links. */
   query?: string | undefined;
   /** Only these sections are filled; profile is always kept. Bounded either way. */
   include?: readonly UserContextSection[] | undefined;
@@ -76,21 +68,8 @@ export interface UserContext {
     key: string;
     value: unknown;
   }>;
-  entities: Array<{
-    id: string;
-    kind: string;
-    canonicalName: string;
-    aliases: unknown;
-    metadata: unknown;
-  }>;
-  relations: Array<{
-    relation: string;
-    fromEntityId: string;
-    from: string | null;
-    toEntityId: string;
-    to: string | null;
-    metadata: unknown;
-  }>;
+  /** Mail history for exact addresses, query matches, or the most recently written to. */
+  people: CorrespondentHistory[];
   recentMemory: Array<{
     kind: string;
     preview: string;
@@ -129,18 +108,9 @@ const PROFILE_IDENTITY_FACT_KEYS = [
 
 const profileIdentityFactKeys = new Set<string>(PROFILE_IDENTITY_FACT_KEYS);
 
-const ENTITY_LIMIT = 50;
-
-const RELATION_LIMIT = 80;
-
 const MEMORY_LIMIT = 6;
 
 const MEMORY_PREVIEW_CHARS = 900;
-
-/** Max extra entities a `query`/`subjectEmail` focus may add. */
-const FOCUS_MATCH_LIMIT = 10;
-
-type EntityRow = Pick<Entity, "id" | "kind" | "canonicalName" | "aliases" | "metadata">;
 
 type FactContextRow = Pick<
   UserFact,
@@ -148,14 +118,6 @@ type FactContextRow = Pick<
 >;
 
 type StringFactContextRow = FactContextRow & { value: string };
-
-const ENTITY_COLUMNS = {
-  id: entities.id,
-  kind: entities.kind,
-  canonicalName: entities.canonicalName,
-  aliases: entities.aliases,
-  metadata: entities.metadata,
-} as const;
 
 const FACT_COLUMNS = {
   id: userFacts.id,
@@ -171,23 +133,6 @@ const FACT_COLUMNS = {
 const identityKeyRank: ReadonlyMap<string, number> = new Map<IdentityFactKey, number>(
   IDENTITY_FACT_KEYS.map((key, index) => [key, index]),
 );
-
-/** `metadata.significance.score` as a float. Unscored sorts last. */
-const significanceScore = sql<number>`(${entities.metadata} -> 'significance' ->> 'score')::float8`;
-
-/** Alphanumeric query terms worth matching against names. */
-function queryTokens(query: string | undefined): string[] {
-  if (!query) return [];
-
-  return Array.from(
-    new Set(
-      query
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length >= 3),
-    ),
-  ).slice(0, 6);
-}
 
 function isIdentityFactKey(key: string): key is IdentityFactKey {
   return identityKeyRank.has(key);
@@ -282,10 +227,7 @@ function bestIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
 }
 
 /**
- * Alfred's compact, bounded user context. Entities rank by significance
- * (ADR-0057), and a `subjectEmail` or `query` focus is always included.
- */
-/**
+ * Alfred's bounded user context, with mail history in the people section (ADR-0127).
  * One row that the user-context read delivered, for the evidence record of a script read
  * (ADR-0124 amendment 2026-11-18). `item` is the row as the context gives it.
  */
@@ -315,7 +257,6 @@ export async function readUserContextItems(
     !options.include || options.include.includes(section);
 
   const subjectEmail = options.subjectEmail?.trim().toLowerCase() || undefined;
-  const tokens = queryTokens(options.query);
   const userSettings = options.settings ?? settings({ userId });
 
   const [
@@ -324,7 +265,7 @@ export async function readUserContextItems(
     rankedFactRows,
     identityFactRowsRaw,
     prefRows,
-    rankedEntityRows,
+    people,
     memoryRows,
     currentLocation,
   ] = await Promise.all([
@@ -380,20 +321,16 @@ export async function readUserContextItems(
     wants("preferences")
       ? userSettings.all().then((rows) => rows.slice(0, PREF_LIMIT))
       : Promise.resolve([]),
-    // Relationships need the entities to resolve endpoint names.
-    // SAFETY: the skipped tier contributes no rows; EntityRow[] is the shared element type of these Promise.all branches.
-    wants("entities") || wants("relationships")
-      ? db()
-          .select(ENTITY_COLUMNS)
-          .from(entities)
-          .where(eq(entities.userId, userId))
-          .orderBy(
-            sql`${significanceScore} desc nulls last`,
-            asc(entities.kind),
-            asc(entities.canonicalName),
-          )
-          .limit(ENTITY_LIMIT)
-      : Promise.resolve([] as EntityRow[]),
+    wants("people")
+      ? readCorrespondents(
+          userId,
+          subjectEmail
+            ? [subjectEmail]
+            : options.query
+              ? { query: options.query }
+              : { recent: true },
+        )
+      : Promise.resolve([]),
     wants("recent_memory")
       ? db()
           .select({ id: memoryChunks.id, kind: memoryChunks.kind, content: memoryChunks.content })
@@ -414,24 +351,6 @@ export async function readUserContextItems(
   const identityFactRows = bestIdentityFacts(identityFactRowsRaw);
   const profileIdentityRows = profileIdentityFacts(identityFactRowsRaw);
 
-  // Fetch focus matches directly, so they survive the ranked cap.
-  const focusRows =
-    (subjectEmail || tokens.length > 0) && (wants("entities") || wants("relationships"))
-      ? await fetchFocusEntities(userId, subjectEmail, tokens)
-      : [];
-
-  // Focus rows first; the ranked slice fills up to ENTITY_LIMIT, so the total stays bounded.
-  const mergedEntities: EntityRow[] = [];
-  const seenIds = new Set<string>();
-
-  for (const row of [...focusRows, ...rankedEntityRows]) {
-    if (mergedEntities.length >= ENTITY_LIMIT) break;
-
-    if (seenIds.has(row.id)) continue;
-    seenIds.add(row.id);
-    mergedEntities.push(row);
-  }
-
   // Identity facts first; the ranked rest fills up to FACT_LIMIT, deduped by id.
   const mergedFacts: FactContextRow[] = [];
   const seenFactIds = new Set<string>();
@@ -445,33 +364,6 @@ export async function readUserContextItems(
       mergedFacts.push(row);
     }
   }
-
-  const entityNameById = new Map(mergedEntities.map((row) => [row.id, row.canonicalName]));
-  const entityIds = mergedEntities.map((row) => row.id);
-
-  const relationRows =
-    wants("relationships") && entityIds.length > 0
-      ? await db()
-          .select({
-            id: entityRelations.id,
-            relation: entityRelations.relation,
-            fromEntityId: entityRelations.fromEntityId,
-            toEntityId: entityRelations.toEntityId,
-            metadata: entityRelations.metadata,
-          })
-          .from(entityRelations)
-          .where(
-            and(
-              eq(entityRelations.userId, userId),
-              or(
-                inArray(entityRelations.fromEntityId, entityIds),
-                inArray(entityRelations.toEntityId, entityIds),
-              ),
-            ),
-          )
-          .orderBy(asc(entityRelations.relation), asc(entityRelations.createdAt))
-          .limit(RELATION_LIMIT)
-      : [];
 
   const profile = {
     name: identity.name,
@@ -501,25 +393,6 @@ export async function readUserContextItems(
   }));
 
   const preferences = prefRows.map((row) => ({ key: row.key, value: row.value }));
-
-  const entityItems = wants("entities")
-    ? mergedEntities.map((row) => ({
-        id: row.id,
-        kind: row.kind,
-        canonicalName: row.canonicalName,
-        aliases: row.aliases,
-        metadata: row.metadata,
-      }))
-    : [];
-
-  const relations = relationRows.map((row) => ({
-    relation: row.relation,
-    fromEntityId: row.fromEntityId,
-    from: entityNameById.get(row.fromEntityId) ?? null,
-    toEntityId: row.toEntityId,
-    to: entityNameById.get(row.toEntityId) ?? null,
-    metadata: row.metadata,
-  }));
 
   const recentMemory = memoryRows.map((row) => ({
     kind: row.kind,
@@ -563,15 +436,12 @@ export async function readUserContextItems(
     ...preferences.map(
       (row): UserContextItem => ({ store: "user_setting", id: row.key, depth: "body", item: row }),
     ),
-    ...entityItems.map(
-      (row): UserContextItem => ({ store: "entity", id: row.id, depth: "body", item: row }),
-    ),
-    ...relationRows.map(
-      (row, i): UserContextItem => ({
-        store: "entity_relation",
-        id: row.id,
+    ...people.map(
+      (row): UserContextItem => ({
+        store: "correspondent",
+        id: row.address,
         depth: "body",
-        item: relations[i],
+        item: row,
       }),
     ),
     ...memoryRows.map(
@@ -590,8 +460,7 @@ export async function readUserContextItems(
       activeIntegrations,
       confirmedFacts,
       preferences,
-      entities: entityItems,
-      relations,
+      people,
       recentMemory,
     },
     items,
@@ -621,35 +490,4 @@ async function readCurrentLocation(
   }
 
   return statedLocationLabel(await readUserLocation({ userId, settings: userSettings, timezone }));
-}
-
-/** Entities matched by `subjectEmail` (exact alias) or `query` (ILIKE per token). Bounded by {@link FOCUS_MATCH_LIMIT}. */
-async function fetchFocusEntities(
-  userId: string,
-  subjectEmail: string | undefined,
-  tokens: string[],
-): Promise<EntityRow[]> {
-  const focusClauses = [];
-
-  if (subjectEmail) {
-    focusClauses.push(entityAliasMatch([subjectEmail]));
-  }
-
-  for (const token of tokens) {
-    const like = `%${token}%`;
-    focusClauses.push(ilike(entities.canonicalName, like));
-    focusClauses.push(sql`EXISTS (
-      SELECT 1 FROM jsonb_array_elements_text(${entities.aliases}) AS alias
-      WHERE alias ILIKE ${like}
-    )`);
-  }
-
-  if (focusClauses.length === 0) return [];
-
-  return db()
-    .select(ENTITY_COLUMNS)
-    .from(entities)
-    .where(and(eq(entities.userId, userId), or(...focusClauses)))
-    .orderBy(sql`${significanceScore} desc nulls last`, asc(entities.canonicalName))
-    .limit(FOCUS_MATCH_LIMIT);
 }

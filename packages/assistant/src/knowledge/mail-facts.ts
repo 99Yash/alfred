@@ -10,6 +10,7 @@ import {
   isSentGmailMetadata,
   parseGmailDocumentMetadata,
   parseIanaTimezone,
+  type CorrespondentHistory,
   type GmailDocumentMetadata,
   type IanaTimezone,
 } from "@alfred/contracts";
@@ -34,7 +35,7 @@ import {
   type ParsedAddressList,
 } from "./gmail-reducer";
 import { extractSenderContext, type SenderContextResult } from "./sender-context";
-import { knownContactAddresses } from "./significance";
+import { readMailCorrespondents } from "./correspondents";
 
 /** The body cap. Past it the body ends in `"\n[…truncated]"`. */
 export const MAIL_FACTS_BODY_MAX_CHARS = 6_000;
@@ -58,14 +59,9 @@ const RECIPIENT_ROLES = ["to", "cc", "bcc"] as const satisfies readonly Recipien
 export interface MailRecipient {
   readonly address: string;
   readonly displayName: string | null;
-  /** One of the user's own addresses. Never also a known contact. */
+  /** One of the user's own addresses. */
   readonly isUser: boolean;
-  /**
-   * A `person` row in `entities` holds the address as an alias. The sender's `Known contact:`
-   * observation reads the same aliases (`readSenderPerson`). The people-graph step replaces
-   * both with one reader.
-   */
-  readonly knownContact: boolean;
+  readonly history: CorrespondentHistory | null;
 }
 
 export interface MailOwnReply {
@@ -87,7 +83,7 @@ export interface MailFacts {
     readonly at: Date;
     readonly local: string;
     readonly weekday: string;
-    readonly timezone: string;
+    readonly timezone: IanaTimezone;
   } | null;
   readonly sender: {
     /** The parse's own address (`metadata.from`), else the raw `From` header's. */
@@ -95,6 +91,7 @@ export interface MailFacts {
     readonly displayName: string | null;
     /** The address is one of the user's own addresses. */
     readonly isUser: boolean;
+    readonly history: CorrespondentHistory | null;
     /** `extractSenderContext` as the classify step ran it: the context, the parser, the address. */
     readonly parse: SenderContextResult;
   };
@@ -136,8 +133,7 @@ export interface MailFactsContext {
   readonly mailboxByAccountId: ReadonlyMap<string, string>;
   /** The user's own addresses (`UserIdentity.emails`). */
   readonly userAddresses: ReadonlySet<string>;
-  /** Lowercased addresses. */
-  readonly knownContacts: ReadonlySet<string>;
+  readonly correspondentHistory: ReadonlyMap<string, CorrespondentHistory>;
   readonly ownReplies: MailFacts["ownReplies"];
 }
 
@@ -158,7 +154,7 @@ const STATED_LINE_RE = /^\s*([A-Za-z][A-Za-z /]*?)\s*:\s*(.*?)\s*$/;
 interface ParsedMail {
   readonly row: MailFactsRow;
   readonly headers: GmailHeaderLookup;
-  readonly sender: Omit<MailFacts["sender"], "isUser">;
+  readonly sender: Omit<MailFacts["sender"], "isUser" | "history">;
   readonly recipients: Readonly<Record<RecipientRole, readonly ParsedAddress[] | null>>;
   readonly subject: string | null;
   readonly fullBody: string;
@@ -217,7 +213,7 @@ function parseMail(row: MailFactsRow): ParsedMail {
   };
 }
 
-/** The sender and every recipient address of a parse, for the one known-contact read. */
+/** The sender and every recipient address of a parse, for the batch history read. */
 function mailAddresses(parsed: ParsedMail): string[] {
   const recipients = RECIPIENT_ROLES.flatMap((role) => parsed.recipients[role] ?? []);
 
@@ -230,6 +226,11 @@ function mailAddresses(parsed: ParsedMail): string[] {
 function finishMailFacts(parsed: ParsedMail, ctx: MailFactsContext): MailFacts {
   const { row, headers, labelIds } = parsed;
 
+  const historyFor = (address: string | null) =>
+    address === null || ctx.userAddresses.has(address)
+      ? null
+      : (ctx.correspondentHistory.get(address) ?? null);
+
   const recipients = (role: RecipientRole): MailRecipient[] | null =>
     parsed.recipients[role]?.map((address) => {
       const isUser = ctx.userAddresses.has(address.identity.value);
@@ -238,7 +239,7 @@ function finishMailFacts(parsed: ParsedMail, ctx: MailFactsContext): MailFacts {
         address: address.identity.value,
         displayName: address.displayName ?? null,
         isUser,
-        knownContact: !isUser && ctx.knownContacts.has(address.identity.value),
+        history: historyFor(address.identity.value),
       };
     }) ?? null;
 
@@ -249,6 +250,7 @@ function finishMailFacts(parsed: ParsedMail, ctx: MailFactsContext): MailFacts {
     arrivedAt: parsed.at ? arrivalOf(parsed.at, ctx.timezone) : null,
     sender: {
       ...parsed.sender,
+      history: historyFor(parsed.sender.address),
       isUser: parsed.sender.address !== null && ctx.userAddresses.has(parsed.sender.address),
     },
     replyTo: headers.get("reply-to"),
@@ -408,13 +410,20 @@ export async function loadMailFacts(
     emails: new Set(),
   };
 
-  const [identity, timezone, knownContacts, ownReplies] = await Promise.all([
+  const [identity, timezone, correspondentHistory, ownReplies] = await Promise.all([
     bestEffort("user identity", userIdentity({ userId }), noIdentity),
     bestEffort("timezone", settings({ userId }).timezone(), UTC),
     bestEffort(
-      "known-contact",
-      knownContactAddresses(userId, [...new Set(parsed.flatMap(mailAddresses))]),
-      new Set<string>(),
+      "correspondent history",
+      readMailCorrespondents(
+        userId,
+        parsed.flatMap((mail) =>
+          mail.at
+            ? [{ documentId: mail.row.id, sentAt: mail.at, addresses: mailAddresses(mail) }]
+            : [],
+        ),
+      ),
+      new Map<string, ReadonlyMap<string, CorrespondentHistory>>(),
     ),
     bestEffort("own-reply", readOwnReplies(userId, rows), new Map<string, MailOwnReply[]>()),
   ]);
@@ -426,7 +435,7 @@ export async function loadMailFacts(
         timezone,
         mailboxByAccountId: identity.mailboxByAccountId,
         userAddresses: identity.emails,
-        knownContacts,
+        correspondentHistory: correspondentHistory.get(mail.row.id) ?? new Map(),
         ownReplies: ownReplies.get(mail.row.id) ?? [],
       }),
     );

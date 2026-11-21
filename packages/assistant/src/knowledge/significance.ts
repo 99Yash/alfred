@@ -16,9 +16,8 @@ import {
   parsePersonEntityMetadata,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { entities, type Entity } from "@alfred/db/schemas";
+import { entities } from "@alfred/db/schemas";
 import { and, eq, sql } from "drizzle-orm";
-import { logger } from "@alfred/logging";
 import { entityAliasMatch } from "./entity-graph";
 
 export interface SignificanceWeights {
@@ -184,7 +183,7 @@ export async function runSignificancePass(
   return { total: rows.length, scored: scoredRows.length, top: scoredRows.slice(0, 15) };
 }
 
-// ─── Sender-significance read (ADR-0064 #210) ────────────────────────────────
+// ─── Legacy automatic draft gate ──────────────────────────────────────────
 
 /** A `person` row's metadata by lowercased email alias, or `null`. Only {@link readSenderPerson} reads it. */
 async function findPersonMetadataByAddress(
@@ -208,40 +207,7 @@ async function findPersonMetadataByAddress(
   return parsePersonEntityMetadata(rows[0]?.metadata);
 }
 
-/**
- * The addresses in `addresses` that a `person` row holds as an alias, lowercased. One batch
- * read for the mail-facts reader. The people-graph step replaces this one function. It
- * rejects on a failed read; the caller decides what a failure means.
- */
-export async function knownContactAddresses(
-  userId: string,
-  addresses: readonly string[],
-): Promise<Set<string>> {
-  const targets = new Set(addresses.map((a) => a.trim().toLowerCase()).filter(Boolean));
-
-  if (targets.size === 0) return new Set();
-
-  const rows = await db()
-    .select({ aliases: entities.aliases })
-    .from(entities)
-    .where(
-      and(eq(entities.userId, userId), eq(entities.kind, "person"), entityAliasMatch([...targets])),
-    );
-
-  const known = new Set<string>();
-
-  for (const row of rows) {
-    for (const alias of row.aliases) {
-      const normalized = alias.trim().toLowerCase();
-
-      if (targets.has(normalized)) known.add(normalized);
-    }
-  }
-
-  return known;
-}
-
-export interface SenderSignificance {
+interface SenderSignificance {
   /** Precomputed (ADR-0057); never recomputed on read. */
   score: number;
   band: SignificanceBand;
@@ -262,11 +228,10 @@ function senderSignificanceOf(metadata: PersonEntityMetadata): SenderSignificanc
 }
 
 /**
- * The sender's `person` row, read one time per classify step. Triage derives the
- * known-contact flag, the relationship line and the rail band (ADR-0064) from it.
+ * The sender's legacy `person` row for the automatic draft gate.
  * `no_address` is a missing or empty address; only a whitespace-only one reads as `none`.
  */
-export type SenderPersonRead =
+type SenderPersonRead =
   | { kind: "no_address" }
   | { kind: "none" }
   | { kind: "read_failed"; error: unknown }
@@ -288,53 +253,4 @@ export async function readSenderPerson(
   } catch (error) {
     return { kind: "read_failed", error };
   }
-}
-
-/** Sender significance for many addresses, keyed by lowercased address. Missing means neutral. A DB error gives an empty map. */
-export async function getSenderSignificanceBatch(
-  userId: string,
-  addresses: ReadonlyArray<string | null | undefined>,
-): Promise<Map<string, SenderSignificance>> {
-  const out = new Map<string, SenderSignificance>();
-
-  const targets = new Set<string>();
-
-  for (const raw of addresses) {
-    const normalized = raw?.trim().toLowerCase();
-
-    if (normalized) targets.add(normalized);
-  }
-
-  if (targets.size === 0) return out;
-  const targetList = [...targets];
-
-  let rows: Pick<Entity, "metadata" | "aliases">[];
-
-  try {
-    rows = await db()
-      .select({ metadata: entities.metadata, aliases: entities.aliases })
-      .from(entities)
-      .where(
-        and(eq(entities.userId, userId), eq(entities.kind, "person"), entityAliasMatch(targetList)),
-      );
-  } catch (err) {
-    logger.warn({ err }, "[knowledge.significance] batch alias read failed");
-
-    return out;
-  }
-
-  for (const row of rows) {
-    const resolved = senderSignificanceOf(parsePersonEntityMetadata(row.metadata));
-
-    if (!resolved) continue;
-
-    // One entity can answer several requested addresses.
-    for (const alias of row.aliases) {
-      const normalized = alias.trim().toLowerCase();
-
-      if (targets.has(normalized)) out.set(normalized, resolved);
-    }
-  }
-
-  return out;
 }

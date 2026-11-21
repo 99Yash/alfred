@@ -29,7 +29,6 @@ function triageRow(overrides: Partial<TriageRow> = {}): TriageRow {
     model: "test-model",
     appliedLabelId: null,
     documentId: "doc_dead",
-    senderSignificanceBand: null,
     senderRelationshipIsCold: null,
     classifiedAt: new Date("2026-07-01T00:00:00.000Z"),
     runId: null,

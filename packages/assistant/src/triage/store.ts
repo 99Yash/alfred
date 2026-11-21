@@ -20,7 +20,6 @@ import type {
   AccountPersona,
   DocumentAskProposal,
   GmailDocumentMetadata,
-  SignificanceBand,
   TriageCategory,
   TriageInstructionEvaluation,
   TriageModelVerdict,
@@ -68,7 +67,12 @@ export async function withTriageThreadLock<T>(
  */
 export type TriageRow = Omit<
   EmailTriage,
-  "category" | "modelVerdict" | "instructionEvaluation" | "createdAt" | "updatedAt"
+  | "category"
+  | "modelVerdict"
+  | "instructionEvaluation"
+  | "createdAt"
+  | "updatedAt"
+  | "senderSignificanceBand"
 > & {
   category: TriageCategory;
   modelVerdict: TriageModelVerdict | null;
@@ -108,7 +112,6 @@ export interface UpsertTriageArgs {
   /** The scoped match results for `documentId`. Null means every scoped instruction is unknown. */
   instructionEvaluation: TriageInstructionEvaluation | null;
   /** For the rail's in-category demotion (ADR-0064). */
-  senderSignificanceBand?: SignificanceBand | null;
   /** So the reuse path can re-apply the cold-sender gate (#517). */
   senderRelationshipIsCold?: boolean | null;
   /** Written in the same transaction, so a tag never lacks its trace. */
@@ -209,7 +212,6 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       todoDecision: args.todoDecision ?? null,
       modelVerdict: args.modelVerdict,
       instructionEvaluation: args.instructionEvaluation,
-      senderSignificanceBand: args.senderSignificanceBand ?? null,
       senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
@@ -240,7 +242,6 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
             todoDecision: args.todoDecision ?? null,
             modelVerdict: args.modelVerdict,
             instructionEvaluation: args.instructionEvaluation,
-            senderSignificanceBand: args.senderSignificanceBand ?? null,
             senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
             source: "auto",
             overriddenAt: null,
@@ -623,7 +624,6 @@ function rowToTriage(row: EmailTriage): TriageRow {
     runId: row.runId,
     todoSuggestion: row.todoSuggestion ?? null,
     todoDecision: row.todoDecision ?? null,
-    senderSignificanceBand: row.senderSignificanceBand,
     senderRelationshipIsCold: row.senderRelationshipIsCold,
     source: row.source,
     overriddenAt: row.overriddenAt,

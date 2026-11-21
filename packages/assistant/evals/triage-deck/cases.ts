@@ -1,6 +1,6 @@
 import type { TriageCategory } from "@alfred/contracts";
 import type { TriageOutOfScope } from "@alfred/assistant/triage/scope";
-import type { TriageSenderKindSignal } from "@alfred/assistant/triage/sender-kind";
+import type { EvalCorrespondentCounts } from "../lib/stored-mail";
 
 /**
  * The ADR-0121 eval deck (plan slice 0). Most mails are real production mail from the read-only
@@ -35,9 +35,8 @@ export interface DeckMail {
   headers?: Readonly<Record<string, string>>;
   /** The label that prod gave this mail. For the reader only; no scorer reads it. */
   prodCategory: TriageCategory;
-  senderKind?: Pick<TriageSenderKindSignal, "kind" | "confidence" | "evidenceCodes">;
-  knownContact?: boolean;
-  senderRelationship?: string;
+  /** Lower-bound correspondent counts for the sender (ADR-0127). Absent: no history line. */
+  history?: EvalCorrespondentCounts;
   thread?: {
     messageCount: number;
     newestDirection: "sent" | "received";
@@ -84,18 +83,6 @@ export interface DeckCase {
 /** Every quiet label except `meeting`. Use it when the theory says "quiet" and no more. */
 const QUIET = ["fyi", "done", "receipt", "news", "promo"] as const;
 
-const CHESS_STREAK_KIND = {
-  kind: "group",
-  confidence: 0.99,
-  evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
-} as const satisfies DeckMail["senderKind"];
-
-const DEEPINFRA_NEWSLETTER_KIND = {
-  kind: "group",
-  confidence: 0.99,
-  evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
-} as const satisfies DeckMail["senderKind"];
-
 const UPDATES = ["UNREAD", "CATEGORY_UPDATES", "INBOX"] as const;
 
 const PROMOTIONS = ["CATEGORY_PROMOTIONS", "UNREAD", "INBOX"] as const;
@@ -115,7 +102,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderKind: CHESS_STREAK_KIND,
       },
       {
         from: '"Chess.com" <streaks@chess.com>',
@@ -124,7 +110,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-04T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderKind: CHESS_STREAK_KIND,
       },
       {
         from: '"Chess.com" <streaks@chess.com>',
@@ -133,7 +118,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T12:00:00Z",
         labelIds: UPDATES,
         prodCategory: "news",
-        senderKind: CHESS_STREAK_KIND,
       },
       {
         from: '"Chess.com" <streaks@chess.com>',
@@ -167,7 +151,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
         prodCategory: "news",
-        senderKind: CHESS_STREAK_KIND,
       },
     ],
   },
@@ -185,7 +168,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-06T09:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "receipt",
-        senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
       },
     ],
   },
@@ -216,11 +198,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-31T06:00:00Z",
         labelIds: UPDATES,
         prodCategory: "receipt",
-        senderKind: {
-          kind: "group",
-          confidence: 0.99,
-          evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe", "gmail:precedence:bulk"],
-        },
       },
     ],
   },
@@ -284,11 +261,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-01T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "receipt",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
     ],
   },
@@ -322,7 +294,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "SPAM"],
         outOfScope: "spam",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: '"Marine @ Arize" <mmeyer@email.arize.com>',
@@ -332,7 +303,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: '"Marine @ Arize" <mmeyer@email.arize.com>',
@@ -342,7 +312,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: '"Matt Pocock (AI Hero)" <matt@aihero.dev>',
@@ -352,7 +321,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: PROMOTIONS,
         outOfScope: "promotions",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
     ],
   },
@@ -371,7 +339,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
         outOfScope: "promotions",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: '"Matt Pocock (AI Hero)" <matt@aihero.dev>',
@@ -380,7 +347,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-13T03:12:49Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: '"Vlad Matsiiako" <vlad@infisical.com>',
@@ -390,7 +356,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["CATEGORY_PROMOTIONS", "UNREAD", "IMPORTANT", "INBOX"],
         outOfScope: "promotions",
         prodCategory: "meeting",
-        senderRelationship: "no prior contact on record",
       },
     ],
   },
@@ -426,7 +391,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-06T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "action",
-        senderRelationship: "no prior contact on record",
       },
     ],
   },
@@ -451,7 +415,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-28T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: "cs.nilgiri@kfintech.com",
@@ -461,8 +424,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-30T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        knownContact: true,
-        senderRelationship: "weak · one-way inbound (you never replied) · not same-org",
       },
     ],
   },
@@ -526,11 +487,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-05T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "receipt",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
       {
         from: "smallcase <notifications@smallcase.com>",
@@ -556,7 +512,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "urgent",
-        senderKind: { kind: "service", confidence: 0.92, evidenceCodes: ["email:local:service"] },
         thread: {
           messageCount: 2,
           newestDirection: "received",
@@ -589,11 +544,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-06T10:05:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
         thread: {
           messageCount: 2,
           newestDirection: "received",
@@ -623,7 +573,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-02T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderKind: { kind: "group", confidence: 0.99, evidenceCodes: ["gmail:list_unsubscribe"] },
         thread: {
           messageCount: 2,
           newestDirection: "received",
@@ -724,7 +673,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-11-03T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "reply",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: "Anand from AgentCall <hi@agentcall.dev>",
@@ -734,7 +682,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "SPAM"],
         outOfScope: "spam",
         prodCategory: "promo",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: "Clera Talents <talent@getclera.com>",
@@ -743,7 +690,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-10-04T08:00:00Z",
         labelIds: UPDATES,
         prodCategory: "promo",
-        senderRelationship: "no prior contact on record",
       },
       {
         from: "Grace T. <g@tunebyalignerr.com>",
@@ -752,8 +698,6 @@ export const DECK: readonly DeckCase[] = [
         authoredAt: "2026-09-28T08:00:00Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "action",
-        knownContact: true,
-        senderRelationship: "weak · one-way inbound (you never replied) · not same-org",
       },
     ],
   },
@@ -770,7 +714,6 @@ export const DECK: readonly DeckCase[] = [
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "SPAM"],
         outOfScope: "spam",
         prodCategory: "urgent",
-        senderRelationship: "no prior contact on record",
       },
     ],
   },
@@ -798,7 +741,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-18T17:00:50Z",
         labelIds: UPDATES,
         prodCategory: "action",
-        senderKind: DEEPINFRA_NEWSLETTER_KIND,
       },
     ],
   },
@@ -814,7 +756,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-03T04:08:46Z",
         labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "done",
-        senderRelationship: "no prior contact on record",
         thread: {
           messageCount: 4,
           newestDirection: "sent",
@@ -874,7 +815,6 @@ You are receiving this because you signed up at deepinfra.com.`,
             "mx.google.com; dkim=permerror (no key for signature) header.i=@studio-example.com; arc=pass; spf=pass (google.com: domain of h.blake@studio-example.com designates 2a01:111:f403:c107::1 as permitted sender) smtp.mailfrom=h.blake@studio-example.com; dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=studio-example.com",
         },
         prodCategory: "action",
-        senderRelationship: "no prior contact on record",
       },
     ],
   },
@@ -895,7 +835,6 @@ You are receiving this because you signed up at deepinfra.com.`,
             "mx.google.com; dkim=pass header.i=@talent.acme-example.com; spf=pass (google.com: domain of priya@talent.acme-example.com designates 198.51.100.7 as permitted sender) smtp.mailfrom=priya@talent.acme-example.com; dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=acme-example.com",
         },
         prodCategory: "fyi",
-        senderRelationship: "you reached out first (one sent message, no reply yet)",
         thread: {
           messageCount: 2,
           newestDirection: "received",
@@ -931,11 +870,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-13T05:55:45Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "urgent",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
       {
         from: "Google <no-reply@accounts.google.com>",
@@ -944,11 +878,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-13T05:55:47Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "urgent",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
       {
         from: "Google <no-reply@accounts.google.com>",
@@ -957,11 +886,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-13T05:55:48Z",
         labelIds: ["UNREAD", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "urgent",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
       {
         from: "Samsung account <sa.noreply@samsung-mail.com>",
@@ -978,11 +902,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-13T06:46:39Z",
         labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "urgent",
-        senderKind: {
-          kind: "group",
-          confidence: 0.99,
-          evidenceCodes: ["gmail:list_id", "gmail:list_unsubscribe"],
-        },
       },
       {
         from: "Myntra <no-reply@myntra.com>",
@@ -1015,11 +934,6 @@ You are receiving this because you signed up at deepinfra.com.`,
         authoredAt: "2026-11-13T16:07:42Z",
         labelIds: ["UNREAD", "CATEGORY_PERSONAL", "INBOX"],
         prodCategory: "urgent",
-        senderKind: {
-          kind: "service",
-          confidence: 0.92,
-          evidenceCodes: ["email:local:service_strong"],
-        },
       },
     ],
   },

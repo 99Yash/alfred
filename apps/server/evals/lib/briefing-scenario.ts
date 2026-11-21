@@ -39,6 +39,7 @@ export function email(
     threadId: overrides.threadId ?? "thr_eval_1",
     previouslySurfaced: overrides.previouslySurfaced ?? true,
     attentionBand: overrides.attentionBand ?? "normal",
+    correspondentHistory: overrides.correspondentHistory ?? null,
     contentLength: overrides.contentLength ?? 240,
     outsideTriage: overrides.outsideTriage ?? null,
   };
@@ -121,7 +122,7 @@ export async function runBriefingScenario(input: ScenarioRun): Promise<ComposeOu
         }),
         list_emails_since: tool({
           description:
-            "Emails since the last briefing. Each carries subject, from, snippet, triageCategory, previouslySurfaced, attentionBand, and outsideTriage (null for inbox mail that triage labels, else where the unlabelled mail sits). No bodies.",
+            "Emails since the last briefing. Each carries subject, from, snippet, triageCategory, previouslySurfaced, attentionBand, correspondentHistory, and outsideTriage (null for inbox mail that triage labels, else where the unlabelled mail sits). No bodies.",
           inputSchema: z.object({ limit: z.number().int().min(1).max(60).default(60) }),
           execute: async () => scenario.emails,
         }),

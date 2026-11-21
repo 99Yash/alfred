@@ -168,7 +168,6 @@ async function main() {
       reason: "reply",
       classification,
       document: ctxData.document,
-      isColdContact: observations.senderRelationshipIsCold,
       actionItemsEnabled: flags.actionItems,
       standing: triageTodoStanding({
         suppressions,

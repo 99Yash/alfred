@@ -3,7 +3,9 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // Production builds strip console and debugger statements; dev keeps them.
+  esbuild: mode === "production" ? { drop: ["console", "debugger"] } : {},
   plugins: [tanstackRouter({ autoCodeSplitting: true }), react()],
   build: {
     rollupOptions: {
@@ -19,7 +21,15 @@ export default defineConfig({
             return "react-vendor";
           }
 
-          if (id.includes("@tanstack")) return "tanstack";
+          if (id.includes("@tanstack")) {
+            // react-form is only used by lazy form consumers (integration
+            // forms, styleguide), which import `~/components/ui/v2/form`
+            // directly. Excluding it here keeps it out of the eager tanstack
+            // vendor chunk; rollup places it with the lazy routes instead.
+            if (id.includes("@tanstack/react-form")) return;
+
+            return "tanstack";
+          }
 
           if (id.includes("replicache")) return "replicache";
 
@@ -46,4 +56,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

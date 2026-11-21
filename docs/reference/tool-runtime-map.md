@@ -53,6 +53,12 @@ calls the tool depends on the read path that the chat run pinned at its start
 
 The pin rules the run. A flag change applies only to the next chat run.
 
+A script has one host function that is not a read: the clock `time.now()`
+(ADR-0130 decision 7, `timeNowBinding` in `code-mode/host-bindings.ts`). It returns
+the snapshot of `system.current_time` (`currentTimeSnapshot`) in the run's
+`ctx.timezone`. The script's own `Date` is fixed for the run and uses the server
+timezone. The clock has no dispatch, no card, and no host-call row.
+
 Each script keeps an evidence record (ADR-0124 amendment 2026-11-18): one
 `code_run_host_calls` row for each host call, linked to the `system.code_run`
 staging row and to the nested staging row. Dispatch owns the host-call ledger and

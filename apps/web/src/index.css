@@ -1964,7 +1964,7 @@
       linear-gradient(180deg, #0c1029 0%, #1d2348 45%, #2a2452 100%);
   }
 
-  /* The chromatic lens-flare is now a real texture (hero/sun-halo.png)
+  /* The chromatic lens-flare is now a real texture (hero/sun-halo.avif)
    * blended at screen in hero-atmosphere.tsx, replacing the earlier
    * CSS-faked conic ring + core that used to live here. */
 

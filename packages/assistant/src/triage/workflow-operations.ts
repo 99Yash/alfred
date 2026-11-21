@@ -11,13 +11,12 @@ import {
 } from "@alfred/assistant/connections";
 import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistant/settings";
 import {
+  describeCorrespondentHistory,
   loadMailFacts,
-  readSenderPerson,
   readUserContextLine,
   standingInstructions,
   type MailFacts,
   type ReportedStandingInstructionSet,
-  type SenderPersonRead,
 } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -32,8 +31,7 @@ import {
   type TriageClassification,
 } from "./classify";
 import { senderExtractionEvent } from "./sender-extraction-event";
-import { resolveSenderKind, triageSenderKindProjectionEnabled } from "./sender-kind";
-import { resolveSenderRelationship } from "./sender-relationship";
+import { readLegacyDraftColdSender } from "./sender-relationship";
 import { mayBeUnflaggedSentMail } from "./sent-mail";
 import { triageOutOfScope, type TriageOutOfScope } from "./scope";
 import {
@@ -68,7 +66,6 @@ import {
   triageCategorySchema,
   type AccountPersona,
   type GmailDocumentMetadata,
-  type SignificanceBand,
   type TodoObjectRef,
   type TodoSource,
   type TriageCategory,
@@ -262,7 +259,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let instructionEvaluation: TriageInstructionEvaluation | null = null;
   // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
-  let senderSignificanceBand: SignificanceBand | null = null;
+  // The proactive draft gate still reads the old triage snapshot (ADR-0098).
+  let draftSenderIsCold: boolean | null = null;
   // Before the row write on both paths, so the stored trace holds the facts the side effects use.
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
@@ -277,10 +275,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       reason: ctx.state.reason,
       classification,
       document: ctxData.document,
-      // On reuse there are no observations, so read the row's verdict (#517 D1).
-      isColdContact:
-        observations?.senderRelationshipIsCold ??
-        (reusedExistingRow ? (existing?.senderRelationshipIsCold ?? false) : false),
       actionItemsEnabled: flags.actionItems,
       standing: triageTodoStanding({
         suppressions,
@@ -306,7 +300,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     model = existing.model;
     // A prior attempt may have written the row and died before the side effects (#157).
     written = true;
-    senderSignificanceBand = existing.senderSignificanceBand ?? null;
+    draftSenderIsCold = existing.senderRelationshipIsCold ?? null;
     // No gather runs on reuse, so the todo lane loads the suppressions itself.
     todo = await decideTodo(
       await standingInstructions({ userId: ctx.userId, onReadFailure: "report" }),
@@ -315,18 +309,29 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
     // Before the try, so the fallback path still has them for the trace.
-    const gathered = await gatherObservations({
-      userId: ctx.userId,
-      settings: userSettings,
-      documentId: ctx.state.documentId,
-      sourceThreadId,
-      document: ctxData.document,
-      accountId: ctxData.document.accountId,
-      persona: ctxData.persona,
-      mailFacts,
-    });
+    // The history read runs beside the gather: one batch read inside mail-facts, and the
+    // legacy draft-cold read keeps the proactive draft gate's decision (ADR-0098).
+    const [gathered, legacyDraftSenderIsCold] = await Promise.all([
+      gatherObservations({
+        userId: ctx.userId,
+        settings: userSettings,
+        documentId: ctx.state.documentId,
+        sourceThreadId,
+        document: ctxData.document,
+        accountId: ctxData.document.accountId,
+        persona: ctxData.persona,
+        mailFacts,
+      }),
+      readLegacyDraftColdSender({
+        userId: ctx.userId,
+        settings: userSettings,
+        senderAddress: senderContextResult.senderAddress,
+        effectiveAuthor: senderContext.effectiveAuthor,
+      }),
+    ]);
 
     observations = gathered.observations;
+    draftSenderIsCold = legacyDraftSenderIsCold;
 
     try {
       const result = await classifyEmail({
@@ -365,10 +370,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       model = "fallback";
     }
 
-    // For the rail's demotion (ADR-0064). Null reads as neutral.
-    senderSignificanceBand =
-      gathered.sender.kind === "found" ? (gathered.sender.significance?.band ?? null) : null;
-
     todo = await decideTodo(gathered.suppressions, {
       documentId: ctx.state.documentId,
       category: classification.category,
@@ -381,6 +382,10 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     const decisionTrace = senderExtractionEvent({
       senderContextResult,
+      senderCorrespondentHistory:
+        mailFacts.sender.history && mailFacts.arrivedAt
+          ? describeCorrespondentHistory(mailFacts.sender.history, mailFacts.arrivedAt.timezone)
+          : null,
       observations,
       audit,
       classification,
@@ -405,9 +410,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       todoDecision: classification.todoDecision ?? null,
       modelVerdict,
       instructionEvaluation,
-      senderSignificanceBand,
       // The reuse path has no observations, so it reads this from the row (#517 D1).
-      senderRelationshipIsCold: observations.senderRelationshipIsCold,
+      senderRelationshipIsCold: draftSenderIsCold,
       decisionTrace: {
         stepId: "classify",
         attempt: ctx.attempt,
@@ -496,9 +500,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         todoDecision: todoDecision
           ? { outcome: todoDecision.outcome, note: todoDecision.note ?? null }
           : null,
-        senderRelationshipIsCold:
-          observations?.senderRelationshipIsCold ?? existing?.senderRelationshipIsCold ?? null,
-        senderSignificanceBand,
+        senderRelationshipIsCold: draftSenderIsCold,
       },
       triageStep: { runId: ctx.runId, stepId: "classify", attempt: ctx.attempt },
       triageReason: ctx.state.reason ?? null,
@@ -1078,8 +1080,6 @@ export async function loadStoredTriageClassifyInput(args: {
 
 export interface GatheredObservations {
   observations: Observations;
-  /** For the rail band (ADR-0064). Not a classifier input. */
-  sender: SenderPersonRead;
   /** One `"report"` load. The todo lane matches against it too. */
   suppressions: ReportedStandingInstructionSet;
 }
@@ -1087,7 +1087,7 @@ export interface GatheredObservations {
 /**
  * The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort.
  * Dry-run scripts call this too, so a replay sees the facts the live classify sees.
- * The sender's `person` row and the sender suppressions are each read one time here.
+ * The sender suppressions are read one time here.
  */
 export async function gatherObservations(args: {
   userId: string;
@@ -1105,11 +1105,9 @@ export async function gatherObservations(args: {
   const meta = args.document.metadata;
   const { labelIds } = args.mailFacts;
   // The parse's own address, as the classify step read it before the reader.
-  const { context: senderContext, senderAddress } = args.mailFacts.sender.parse;
+  const { senderAddress } = args.mailFacts.sender.parse;
 
-  const isHumanSender = senderContext.effectiveAuthor === "person";
-
-  const [thread, senderKindEnabled, suppressions, userContext, sender] = await Promise.all([
+  const [thread, suppressions, userContext] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -1120,11 +1118,6 @@ export async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    triageSenderKindProjectionEnabled(args.settings).catch((err: unknown) => {
-      logger.warn({ err, userId: args.userId }, "[triage] sender-kind flag read failed");
-
-      return false;
-    }),
     // Read before the model call. A blip makes every `matchSender` report `read_failed`,
     // so the trace can tell none from unknown.
     standingInstructions({ userId: args.userId, onReadFailure: "report" }),
@@ -1133,27 +1126,12 @@ export async function gatherObservations(args: {
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
-    readSenderPerson(args.userId, senderAddress),
   ]);
 
   // The target hits and the scoped candidates for this mail (ADR-0113).
   const mailInstructions = suppressions.forMail({
     sender: senderAddress ?? meta.from ?? null,
     accountId: args.accountId,
-  });
-
-  const senderKind =
-    senderKindEnabled && senderAddress ? await resolveSenderKind(args.userId, senderAddress) : null;
-
-  const usePersonTreatment = isHumanSender && senderKind == null;
-
-  // Best-effort hint: a failed read is not a known contact.
-  const knownContact = usePersonTreatment && sender.kind === "found";
-
-  const relationship = await resolveSenderRelationship({
-    userId: args.userId,
-    sender,
-    isHumanSender: usePersonTreatment,
   });
 
   const signalText = [
@@ -1171,10 +1149,6 @@ export async function gatherObservations(args: {
   const observations = assembleObservations({
     persona: args.persona,
     thread,
-    knownContact,
-    senderRelationship: relationship.descriptor,
-    senderRelationshipIsCold: relationship.isColdContact,
-    senderKind,
     standingInstructions: mailInstructions,
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
@@ -1182,7 +1156,7 @@ export async function gatherObservations(args: {
     signalText,
   });
 
-  return { observations, sender, suppressions };
+  return { observations, suppressions };
 }
 
 /** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */

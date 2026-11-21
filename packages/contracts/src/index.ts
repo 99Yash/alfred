@@ -97,6 +97,8 @@ export * from "./reply-drafting";
 
 export * from "./attention";
 
+export * from "./correspondent-history";
+
 export * from "./briefing";
 
 export * from "./briefing-constants";

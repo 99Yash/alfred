@@ -255,8 +255,6 @@
   "packages/assistant/src/triage/sender-extraction-event.ts": ["FLOOR_TRACE_PROJECTIONS"],
   "packages/assistant/src/triage/sender-kind.ts": ["senderKindSignalFromProfile"],
   "packages/assistant/src/triage/sender-relationship.ts": [
-    "NON_HUMAN_RELATIONSHIP",
-    "RELATIONSHIP_READ_FAILED",
     "SenderSignificanceBucket",
     "isColdContactFromSignals"
   ],
