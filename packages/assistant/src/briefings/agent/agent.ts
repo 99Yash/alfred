@@ -161,7 +161,7 @@ const COMPOSER_READS = {
     tool: "get_day_shape",
     hides: "the status of your deploys, and how active the day was",
   },
-} as const satisfies Record<GatherInput, ComposerRead | null>;
+} as const satisfies Record<GatherInput, ComposerRead>;
 
 type UnavailableCause = Extract<GatherProvenance, { state: "unavailable" }>["cause"];
 
@@ -186,7 +186,7 @@ const BLIND_COST = {
 
 /**
  * One composer fact: the tool, what Alfred knows about the read, and what it costs. Of the inputs
- * in `COMPOSER_READS`, only warnings states `fallback`.
+ * in `COMPOSER_READS`, warnings and weather state `fallback`.
  */
 function composerFact(entry: GatherProvenance, read: ComposerRead): string | null {
   switch (entry.state) {
@@ -218,11 +218,9 @@ function composerFact(entry: GatherProvenance, read: ComposerRead): string | nul
  */
 function inputProvenanceFacts(provenance: readonly GatherProvenance[]): string {
   const lines = provenance.flatMap((entry) => {
-    const read = COMPOSER_READS[entry.input];
+    if (!provenanceAudience(entry).composerFact) return [];
 
-    if (read === null || !provenanceAudience(entry).composerFact) return [];
-
-    const fact = composerFact(entry, read);
+    const fact = composerFact(entry, COMPOSER_READS[entry.input]);
 
     return fact === null ? [] : [fact];
   });
