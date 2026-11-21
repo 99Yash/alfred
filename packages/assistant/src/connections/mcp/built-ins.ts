@@ -9,6 +9,7 @@ import { integrationDisplayName, typedEntries, type BuiltInMCPProvider } from "@
 import { serverEnv } from "@alfred/env/server";
 
 import { hostedEndpointKey } from "../hosted-endpoint";
+import type { McpEndpointConnection } from "./endpoint-authorization";
 import {
   CLICKUP_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ENDPOINT_HREF,
@@ -20,6 +21,7 @@ import {
   GOOGLE_SLIDES_MCP_ENDPOINT_HREF,
   GITHUB_MCP_ISSUER,
   LINEAR_MCP_ENDPOINT_HREF,
+  LINEAR_MCP_READ_ENDPOINT_HREF,
   MCP_OAUTH_PENDING_IDENTITY,
   NOTION_MCP_ENDPOINT_HREF,
   POLYLANE_MCP_ENDPOINT_HREF,
@@ -94,6 +96,14 @@ type BuiltInDefinition = {
    */
   readonly readOnlyCatalog: boolean;
   /**
+   * A read-only resource beside a read-write endpoint (ADR-0130 decision 9). The connection holds
+   * one grant and one catalog. Each tool that this endpoint lists takes its descriptor from it, and
+   * a call to that tool goes to it, so the tool has structural read authority. If this catalog
+   * breaks the ADR-0094 rule or fails to list, the client drops it for that refresh: the reads go
+   * back to the main endpoint and its gates. Same origin as `endpointHref`: module load checks it.
+   */
+  readonly readEndpointHref?: string | undefined;
+  /**
    * Negotiate the legacy `2025-11-25` era (ADR-0095). GitHub declares `x-mcp-header`,
    * which `assertSafeSchema` refuses; the legacy era makes it inert.
    * Stripping the keyword fails: GitHub enforces the header in the modern era.
@@ -157,9 +167,10 @@ export const BUILT_IN_REGISTRY = {
     auth: "oauth",
     canonicalResource: LINEAR_MCP_ENDPOINT_HREF,
     endpointHref: LINEAR_MCP_ENDPOINT_HREF,
-    // All declared scopes except `openid` and `email`. ADR-0088 keeps every call behind an approval.
+    // All declared scopes except `openid` and `email`. The grant opens the read endpoint too.
     scopes: ["read", "write"],
     readOnlyCatalog: false,
+    readEndpointHref: LINEAR_MCP_READ_ENDPOINT_HREF,
     pinLegacyProtocol: false,
     initialState: BUILT_IN_INITIAL_STATE,
   },
@@ -261,9 +272,11 @@ export function builtInAuthorizationScopes(endpointUrl: string): readonly string
 
 /**
  * Client config for a stored endpoint; all off for a user-added server.
- * Kept off the barrel. The risk gate uses {@link builtInReadOnlyResource}.
+ * Kept off the barrel. The risk gate uses {@link builtInReadOnlyResourceTool}.
  */
-type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegacyProtocol">;
+type BuiltInClientPolicy = Pick<BuiltInDefinition, "readOnlyCatalog" | "pinLegacyProtocol"> & {
+  readonly readEndpoint?: McpEndpointConnection;
+};
 
 export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   const definition = lookupBuiltInHref(endpointUrl);
@@ -271,12 +284,28 @@ export function builtInClientPolicy(endpointUrl: string): BuiltInClientPolicy {
   return {
     readOnlyCatalog: definition?.readOnlyCatalog ?? false,
     pinLegacyProtocol: definition?.pinLegacyProtocol ?? false,
+    ...(definition?.readEndpoint ? { readEndpoint: definition.readEndpoint } : {}),
   };
 }
 
-/** True for a built-in read-only resource (ADR-0096). False when unsure, so the `high` floor holds. */
-export function builtInReadOnlyResource(endpointUrl: string): boolean {
-  return lookupBuiltInHref(endpointUrl)?.readOnlyCatalog ?? false;
+/**
+ * True when one tool of a stored revision reached Alfred from a built-in read-only resource
+ * (ADR-0096). False when unsure, so the `high` floor holds. It is one when the
+ * whole endpoint is one (GitHub), or the built-in has a read endpoint and the revision records
+ * that the tool came from it (Linear, ADR-0130 decision 9). A user-added server is never one.
+ */
+export function builtInReadOnlyResourceTool(
+  endpointUrl: string,
+  servedByReadEndpoint: boolean,
+): boolean {
+  const definition = lookupBuiltInHref(endpointUrl);
+
+  if (definition === undefined) return false;
+
+  return (
+    definition.readOnlyCatalog ||
+    (servedByReadEndpoint && definition.readEndpointHref !== undefined)
+  );
 }
 
 /** True for a built-in that borrows the Google credential's token (ADR-0126). */
@@ -293,12 +322,36 @@ type ResolvedDefinition = BuiltInDefinition & {
   readonly provider: BuiltInProvider;
   /** Origin of {@link BuiltInDefinition.staticClient}'s issuer, absent without one. */
   readonly issuerOrigin?: string;
+  /** {@link BuiltInDefinition.readEndpointHref}, checked same-origin at module load. */
+  readonly readEndpoint?: McpEndpointConnection;
 };
+
+/**
+ * The read endpoint of a built-in. The read side sends this connection's token there, so a read
+ * endpoint on another origin fails module load instead of leaking the token.
+ */
+function resolveReadEndpoint(
+  provider: BuiltInProvider,
+  definition: BuiltInDefinition,
+): McpEndpointConnection | undefined {
+  if (definition.readEndpointHref === undefined) return undefined;
+
+  const endpointOrigin = new URL(definition.readEndpointHref).origin;
+
+  if (endpointOrigin !== new URL(definition.endpointHref).origin) {
+    throw new Error(
+      `Built-in MCP '${provider}': the read endpoint ${definition.readEndpointHref} is not on the origin of ${definition.endpointHref}`,
+    );
+  }
+
+  return { endpointUrl: definition.readEndpointHref, endpointOrigin };
+}
 
 const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
   typedEntries(BUILT_IN_REGISTRY).map(([provider, entry]): [string, ResolvedDefinition] => {
     // Widen so entries without `staticClient` still type the property.
     const definition: BuiltInDefinition = entry;
+    const readEndpoint = resolveReadEndpoint(provider, definition);
 
     return [
       hostedEndpointKey(new URL(definition.endpointHref)),
@@ -308,6 +361,7 @@ const BY_ENDPOINT: ReadonlyMap<string, ResolvedDefinition> = new Map(
         ...(definition.staticClient
           ? { issuerOrigin: new URL(definition.staticClient.issuer).origin }
           : {}),
+        ...(readEndpoint ? { readEndpoint } : {}),
       },
     ];
   }),

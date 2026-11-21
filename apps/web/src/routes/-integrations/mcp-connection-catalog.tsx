@@ -64,6 +64,8 @@ function McpInspectionDetail({ inspection }: { inspection: McpConnectionToolInsp
 export interface McpCatalogViewProps {
   connectionStatus: McpConnection["status"];
   connectionLastError: string | null;
+  /** Why the current catalog dropped its read endpoint (ADR-0130 decision 9). */
+  connectionReadEndpointFault: string | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   loading: boolean;
@@ -107,6 +109,7 @@ const VIEW_SWAP_CLASS =
 export function McpCatalogView({
   connectionStatus,
   connectionLastError,
+  connectionReadEndpointFault,
   searchQuery,
   onSearchChange,
   loading,
@@ -129,13 +132,25 @@ export function McpCatalogView({
   listEntersFromDetail = false,
   ruleList = null,
 }: McpCatalogViewProps) {
+  const presentation = mcpConnectionPresentation({
+    status: connectionStatus,
+    lastError: connectionLastError,
+    readEndpointFault: connectionReadEndpointFault,
+  });
+
+  // The tile shows the alert's cause only on hover, so the panel shows it in full. A ready
+  // connection has an alert only when its catalog dropped the read endpoint.
+  const statusText =
+    connectionStatus !== "ready"
+      ? presentation.statusText
+      : presentation.alert
+        ? [presentation.alert.text, presentation.alert.diagnostic].filter(Boolean).join(": ")
+        : null;
+
   const statusLine =
-    connectionStatus === "ready" ? null : (
+    statusText === null ? null : (
       <p className="text-xs text-app-amber-4" role="status">
-        {
-          mcpConnectionPresentation({ status: connectionStatus, lastError: connectionLastError })
-            .statusText
-        }
+        {statusText}
       </p>
     );
 
@@ -413,6 +428,7 @@ export function McpConnectionCatalogPanel({ connection }: { connection: McpConne
     <McpCatalogView
       connectionStatus={connection.status}
       connectionLastError={connection.lastError}
+      connectionReadEndpointFault={connection.readEndpointFault}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
       loading={toolsQuery.isPending}

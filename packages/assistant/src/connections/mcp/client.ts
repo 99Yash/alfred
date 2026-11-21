@@ -29,7 +29,12 @@ import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { isMcpAuthorizationChallenge, McpClientError } from "./errors";
+import {
+  boundedMcpErrorText,
+  isMcpAuthorizationChallenge,
+  McpClientError,
+  type McpClientErrorCode,
+} from "./errors";
 import type {
   McpApiKeyCredentialReader,
   McpAuthorizedEndpoint,
@@ -62,6 +67,14 @@ export interface McpCatalogSnapshot {
   tools: readonly Tool[];
   ttlMs: number;
   cacheScope: CacheScope;
+  /**
+   * Set only for a connection with a read endpoint (ADR-0130 decision 9): the tools whose
+   * descriptor came from that endpoint, in `compareMcpToolNames` order. A call to one of them goes
+   * to the read endpoint. Empty when this refresh dropped the read side.
+   */
+  readEndpointTools?: readonly string[];
+  /** Why this refresh dropped the read side, for the owner. Not part of the revision. */
+  readEndpointFault?: string;
 }
 
 interface McpCallEnvelopeFields {
@@ -146,6 +159,13 @@ export interface McpRawClientOptions extends McpClientLimits {
   readOnlyCatalog?: boolean | undefined;
   /** Negotiate the legacy `2025-11-25` era, which makes `x-mcp-header` inert (ADR-0095). */
   pinLegacyProtocol?: boolean | undefined;
+  /**
+   * A built-in read-only resource beside this endpoint (ADR-0130 decision 9). The client lists it
+   * with this connection's token and the ADR-0094 rule. Each tool that it lists replaces the main
+   * descriptor of that name, and a call to that tool goes to it. A failed listing drops the read
+   * side for that refresh and never refuses the main catalog. Injected from `builtInClientPolicy`.
+   */
+  readEndpoint?: McpEndpointConnection | undefined;
 }
 
 /** Default per-request timeout. The OAuth routes use it too. */
@@ -296,11 +316,70 @@ interface McpClientGeneration {
   readonly authorization: McpAuthorizedEndpoint;
   readonly protocol: McpProtocolClient;
   readonly oauth: McpTokenSession | null;
+  /** The read endpoint's client. It borrows this generation's token and closes with it. */
+  readSide: McpReadSide | null;
   negotiated: McpNegotiatedServer | null;
   unhealthy: Error | null;
   authorizationBlocked: McpClientError | null;
   closeFlight: Promise<void> | null;
 }
+
+/**
+ * The read endpoint's client of one generation. `listings` counts the refreshes that list it now:
+ * a fault during a listing belongs to that refresh, so the client does not invalidate the parent.
+ */
+interface McpReadSide {
+  readonly client: McpRawClient;
+  listings: number;
+}
+
+/**
+ * The read side that served one catalog. `prepared` is the call that its listing prepared, so a
+ * routed call runs on that exact read catalog and never lists the read endpoint again.
+ */
+interface McpReadRoute {
+  readonly side: McpReadSide;
+  readonly prepared: McpPreparedToolCall;
+  readonly names: ReadonlySet<string>;
+}
+
+type McpReadSideListing =
+  | {
+      readonly kind: "listed";
+      readonly side: McpReadSide;
+      readonly prepared: McpPreparedToolCall;
+      /** The read catalog's own expiry: a cached read catalog has less time left than its TTL. */
+      readonly expiresAt: number;
+    }
+  | { readonly kind: "dropped"; readonly fault: string };
+
+/**
+ * The deadline of one read-side attempt: the handshake and the listing. The read side is optional,
+ * so a slow read endpoint must not hold a call for the full request timeout. At the deadline the
+ * refresh drops the read side and serves the main catalog.
+ */
+const READ_SIDE_DEADLINE_MS = 10_000;
+
+/** A read catalog that changes during its listing gets one more listing before the read side drops. */
+const READ_SIDE_LISTING_ATTEMPTS = 2;
+
+/**
+ * Read-side errors after which the read client cannot serve the next call: its session or its
+ * grant is blocked. The client drops it, and the next refresh opens a fresh read side.
+ */
+const READ_SIDE_DROP_CODES: ReadonlySet<McpClientErrorCode> = new Set([
+  "not_connected",
+  "session_expired",
+  "authorization_required",
+  "insufficient_scope",
+]);
+
+/** Read-side errors that say the read catalog moved. The read client is sound; the catalog is not. */
+const READ_CATALOG_MOVED_CODES: ReadonlySet<McpClientErrorCode> = new Set([
+  "catalog_stale",
+  "catalog_required",
+  "descriptor_mismatch",
+]);
 
 /** MCP client: lifecycle, catalog, schema validation, bounded results. No approvals, registry, or retries. */
 export class McpRawClient {
@@ -320,6 +399,8 @@ export class McpRawClient {
   #toolsByName = new Map<string, Tool>();
   #inputValidators = new Map<string, JsonSchemaValidator<JsonObject>>();
   #outputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
+  /** The read side that served the current catalog, or `null`. Set and cleared with `#catalog`. */
+  #readRoute: McpReadRoute | null = null;
   #lifecycleTail: Promise<void> = Promise.resolve();
   #cleanupTail: Promise<void> = Promise.resolve();
 
@@ -345,6 +426,11 @@ export class McpRawClient {
     return this.#catalog;
   }
 
+  /** When {@link catalog} expires, on the `now` clock. `0` with no catalog. */
+  get catalogExpiresAt(): number {
+    return this.#catalogExpiresAt;
+  }
+
   get negotiatedServer(): McpNegotiatedServer | null {
     return this.#generation?.negotiated ?? null;
   }
@@ -358,11 +444,11 @@ export class McpRawClient {
     this.#invalidateCatalog();
   }
 
-  connect(trace?: McpTraceContext): Promise<void> {
-    return this.#runLifecycle(() => this.#connect(trace));
+  connect(trace?: McpTraceContext, signal?: AbortSignal): Promise<void> {
+    return this.#runLifecycle(() => this.#connect(trace, signal));
   }
 
-  async #connect(trace?: McpTraceContext): Promise<void> {
+  async #connect(trace?: McpTraceContext, signal?: AbortSignal): Promise<void> {
     await this.#drainCleanup();
 
     if (this.#generation) return;
@@ -441,6 +527,7 @@ export class McpRawClient {
       authorization: authorized,
       protocol,
       oauth,
+      readSide: null,
       negotiated: null,
       unhealthy: null,
       authorizationBlocked: null,
@@ -466,7 +553,7 @@ export class McpRawClient {
       if (wasCurrent) this.#announceCatalogInvalidated();
     });
 
-    const handshake = sendWithToken(() => protocol.connect(trace));
+    const handshake = sendWithToken(() => protocol.connect(trace, signal));
 
     try {
       const server = await handshake.result;
@@ -603,14 +690,41 @@ export class McpRawClient {
       cursor = nextCursor;
     }
 
+    let readSide = await this.#listReadSide(generation, signal, trace);
+    let mergedTools: readonly Tool[] = tools;
+
+    if (readSide?.kind === "listed") {
+      try {
+        mergedTools = this.#mergeReadEndpointTools(tools, readSide.prepared.catalog.tools);
+        // The merged catalog lives no longer than the read catalog that it holds.
+        ttlMs = Math.min(ttlMs, Math.max(0, readSide.expiresAt - this.#options.now()));
+      } catch (error) {
+        if (!(error instanceof McpClientError)) throw error;
+
+        // The main listing passed the caps alone, so the read side caused the excess: drop it.
+        this.#dropReadSide(generation, readSide.side);
+        readSide = { kind: "dropped", fault: boundedMcpErrorText(error) };
+      }
+    }
+
     const sortedTools = Object.freeze(
-      tools
+      mergedTools
         .map((tool) => deepFreeze(structuredClone(tool)))
         // Code-point order, not `localeCompare`: ICU collation varies by host and would change the hash.
         .toSorted((a, b) => compareMcpToolNames(a.name, b.name)),
     );
 
-    const revision = sha256Canonical(sortedTools);
+    const readEndpointTools = Object.freeze(
+      readSide?.kind === "listed" ? readSide.prepared.catalog.tools.map((tool) => tool.name) : [],
+    );
+
+    // The route is authority, so the revision covers it. With no read endpoint the formula stays
+    // the descriptors alone, so existing revisions keep their hash.
+    const revision =
+      readSide === null
+        ? sha256Canonical(sortedTools)
+        : sha256Canonical({ tools: sortedTools, readEndpointTools });
+
     const nextToolsByName = new Map(sortedTools.map((tool) => [tool.name, tool]));
     const nextInputValidators = new Map<string, JsonSchemaValidator<JsonObject>>();
     const nextOutputValidators = new Map<string, JsonSchemaValidator<JsonValue>>();
@@ -654,12 +768,18 @@ export class McpRawClient {
     this.#toolsByName = nextToolsByName;
     this.#inputValidators = nextInputValidators;
     this.#outputValidators = nextOutputValidators;
+    this.#readRoute =
+      readSide?.kind === "listed"
+        ? { side: readSide.side, prepared: readSide.prepared, names: new Set(readEndpointTools) }
+        : null;
     this.#catalog = Object.freeze({
       connectionId: this.#options.connectionId,
       revision,
       tools: sortedTools,
       ttlMs,
       cacheScope,
+      ...(readSide === null ? {} : { readEndpointTools }),
+      ...(readSide?.kind === "dropped" ? { readEndpointFault: readSide.fault } : {}),
     });
     this.#catalogExpiresAt = this.#options.now() + ttlMs;
 
@@ -762,6 +882,12 @@ export class McpRawClient {
       );
     }
 
+    const readRoute = this.#readRoute;
+
+    if (readRoute?.names.has(tool.name)) {
+      return this.#callReadEndpoint(readRoute, catalog, ref, validated.data, options);
+    }
+
     const request = sendWithToken(() =>
       protocol.callTool(tool, validated.data, options.signal, options.trace),
     );
@@ -821,6 +947,192 @@ export class McpRawClient {
     return { ...fields, result: sanitized };
   }
 
+  /**
+   * The union of the main and the read-endpoint tools. A read-endpoint descriptor replaces the
+   * main one, so the model sees what that endpoint runs. A read-endpoint tool that the main
+   * endpoint does not list adds to the union, so the union must hold the catalog caps again.
+   */
+  #mergeReadEndpointTools(mainTools: readonly Tool[], readTools: readonly Tool[]): Tool[] {
+    const merged = new Map(mainTools.map((tool) => [tool.name, tool]));
+
+    for (const tool of readTools) merged.set(tool.name, tool);
+
+    if (merged.size > this.#limits.maxCatalogTools) {
+      throw new McpClientError(
+        "catalog_limit",
+        `MCP catalog exceeded ${this.#limits.maxCatalogTools} tools`,
+      );
+    }
+
+    let catalogBytes = 0;
+
+    for (const tool of merged.values()) {
+      catalogBytes += encodedBytes(canonicalJson(tool));
+
+      if (catalogBytes > MAX_CATALOG_BYTES) {
+        throw new McpClientError(
+          "catalog_limit",
+          `MCP catalog exceeded ${MAX_CATALOG_BYTES} descriptor bytes`,
+        );
+      }
+    }
+
+    return [...merged.values()];
+  }
+
+  /**
+   * List the read endpoint for one refresh (ADR-0130 decision 9). `null`: this connection has no
+   * read endpoint. `dropped`: the listing failed, broke the ADR-0094 rule, or passed its deadline,
+   * so this refresh uses only the main endpoint. The read side never fails the main catalog. An
+   * abort of the caller is not a fault.
+   */
+  async #listReadSide(
+    generation: McpClientGeneration,
+    signal: AbortSignal | undefined,
+    trace: McpTraceContext | undefined,
+  ): Promise<McpReadSideListing | null> {
+    const endpoint = this.#options.readEndpoint;
+
+    if (!endpoint) return null;
+
+    const side = (generation.readSide ??= this.#createReadSide(generation, endpoint));
+    const deadline = AbortSignal.timeout(READ_SIDE_DEADLINE_MS);
+    const attemptSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+
+    side.listings += 1;
+
+    try {
+      await side.client.connect(trace, attemptSignal);
+
+      for (let attempt = 1; ; attempt++) {
+        const prepared = await side.client.prepareToolCall(attemptSignal, trace);
+
+        // No `await` between this check and the `finally`, so no invalidation can fall between.
+        if (side.client.catalog === prepared.catalog) {
+          return { kind: "listed", side, prepared, expiresAt: side.client.catalogExpiresAt };
+        }
+
+        if (attempt >= READ_SIDE_LISTING_ATTEMPTS) {
+          throw new McpClientError(
+            "catalog_stale",
+            "The read-only MCP catalog changed during each listing",
+          );
+        }
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+
+      this.#dropReadSide(generation, side);
+
+      return {
+        kind: "dropped",
+        fault: deadline.aborted
+          ? `The read-only MCP endpoint did not list its tools within ${READ_SIDE_DEADLINE_MS / 1000} seconds`
+          : boundedMcpErrorText(error),
+      };
+    } finally {
+      side.listings -= 1;
+    }
+  }
+
+  /**
+   * The read endpoint's client. It borrows this generation's token, so one grant serves both. It
+   * cannot renew a rejected token: a 401 from the read endpoint drops the read side, and only the
+   * main endpoint's 401 can renew the grant or clear it. So a read-endpoint fault cannot cost the
+   * writes their grant.
+   */
+  #createReadSide(generation: McpClientGeneration, endpoint: McpEndpointConnection): McpReadSide {
+    const { auth, authProvider, protocolFactory, pinLegacyProtocol } = this.#options;
+    const oauth = generation.oauth;
+
+    const client = new McpRawClient({
+      connectionId: this.#options.connectionId,
+      endpoint,
+      endpointAuthorizer: this.#options.endpointAuthorizer,
+      // An OAuth generation lends its bound session: a session of its own would bind the
+      // grant to the read resource. A token-free or key auth carries over as it is.
+      auth: oauth
+        ? {
+            mode: "borrowed",
+            session: {
+              refreshIfNeeded: (options) => oauth.refreshIfNeeded(options),
+              accessToken: () => oauth.accessToken(),
+              renewRejectedToken: () => Promise.resolve(false),
+            },
+          }
+        : auth,
+      ...(authProvider ? { authProvider } : {}),
+      ...(protocolFactory ? { protocolFactory } : {}),
+      requestTimeoutMs: this.#limits.requestTimeoutMs,
+      maxCatalogPages: this.#limits.maxCatalogPages,
+      maxCatalogTools: this.#limits.maxCatalogTools,
+      now: this.#options.now,
+      readOnlyCatalog: true,
+      pinLegacyProtocol,
+    });
+
+    const side: McpReadSide = { client, listings: 0 };
+
+    // Only the read side that serves the current catalog invalidates it. A fault during a listing
+    // belongs to that refresh, which drops the read side itself.
+    client.onCatalogInvalidated(() => {
+      if (this.#generation !== generation || side.listings > 0) return;
+
+      if (this.#readRoute?.side === side) this.#announceCatalogInvalidated();
+    });
+
+    return side;
+  }
+
+  /** Close the read side of a generation, so the next refresh opens a fresh one. */
+  #dropReadSide(generation: McpClientGeneration, side: McpReadSide): void {
+    if (generation.readSide === side) generation.readSide = null;
+
+    // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close of a dropped read side; the drop is already decided
+    this.#registerCleanup(side.client.close().catch(() => undefined));
+  }
+
+  /**
+   * Run one call on the read endpoint with the call that the listing prepared. That call refuses
+   * a moved read catalog, so a changed read endpoint is a stale selection. A blocked or lost read
+   * side drops, and the catalog refreshes before the next call.
+   */
+  async #callReadEndpoint(
+    route: McpReadRoute,
+    catalog: McpCatalogSnapshot,
+    ref: ExternalToolRef,
+    args: JsonObject,
+    options: McpToolCallOptions,
+  ): Promise<McpCallEnvelope> {
+    try {
+      const envelope = await route.prepared.call(
+        { ...ref, catalogRevision: route.prepared.catalog.revision },
+        args,
+        options,
+      );
+
+      return { ...envelope, catalogRevision: catalog.revision };
+    } catch (error) {
+      if (!(error instanceof McpClientError)) throw error;
+
+      const drop = READ_SIDE_DROP_CODES.has(error.code);
+      const generation = this.#generation;
+
+      if (drop && generation) this.#dropReadSide(generation, route.side);
+
+      // A refresh that lists the read side now already replaces this catalog.
+      if (
+        (drop || READ_CATALOG_MOVED_CODES.has(error.code)) &&
+        this.#catalog === catalog &&
+        route.side.listings === 0
+      ) {
+        this.#announceCatalogInvalidated();
+      }
+
+      throw error;
+    }
+  }
+
   #requireGeneration(): McpClientGeneration {
     if (!this.#generation) {
       // `boundedMcpErrorText` renders the cause chain, so the lost error rides as the cause.
@@ -837,6 +1149,7 @@ export class McpRawClient {
   #invalidateCatalog(): void {
     this.#catalogGeneration += 1;
     this.#catalog = null;
+    this.#readRoute = null;
     this.#catalogExpiresAt = 0;
     this.#toolsByName.clear();
     this.#inputValidators.clear();
@@ -952,6 +1265,10 @@ export class McpRawClient {
       try {
         await generation.protocol.close(terminateSession);
       } finally {
+        const readSide = generation.readSide;
+        generation.readSide = null;
+        // oxlint-disable-next-line alfred/no-swallowed-catch -- best-effort close of the read side on a close path; a failure leaves nothing to undo
+        await readSide?.client.close({ terminateSession }).catch(() => undefined);
         await this.#closeAuthorization(generation.authorization);
       }
     })());

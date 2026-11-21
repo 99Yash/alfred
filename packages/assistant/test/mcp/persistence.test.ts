@@ -660,6 +660,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       connectionId: connId,
       expectedCurrentRevisionId: null,
       nextRevisionId: revisionA.id,
+      readEndpointFault: null,
       patch: { status: "ready" },
     });
 
@@ -669,6 +670,7 @@ describe("mcp persistence (DB-backed)", { skip: SKIP }, () => {
       connectionId: connId,
       expectedCurrentRevisionId: null,
       nextRevisionId: revisionB.id,
+      readEndpointFault: null,
       patch: { status: "ready" },
     });
 

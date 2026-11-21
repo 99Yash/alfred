@@ -1,6 +1,15 @@
 import type { McpConnection } from "~/lib/integrations/mcp-connections";
 
-/** The one-line amber alert. Present only for `failed`, or `connecting` after an error. */
+/**
+ * The alert of a ready connection whose current catalog dropped its read endpoint
+ * (ADR-0130 decision 9). The main endpoint serves every tool, so each read asks for approval.
+ */
+const READ_ENDPOINT_FAULT_ALERT_TEXT = "Reads ask for approval";
+
+/** The fields that decide what a connection shows. */
+type McpConnectionStatusFields = Pick<McpConnection, "status" | "lastError" | "readEndpointFault">;
+
+/** The one-line amber alert. Present for `failed`, `connecting` after an error, and `ready` with a dropped read endpoint. */
 export interface McpConnectionAlert {
   readonly text: string;
   /** The stored diagnostic, shown on hover and to screen readers. */
@@ -20,13 +29,19 @@ export interface McpConnectionPresentation {
 }
 
 export function mcpConnectionPresentation(
-  connection: Pick<McpConnection, "status" | "lastError">,
+  connection: McpConnectionStatusFields,
 ): McpConnectionPresentation {
-  const { lastError } = connection;
+  const { lastError, readEndpointFault } = connection;
 
   switch (connection.status) {
     case "ready":
-      return { statusText: "Connected", alert: null };
+      // Only the catalog activation writes `readEndpointFault`, so no other error shows here.
+      return readEndpointFault === null
+        ? { statusText: "Connected", alert: null }
+        : {
+            statusText: "Connected",
+            alert: { text: READ_ENDPOINT_FAULT_ALERT_TEXT, diagnostic: readEndpointFault },
+          };
     case "auth_required":
       return {
         statusText: lastError ?? "Additional permissions require your consent.",
@@ -64,7 +79,7 @@ export function mcpConnectionNeedsRepair(connection: Pick<McpConnection, "status
 
 /** Status text plus the published tool count once a revision exists. */
 export function mcpConnectionSubtitle(
-  connection: Pick<McpConnection, "status" | "lastError" | "toolCount">,
+  connection: McpConnectionStatusFields & Pick<McpConnection, "toolCount">,
 ): string {
   const status = mcpConnectionPresentation(connection).statusText;
 
@@ -75,7 +90,7 @@ export function mcpConnectionSubtitle(
 
 /** Status, tool count, and last successful connect (omitted until the first one). */
 export function mcpConnectionHealthText(
-  connection: Pick<McpConnection, "status" | "lastError" | "toolCount" | "lastConnectedAt">,
+  connection: McpConnectionStatusFields & Pick<McpConnection, "toolCount" | "lastConnectedAt">,
 ): string {
   const base = mcpConnectionSubtitle(connection);
 

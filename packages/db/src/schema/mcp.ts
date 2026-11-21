@@ -83,6 +83,15 @@ export const mcpCatalogRevisions = pgTable(
       .$type<Record<string, boolean>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
+    /**
+     * Per-tool `true` for a tool that the built-in's read-only endpoint serves (ADR-0130 decision
+     * 9 amendment). Its descriptor came from that endpoint, and a call goes there. A missing key
+     * is the main endpoint. Read only for a built-in that has a read endpoint.
+     */
+    readEndpointTools: jsonb("read_endpoint_tools")
+      .$type<Record<string, boolean>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     toolCount: integer("tool_count").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -202,6 +211,13 @@ export const mcpConnections = pgTable(
     currentCatalogRevisionId: text("current_catalog_revision_id"),
     lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }),
     lastError: text("last_error"),
+    /**
+     * Why the current catalog has no read side (ADR-0130 decision 9), for the owner. The read
+     * endpoint failed to list or broke the ADR-0094 rule, so its reads ask for approval. Only the
+     * catalog activation writes it: the fault text, or null when the read side listed or the
+     * connection has no read endpoint. Kept apart from `lastError`, which other paths own.
+     */
+    readEndpointFault: text("read_endpoint_fault"),
     ...lifecycle_dates,
   },
   (t) => [

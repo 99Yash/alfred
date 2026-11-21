@@ -19,6 +19,7 @@ const connection: McpConnection = {
   grantedScopes: [],
   requiredScopes: [],
   lastError: null,
+  readEndpointFault: null,
   lastConnectedAt: new Date("2026-09-01T10:00:00.000Z"),
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
   toolCount: 3,

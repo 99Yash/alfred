@@ -283,3 +283,16 @@ All four options need the Linear rule set to Auto for the script route. [I, from
 1. Do you want the `/mcp/readonly` resource tested with a `read`-only grant? The test reads `tools/list` and changes nothing.
 2. Do you accept two Linear connections (read and write), or one connection with code pins?
 3. Do you want Linear on Auto? Without it, no option gives the script route.
+
+## 9. Probe result 2026-11-21
+
+The probe used two temporary OAuth clients with the owner's consent. They read only (`tools/list`, `list_teams`) and wrote nothing to Linear. The probe did not print or store a token. The raw results are in `references/scratch/1804-linear-readonly-probe-result.json` and `references/scratch/1804-linear-rw-probe-result.json` (not tracked).
+
+- A grant with the ask `read` and the resource `/mcp/readonly` got the scope `read`. [F]
+- `/mcp/readonly` lists 38 tools. Each one has `readOnlyHint: true`. `whoami` is not on the list. [F] So the ADR-0094 rule does not refuse this catalog. [I]
+- The 401 challenge of `/mcp/readonly` asks for `scope="read write"`, but the consent with the ask `read` granted only `read`. [F]
+- The `read` token gets `401 invalid_token` on `/mcp`. [F]
+- A grant with the ask `read write` and the resource `/mcp` (Alfred's grant today) opens both endpoints: 70 tools on `/mcp` and 38 on `/mcp/readonly`. `list_teams` works on both. [F]
+- Linear's docs do not say that one token serves both paths. They give two read-only options: `/mcp/readonly`, or the scope `read` on `/mcp` (https://linear.app/docs/mcp, read 2026-11-21). [F] The `401` above came from a token asked for with the resource `/mcp/readonly`. So the probe shows a fact of one day, not a contract. [I]
+
+This closes open question 1 of section 8. The owner's answers to the design questions are in ADR-0130 amendment (h).

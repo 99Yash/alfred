@@ -31,11 +31,12 @@ import {
 import {
   builtInOutputKind,
   builtInReadClass,
-  builtInReadOnlyResource,
+  builtInReadOnlyResourceTool,
   integrationOfMcpEndpoint,
   builtInToolPolicy,
   codeOwnsReadClass,
   type BuiltInToolPolicy,
+  type BuiltInToolRef,
   type McpConnectionRemovalGate,
 } from "@alfred/assistant/connections/mcp";
 import { NOT_A_CONFIRMED_READ, type ReadFacts } from "../read-route";
@@ -89,7 +90,10 @@ export type McpToolIdentityResolution =
        * Set only when the owner never reviewed the tool, so an owner review always wins.
        */
       codePolicy: BuiltInToolPolicy | undefined;
-      /** The endpoint is a built-in read-only resource, and this descriptor set `readOnlyHint` (ADR-0096). */
+      /**
+       * The tool reached Alfred from a built-in read-only resource: the whole endpoint (ADR-0096),
+       * or the read endpoint that its revision routes it to (ADR-0130 decision 9).
+       */
       readOnlyResource: boolean;
       readOnly: boolean;
       /**
@@ -126,6 +130,13 @@ function descriptorHashOf(remoteName: string) {
 function readOnlyHintOf(remoteName: string) {
   return sql<boolean>`coalesce(
     ${mcpCatalogRevisions.readOnlyHints} -> ${remoteName} = 'true'::jsonb, false
+  )`;
+}
+
+/** The revision records that the built-in's read-only endpoint serves this tool (ADR-0130 decision 9). */
+function servedByReadEndpointOf(remoteName: string) {
+  return sql<boolean>`coalesce(
+    ${mcpCatalogRevisions.readEndpointTools} -> ${remoteName} = 'true'::jsonb, false
   )`;
 }
 
@@ -308,6 +319,7 @@ export async function resolveMcpToolIdentity(
       revisionHash: mcpCatalogRevisions.revisionHash,
       descriptorHash: descriptorHashExpr,
       readOnly: readOnlyHintOf(input.remoteName),
+      servedByReadEndpoint: servedByReadEndpointOf(input.remoteName),
       // `exists`, not a join: one row per historic review would multiply the result.
       reviewed: exists(
         runner
@@ -360,7 +372,18 @@ export async function resolveMcpToolIdentity(
 
   const reviewed = row.reviewed === true;
   const policy = row.policy ?? undefined;
-  const codeOwned = codeOwnsReadClass(row.endpointUrl, input.remoteName, row.descriptorHash);
+
+  const tool: BuiltInToolRef = {
+    endpointUrl: row.endpointUrl,
+    remoteName: input.remoteName,
+    descriptorHash: row.descriptorHash,
+    readOnlyResource: builtInReadOnlyResourceTool(
+      row.endpointUrl,
+      row.servedByReadEndpoint === true,
+    ),
+  };
+
+  const codeOwned = codeOwnsReadClass(tool);
 
   return {
     status: "resolved",
@@ -368,20 +391,15 @@ export async function resolveMcpToolIdentity(
     descriptorHash: row.descriptorHash,
     policy,
     reviewed,
-    codePolicy: reviewed
-      ? undefined
-      : builtInToolPolicy(row.endpointUrl, input.remoteName, row.descriptorHash),
-    // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade (ADR-0094).
-    readOnlyResource: builtInReadOnlyResource(row.endpointUrl),
+    codePolicy: reviewed ? undefined : builtInToolPolicy(tool),
+    // Key on the endpoint, not `canonical_resource`: a moved endpoint loses the downgrade
+    // (ADR-0094). A read-endpoint tool counts only by the route that its revision records.
+    readOnlyResource: tool.readOnlyResource,
     readOnly: row.readOnly === true,
     // Code owns the class and the output of a read that it confirms. Else the owner's review of
     // this exact descriptor sets them, and an empty field stays empty (ADR-0130 amendment (a)).
-    output: codeOwned
-      ? builtInOutputKind(row.endpointUrl, input.remoteName, row.descriptorHash)
-      : (policy?.outputKind ?? undefined),
-    readClass: codeOwned
-      ? builtInReadClass(row.endpointUrl, input.remoteName, row.descriptorHash)
-      : (policy?.readClass ?? undefined),
+    output: codeOwned ? builtInOutputKind(tool) : (policy?.outputKind ?? undefined),
+    readClass: codeOwned ? builtInReadClass(tool) : (policy?.readClass ?? undefined),
     // A built-in follows its provider's rule. A user-added server keeps the `mcp` rule.
     policyIntegration: integrationOfMcpEndpoint(row.endpointUrl) ?? "mcp",
   };

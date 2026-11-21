@@ -44,6 +44,7 @@ function render(overrides: Partial<McpCatalogViewProps> = {}) {
     createElement(McpCatalogView, {
       connectionStatus: "ready",
       connectionLastError: null,
+      connectionReadEndpointFault: null,
       searchQuery: "",
       onSearchChange() {},
       loading: false,

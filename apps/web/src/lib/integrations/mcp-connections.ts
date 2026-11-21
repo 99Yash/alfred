@@ -32,7 +32,12 @@ export function useMcpConnections({ enabled = true }: { enabled?: boolean } = {}
         throw new Error("Could not load MCP connections");
       }
 
-      return response.data.connections;
+      // A server from before ADR-0130 decision 9 omits `readEndpointFault`. Read the gap as "no
+      // fault", or each ready tile warns that its reads ask.
+      return response.data.connections.map((connection) => ({
+        ...connection,
+        readEndpointFault: connection.readEndpointFault ?? null,
+      }));
     },
     enabled,
     staleTime: 15_000,

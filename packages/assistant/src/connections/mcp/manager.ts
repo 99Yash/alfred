@@ -803,6 +803,7 @@ export class McpConnectionManager {
         connectionId,
         revisionHash: snapshot.revision,
         descriptors: snapshot.tools,
+        readEndpointTools: snapshot.readEndpointTools,
       })
       .pipe(Effect.map((revision) => revision.id));
   }
@@ -812,12 +813,25 @@ export class McpConnectionManager {
     expectedCurrentRevisionId: string | null,
     revisionId: string,
     negotiated: McpNegotiatedServer | null,
+    readEndpointFault: string | undefined,
   ): Effect.Effect<boolean, unknown> {
-    return this.#store
+    const logDroppedReadSide = Effect.sync(() => {
+      if (readEndpointFault === undefined) return;
+
+      logger.warn(
+        { event: "mcp_read_endpoint_dropped", connectionId, fault: readEndpointFault },
+        "Dropped the MCP read endpoint for this catalog; its reads need approval",
+      );
+    });
+
+    const activate = this.#store
       .compareAndSetCatalogRevision({
         connectionId,
         expectedCurrentRevisionId,
         nextRevisionId: revisionId,
+        // The cause of a dropped read side lives with the catalog that it belongs to, so this
+        // activation sets or clears it (ADR-0130 decision 9). The client bounded the text.
+        readEndpointFault: readEndpointFault ?? null,
         patch: {
           status: "ready",
           lastConnectedAt: new Date(),
@@ -837,6 +851,8 @@ export class McpConnectionManager {
         },
       })
       .pipe(Effect.map((activated) => activated !== undefined));
+
+    return Effect.andThen(logDroppedReadSide, activate);
   }
 
   /** Publish only a snapshot still live after the transaction; a list-change event forces one more loop. */
@@ -930,6 +946,7 @@ export class McpConnectionManager {
           durableBefore.currentCatalogRevisionId,
           revisionId,
           client.negotiatedServer,
+          snapshot.readEndpointFault,
         );
 
         if (!activated) {

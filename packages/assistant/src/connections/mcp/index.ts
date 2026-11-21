@@ -50,7 +50,7 @@ export {
 export {
   builtInBorrowsGoogleCredential,
   builtInProviderForEndpoint,
-  builtInReadOnlyResource,
+  builtInReadOnlyResourceTool,
   type BuiltInProvider,
 } from "./built-ins";
 
@@ -62,6 +62,7 @@ export {
   builtInToolPolicy,
   codeOwnsReadClass,
   type BuiltInToolPolicy,
+  type BuiltInToolRef,
 } from "./built-in-tool-policy";
 
 export { readLiveGoogleWorkspaceCatalogs } from "./built-in-policy-drift";

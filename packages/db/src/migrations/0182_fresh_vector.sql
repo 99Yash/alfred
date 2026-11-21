@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_catalog_revisions" ADD COLUMN "read_endpoint_tools" jsonb DEFAULT '{}'::jsonb NOT NULL;

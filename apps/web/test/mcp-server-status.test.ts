@@ -5,28 +5,42 @@ import { mcpConnectionPresentation } from "../src/routes/-integrations/mcp-serve
 describe("MCP connection status presentation", () => {
   test("renders every durable connection state", () => {
     assert.equal(
-      mcpConnectionPresentation({ status: "ready", lastError: null }).statusText,
+      mcpConnectionPresentation({ status: "ready", lastError: null, readEndpointFault: null })
+        .statusText,
       "Connected",
     );
     assert.equal(
-      mcpConnectionPresentation({ status: "connecting", lastError: null }).statusText,
+      mcpConnectionPresentation({ status: "connecting", lastError: null, readEndpointFault: null })
+        .statusText,
       "Connecting…",
     );
     assert.equal(
-      mcpConnectionPresentation({ status: "disconnected", lastError: null }).statusText,
+      mcpConnectionPresentation({
+        status: "disconnected",
+        lastError: null,
+        readEndpointFault: null,
+      }).statusText,
       "Disconnected",
     );
     assert.equal(
-      mcpConnectionPresentation({ status: "stale", lastError: null }).statusText,
+      mcpConnectionPresentation({ status: "stale", lastError: null, readEndpointFault: null })
+        .statusText,
       "Refreshing the tool catalog…",
     );
     assert.equal(
-      mcpConnectionPresentation({ status: "auth_required", lastError: "Grant repo access" })
-        .statusText,
+      mcpConnectionPresentation({
+        status: "auth_required",
+        lastError: "Grant repo access",
+        readEndpointFault: null,
+      }).statusText,
       "Grant repo access",
     );
     assert.equal(
-      mcpConnectionPresentation({ status: "failed", lastError: "Server unavailable" }).statusText,
+      mcpConnectionPresentation({
+        status: "failed",
+        lastError: "Server unavailable",
+        readEndpointFault: null,
+      }).statusText,
       "Server unavailable",
     );
   });

@@ -1,6 +1,6 @@
 # ADR-0096 — A read-only MCP surface downgrades the `mcp.call` approval floor STRUCTURALLY, with no per-descriptor review
 
-**Decision.** `mcp.call`'s `high` approval floor drops to `low` for a tool that satisfies two independent, durably-recorded conditions: its connection's endpoint is a built-in read-only protected resource (`builtInReadOnlyResource`, ADR-0094), AND the published catalog recorded that tool's own `annotations.readOnlyHint` as true (`mcp_catalog_revisions.read_only_hints`). No `mcp_tool_policy` row is required.
+**Decision.** `mcp.call`'s `high` approval floor drops to `low` for a tool that satisfies two independent, durably-recorded conditions: the tool reached Alfred from a built-in read-only protected resource (`builtInReadOnlyResourceTool`, ADR-0094; ADR-0130 amendment (h) adds a tool that its revision routes to a built-in read endpoint), AND the published catalog recorded that tool's own `annotations.readOnlyHint` as true (`mcp_catalog_revisions.read_only_hints`). No `mcp_tool_policy` row is required.
 
 Four sub-decisions follow:
 

@@ -12,6 +12,13 @@ export const GITHUB_MCP_ENDPOINT_HREF = "https://api.githubcopilot.com/mcp/reado
 /** Linear MCP. Dynamic registration; scopes `read`, `write`, `openid`, `email` (2026-09-12). */
 export const LINEAR_MCP_ENDPOINT_HREF = "https://mcp.linear.app/mcp" as const;
 
+/**
+ * Linear's read-only MCP resource (ADR-0130 decision 9). The `read write` grant of
+ * {@link LINEAR_MCP_ENDPOINT_HREF} opens it too (probe 2026-11-21: 38 tools, all `readOnlyHint`).
+ * Not a connection endpoint: the Linear connection routes its reads here.
+ */
+export const LINEAR_MCP_READ_ENDPOINT_HREF = "https://mcp.linear.app/mcp/readonly" as const;
+
 /** Notion MCP. Dynamic registration; one scope, `default` (2026-09-12). */
 export const NOTION_MCP_ENDPOINT_HREF = "https://mcp.notion.com/mcp" as const;
 
