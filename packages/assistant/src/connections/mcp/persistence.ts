@@ -55,6 +55,7 @@ export type McpConnectionUpdate = Partial<
     | "currentCatalogRevisionId"
     | "lastConnectedAt"
     | "lastError"
+    | "readEndpointFault"
     | "authServerIdentity"
     | "grantedScopes"
     | "requiredScopes"

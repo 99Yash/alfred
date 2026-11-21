@@ -133,8 +133,12 @@ export function McpCatalogView({
     connectionStatus === "ready" ? null : (
       <p className="text-xs text-app-amber-4" role="status">
         {
-          mcpConnectionPresentation({ status: connectionStatus, lastError: connectionLastError })
-            .statusText
+          // Only a status that is not `ready` shows here, and `readEndpointFault` acts only on `ready`.
+          mcpConnectionPresentation({
+            status: connectionStatus,
+            lastError: connectionLastError,
+            readEndpointFault: null,
+          }).statusText
         }
       </p>
     );

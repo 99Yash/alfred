@@ -167,6 +167,8 @@ function connectionResult(connection: McpConnectionSummary) {
     grantedScopes: connection.grantedScopes,
     requiredScopes: connection.requiredScopes,
     lastError: connection.lastError,
+    // Why the current catalog has no read side; the reads ask (ADR-0130 decision 9).
+    readEndpointFault: connection.readEndpointFault,
     lastConnectedAt: connection.lastConnectedAt,
     updatedAt: connection.updatedAt,
     // Null until the first catalog revision exists.

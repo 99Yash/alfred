@@ -271,17 +271,6 @@ async function resolveMcpClientAuth(connection: McpConnectionWithServer): Promis
   return { mode: "none" };
 }
 
-/**
- * The owner-facing note of a ready connection whose read endpoint dropped (ADR-0130 decision 9).
- * The main endpoint still serves every tool, so the reads ask for approval until a refresh lists
- * the read endpoint again.
- */
-function readEndpointDroppedNote(fault: string): string {
-  return boundedMcpErrorText(
-    new Error(`Reads ask for approval: the read-only endpoint failed. ${fault}`),
-  );
-}
-
 /** Production factory. The transport gets only a token reader, so it cannot refresh and replay a call. */
 function liveClientFactory(): McpClientFactory {
   const endpointAuthorizer = getMcpEndpointAuthorizer();
@@ -826,14 +815,16 @@ export class McpConnectionManager {
     negotiated: McpNegotiatedServer | null,
     readEndpointFault: string | undefined,
   ): Effect.Effect<boolean, unknown> {
-    if (readEndpointFault !== undefined) {
+    const logDroppedReadSide = Effect.sync(() => {
+      if (readEndpointFault === undefined) return;
+
       logger.warn(
         { event: "mcp_read_endpoint_dropped", connectionId, fault: readEndpointFault },
         "Dropped the MCP read endpoint for this catalog; its reads need approval",
       );
-    }
+    });
 
-    return this.#store
+    const activate = this.#store
       .compareAndSetCatalogRevision({
         connectionId,
         expectedCurrentRevisionId,
@@ -841,9 +832,10 @@ export class McpConnectionManager {
         patch: {
           status: "ready",
           lastConnectedAt: new Date(),
-          // A ready connection keeps a note only when its read side dropped (ADR-0130 decision 9).
-          lastError:
-            readEndpointFault === undefined ? null : readEndpointDroppedNote(readEndpointFault),
+          lastError: null,
+          // The cause of a dropped read side lives with the catalog that it belongs to, so only
+          // this write sets or clears it (ADR-0130 decision 9). The client bounded the text.
+          readEndpointFault: readEndpointFault ?? null,
           ...(negotiated
             ? {
                 negotiatedProtocolVersion: negotiated.protocolVersion,
@@ -859,6 +851,8 @@ export class McpConnectionManager {
         },
       })
       .pipe(Effect.map((activated) => activated !== undefined));
+
+    return Effect.andThen(logDroppedReadSide, activate);
   }
 
   /** Publish only a snapshot still live after the transaction; a list-change event forces one more loop. */
