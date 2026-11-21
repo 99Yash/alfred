@@ -14,16 +14,18 @@ export function toolCallArgs(input: unknown): Record<string, unknown> | null {
 }
 
 /**
- * A user message as chat replays it: the text, then its saved time note (ADR-0130 decision 7,
- * amendment (e)). `previousAt` is the time of the message before it, if any.
+ * A user message as chat replays it: the text, then its saved time note when one is due (ADR-0130
+ * decision 7, amendment (f)). `previousUserAt` is the time of the user's previous message, if any.
  */
 export function userMessageAt(
   text: string,
   timezone: IanaTimezone,
   sentAt: Date,
-  previousAt?: Date,
+  previousUserAt?: Date,
 ): string {
-  return `${text}\n\n${messageTimeNote({ timezone, sentAt, previousAt })}`;
+  const note = messageTimeNote({ timezone, sentAt, previousUserAt });
+
+  return note === null ? text : `${text}\n\n${note}`;
 }
 
 /** The first user message of a thread as chat replays it. */

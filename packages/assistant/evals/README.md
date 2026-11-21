@@ -42,8 +42,10 @@ it.
   date, so the model must look up the time when the answer needs it. Six cases: a question 28 min
   after the last message (direct and Code Mode), the same question hours later with a note, a
   40 min export that moves "now" inside the run, and a control question that needs no time. The
-  clock is lazy, as in prod. Two scores: the answer (event, direction, wait within 5 min), and the
-  lookup. A lookup that the answer does not need is a cost metric, not a fault. Deterministic only.
+  prompt, the time note, and the clock (in the kernel) are the production ones. The run does
+  not add the `[system]` note of a long step, so case (d) measures the path with no note. Two
+  scores: the answer (event, direction, wait within 5 min), and the lookup. A lookup that the
+  answer does not need is a cost metric, not a fault. Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.

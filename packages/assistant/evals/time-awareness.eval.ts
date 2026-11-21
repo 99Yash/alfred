@@ -20,7 +20,6 @@ import { evalite } from "evalite";
 import { z } from "zod";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import type { ChatReadPath } from "@alfred/assistant/chat/chat-turn-state";
-import { isTimeNoteDue } from "@alfred/assistant/chat/turn-context";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { registerBuiltinTools } from "../src/tool-runtime/builtin-tools";
 import { readHostBindings } from "../src/tool-runtime/code-mode/host-bindings";
@@ -38,17 +37,15 @@ import { readRouteReasonText } from "../src/tool-runtime/read-route";
 import { userMessageAt } from "./lib/grounding";
 import { scoreTimeAnswer, type TimeAnswerExpectation } from "./lib/time-answer";
 
-// ADR-0130 decision 7, owner decision 2026-11-21: the `<sent>` stamp on each message goes away.
-// A user message gets a saved `<time_note>` only at the first message of a thread, after a pause
-// of `TIME_NOTE_PAUSE_MS` or more, and on a new local date. Otherwise the model must look up the
-// time when the answer needs it: `system.current_time` today, `time.now()` in the sandbox after
-// #1805. This eval measures two facts on Haiku 5.5: does the model look up the time when the
-// answer needs it, and is the answer correct?
+// ADR-0130 decision 7, amendment (f): a user message gets a saved `<time_note>` only at the first
+// message of a thread, after a pause of `TIME_NOTE_PAUSE_MS` or more, and on a new local date.
+// Otherwise the model must look up the time when the answer needs it: `system.current_time` today,
+// `time.now()` in the sandbox after #1805. This eval measures two facts on Haiku 5.5: does the
+// model look up the time when the answer needs it, and is the answer correct?
 //
-// The production code still adds the stamp, so the eval builds the transcripts of the new design
-// itself, and it replaces the time line of the system prompt (`NEW_DESIGN_TIME_LINE`). The clock
-// is in the kernel (owner, 2026-11-21), so each step offers it. Each step is one model call, and
-// the eval dispatches the calls itself, as `chat-turn.ts` does.
+// The eval uses the production prompt, the production clock description, and the production time
+// note. The clock is in the kernel, so each step offers it. Each step is one model call, and the
+// eval dispatches the calls itself, as `chat-turn.ts` does.
 // Run with apps/server/.env populated:
 // `pnpm --filter @alfred/assistant exec evalite run time-awareness`.
 
@@ -68,20 +65,6 @@ const CURRENT_TIME_TOOL = "system.current_time";
 const MCP_LIST_TOOLS_TOOL = "mcp.list_tools";
 
 const MCP_CALL_TOOL = "mcp.call";
-
-/**
- * The time line of the new design. It replaces the line of `CHAT_SYSTEM_PROMPT_BASE` that names
- * the `<sent>` stamp.
- * When the production prompt drops the stamp, delete this and the replacement.
- */
-const NEW_DESIGN_TIME_LINE =
-  "- The runtime, not the user, ends a user message with a <time_note> only at the first message, after a pause of 30 minutes or more, and when the local date changes. Other user messages carry no time. A [system] time note gives the current time when a reply continues after a wait or starts again later. When the answer depends on the current time, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.";
-
-const PROD_TIME_LINE_START = "- The runtime, not the user, ends each user message";
-
-/** The production description names the send stamp, so the new design keeps its first sentence. */
-const NEW_DESIGN_CLOCK_DESCRIPTION =
-  "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.";
 
 /** Wed 10 June 2026, IST. */
 function ist(hourMinute: string): Date {
@@ -350,6 +333,8 @@ const READ_TOOLS = listRegisteredTools().filter((registered) => registered.codeM
 
 const CODE_RUN_DESCRIPTION = getTool(CODE_RUN_TOOL)?.description;
 
+const CURRENT_TIME_DESCRIPTION = getTool(CURRENT_TIME_TOOL)?.description;
+
 /** A direct `mcp.call` read in a `code_run` chat: the refusal of `refuseMisroutedRead`. */
 const DIRECT_READ_REFUSAL: JsonValue = {
   status: "invalid_input",
@@ -387,7 +372,7 @@ function stepTools(readPath: ChatReadPath): Record<string, Tool> {
         };
 
   tools[CURRENT_TIME_TOOL] = tool({
-    description: NEW_DESIGN_CLOCK_DESCRIPTION,
+    description: CURRENT_TIME_DESCRIPTION ?? "",
     inputSchema: currentTimeInput,
   });
 
@@ -491,14 +476,7 @@ async function dispatch(
 }
 
 function systemPrompt(readPath: ChatReadPath, connectedSummary: string): string {
-  const prod = buildChatSystemPrompt("", connectedSummary, selfIdentityGrounding(), readPath);
-  const lines = prod.split("\n");
-  const index = lines.findIndex((line) => line.startsWith(PROD_TIME_LINE_START));
-
-  if (index < 0) throw new Error("The production time line moved: update NEW_DESIGN_TIME_LINE.");
-  lines[index] = NEW_DESIGN_TIME_LINE;
-
-  return lines.join("\n");
+  return buildChatSystemPrompt("", connectedSummary, selfIdentityGrounding(), readPath);
 }
 
 const DIRECT_SUMMARY = [
@@ -513,26 +491,14 @@ const CODE_RUN_SUMMARY = [
   `- ${JSON.stringify(CALENDAR_CONNECTION.label)} MCP server (connectionId ${CALENDAR_CONNECTION.id}) — 9 tools; find one with system.search_tools, or with mcp.list_tools inside system.code_run, scoped to this connectionId; read with mcp.read inside the script, and write through mcp.call`,
 ].join("\n");
 
-/**
- * A user message of the new design: the saved full note at the first message, after the pause, or
- * on a new local date, and no time at all on any other message.
- */
+/** A user message as chat replays it: the saved time note only when one is due. */
 function userMessage(
   text: string,
   timezone: IanaTimezone,
   sentAt: Date,
-  previousAt?: Date,
+  previousUserAt?: Date,
 ): ModelMessage {
-  const noteDue = previousAt === undefined || isTimeNoteDue(timezone, previousAt, sentAt);
-  const content = noteDue ? userMessageAt(text, timezone, sentAt, previousAt) : text;
-
-  if (noteDue !== content.includes("<time_note>")) {
-    throw new Error(
-      `The note of the message at ${sentAt.toISOString()} is not what the design says.`,
-    );
-  }
-
-  return { role: "user", content };
+  return { role: "user", content: userMessageAt(text, timezone, sentAt, previousUserAt) };
 }
 
 /** The morning thread: one note at 09:20, then two messages with no time. */
@@ -679,6 +645,8 @@ interface TaskOutput {
 
 async function runChat(input: Case): Promise<TaskOutput> {
   if (!CODE_RUN_DESCRIPTION) throw new Error(`${CODE_RUN_TOOL} is not registered`);
+
+  if (!CURRENT_TIME_DESCRIPTION) throw new Error(`${CURRENT_TIME_TOOL} is not registered`);
 
   const clock: RunClock = { now: input.askedAt };
   const record: RunRecord = { calls: [], clockReads: [], scriptReadDate: false, exportedAt: null };
