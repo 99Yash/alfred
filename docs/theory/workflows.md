@@ -87,13 +87,13 @@ Owner direction, 2026-11-16: the owner reads the theory of the software, not the
 | Built-in and implicit runs name their definition (code-hash revisions) | Settled (owner, 2026-11-17) | Not built | `revisionId: null` on every built-in run |
 | One dispatch path for every trigger | Settled (owner, 2026-11-17) | Not built | `briefing.tick` and `memory.extract.daily` bypass `workflows.tick` |
 | The user lifecycle (draft → revision → activation → run) | Settled (workflows-v1) | Built | — |
-| The runner and the destination on the revision | Settled (core-agent.md) | Not built | #535 first |
+| The runner and the destination on the revision | Settled (core-agent.md) | Not built | Code Mode is built (#535); no blocker remains |
 
 ## 9. Order of work
 
 Nothing queues behind this page today. It sits settled next to core-agent.md, and the order follows core-agent.md §8:
 
-1. **Code Mode (#535)** — the read path; nothing above it builds without it.
+1. **Code Mode (#535)** — the read path; built (ADR-0124, default on).
 2. **The runner** — with the destination on the revision.
 3. **The workflow class mechanics** — built-in and implicit revisions close `revisionId: null`; the trigger table absorbs the module-owned ticks; `origin`/`activation` metadata lands with the settings surface. This is the rewrite that closes the MCP activation gap (owner, 2026-11-14), and the workflow-use decisions carry over unchanged: on deviation, fall back to the boss harness; a compiled revision gets a fresh approval card; a workflow may use every connection the user has, under the approval rules that already exist.
 4. **The settings surface** — three provenances render from metadata; implicit rows never appear.

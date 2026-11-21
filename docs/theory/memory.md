@@ -144,7 +144,7 @@ Until the UI exists, a script prints the weekly report and the review sample.
 | Chat capture                           | Settled | Partly    | The extractor runs when its flag is on, and it discards its output (`TODO(#399)` in `chat/chat-memory-capture.ts`). The flag is off in prod. |
 | Author label with a quote check        | Settled | Not built | Prod has 6 confirmed rows with source `user`, all standing instructions.                                                |
 | Web evidence with a page for each claim | Settled | Partly   | Cold start keeps the run id and all URLs of the run, not the page for each claim (`cold-start-research.ts`). Run cold start again under the new capture. |
-| Check job                              | Settled | Not built | It needs Code Mode (ADR-0124), which is not built (#535).                                                                          |
+| Check job                              | Settled | Not built | Its dependency, Code Mode (ADR-0124), is built; the job itself is not built (#535).                                                                          |
 | Observability rows                     | Settled | Not built | None of the rows exist.                                                                                                 |
 | Weekly review                          | Settled | Not built | No script exists.                                                                                                       |
 
@@ -169,4 +169,4 @@ Prod on 2026-11-11: `user_facts` has 50 rows. Of the 33 confirmed rows, 21 are s
 3. The turn-start lookup and the resolution log. Add the 2026-11-08 trace as an eval case.
 4. Chat capture with the quote check (#399 rewritten from this page).
 5. Cold start again, with a page and a snapshot for each claim.
-6. After Code Mode (#535): the check job, the verdict log, and the weekly review script.
+6. The check job, the verdict log, and the weekly review script (their Code Mode dependency is built).
