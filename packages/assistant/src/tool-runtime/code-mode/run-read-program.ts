@@ -30,11 +30,22 @@ import type {
   HostReadOutcome,
 } from "../internal/registry";
 
-/** One host function: its guest path (`contacts.search`) and the read behind it. */
-export interface HostBinding {
+/**
+ * One host function: its guest path (`contacts.search`), and the read behind it or a host value.
+ * A `read` is a nested dispatch: it has a ledger entry and waits for a read slot. A `value` is not
+ * a read (for example `time.now()`): it has no dispatch, no ledger entry, and no slot.
+ */
+export type HostBinding = HostReadBinding | HostValueBinding;
+
+interface HostReadBinding {
   /** `<group>.<name>`. The guest calls it as `group.name(...args)`. */
   path: string;
   read: (args: readonly unknown[], requestIndex: number) => Promise<HostReadOutcome>;
+}
+
+interface HostValueBinding {
+  path: string;
+  value: (args: readonly unknown[]) => JsonValue;
 }
 
 /**
@@ -137,7 +148,7 @@ async function runScript(
   }
 }
 
-/** Group the bindings into `run`'s `{ group: { name } }` shape, each wrapped by the ledger. */
+/** Group the bindings into `run`'s `{ group: { name } }` shape, each read wrapped by the ledger. */
 function hostFunctions(
   bindings: readonly HostBinding[],
   ledger: HostCallLedger,
@@ -156,6 +167,16 @@ function hostFunctions(
       groups.get(group) ?? new Map<string, (...guestArgs: never[]) => Promise<JsonValue>>();
 
     groups.set(group, members);
+
+    if (members.has(name)) throw new Error(`[code-mode] two host functions at '${binding.path}'`);
+
+    if ("value" in binding) {
+      const { value } = binding;
+
+      members.set(name, async (...guestArgs: unknown[]) => value(guestArgs));
+      continue;
+    }
+
     members.set(name, async (...guestArgs: unknown[]) => {
       // The entry exists from the request, also for a read that waits for a slot.
       const { requestIndex } = getHostFunctionContext();
@@ -215,7 +236,7 @@ function scriptEnded(): RunError {
 }
 
 async function callHost(
-  binding: HostBinding,
+  binding: HostReadBinding,
   guestArgs: readonly unknown[],
   requestIndex: number,
   settle: (settlement: HostCallSettlement) => void,

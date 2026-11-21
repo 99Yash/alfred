@@ -1,10 +1,17 @@
 /**
- * The host functions of one `system.code_run` call (ADR-0124). Each one is a facade over a nested
+ * The host functions of one `system.code_run` call (ADR-0124). Each read is a facade over a nested
  * dispatch (`ToolExecuteContext.hostRead`), so the gate, the staging row, the span, and the honest
- * result envelope stay in dispatch. Nothing here runs a tool's `execute` directly.
+ * result envelope stay in dispatch. Nothing here runs a tool's `execute` directly. The one
+ * function that is not a read is the clock, `time.now()`.
  */
 
-import { mcpToolRefSchema, jsonObjectSchema, type ToolName } from "@alfred/contracts";
+import {
+  mcpToolRefSchema,
+  jsonObjectSchema,
+  type JsonValue,
+  type ToolName,
+} from "@alfred/contracts";
+import { RunError } from "run";
 import { z } from "zod";
 import type { HostReadDispatcher, HostReadOutcome, RegisteredTool } from "../internal/registry";
 import type { HostBinding } from "./run-read-program";
@@ -18,8 +25,29 @@ const mcpReadArgs = z.tuple([mcpToolRefSchema.strip(), jsonObjectSchema.optional
 
 const MCP_CALL_TOOL = "mcp.call" satisfies ToolName;
 
-/** The guest path of the one host function that is not a tool name. */
+/** The guest path of the one host read that is not a tool name. */
 export const MCP_READ_PATH = "mcp.read";
+
+/** The guest path of the clock (ADR-0130 decision 7). */
+export const TIME_NOW_PATH = "time.now";
+
+/**
+ * `time.now()`: the `system.current_time` snapshot, read live. A script's own `Date` is fixed for
+ * the run and uses the server's zone. The clock is not a read, so it has no dispatch, no card, and
+ * no ledger entry (ADR-0130 decision 2).
+ */
+export function timeNowBinding(snapshot: () => JsonValue): HostBinding {
+  return {
+    path: TIME_NOW_PATH,
+    value: (guestArgs) => {
+      if (guestArgs.length > 0) {
+        throw new RunError(`${TIME_NOW_PATH} takes no arguments`, "invalid_input");
+      }
+
+      return snapshot();
+    },
+  };
+}
 
 /**
  * Reads the current catalog revision of one owned connection, or `null` when there is none. The

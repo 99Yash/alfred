@@ -31,7 +31,10 @@ import type { FetchUrlResult } from "../src/tool-runtime/internal/tools/fetch-ur
 import type { McpInspectToolResult, McpListToolsResult } from "../src/connections/mcp/list-tools";
 import type { LoadResultOutput } from "../src/tool-runtime/internal/tools/load-result";
 import type { McpBrokerToolResult } from "../src/tool-runtime/internal/tools/mcp";
-import type { ReadScratchResult } from "../src/tool-runtime/internal/tools/system";
+import type {
+  currentTimeSnapshot,
+  ReadScratchResult,
+} from "../src/tool-runtime/internal/tools/system";
 import type {
   VercelListDeploymentsResult,
   VercelListProjectsResult,
@@ -77,8 +80,8 @@ type Guest<T> = unknown extends T
 declare function guest<T>(): Guest<T>;
 
 /**
- * One entry per host path: a `codeModeRead` tool name, or `mcp.read`. `codeRunDescription` checks the
- * keys against the registered read tools at boot.
+ * One entry per host path: a `codeModeRead` tool name, `mcp.read`, or `time.now`.
+ * `codeRunDescription` checks the keys against the registered read tools at boot.
  */
 export const GUEST_OUTPUTS = {
   "contacts.search": guest<ContactsSearchResult>(),
@@ -100,4 +103,5 @@ export const GUEST_OUTPUTS = {
   "mcp.list_tools": guest<McpListToolsResult>(),
   "mcp.inspect_tool": guest<McpInspectToolResult>(),
   "mcp.read": guest<McpBrokerToolResult>(),
+  "time.now": guest<ReturnType<typeof currentTimeSnapshot>>(),
 };

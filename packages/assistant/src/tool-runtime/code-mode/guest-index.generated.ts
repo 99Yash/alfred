@@ -44,4 +44,6 @@ export const GUEST_OUTPUT_TYPES = {
     '{ status: "not_found"; message: string; ref: { kind: "mcp"; connectionId: string; remoteName: string } } | { route: "direct" | "script"; directReason?: "binary_output" | "needs_approval" | "not_a_confirmed_read" | "undeclared_output"; approval: "card" | "none"; class?: "ordinary" | "secret"; status: "tool"; connection: { id: string; instanceKey: string; label: string }; tool: { [x: string]: JsonValue }; ref: { kind: "mcp"; connectionId: string; remoteName: string } }',
   "mcp.read":
     '{ ok?: false; status: string; result?: unknown; retry?: "blocked"; reason?: string; message?: string; hasBinaryContent?: true; truncation?: { limitBytes: number; totalBytes: number; cuts: { path: string; unit: "chars" | "fields" | "items" | "value"; kept: number; total: number }[]; moreCuts?: number; handle?: string; note: string } }',
+  "time.now":
+    "{ localDate: string; localTime: string; weekday: string; utcOffset: string; isoTime: string; timezone: string }",
 } as const;
