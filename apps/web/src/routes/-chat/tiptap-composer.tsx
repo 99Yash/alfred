@@ -12,6 +12,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
+import { COMPOSER_EDITOR_BOX, ComposerPlaceholder } from "./composer-editor-chrome";
 import { useMentionConnections } from "./mention-connection";
 import { filterMentionOptions, getMentionOption, type MentionOption } from "./mention-options";
 
@@ -58,7 +59,7 @@ export interface TiptapComposerHandle {
   setText: (text: string) => void;
 }
 
-interface TiptapComposerProps {
+export interface TiptapComposerProps {
   ref?: Ref<TiptapComposerHandle> | undefined;
   initialJSON?: JSONContent | undefined;
   placeholder?: string | undefined;
@@ -207,13 +208,14 @@ export function TiptapComposer({
         "aria-multiline": "true",
         "aria-label": "Message",
         class: cn(
-          "tiptap tiptap-minimum-input composer-editor",
+          "tiptap",
+          COMPOSER_EDITOR_BOX,
           "wrap-break-word whitespace-pre-wrap outline-none",
-          "max-h-64 min-h-[64px] overflow-y-auto px-3 pt-2 pb-1.5",
+          "max-h-64 overflow-y-auto",
           // Fade content scrolled under the padding instead of a hard clip.
           "mask-[linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%-8px),transparent)]",
           "[-webkit-mask-image:linear-gradient(to_bottom,transparent,#000_10px,#000_calc(100%-8px),transparent)]",
-          "text-[15px] leading-7 font-medium tracking-tight text-app-fg-4",
+          "text-app-fg-4",
           "caret-app-purple-3",
           className ?? "",
         ),
@@ -352,16 +354,7 @@ export function TiptapComposer({
         </span>
       ) : null}
       {placeholder && isEmpty && !ghostVisible ? (
-        <span
-          aria-hidden
-          className={cn(
-            // Matches the editor's first-line position (px-3 pt-2).
-            "pointer-events-none absolute top-2 left-3",
-            "text-[15px] leading-7 font-medium tracking-tight text-app-fg-2",
-          )}
-        >
-          {placeholder}
-        </span>
+        <ComposerPlaceholder>{placeholder}</ComposerPlaceholder>
       ) : null}
     </div>
   );

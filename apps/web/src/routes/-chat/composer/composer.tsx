@@ -22,7 +22,8 @@ import {
   isEmptyChatTurnInput,
   type ChatModelTier,
 } from "@alfred/contracts";
-import { TiptapComposer, type TiptapComposerHandle } from "../tiptap-composer";
+import { LazyTiptapComposer } from "../lazy-tiptap-composer";
+import type { TiptapComposerHandle } from "../tiptap-composer";
 import { AttachmentChips } from "./attachment-chips";
 import { ComposerToolbar } from "./composer-toolbar";
 import { QueueTray } from "./queue-tray";
@@ -602,7 +603,7 @@ export function Composer({
             ) : null}
             {/* Hidden, not unmounted, while recording, so the transcript appends to typed text. */}
             <div className={cn(mic.recording && "hidden")}>
-              <TiptapComposer
+              <LazyTiptapComposer
                 ref={editorRef}
                 initialJSON={initialJSON}
                 placeholder={
