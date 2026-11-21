@@ -675,8 +675,8 @@ const CASES: Case[] = [
 
 interface TaskOutput {
   calls: { toolName: string; step: number; at: string }[];
-  /** The run notes, with the step that each one came before. */
-  notes: { beforeStep: number; text: string }[];
+  /** The run notes, with the step that each one came before and the eval clock's time then. */
+  notes: { beforeStep: number; at: string; text: string }[];
   clockReads: string[];
   exportedAt: string | null;
   scriptReadDate: boolean;
@@ -721,7 +721,7 @@ async function runChat(input: Case): Promise<TaskOutput> {
 
       if (note) {
         messages = toModelMessages(appendSystemNote(messages, note));
-        notes.push({ beforeStep: steps, text: note });
+        notes.push({ beforeStep: steps, at: clock.now.toISOString(), text: note });
       }
     }
 
@@ -777,19 +777,24 @@ async function runChat(input: Case): Promise<TaskOutput> {
   };
 }
 
-/** Null when the run looked up the time as the case needs. Else the fault. */
+/**
+ * Null when the run had the current time as the case needs. Else the fault. A run note gives the
+ * current time as a clock read does (ADR-0130 amendment (f)), so it counts as a lookup.
+ */
 function lookupFault(input: Case, output: TaskOutput): string | null {
   if (input.lookup === "none") return null;
 
-  if (output.clockReads.length === 0) return "did not look up the time";
+  const times = [...output.clockReads, ...output.notes.map((note) => note.at)];
+
+  if (times.length === 0) return "did not look up the time and got no run note";
 
   if (input.lookup === "any") return null;
 
   if (output.exportedAt === null) return "did not run the export";
 
-  return output.clockReads.some((at) => at >= (output.exportedAt ?? ""))
+  return times.some((at) => at >= (output.exportedAt ?? ""))
     ? null
-    : "looked up the time only before the export";
+    : "had the time only before the export";
 }
 
 function callSummary(output: TaskOutput): string {
@@ -842,7 +847,7 @@ evalite<Case, TaskOutput, null>(
 
           return {
             score: fault === null ? 1 : 0,
-            metadata: `${input.label}; needed=${input.lookup}; clock called=${output.clockReads.length > 0}${cost}${fault === null ? "" : `; ${fault}`}`,
+            metadata: `${input.label}; needed=${input.lookup}; clock called=${output.clockReads.length > 0}; run notes=${output.notes.length}${cost}${fault === null ? "" : `; ${fault}`}`,
           };
         },
       },
