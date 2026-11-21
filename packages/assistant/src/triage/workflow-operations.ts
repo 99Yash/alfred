@@ -1105,7 +1105,7 @@ export async function gatherObservations(args: {
   const meta = args.document.metadata;
   const { labelIds } = args.mailFacts;
   // The parse's own address, as the classify step read it before the reader.
-  const { context: senderContext, senderAddress } = args.mailFacts.sender.parse;
+  const { senderAddress } = args.mailFacts.sender.parse;
 
   const [thread, suppressions, userContext] = await Promise.all([
     getThreadState({

@@ -1,10 +1,5 @@
 import { db } from "@alfred/db";
-import {
-  integrationCredentials,
-  memoryChunks,
-  type UserFact,
-  userFacts,
-} from "@alfred/db/schemas";
+import { integrationCredentials, memoryChunks, type UserFact, userFacts } from "@alfred/db/schemas";
 import {
   assertNever,
   isNonBlankString,
@@ -442,7 +437,12 @@ export async function readUserContextItems(
       (row): UserContextItem => ({ store: "user_setting", id: row.key, depth: "body", item: row }),
     ),
     ...people.map(
-      (row): UserContextItem => ({ store: "correspondent", id: row.address, depth: "body", item: row }),
+      (row): UserContextItem => ({
+        store: "correspondent",
+        id: row.address,
+        depth: "body",
+        item: row,
+      }),
     ),
     ...memoryRows.map(
       (row, i): UserContextItem => ({

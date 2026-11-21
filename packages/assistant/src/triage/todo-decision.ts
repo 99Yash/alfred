@@ -118,7 +118,6 @@ export async function decideTriageTodo(args: {
     TriageDocumentContext["document"],
     "accountId" | "title" | "content" | "authoredAt" | "metadata"
   >;
-  isColdContact: boolean;
   actionItemsEnabled: boolean;
   /** From {@link triageTodoStanding} over the step's one `"report"` load, so both lanes agree. */
   standing: TriageTodoStanding;
