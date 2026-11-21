@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_connections" ADD COLUMN "read_endpoint_fault" text;

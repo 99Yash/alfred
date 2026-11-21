@@ -211,6 +211,13 @@ export const mcpConnections = pgTable(
     currentCatalogRevisionId: text("current_catalog_revision_id"),
     lastConnectedAt: timestamp("last_connected_at", { withTimezone: true }),
     lastError: text("last_error"),
+    /**
+     * Why the current catalog has no read side (ADR-0130 decision 9), for the owner. The read
+     * endpoint failed to list or broke the ADR-0094 rule, so its reads ask for approval. Only the
+     * catalog activation writes it: the fault text, or null when the read side listed or the
+     * connection has no read endpoint. Kept apart from `lastError`, which other paths own.
+     */
+    readEndpointFault: text("read_endpoint_fault"),
     ...lifecycle_dates,
   },
   (t) => [
