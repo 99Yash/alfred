@@ -1,7 +1,7 @@
 import { isPassThrough, type ChatErrorKind } from "@alfred/contracts";
 import type { SyncedChatAttachment, SyncedChatMessage } from "@alfred/sync";
 import { Check, Copy, CornerDownRight, RotateCcw } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -20,6 +20,7 @@ import { ReasoningSection } from "./reasoning-section";
 import { quotableProps } from "./selection-quote";
 import { SourcesStrip } from "./sources-strip";
 import { healStreamingMarkdown } from "./streaming-markdown";
+import { splitMarkdownBlocks } from "./markdown-blocks";
 import { collectSources } from "./sources";
 import { ToolCallGroup } from "./tool-call-group";
 import { WorkflowRecoveryCta } from "./workflow-recovery-cta";
@@ -115,27 +116,51 @@ const STREAMING_COMPONENTS: Components = {
   li: ({ children }) => <li>{animateWords(children)}</li>,
 };
 
+/**
+ * One slice of the reply. Memoized, so a streamed reply re-parses only the slice that grew;
+ * `components` must keep its identity between renders for that.
+ */
+const MarkdownBlock = memo(function MarkdownBlock({
+  text,
+  components,
+}: {
+  text: string;
+  components: Components;
+}) {
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      {text}
+    </ReactMarkdown>
+  );
+});
+
 /** Assistant markdown, with a caret and per-word reveal while streaming. */
 export function AssistantMarkdown({ text, streaming }: { text: string; streaming?: boolean }) {
   const body = streaming ? healStreamingMarkdown(text, { math: false }) : text;
 
   // No `MarkdownRenderer` here, so merge its image override by hand. Keep it last so no remote `<img>` returns.
-  const imageComponents =
-    useMarkdownImageMode() === "alt-text" ? altTextImageComponents("surface") : null;
+  const imageMode = useMarkdownImageMode();
 
-  const baseComponents = streaming ? STREAMING_COMPONENTS : markdownComponents;
+  const components = useMemo(() => {
+    const baseComponents = streaming ? STREAMING_COMPONENTS : markdownComponents;
+
+    return imageMode === "alt-text"
+      ? { ...baseComponents, ...altTextImageComponents("surface") }
+      : baseComponents;
+  }, [imageMode, streaming]);
 
   return (
     <div
       style={REPLY_CODE_FONT_STYLE}
       className={cn("text-sm leading-relaxed tracking-tight text-app-fg-4", MARKDOWN_CLASSES)}
     >
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        components={imageComponents ? { ...baseComponents, ...imageComponents } : baseComponents}
-      >
-        {body}
-      </ReactMarkdown>
+      {/* The "\n" between slices is the text node that one whole-text render puts between blocks. */}
+      {splitMarkdownBlocks(body).map((block) => (
+        <Fragment key={block.start}>
+          {block.start > 0 ? "\n" : null}
+          <MarkdownBlock text={block.text} components={components} />
+        </Fragment>
+      ))}
       {streaming ? (
         <span className="animate-chat-caret ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 bg-app-fg-3 align-middle" />
       ) : null}
