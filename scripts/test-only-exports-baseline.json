@@ -13,7 +13,6 @@
     "pdfArtifactHtmlViolations",
     "slideArtifactHtmlViolations"
   ],
-  "packages/assistant/src/artifacts/read.ts": ["buildArtifactReference"],
   "packages/assistant/src/automation/authoring.ts": ["definitionFromProposal"],
   "packages/assistant/src/automation/revisions.ts": [
     "WorkflowRevisionProblem",

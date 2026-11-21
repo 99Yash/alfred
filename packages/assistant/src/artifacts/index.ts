@@ -1,5 +1,9 @@
 // Public seam for artifacts (ADR-0075): read context, writes, the turn finalizer, and external files.
-export { buildThreadArtifactsContext } from "./read";
+export {
+  buildArtifactReference,
+  buildThreadArtifactsContext,
+  type ArtifactReferenceRow,
+} from "./read";
 
 export {
   createArtifact,

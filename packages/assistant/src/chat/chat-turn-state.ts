@@ -18,9 +18,16 @@ import {
   toolSurfaceStateFields,
   type StepResult,
 } from "@alfred/assistant/execution";
-import { inZone } from "@alfred/assistant/time";
 import type { IanaTimezone } from "@alfred/contracts";
-import { parkWaitSchema, resumeTimeNote, TIME_NOTE_PAUSE_MS, type ParkWait } from "./turn-context";
+import {
+  isNewLocalDate,
+  isTimeNoteDue,
+  parkWaitSchema,
+  resumeTimeNote,
+  startTimeNote,
+  TIME_NOTE_PAUSE_MS,
+  type ParkWait,
+} from "./turn-context";
 
 /**
  * Durable chat turn state and the pure operations on it.
@@ -140,10 +147,18 @@ export const chatRunStateSchema = z
     parkKind: z.enum(["join", "gate"]).optional(),
     /** What the current park waits on. The time note of the resumed run names it. */
     parkWait: parkWaitSchema.optional(),
-    /** A park that lasted the pause or longer. The next model step gets a time note for it. */
+    /**
+     * A park that lasted the pause or longer, or that crossed a local midnight. The next model step
+     * gets a time note for it.
+     */
     pausedWait: z.object({ kind: parkWaitSchema, since: z.iso.datetime() }).optional(),
-    /** The latest instant that the transcript states. A change of its local date adds a note. */
+    /**
+     * The latest instant that the transcript states: the send time of the user message, or the
+     * latest time note. A change of its local date adds a note.
+     */
     clockAnchor: z.iso.datetime().optional(),
+    /** The start of the latest model step. A long gap before the next one adds a note. */
+    lastModelStepAt: z.iso.datetime().optional(),
     // Children whose outcome the transcript already has, folded or awaited (ADR-0073).
     foldedChildRunIds: z.array(z.string()).default([]),
     // Failures the honesty guard already noted (#346), so it never loops on one.
@@ -235,11 +250,15 @@ function parkWaitOf(
 
 /**
  * Close a park on resume (#902). A join park counts as dispatch; an approval park
- * is human time and lands in `other`. A park of {@link TIME_NOTE_PAUSE_MS} or longer
- * leaves a wait for the next time note (ADR-0130 decision 7). Returns the gap.
+ * is human time and lands in `other`. A park of {@link TIME_NOTE_PAUSE_MS} or longer, or one that
+ * crossed a local midnight, leaves a wait for the next time note (ADR-0130 amendment (f)).
+ * Returns the gap.
  */
 export function foldResumedPark(
-  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "parkWait" | "pausedWait" | "dispatchMs">,
+  state: Pick<
+    ChatRunState,
+    "parkedAt" | "parkKind" | "parkWait" | "pausedWait" | "dispatchMs" | "timezone"
+  >,
   now: number,
 ): number {
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
@@ -248,8 +267,13 @@ export function foldResumedPark(
 
   if (state.parkKind === "join") state.dispatchMs += gap;
 
+  const crossedMidnight =
+    state.timezone !== undefined &&
+    gap > 0 &&
+    isNewLocalDate(state.timezone, new Date(parkedAtMs), new Date(now));
+
   // An older checkpoint has no `parkWait`; its kind is the best guess.
-  if (gap >= TIME_NOTE_PAUSE_MS) {
+  if (gap >= TIME_NOTE_PAUSE_MS || crossedMidnight) {
     state.pausedWait = {
       kind: state.parkWait ?? (state.parkKind === "join" ? "sub_agent" : "approval"),
       since: state.parkedAt,
@@ -264,30 +288,56 @@ export function foldResumedPark(
 }
 
 /**
- * The time note for a run that continues after a long park or past a change of the local date
- * (ADR-0130 decision 7). The first step only sets the anchor: the saved note of the user message
- * covers it. The note goes at the end of the transcript and is saved with the step.
+ * The `[system]` time note before a model step, if one is due (ADR-0130 amendment (f)). The note
+ * goes at the end of the run transcript and is saved with the step, so it does not break the cache.
+ *
+ * - The first step: the anchor is the send time of the run's user message, not admission. A late
+ *   start, for example a retry, gets a note when the pause or the date rule holds at that point.
+ * - A later step: a park that left a wait, {@link TIME_NOTE_PAUSE_MS} or more since the previous
+ *   model step, or a new local date since the anchor.
  */
-export function takeResumeTimeNote(
-  state: Pick<ChatRunState, "clockAnchor" | "pausedWait" | "startedAt">,
+export async function takeTimeNote(
+  state: Pick<ChatRunState, "clockAnchor" | "pausedWait" | "startedAt" | "lastModelStepAt">,
   timezone: IanaTimezone,
   now: Date,
-): string | undefined {
-  const anchor = state.clockAnchor === undefined ? undefined : new Date(state.clockAnchor);
-  const wait = state.pausedWait;
-  const here = inZone(timezone);
+  /** The send time of the run's user message. Read only on the first step. */
+  sentAt: () => Promise<Date | undefined>,
+): Promise<string | undefined> {
+  const previousStepAt =
+    state.lastModelStepAt === undefined ? undefined : new Date(state.lastModelStepAt);
 
-  if (anchor !== undefined && wait === undefined && here.day(anchor) === here.day(now)) return;
+  state.lastModelStepAt = now.toISOString();
+
+  if (state.clockAnchor === undefined) {
+    const sent = await sentAt();
+
+    if (sent === undefined || !isTimeNoteDue(timezone, sent, now)) {
+      state.clockAnchor = (sent ?? now).toISOString();
+
+      return;
+    }
+
+    state.clockAnchor = now.toISOString();
+
+    return startTimeNote({ timezone, now, sentAt: sent });
+  }
+
+  const anchor = new Date(state.clockAnchor);
+  const wait = state.pausedWait;
+
+  const longStep =
+    previousStepAt !== undefined && now.getTime() - previousStepAt.getTime() >= TIME_NOTE_PAUSE_MS;
+
+  if (wait === undefined && !longStep && !isNewLocalDate(timezone, anchor, now)) return;
   state.clockAnchor = now.toISOString();
   state.pausedWait = undefined;
-
-  if (anchor === undefined) return;
 
   return resumeTimeNote({
     timezone,
     now,
     runStartedAt: state.startedAt === undefined ? undefined : new Date(state.startedAt),
     wait: wait && { kind: wait.kind, since: new Date(wait.since) },
+    previousStepAt: longStep ? previousStepAt : undefined,
   });
 }
 

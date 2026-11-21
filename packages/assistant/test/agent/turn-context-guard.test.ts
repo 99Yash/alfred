@@ -54,6 +54,7 @@ describe("guardTurnContext gate", () => {
     systemPrompt: "system",
     tools: explodingTools,
     model: explodingModel,
+    projectModelTranscript: (window: readonly TranscriptMessage[]) => [...window],
     abortSignal: new AbortController().signal,
     onPhase: async () => {
       throw new Error("onPhase must not fire on the passthrough path");

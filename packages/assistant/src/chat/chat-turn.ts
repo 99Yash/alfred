@@ -70,20 +70,14 @@ import {
   foldResumedPark,
   fullAssistantText,
   interruptChatRun,
-  takeResumeTimeNote,
+  takeTimeNote,
   type ChatReadPath,
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
 import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn-run-metadata";
-import {
-  captureTurnContext,
-  loadTurnContexts,
-  TIME_NOTE_PAUSE_MS,
-  retryTimeNote,
-  turnContextRenderer,
-  withTurnContext,
-} from "./turn-context";
+import { chatMessageIdOf, taggedUserMessage } from "./chat-message-tag";
+import { captureTurnContext, loadTurnContextProjection, TIME_NOTE_PAUSE_MS } from "./turn-context";
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { clearChatStop, isChatStopRequested } from "./stop-signal";
@@ -158,7 +152,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     "- For person or company research, your own memory and the user's accounts tell you why the subject matters to the user; the live web is the normal source for public background, current roles, company context, and anything outside private data. Use both when the user asks to find out more. A person's name is enough to try a public lookup; enrich the query with company, project, or email clues if you have them, but don't ask the user for those clues before trying.",
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
     '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
-    `- The runtime, not the user, ends each user message with its local send time: a <sent> stamp, or a <time_note> with the full date at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. The time on the newest message is the time when your reply starts. A [system] time note gives the current time when a reply continues after a wait or starts again later. If your work takes long and the answer depends on the current minute, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
+    `- The runtime, not the user, ends a user message with a <time_note> only at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. Other user messages carry no time. A [system] time note gives the current time when a reply continues after a wait or starts again later. When the answer depends on the current time, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
     '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a join, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
@@ -369,10 +363,13 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       const timezone = (state.timezone ??= await settings({ userId: ctx.userId }).timezone());
-      // A run that continues after a long park, or past midnight, learns the time (ADR-0130).
-      const resumeNote = takeResumeTimeNote(state, timezone, new Date());
 
-      if (resumeNote) transcript = appendSystemNote(transcript, resumeNote);
+      // ADR-0130 amendment (f): a late start, a long park or step, or a new local date.
+      const timeNote = await takeTimeNote(state, timezone, new Date(), () =>
+        userMessageSentAt(ctx.userId, state.userMessageId),
+      );
+
+      if (timeNote) transcript = appendSystemNote(transcript, timeNote);
       const availability = await readIntegrationAvailability(ctx.userId);
 
       // ADR-0124: pinned once, before the identity, because the gate, the surface, the connected
@@ -393,6 +390,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // Only the medium is read here. The facts and the body are saved with the user message.
       if (ctx.state.turnCount === 0 || state.artifactMediumStale) {
         const artifactContext = await buildThreadArtifactsContext(
+          db(),
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
@@ -403,6 +401,13 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
+
+      // ADR-0130 amendment (g): the saved turn contexts render only after the final window is set.
+      const projectModelTranscript = await loadTurnContextProjection({
+        userId: ctx.userId,
+        transcript: hydratedTranscript,
+        ownMessageId: state.userMessageId,
+      });
 
       // First step: inherit the previous turn's tools. A step retry repeats this harmlessly.
       if (!state.preloadApplied && !landing) {
@@ -433,7 +438,14 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       }
 
-      if (!landing) await tools.preload(state, hydratedTranscript);
+      // The preload reads the user's own words, never a [system] note or the turn context.
+      if (!landing) {
+        const ownMessage = hydratedTranscript.filter(
+          (message) => chatMessageIdOf(message) === state.userMessageId,
+        );
+
+        await tools.preload(state, ownMessage.length > 0 ? ownMessage : hydratedTranscript);
+      }
 
       // The run's one read tool. Every step adds it, so carryover or a restore cannot drop it.
       if (state.readPath === "code_run") {
@@ -459,7 +471,7 @@ const chatTurnStep: Step<ChatRunState> = {
       // Compaction makes billable calls, so Stop covers the guard too. A Stop here
       // finalizes as stopped, not as a fault.
       let continuationTranscript: TranscriptMessage[] = transcript;
-      let modelTranscript: TranscriptMessage[] = hydratedTranscript;
+      let modelTranscript: TranscriptMessage[] = projectModelTranscript(hydratedTranscript);
       const disposeStopPoll = stop.startPolling();
 
       try {
@@ -477,6 +489,7 @@ const chatTurnStep: Step<ChatRunState> = {
           model: chatModel,
           storedTranscript: transcript,
           hydratedTranscript,
+          projectModelTranscript,
           pendingGuidance,
           abortSignal: stop.signal,
           onPhase: (phase, compactionScope) =>
@@ -946,6 +959,22 @@ const dispatchToolsStep: Step<ChatRunState> = {
   },
 };
 
+/** The send time of the run's user message: the clock anchor of the first step (ADR-0130 amendment (f)). */
+async function userMessageSentAt(
+  userId: string,
+  messageId: string | undefined,
+): Promise<Date | undefined> {
+  if (messageId === undefined) return undefined;
+
+  const [row] = await db()
+    .select({ createdAt: chatMessages.createdAt })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.userId, userId), eq(chatMessages.id, messageId)))
+    .limit(1);
+
+  return row?.createdAt;
+}
+
 /** An earlier assistant message, with one line for each result its turn stored (ADR-0130 decision 5). */
 function assistantReplayContent(
   text: string,
@@ -1042,32 +1071,24 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
     });
 
     // ADR-0130 decision 7: admission runs this in its transaction, so the new message gets its
-    // context at the moment the user sent it. Earlier messages replay their saved bytes.
-    const turnContexts = await loadTurnContexts(
-      ex,
-      input.userId,
-      verbatimRows.filter((row) => row.role === "user").map((row) => row.id),
-    );
-
+    // context at the moment the user sent it. A retry finds the saved row and keeps it. The
+    // transcript holds only the user's words, each user message tagged with its row id: the step
+    // renders the saved contexts after the final replay window is set (amendment (g)).
     const ownIndex = rows.findIndex((row) => row.id === userMessageId);
     const ownRow = rows[ownIndex];
-    // A saved context means an earlier run already took this message: this run is a new attempt.
-    const newAttempt = ownRow !== undefined && turnContexts.has(ownRow.id);
 
-    if (ownRow && verbatimMessageIds.has(ownRow.id) && !turnContexts.has(ownRow.id)) {
-      const captured = await captureTurnContext({
+    if (ownRow && verbatimMessageIds.has(ownRow.id)) {
+      await captureTurnContext({
         ex,
         userId: input.userId,
         threadId,
         artifactTargetId,
         message: ownRow,
-        previousAt: rows[ownIndex - 1]?.createdAt,
+        // The pause counts from the user's previous message, not from an assistant row.
+        previousUserAt: rows.slice(0, ownIndex).findLast((row) => row.role === "user")?.createdAt,
       });
-
-      turnContexts.set(ownRow.id, captured);
     }
 
-    const renderTurnContext = turnContextRenderer();
     const out: TranscriptMessage[] = assembled.summaryMessage ? [assembled.summaryMessage] : [];
 
     for (const r of verbatimRows) {
@@ -1077,16 +1098,10 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       const lines = r.role === "assistant" ? handleLines.get(r.id) : undefined;
 
       // Attachments belong to user messages, so an assistant row keeps its text. Check the produced
-      // content, not `atts`: an attachment can degrade to no parts, and the row still carries its
-      // saved turn context.
+      // content, not `atts`: an attachment can degrade to no parts. The run's own message stays,
+      // because its saved context renders there; the projection drops it if it is still empty.
       if (r.role === "user") {
-        const turnContext = turnContexts.get(r.id);
-
-        const userContent = turnContext
-          ? withTurnContext(content, renderTurnContext(turnContext))
-          : content;
-
-        if (userContent.length > 0) out.push({ role: "user", content: userContent });
+        if (content.length > 0 || r.id === ownRow?.id) out.push(taggedUserMessage(r.id, content));
         continue;
       }
 
@@ -1094,17 +1109,6 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       if (content.length === 0 && lines === undefined) continue;
 
       out.push({ role: "assistant", content: assistantReplayContent(r.content, lines) });
-    }
-
-    // The saved note of the message gives its send time, so a late attempt states the time now.
-    if (newAttempt) {
-      const note = retryTimeNote({
-        timezone: await settings({ userId: input.userId }).timezone(),
-        sentAt: ownRow.createdAt,
-        now: new Date(),
-      });
-
-      if (note) return appendSystemNote(out, note);
     }
 
     return out;

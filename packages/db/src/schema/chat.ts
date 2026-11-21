@@ -4,7 +4,6 @@ import type {
   ChatConnectNudge,
   ChatErrorKind,
   ChatMessageUsage,
-  ChatTurnContext,
   ScriptSources,
 } from "@alfred/contracts";
 import { sql } from "drizzle-orm";
@@ -141,9 +140,10 @@ export const chatMessages = pgTable(
 );
 
 /**
- * The time note and the artifact context of one user message, saved once when the turn is
- * admitted (ADR-0130 decision 7). Server-only: it can hold a full artifact body, so it is not a
- * `chat_messages` column, which Replicache syncs whole.
+ * The turn context of one user message, saved once when the turn is admitted (ADR-0130 decision 7,
+ * amendment (g)): the time note text, or none, and the selected artifact version. It holds values,
+ * not the rendered prompt text, and never an artifact body (`artifact_versions` holds the bodies).
+ * Server-only, so it is not a `chat_messages` column, which Replicache syncs whole.
  */
 export const chatTurnContexts = pgTable("chat_turn_contexts", {
   messageId: text("message_id")
@@ -152,7 +152,8 @@ export const chatTurnContexts = pgTable("chat_turn_contexts", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  context: jsonb("context").notNull().$type<ChatTurnContext>(),
+  /** Untyped: `chatTurnContextSchema` in `@alfred/assistant` owns the shape, and each read parses. */
+  context: jsonb("context").notNull(),
   ...lifecycle_dates,
 });
 

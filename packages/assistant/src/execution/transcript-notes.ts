@@ -6,7 +6,8 @@ import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
  */
 const SYSTEM_NOTE_PREFIX = "[system] ";
 
-function isSystemNote(
+/** True for a runtime note. A note is never the user's request (ADR-0130 amendment (g)). */
+export function isSystemNote(
   message: TranscriptMessage | undefined,
 ): message is StoredUserMessage & { content: string } {
   return (

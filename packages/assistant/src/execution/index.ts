@@ -29,6 +29,7 @@ export {
   toolNamesFromState,
   appendModelResponseMessages,
   appendSystemNote,
+  isSystemNote,
   aggregateRunUsage,
   shouldPublishToolStarted,
   toolArgsPreview,

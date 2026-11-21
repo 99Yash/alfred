@@ -76,7 +76,7 @@ export { toolNamesFromState } from "./tool-surface-usage";
 
 export { appendModelResponseMessages } from "./transcript-dedup";
 
-export { appendSystemNote } from "./transcript-notes";
+export { appendSystemNote, isSystemNote } from "./transcript-notes";
 
 export { aggregateRunUsage } from "./usage-fold";
 

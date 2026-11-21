@@ -55,11 +55,9 @@ describe("systemToolKernel", () => {
   });
 
   test("every system tool named by the composed chat prompt is eager or intentionally lazy", () => {
-    // The artifact schemas are the largest, so they stay lazy. Each chat message carries its send
-    // time, so the clock is needed only after long work (ADR-0130 amendment (e)). Add any other
-    // exception here on purpose.
+    // The artifact schemas are the largest, so they stay lazy. Add any other exception here on
+    // purpose.
     const intentionallyLazy = new Set<ToolName>([
-      "system.current_time",
       "system.create_artifact",
       "system.append_artifact_page",
       "system.append_artifact_section",
@@ -89,29 +87,29 @@ describe("buildSdkToolSet caller/interaction projection", () => {
   // lazy tool.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("live chat boss projects all nine kernel tools", () => {
+  test("live chat boss projects all ten kernel tools", () => {
     const chat = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
 
-    assert.equal(chat.length, 9, `[${chat.toSorted().join(", ")}]`);
+    assert.equal(chat.length, 10, `[${chat.toSorted().join(", ")}]`);
   });
 
-  test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → seven", () => {
+  test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → eight", () => {
     const brief = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
     );
 
-    assert.equal(brief.length, 7);
+    assert.equal(brief.length, 8);
     assert.ok(!brief.includes("system.read_chat_history"), `[${brief.toSorted().join(", ")}]`);
   });
 
-  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → five", () => {
+  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → six", () => {
     const sub = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "sub_agent", interaction: "background" }),
     );
 
-    assert.equal(sub.length, 5);
+    assert.equal(sub.length, 6);
     assert.ok(!sub.includes("system.read_chat_history"));
     assert.ok(!sub.includes("system.spawn_sub_agent"), `[${sub.toSorted().join(", ")}]`);
   });

@@ -4,7 +4,7 @@ import type {
   ArtifactKind,
   ArtifactStatus,
 } from "@alfred/contracts";
-import { index, integer, jsonb, pgTable, text } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 import { createId, lifecycle_dates } from "../helpers";
 import { agentRuns } from "./agent";
@@ -55,3 +55,33 @@ export const artifacts = pgTable(
 export type Artifact = typeof artifacts.$inferSelect;
 
 export type NewArtifact = typeof artifacts.$inferInsert;
+
+/**
+ * One body for each `(artifactId, rowVersion)` (ADR-0130 amendment (g)). Chat admission writes the
+ * selected version when a turn context names it and it is not yet stored, so a body is stored one
+ * time for each version, not one time for each message. Each write to `artifacts` adds 1 to its
+ * `row_version`, so a row here never changes. Server-only.
+ */
+export const artifactVersions = pgTable(
+  "artifact_versions",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    rowVersion: integer("row_version").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    kind: text("kind").notNull().$type<ArtifactKind>(),
+    format: text("format").$type<ArtifactFormat>(),
+    status: text("status").notNull().$type<ArtifactStatus>(),
+    content: jsonb("content").$type<ArtifactContent>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.artifactId, t.rowVersion] })],
+);
+
+export type ArtifactVersion = typeof artifactVersions.$inferSelect;
+
+export type NewArtifactVersion = typeof artifactVersions.$inferInsert;

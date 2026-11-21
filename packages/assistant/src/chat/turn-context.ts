@@ -1,19 +1,21 @@
-import type { StoredUserMessage } from "@alfred/ai";
-import type { ChatMessage } from "@alfred/db/schemas";
+import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
+import type { IanaTimezone } from "@alfred/contracts";
+import { db } from "@alfred/db";
+import type { ArtifactVersion, ChatMessage } from "@alfred/db/schemas";
+import { artifactVersions, chatTurnContexts } from "@alfred/db/schemas";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
-import { chatTurnContextSchema, type ChatTurnContext, type IanaTimezone } from "@alfred/contracts";
-import { chatTurnContexts } from "@alfred/db/schemas";
-import { and, eq, inArray } from "drizzle-orm";
-import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
+import { buildArtifactReference, buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
 import { settings } from "@alfred/assistant/settings";
 import { formatDay, formatHourMinute, inZone } from "@alfred/assistant/time";
+import { chatMessageIdOf, taggedUserMessage, withoutChatMessageTag } from "./chat-message-tag";
 
 /**
- * The turn context (ADR-0130 decision 7, amendment (e)): the time note and the artifact context
- * of one user message. Admission saves it once, and each later turn replays the same bytes after
- * that message. Thus no part of it breaks the prompt cache. Each message carries its local send
- * time, and the full date shows only when time has passed.
+ * The turn context (ADR-0130 decision 7, amendments (f) and (g)): the time note and the selected
+ * artifact of one user message. Admission saves the values once. The prompt is a projection of
+ * them: after the final replay window is set, each user message gets its rendered context after
+ * the user's own text. For a fixed window the bytes do not change, so the cache holds.
  */
 
 /**
@@ -21,6 +23,29 @@ import { formatDay, formatHourMinute, inZone } from "@alfred/assistant/time";
  * ADR-0130 decision 7 sets the final value.
  */
 export const TIME_NOTE_PAUSE_MS = 30 * 60_000;
+
+/** One stored version of an artifact (`artifact_versions`). */
+const artifactVersionRefSchema = z.object({
+  artifactId: z.string(),
+  rowVersion: z.number().int(),
+});
+
+type ArtifactVersionRef = z.infer<typeof artifactVersionRefSchema>;
+
+/** The `chat_turn_contexts.context` column. The column is untyped, so each read parses. */
+export const chatTurnContextSchema = z.object({
+  /** The `<time_note>` at the first message, after a pause, or at a date change. Else none. */
+  timeNote: z.string().nullable(),
+  /** Null when the thread had no artifact. */
+  artifact: z
+    .object({
+      facts: z.string(),
+      version: artifactVersionRefSchema.nullable(),
+    })
+    .nullable(),
+});
+
+export type ChatTurnContext = z.infer<typeof chatTurnContextSchema>;
 
 /** What a parked run waited on. The time note of the resumed run names it. */
 export const parkWaitSchema = z.enum(["approval", "question", "sub_agent"]);
@@ -53,80 +78,78 @@ function formatElapsed(ms: number): string {
   return hours % 24 > 0 ? `${days} days ${hours % 24} h` : `${days} days`;
 }
 
-/** True after the pause, or when the local date changed. */
-export function isTimeNoteDue(timezone: IanaTimezone, previous: Date, now: Date): boolean {
-  if (now.getTime() - previous.getTime() >= TIME_NOTE_PAUSE_MS) return true;
+/** True when the local date of `previous` and `now` differ. */
+export function isNewLocalDate(timezone: IanaTimezone, previous: Date, now: Date): boolean {
   const here = inZone(timezone);
 
   return here.day(previous) !== here.day(now);
 }
 
-/**
- * `Sat Nov 21, 14:05`. The send stamp holds the date too: compaction can remove the last full
- * note, and a message from before #1802 has no note.
- */
-function formatSendStamp(timezone: IanaTimezone, at: Date): string {
-  const clock = inZone(timezone).clock(at);
+/** True after the pause, or when the local date changed. */
+export function isTimeNoteDue(timezone: IanaTimezone, previous: Date, now: Date): boolean {
+  if (now.getTime() - previous.getTime() >= TIME_NOTE_PAUSE_MS) return true;
 
-  return `${clock.weekday.slice(0, 3)} ${formatDay(clock.localDate, "short")}, ${formatHourMinute(clock)}`;
+  return isNewLocalDate(timezone, previous, now);
 }
 
 /**
- * The time note of a user message. The first message of a thread, and a message after a pause
- * or a date change, get the full note. Every other message gets the short form, the send stamp
- * `<sent>Sat Nov 21, 14:05</sent>` (amendment (e)). Thus the model sees each gap and knows the
- * time when its reply starts.
+ * The saved time note of a user message (amendment (f)): at the first message of a thread, after
+ * a pause of {@link TIME_NOTE_PAUSE_MS} or more since the user's previous message, or on a new
+ * local date. Null for any other message: it carries no time.
  */
 export function messageTimeNote(args: {
   timezone: IanaTimezone;
   sentAt: Date;
-  previousAt: Date | undefined;
-}): string {
+  /** The send time of the user's previous message in the thread. An assistant row does not count. */
+  previousUserAt: Date | undefined;
+}): string | null {
   const sent = formatLocalInstant(args.timezone, args.sentAt);
 
-  if (args.previousAt === undefined) {
+  if (args.previousUserAt === undefined) {
     return `<time_note>Sent ${sent}. This is the first message of the conversation.</time_note>`;
   }
 
-  if (!isTimeNoteDue(args.timezone, args.previousAt, args.sentAt)) {
-    return `<sent>${formatSendStamp(args.timezone, args.sentAt)}</sent>`;
-  }
+  if (!isTimeNoteDue(args.timezone, args.previousUserAt, args.sentAt)) return null;
+  const elapsed = formatElapsed(args.sentAt.getTime() - args.previousUserAt.getTime());
 
-  const elapsed = formatElapsed(args.sentAt.getTime() - args.previousAt.getTime());
-
-  return `<time_note>Sent ${sent}, ${elapsed} after the previous message.</time_note>`;
+  return `<time_note>Sent ${sent}, ${elapsed} after the user's previous message.</time_note>`;
 }
 
 /**
- * The note of a new attempt at a user message, for example a retry after a failed run. The saved
- * note gives the send time, so a late attempt must say that time has passed. Null when the attempt
- * comes before the pause, on the same local date.
+ * The note of a run whose first step starts late: a queued run, or a new attempt (a retry) at a
+ * message that an earlier run took. The anchor is the send time, not the time of admission.
  */
-export function retryTimeNote(args: {
-  timezone: IanaTimezone;
-  sentAt: Date;
-  now: Date;
-}): string | null {
-  if (!isTimeNoteDue(args.timezone, args.sentAt, args.now)) return null;
+export function startTimeNote(args: { timezone: IanaTimezone; now: Date; sentAt: Date }): string {
   const elapsed = formatElapsed(args.now.getTime() - args.sentAt.getTime());
 
-  return `Time note: it is now ${formatLocalInstant(args.timezone, args.now)}. This reply is a new attempt, ${elapsed} after the user sent the message.`;
+  return `Time note: it is now ${formatLocalInstant(args.timezone, args.now)}. This reply started ${elapsed} after the user sent the message.`;
 }
 
-/** The note of a run that continues after a long park, or after the local date changed. */
+/**
+ * The note of a run that continues: after a long park, after a long step, or after the local date
+ * changed while the reply ran.
+ */
 export function resumeTimeNote(args: {
   timezone: IanaTimezone;
   now: Date;
   runStartedAt: Date | undefined;
   wait: { kind: ParkWait; since: Date } | undefined;
+  /** The start of the previous model step, when that step was long ago. */
+  previousStepAt: Date | undefined;
 }): string {
   const sentences = [`Time note: it is now ${formatLocalInstant(args.timezone, args.now)}.`];
 
-  sentences.push(
-    args.wait
-      ? `This reply waited ${formatElapsed(args.now.getTime() - args.wait.since.getTime())} for ${WAIT_TEXT[args.wait.kind]}.`
-      : "The local date changed while this reply ran.",
-  );
+  if (args.wait) {
+    sentences.push(
+      `This reply waited ${formatElapsed(args.now.getTime() - args.wait.since.getTime())} for ${WAIT_TEXT[args.wait.kind]}.`,
+    );
+  } else if (args.previousStepAt) {
+    sentences.push(
+      `The previous step of this reply started ${formatElapsed(args.now.getTime() - args.previousStepAt.getTime())} ago.`,
+    );
+  } else {
+    sentences.push("The local date changed while this reply ran.");
+  }
 
   if (args.runStartedAt) {
     sentences.push(
@@ -137,16 +160,28 @@ export function resumeTimeNote(args: {
   return sentences.join(" ");
 }
 
+/** The saved values of some user messages, and the artifact versions that they name. */
+interface SavedTurnContexts {
+  contexts: Map<string, ChatTurnContext>;
+  versions: Map<string, ArtifactVersion>;
+}
+
+function versionKey(ref: ArtifactVersionRef): string {
+  return `${ref.artifactId}@${ref.rowVersion}`;
+}
+
 /**
- * The saved contexts of these user messages. A row that fails the parse is a fault, so it
- * throws: a silent skip would change the replayed bytes.
+ * The saved contexts of these user messages, and their artifact versions. A row that fails the
+ * parse is a fault, so it throws: a silent skip would change the replayed bytes.
  */
-export async function loadTurnContexts(
+async function loadSavedTurnContexts(
   ex: AgentDbExecutor,
   userId: string,
   messageIds: readonly string[],
-): Promise<Map<string, ChatTurnContext>> {
-  if (messageIds.length === 0) return new Map();
+): Promise<SavedTurnContexts> {
+  const saved: SavedTurnContexts = { contexts: new Map(), versions: new Map() };
+
+  if (messageIds.length === 0) return saved;
 
   const rows = await ex
     .select({ messageId: chatTurnContexts.messageId, context: chatTurnContexts.context })
@@ -158,12 +193,44 @@ export async function loadTurnContexts(
       ),
     );
 
-  return new Map(rows.map((row) => [row.messageId, chatTurnContextSchema.parse(row.context)]));
+  const refs = new Map<string, ArtifactVersionRef>();
+
+  for (const row of rows) {
+    const context = chatTurnContextSchema.parse(row.context);
+    saved.contexts.set(row.messageId, context);
+    const version = context.artifact?.version;
+
+    if (version) refs.set(versionKey(version), version);
+  }
+
+  if (refs.size === 0) return saved;
+
+  const versions = await ex
+    .select()
+    .from(artifactVersions)
+    .where(
+      and(
+        eq(artifactVersions.userId, userId),
+        or(
+          ...[...refs.values()].map((ref) =>
+            and(
+              eq(artifactVersions.artifactId, ref.artifactId),
+              eq(artifactVersions.rowVersion, ref.rowVersion),
+            ),
+          ),
+        ),
+      ),
+    );
+
+  for (const version of versions) saved.versions.set(versionKey(version), version);
+
+  return saved;
 }
 
 /**
- * Save the context of a user message at admission, at the state of that moment. A second
- * writer loses to the first, so a double submit replays the first bytes.
+ * Save the context of a user message at admission, at the state of that moment, in the
+ * admission transaction. The selected artifact version is stored once. A second writer loses to
+ * the first, so a double submit keeps the first values.
  */
 export async function captureTurnContext(args: {
   ex: AgentDbExecutor;
@@ -171,25 +238,61 @@ export async function captureTurnContext(args: {
   threadId: string;
   artifactTargetId: string | undefined;
   message: Pick<ChatMessage, "id" | "createdAt">;
-  previousAt: Date | undefined;
-}): Promise<ChatTurnContext> {
-  const timezone = await settings({ userId: args.userId }).timezone();
+  /** The send time of the user's previous message in the thread, if any. */
+  previousUserAt: Date | undefined;
+}): Promise<void> {
+  const [existing] = await args.ex
+    .select({ messageId: chatTurnContexts.messageId })
+    .from(chatTurnContexts)
+    .where(
+      and(
+        eq(chatTurnContexts.userId, args.userId),
+        eq(chatTurnContexts.messageId, args.message.id),
+      ),
+    )
+    .limit(1);
+
+  // A new attempt at the message keeps the values of the first.
+  if (existing) return;
+  const timezone = await settings({ userId: args.userId, exec: args.ex }).timezone();
 
   const artifacts = await buildThreadArtifactsContext(
+    args.ex,
     args.userId,
     args.threadId,
     args.artifactTargetId,
   );
 
+  const selected = artifacts.selected;
+
+  if (selected) {
+    await args.ex
+      .insert(artifactVersions)
+      .values({
+        artifactId: selected.id,
+        rowVersion: selected.rowVersion,
+        userId: args.userId,
+        title: selected.title,
+        kind: selected.kind,
+        format: selected.format,
+        status: selected.status,
+        content: selected.content,
+      })
+      .onConflictDoNothing();
+  }
+
   const context: ChatTurnContext = {
     timeNote: messageTimeNote({
       timezone,
       sentAt: args.message.createdAt,
-      previousAt: args.previousAt,
+      previousUserAt: args.previousUserAt,
     }),
     artifact:
       artifacts.threadFacts.length > 0
-        ? { facts: artifacts.threadFacts, reference: artifacts.reference }
+        ? {
+            facts: artifacts.threadFacts,
+            version: selected ? { artifactId: selected.id, rowVersion: selected.rowVersion } : null,
+          }
         : null,
   };
 
@@ -197,18 +300,13 @@ export async function captureTurnContext(args: {
     .insert(chatTurnContexts)
     .values({ messageId: args.message.id, userId: args.userId, context })
     .onConflictDoNothing();
-
-  const saved = await loadTurnContexts(args.ex, args.userId, [args.message.id]);
-
-  return saved.get(args.message.id) ?? context;
 }
 
 /**
- * Render saved contexts in thread order. A body shows only where its row version first appears
- * in the replayed window. The window changes only at compaction, which replaces the prefix and
- * its cache in any case.
+ * Render saved contexts in window order. A body shows only where its version first appears in
+ * the window. A later message with the same version shows one line that points to that copy.
  */
-export function turnContextRenderer(): (context: ChatTurnContext) => string {
+function turnContextRenderer(saved: SavedTurnContexts): (context: ChatTurnContext) => string {
   const shown = new Map<string, number>();
 
   return (context) => {
@@ -216,28 +314,44 @@ export function turnContextRenderer(): (context: ChatTurnContext) => string {
 
     if (context.artifact) {
       const lines = [context.artifact.facts];
-      const reference = context.artifact.reference;
+      const ref = context.artifact.version;
+      const version = ref ? saved.versions.get(versionKey(ref)) : undefined;
 
-      if (reference && shown.get(reference.artifactId) === reference.rowVersion) {
+      if (ref && shown.get(ref.artifactId) === ref.rowVersion) {
         lines.push(
-          `The selected artifact ${reference.artifactId} is unchanged since its copy above (rowVersion ${reference.rowVersion}).`,
+          `The selected artifact ${ref.artifactId} is unchanged since its copy above (rowVersion ${ref.rowVersion}).`,
         );
-      } else if (reference) {
-        lines.push(reference.text);
-        shown.set(reference.artifactId, reference.rowVersion);
+      } else if (ref && version) {
+        lines.push(
+          buildArtifactReference({
+            id: version.artifactId,
+            title: version.title,
+            kind: version.kind,
+            format: version.format,
+            status: version.status,
+            rowVersion: version.rowVersion,
+            content: version.content,
+          }),
+        );
+        shown.set(ref.artifactId, ref.rowVersion);
+      } else if (ref) {
+        // Only an artifact delete removes a stored version.
+        lines.push(
+          `The body of artifact ${ref.artifactId} at rowVersion ${ref.rowVersion} is no longer stored.`,
+        );
       }
 
       blocks.push(`<artifact_context>\n${lines.join("\n\n")}\n</artifact_context>`);
     }
 
-    blocks.push(context.timeNote);
+    if (context.timeNote !== null) blocks.push(context.timeNote);
 
     return blocks.join("\n\n");
   };
 }
 
 /** Put the rendered context after the user's own content, in the same message. */
-export function withTurnContext(
+function withTurnContext(
   content: StoredUserMessage["content"],
   text: string,
 ): StoredUserMessage["content"] {
@@ -246,4 +360,89 @@ export function withTurnContext(
   if (Array.isArray(content)) return [...content, { type: "text", text }];
 
   return content.length > 0 ? `${content}\n\n${text}` : text;
+}
+
+/** Maps a replay window to the model view. Pure, so a guard can call it on each candidate. */
+export type TurnContextProjection = (window: readonly TranscriptMessage[]) => TranscriptMessage[];
+
+/**
+ * Load the saved contexts of the tagged user messages in `transcript`, and of the run's own
+ * message, and return the projection (amendment (g)). Call it on the final replay window: after
+ * the background summary, the foreground guard, and compaction inside a run.
+ *
+ * - Each tagged user message gets its rendered context after the user's text, and loses its tag.
+ * - Compaction inside a run summarizes the run's own message away. Its context then goes in a
+ *   user message after the leading summary, so the model keeps the artifact body and the hash.
+ * - A user message that is still empty after the projection is dropped.
+ */
+export async function loadTurnContextProjection(args: {
+  userId: string;
+  transcript: readonly TranscriptMessage[];
+  ownMessageId: string | undefined;
+}): Promise<TurnContextProjection> {
+  const ids = new Set<string>();
+
+  for (const message of args.transcript) {
+    const id = chatMessageIdOf(message);
+
+    if (id !== undefined) ids.add(id);
+  }
+
+  if (args.ownMessageId !== undefined) ids.add(args.ownMessageId);
+  const saved = await loadSavedTurnContexts(db(), args.userId, [...ids]);
+
+  return (window) => {
+    const own = args.ownMessageId;
+    let entries = [...window];
+
+    if (
+      own !== undefined &&
+      saved.contexts.has(own) &&
+      !window.some((message) => chatMessageIdOf(message) === own)
+    ) {
+      const at = window[0]?.role === "system" ? 1 : 0;
+      entries = [...window.slice(0, at), taggedUserMessage(own, ""), ...window.slice(at)];
+    }
+
+    const render = turnContextRenderer(saved);
+    const out: TranscriptMessage[] = [];
+
+    for (const message of entries) {
+      const id = chatMessageIdOf(message);
+
+      if (id === undefined || message.role !== "user") {
+        out.push(message);
+        continue;
+      }
+
+      const context = saved.contexts.get(id);
+      const content = context ? withTurnContext(message.content, render(context)) : message.content;
+
+      if (content.length === 0) continue;
+      out.push({ ...withoutChatMessageTag(message), content });
+    }
+
+    return out;
+  };
+}
+
+/**
+ * The rendered context of each of these user messages, rendered in the given (thread) order, for
+ * a size estimate that reads rows and not a transcript (the background compaction scheduler).
+ */
+export async function renderedTurnContexts(
+  userId: string,
+  messageIds: readonly string[],
+): Promise<Map<string, string>> {
+  const saved = await loadSavedTurnContexts(db(), userId, messageIds);
+  const render = turnContextRenderer(saved);
+  const rendered = new Map<string, string>();
+
+  for (const id of messageIds) {
+    const context = saved.contexts.get(id);
+
+    if (context) rendered.set(id, render(context));
+  }
+
+  return rendered;
 }

@@ -170,6 +170,7 @@ test("the PDF guide enters the transcript once when the selected medium becomes 
     model: "unused-on-passthrough",
     storedTranscript: transcript,
     hydratedTranscript: transcript,
+    projectModelTranscript: (window) => [...window],
     pendingGuidance: admitPdfDesignGuide(state),
     abortSignal: new AbortController().signal,
     onPhase: async () => {
