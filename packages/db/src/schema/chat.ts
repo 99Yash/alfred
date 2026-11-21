@@ -139,6 +139,24 @@ export const chatMessages = pgTable(
   ],
 );
 
+/**
+ * The turn context of one user message, saved once when the turn is admitted (ADR-0130 decision 7,
+ * amendment (g)): the time note text, or none, and the selected artifact version. It holds values,
+ * not the rendered prompt text, and never an artifact body (`artifact_versions` holds the bodies).
+ * Server-only, so it is not a `chat_messages` column, which Replicache syncs whole.
+ */
+export const chatTurnContexts = pgTable("chat_turn_contexts", {
+  messageId: text("message_id")
+    .primaryKey()
+    .references(() => chatMessages.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** Untyped: `chatTurnContextSchema` in `@alfred/assistant` owns the shape, and each read parses. */
+  context: jsonb("context").notNull(),
+  ...lifecycle_dates,
+});
+
 /** Server-only compaction state for a thread. Not synced to Replicache. */
 export const chatThreadContext = pgTable(
   "chat_thread_context",

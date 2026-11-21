@@ -64,12 +64,6 @@ export {
 } from "./run-compaction";
 
 export {
-  formatRuntimeTimeGrounding,
-  resolveRuntimeGroundingAnchor,
-  RUNTIME_GROUNDING_PARK_GRACE_MS,
-} from "./grounding";
-
-export {
   foldToolSurfaceState,
   systemToolKernel,
   toolRuntimeForRun,
@@ -82,7 +76,7 @@ export { toolNamesFromState } from "./tool-surface-usage";
 
 export { appendModelResponseMessages } from "./transcript-dedup";
 
-export { appendSystemNote } from "./transcript-notes";
+export { appendSystemNote, isSystemNote } from "./transcript-notes";
 
 export { aggregateRunUsage } from "./usage-fold";
 

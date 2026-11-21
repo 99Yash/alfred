@@ -21,10 +21,10 @@ Every model call goes through the gateway, so there are no provider keys to set.
   DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
   `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
   cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (`gpt-6-luna`) — seven suites GENERATE on that route, because
+- `route("standard")` (Haiku 5.5) — eight suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
   `code-mode-paired`, `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
-  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
+  `time-awareness`, `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
 
@@ -37,6 +37,15 @@ it.
 - `date-grounding.eval.ts` — chat agent resolves relative/partial dates instead
   of bouncing them back (the ADR-0053/0055 regression guard). It reads the
   calendar through the Google Calendar MCP server. Deterministic only.
+- `time-awareness.eval.ts` — ADR-0130 decision 7 (owner decision 2026-11-21: no `<sent>`
+  stamp). A message gets a time note only at the first message, after the pause, or on a new
+  date, so the model must look up the time when the answer needs it. Six cases: a question 28 min
+  after the last message (direct and Code Mode), the same question hours later with a note, a
+  40 min export that moves "now" inside the run, and a control question that needs no time. The
+  prompt, the time note, and the clock (in the kernel) are the production ones. The run does
+  not add the `[system]` note of a long step, so case (d) measures the path with no note. Two
+  scores: the answer (event, direction, wait within 5 min), and the lookup. A lookup that the
+  answer does not need is a cost metric, not a fault. Deterministic only.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.
@@ -73,6 +82,7 @@ it.
 - `lib/github-repo-fixture.ts` — the synthetic GitHub repo and the fake GitHub MCP
   protocol client behind the captured catalog (`fixtures/github-mcp-catalog.json`).
 - `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
+- `lib/time-answer.ts` — the scores of an answer that depends on the current time.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
 - `lib/triage-classify-retry.ts` — the provider-weather guards the two triage suites share.
 

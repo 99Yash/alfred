@@ -31,10 +31,8 @@ import {
   CHAT_TURN_CAP_LANDING_NOTE,
   chatTurnCap,
   chatTurnCapVerdict,
-  formatRuntimeTimeGrounding,
   openChatTurnRetries,
   resetChatTurnRetryBudgets,
-  resolveRuntimeGroundingAnchor,
   systemToolKernel,
   type ChatTurnRetries,
   toolArgsPreview,
@@ -51,7 +49,6 @@ import {
   estimateChatRequestTokens,
   guardTurnContext,
   loadChatThreadContext,
-  withEphemeralReference,
 } from "./compaction";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./compaction/constants";
 import {
@@ -73,11 +70,14 @@ import {
   foldResumedPark,
   fullAssistantText,
   interruptChatRun,
+  takeTimeNote,
   type ChatReadPath,
   type ChatRunState,
   type PendingToolCall,
 } from "./chat-turn-state";
 import { chatTurnRunMetadataSchema, type ChatTurnRunMetadata } from "./chat-turn-run-metadata";
+import { chatMessageIdOf, taggedUserMessage } from "./chat-message-tag";
+import { captureTurnContext, loadTurnContextProjection, TIME_NOTE_PAUSE_MS } from "./turn-context";
 import { crossFinalizeBoundary } from "./finalize-guards";
 import { carryForwardThreadTools } from "./thread-tool-carryover";
 import { clearChatStop, isChatStopRequested } from "./stop-signal";
@@ -128,7 +128,7 @@ function chatToolRunIdentity(
 const CHAT_INPUT_ESTIMATE_WARN_UNDERSHOOT_RATIO = 0.1;
 
 // A charter, not a rulebook (ADR-0077). The connected catalog goes last, as the strongest anchor.
-// "Now" is not here: it rides the ephemeral runtime_context line (#410).
+// "Now" is not here: time notes in the transcript carry it (ADR-0130 decision 7).
 const CHAT_SYSTEM_PROMPT_BASE = [
   "You are Alfred, the user's personal assistant. You're chatting with them directly — be warm, concise, and direct: answer the question and don't pad.",
   [
@@ -151,8 +151,8 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     '- A follow-up phrased as "find more about her/him/them", "can we know something more", "anything else", or similar is not a request to re-check the same internal sources. Treat it as an explicit breadth escalation: after any thin memory/email result, use system.web_search or system.spawn_sub_agent in that same turn before the final answer.',
     "- For person or company research, your own memory and the user's accounts tell you why the subject matters to the user; the live web is the normal source for public background, current roles, company context, and anything outside private data. Use both when the user asks to find out more. A person's name is enough to try a public lookup; enrich the query with company, project, or email clues if you have them, but don't ask the user for those clues before trying.",
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
-    '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") from the runtime_context snapshot — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
-    "- Resolve relative or partial dates and times yourself from the runtime_context line in the conversation: it is the authoritative snapshot for the start of this model turn, and a resumed chat re-stamps it, so trust it over any date mentioned earlier and never assume the start of some other day. If exact wall-clock time matters after slow tool work, system.current_time is the live execution-time escape hatch; use its newer result. For a calendar range, give the calendar tool explicit RFC3339 bounds derived from the authoritative snapshot.",
+    '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
+    `- The runtime, not the user, ends a user message with a <time_note> only at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. Other user messages carry no time. A [system] time note gives the current time when a reply continues after a wait or starts again later. When the answer depends on the current time, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
     '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a join, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
@@ -184,12 +184,12 @@ const CHAT_SYSTEM_PROMPT_BASE = [
 
 /**
  * Constant artifact edit rules, so they stay in the cached prefix (#896).
- * Per-thread facts ride `artifactThreadFacts`, read once per run.
+ * Per-thread facts ride the turn context saved with each user message (ADR-0130 decision 7).
  */
 const ARTIFACT_SYSTEM_GUIDANCE = [
   "To change an existing artifact, act on the selected id; do not create a replacement artifact.",
   "For a targeted change, send edits copied from the exact current body; replace the full markdown or pages only for a broad rewrite.",
-  "A separate assistant-role reference message contains the selected artifact's exact current body only when contentComplete=true.",
+  "An <artifact_context> block at the end of a user message comes from the runtime. It holds the selected artifact's exact body as it was when the user sent that message, only when contentComplete=true. When the artifact is unchanged since an earlier message, the block points to that earlier copy.",
   "For a cross-turn markdown/pages replacement, copy baseContentHash from that complete reference. If contentComplete=false or the hash is absent, do not replace content; rename only or explain that a narrower safe edit is needed.",
 ].join("\n");
 
@@ -213,7 +213,7 @@ export function buildChatSystemPrompt(
   readPath: ChatReadPath = "direct",
 ): string {
   // Chat passes no date: a date in the cached prefix goes stale when a parked run
-  // resumes after midnight. Its "now" rides `formatRuntimeTimeGrounding` instead.
+  // resumes after midnight. Its "now" rides the saved time notes instead (ADR-0130 decision 7).
   // Evals and other single-turn callers may still pass one.
   const dateLine = grounding ? `The current date is ${grounding}.` : "";
   const readRules = readPath === "code_run" ? [CODE_RUN_READ_GUIDANCE] : [];
@@ -363,6 +363,13 @@ const chatTurnStep: Step<ChatRunState> = {
       }
 
       const timezone = (state.timezone ??= await settings({ userId: ctx.userId }).timezone());
+
+      // ADR-0130 amendment (f): a late start, a long park or step, or a new local date.
+      const timeNote = await takeTimeNote(state, timezone, new Date(), () =>
+        userMessageSentAt(ctx.userId, state.userMessageId),
+      );
+
+      if (timeNote) transcript = appendSystemNote(transcript, timeNote);
       const availability = await readIntegrationAvailability(ctx.userId);
 
       // ADR-0124: pinned once, before the identity, because the gate, the surface, the connected
@@ -380,26 +387,27 @@ const chatTurnStep: Step<ChatRunState> = {
         state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
       }
 
-      if (
-        state.artifactThreadFacts === undefined ||
-        state.artifactReference === undefined ||
-        state.artifactMediumStale
-      ) {
+      // Only the medium is read here. The facts and the body are saved with the user message.
+      if (ctx.state.turnCount === 0 || state.artifactMediumStale) {
         const artifactContext = await buildThreadArtifactsContext(
+          db(),
           ctx.userId,
           state.threadId,
           state.artifactTargetId,
         );
 
-        // Keep the run-start text. It sits before the user message, so a newer body
-        // there reads as content the user already had, and the model "removes" its own edit.
-        state.artifactThreadFacts ??= artifactContext.threadFacts;
-        state.artifactReference ??= artifactContext.referenceMessage;
         state.artifactDesignMedium = artifactContext.designMedium;
         state.artifactMediumStale = undefined;
       }
 
       const { transcript: hydratedTranscript } = await hydrateTranscriptForModel(transcript);
+
+      // ADR-0130 amendment (g): the saved turn contexts render only after the final window is set.
+      const projectModelTranscript = await loadTurnContextProjection({
+        userId: ctx.userId,
+        transcript: hydratedTranscript,
+        ownMessageId: state.userMessageId,
+      });
 
       // First step: inherit the previous turn's tools. A step retry repeats this harmlessly.
       if (!state.preloadApplied && !landing) {
@@ -430,7 +438,14 @@ const chatTurnStep: Step<ChatRunState> = {
         }
       }
 
-      if (!landing) await tools.preload(state, hydratedTranscript);
+      // The preload reads the user's own words, never a [system] note or the turn context.
+      if (!landing) {
+        const ownMessage = hydratedTranscript.filter(
+          (message) => chatMessageIdOf(message) === state.userMessageId,
+        );
+
+        await tools.preload(state, ownMessage.length > 0 ? ownMessage : hydratedTranscript);
+      }
 
       // The run's one read tool. Every step adds it, so carryover or a restore cannot drop it.
       if (state.readPath === "code_run") {
@@ -440,7 +455,6 @@ const chatTurnStep: Step<ChatRunState> = {
       // Budget the guide before compaction. Admit it after the guard, so it cannot move the replay boundary.
       const pendingGuidance = admitPdfDesignGuide(state);
 
-      // The anchor re-stamps only when the local day moved or a park outlived the cache (#410).
       const systemPrompt = buildChatSystemPrompt(
         "",
         state.connectedSummary,
@@ -450,30 +464,14 @@ const chatTurnStep: Step<ChatRunState> = {
 
       assertStableChatSystem(state, systemPrompt);
 
-      const runtimeGroundingAnchor = resolveRuntimeGroundingAnchor(
-        state.runtimeGroundingAnchor ? new Date(state.runtimeGroundingAnchor) : undefined,
-        timezone,
-      );
-
-      state.runtimeGroundingAnchor = runtimeGroundingAnchor.toISOString();
-
-      const ephemeralReference = [
-        formatRuntimeTimeGrounding(timezone, runtimeGroundingAnchor),
-        state.artifactThreadFacts,
-        state.artifactReference,
-      ]
-        .filter((value) => value.length > 0)
-        .join("\n\n");
-
       const sdkTools = landing ? {} : tools.forModel(state.activeTools);
       const chatRoute = route(state.tier);
       const chatModel = chatRoute.model();
 
       // Compaction makes billable calls, so Stop covers the guard too. A Stop here
-      // finalizes as stopped, not as a fault. The ephemeral reference stays out of
-      // the stored transcript, so it cannot repeat on each tool-loop turn.
+      // finalizes as stopped, not as a fault.
       let continuationTranscript: TranscriptMessage[] = transcript;
-      let guardedModelTranscript: TranscriptMessage[] = hydratedTranscript;
+      let modelTranscript: TranscriptMessage[] = projectModelTranscript(hydratedTranscript);
       const disposeStopPoll = stop.startPolling();
 
       try {
@@ -491,7 +489,7 @@ const chatTurnStep: Step<ChatRunState> = {
           model: chatModel,
           storedTranscript: transcript,
           hydratedTranscript,
-          artifactReference: ephemeralReference,
+          projectModelTranscript,
           pendingGuidance,
           abortSignal: stop.signal,
           onPhase: (phase, compactionScope) =>
@@ -506,7 +504,7 @@ const chatTurnStep: Step<ChatRunState> = {
         });
 
         continuationTranscript = guarded.continuationTranscript;
-        guardedModelTranscript = guarded.modelTranscript;
+        modelTranscript = guarded.modelTranscript;
 
         if (guarded.compacted) state.inFlightTailStart = 0;
       } catch (error) {
@@ -528,7 +526,6 @@ const chatTurnStep: Step<ChatRunState> = {
       // Bind retries before the model call. `nextTranscript` can end in an empty
       // assistant message, which Anthropic rejects with a 400.
       retries = openChatTurnRetries(continuationTranscript);
-      const modelTranscript = withEphemeralReference(guardedModelTranscript, ephemeralReference);
 
       const requestEstimate = await estimateChatRequestTokens({
         systemPrompt,
@@ -962,6 +959,22 @@ const dispatchToolsStep: Step<ChatRunState> = {
   },
 };
 
+/** The send time of the run's user message: the clock anchor of the first step (ADR-0130 amendment (f)). */
+async function userMessageSentAt(
+  userId: string,
+  messageId: string | undefined,
+): Promise<Date | undefined> {
+  if (messageId === undefined) return undefined;
+
+  const [row] = await db()
+    .select({ createdAt: chatMessages.createdAt })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.userId, userId), eq(chatMessages.id, messageId)))
+    .limit(1);
+
+  return row?.createdAt;
+}
+
 /** An earlier assistant message, with one line for each result its turn stored (ADR-0130 decision 5). */
 function assistantReplayContent(
   text: string,
@@ -1022,7 +1035,7 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
     };
   },
   async initialTranscript(input, context) {
-    const { threadId } = input.metadata;
+    const { threadId, userMessageId, artifactTargetId } = input.metadata;
     const ex = context?.db ?? db();
 
     const rows = await ex
@@ -1057,6 +1070,25 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
       ex,
     });
 
+    // ADR-0130 decision 7: admission runs this in its transaction, so the new message gets its
+    // context at the moment the user sent it. A retry finds the saved row and keeps it. The
+    // transcript holds only the user's words, each user message tagged with its row id: the step
+    // renders the saved contexts after the final replay window is set (amendment (g)).
+    const ownIndex = rows.findIndex((row) => row.id === userMessageId);
+    const ownRow = rows[ownIndex];
+
+    if (ownRow && verbatimMessageIds.has(ownRow.id)) {
+      await captureTurnContext({
+        ex,
+        userId: input.userId,
+        threadId,
+        artifactTargetId,
+        message: ownRow,
+        // The pause counts from the user's previous message, not from an assistant row.
+        previousUserAt: rows.slice(0, ownIndex).findLast((row) => row.role === "user")?.createdAt,
+      });
+    }
+
     const out: TranscriptMessage[] = assembled.summaryMessage ? [assembled.summaryMessage] : [];
 
     for (const r of verbatimRows) {
@@ -1065,15 +1097,16 @@ export const chatTurnWorkflow: Workflow<ChatRunState, string, ChatTurnRunMetadat
 
       const lines = r.role === "assistant" ? handleLines.get(r.id) : undefined;
 
-      // Check the produced content, not `atts`: an attachment can degrade to no parts. An assistant
-      // row with no text still carries the lines of the results its turn stored.
-      if (content.length === 0 && lines === undefined) continue;
-
-      // Attachments belong to user messages, so an assistant row keeps its text.
+      // Attachments belong to user messages, so an assistant row keeps its text. Check the produced
+      // content, not `atts`: an attachment can degrade to no parts. The run's own message stays,
+      // because its saved context renders there; the projection drops it if it is still empty.
       if (r.role === "user") {
-        out.push({ role: "user", content });
+        if (content.length > 0 || r.id === ownRow?.id) out.push(taggedUserMessage(r.id, content));
         continue;
       }
+
+      // An assistant row with no text still carries the lines of the results its turn stored.
+      if (content.length === 0 && lines === undefined) continue;
 
       out.push({ role: "assistant", content: assistantReplayContent(r.content, lines) });
     }

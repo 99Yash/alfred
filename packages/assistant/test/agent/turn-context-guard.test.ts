@@ -8,7 +8,6 @@ import {
   guardTurnContext,
   oversizedUserMessageSummaryMessage,
   storedCompactionPrefix,
-  withEphemeralReference,
 } from "@alfred/assistant/chat/compaction/turn-context-guard";
 import { asTestDouble } from "../support/test-double";
 
@@ -55,7 +54,7 @@ describe("guardTurnContext gate", () => {
     systemPrompt: "system",
     tools: explodingTools,
     model: explodingModel,
-    artifactReference: "",
+    projectModelTranscript: (window: readonly TranscriptMessage[]) => [...window],
     abortSignal: new AbortController().signal,
     onPhase: async () => {
       throw new Error("onPhase must not fire on the passthrough path");
@@ -88,34 +87,6 @@ describe("guardTurnContext gate", () => {
         hydratedTranscript: [userMsg("hi")],
       }),
     );
-  });
-});
-
-describe("withEphemeralReference", () => {
-  test("inserts the reference immediately before the latest user message", () => {
-    const transcript = [userMsg("first"), assistantMsg("reply"), userMsg("second")];
-    const out = withEphemeralReference(transcript, "REF");
-    assert.deepEqual(out, [
-      userMsg("first"),
-      assistantMsg("reply"),
-      assistantMsg("REF"),
-      userMsg("second"),
-    ]);
-  });
-
-  test("prepends when there is no user message", () => {
-    const transcript = [assistantMsg("only assistant")];
-    assert.deepEqual(withEphemeralReference(transcript, "REF"), [
-      assistantMsg("REF"),
-      assistantMsg("only assistant"),
-    ]);
-  });
-
-  test("returns a copy unchanged for an empty reference", () => {
-    const transcript = [userMsg("hi")];
-    const out = withEphemeralReference(transcript, "");
-    assert.deepEqual(out, transcript);
-    assert.notEqual(out, transcript);
   });
 });
 

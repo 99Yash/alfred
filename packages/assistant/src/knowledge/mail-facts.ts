@@ -24,7 +24,7 @@ import {
 import { logger } from "@alfred/logging";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { settings, userIdentity, type UserIdentity } from "@alfred/assistant/settings";
-import { inZone } from "@alfred/assistant/time";
+import { formatHourMinute, inZone } from "@alfred/assistant/time";
 import {
   gmailHeaderLookup,
   internalDateFromMessage,
@@ -280,7 +280,7 @@ function arrivalOf(at: Date, timezone: IanaTimezone): NonNullable<MailFacts["arr
 
   return {
     at,
-    local: `${clock.localDate} ${clock.localTime.slice(0, 5)}`,
+    local: `${clock.localDate} ${formatHourMinute(clock)}`,
     weekday: clock.weekday.slice(0, 3),
     timezone,
   };

@@ -16,4 +16,4 @@ export { conversationCompactionWorker } from "./conversation-compaction-worker";
 
 export { scheduleConversationCompactionIfNeeded } from "./conversation-compaction-scheduler";
 
-export { guardTurnContext, withEphemeralReference } from "./turn-context-guard";
+export { guardTurnContext } from "./turn-context-guard";

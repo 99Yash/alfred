@@ -335,6 +335,8 @@ a `LocalDateKey`. Before the brands, `localStartOfDay(timezone, key)` compiled.
   wrong weekday. Never compare a _rendered_ weekday name to `"Saturday"`; that
   made a formatter's locale choice load-bearing for a briefing decision in
   another file.
+- **A wall clock as `HH:MM`**: `formatHourMinute(inZone(tz).clock(at))`. Do not
+  slice `localTime` at the call site.
 - **Which zone** (`IanaTimezone`): `settings({ userId }).timezone()`, `firstValidTimezone`,
   `DEFAULT_USER_TIMEZONE`. A `settings` bind loads every preference row of the user
   in one query on its first read, and `.timezone()`, `.flags()`, `.get(key)`, and

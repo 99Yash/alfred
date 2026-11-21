@@ -251,9 +251,10 @@ export const systemTools: readonly RegisteredTool[] = [
     action: "current_time",
     riskTier: "no_risk",
     replay: "safe",
+    // In the kernel: a chat message carries no time, so the model looks it up (ADR-0130 amendment (f)).
     availability: { surface: "kernel" },
     description:
-      "Return a live execution-time snapshot of the current instant and the user's local date, time, weekday, timezone, and UTC offset. In chat, use this live result over the turn-start runtime_context when an exact later instant matters.",
+      "Return the current instant and the user's local date, time, weekday, timezone, and UTC offset.",
     discovery: {
       title: "Current time",
       summary: "Read the current time in the user's operational timezone.",

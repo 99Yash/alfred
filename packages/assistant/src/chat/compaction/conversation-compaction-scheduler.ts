@@ -22,6 +22,7 @@ import {
 import { loadChatThreadContext, persistConversationReplayEstimate } from "./chat-context-store";
 import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { estimateSerializedTokens } from "@alfred/assistant/execution";
+import { renderedTurnContexts } from "../turn-context";
 
 /** Best-effort post-turn pressure check; never delay or fail a completed chat. */
 export async function scheduleConversationCompactionIfNeeded(args: {
@@ -79,9 +80,17 @@ export async function scheduleConversationCompactionIfNeeded(args: {
       ),
     );
 
+  // The model sees each user message with its rendered turn context (ADR-0130 amendment (g)).
+  const userMessageIds = rows.filter((row) => row.role === "user").map((row) => row.id);
+  const turnContexts = await renderedTurnContexts(args.userId, userMessageIds);
+
   const estimatedReplayTokens =
     (context?.estimatedReplayTokens ?? 0) +
-    estimateSerializedTokens({ messages: rows, attachments });
+    estimateSerializedTokens({
+      messages: rows,
+      attachments,
+      turnContexts: [...turnContexts.values()],
+    });
 
   const advanced = await persistConversationReplayEstimate({
     userId: args.userId,
@@ -121,10 +130,15 @@ export async function scheduleConversationCompactionIfNeeded(args: {
 
   if (!cutoff) return "no_boundary";
 
-  const replayTail: AgentTranscriptMessage[] = rows.slice(latestUserIndex).map((row) => ({
-    role: row.role,
-    content: row.content,
-  }));
+  // The tail keeps each rendered context, so the estimate after the summary counts it too.
+  const replayTail: AgentTranscriptMessage[] = rows.slice(latestUserIndex).map((row) => {
+    const turnContext = turnContexts.get(row.id);
+
+    return {
+      role: row.role,
+      content: turnContext ? `${row.content}\n\n${turnContext}` : row.content,
+    };
+  });
 
   return enqueueConversationCompaction({
     userId: args.userId,

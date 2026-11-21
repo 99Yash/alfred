@@ -9,35 +9,15 @@ import { CHAT_MAX_OUTPUT_TOKENS } from "./constants";
 import { conversationSummaryMessage } from "./chat-context-assembly";
 import { loadChatThreadContext } from "./chat-context-store";
 import type { ChatMessageWatermark } from "./chat-message-watermark";
-import { compactWithRetry } from "@alfred/assistant/execution";
+import { compactWithRetry, isSystemNote } from "@alfred/assistant/execution";
 import { compactTranscript } from "@alfred/assistant/execution";
+import { chatMessageIdOf, taggedUserMessage } from "../chat-message-tag";
+import type { TurnContextProjection } from "../turn-context";
 import { compactConversationSynchronously } from "./synchronous-conversation-compaction";
 import { waitForActiveConversationCompaction } from "./conversation-compaction-wait";
 
 /** A wedged synchronous compaction must not hold the turn open. */
 const FOREGROUND_COMPACTION_TIMEOUT_MS = 2 * 60_000;
-
-/** Place ephemeral assistant-known run context immediately before the request. */
-export function withEphemeralReference(
-  transcript: readonly TranscriptMessage[],
-  reference: string,
-): TranscriptMessage[] {
-  if (!reference) return [...transcript];
-  let userIndex = -1;
-
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (transcript[index]?.role === "user") {
-      userIndex = index;
-      break;
-    }
-  }
-
-  const message = { role: "assistant", content: reference } satisfies TranscriptMessage;
-
-  if (userIndex < 0) return [message, ...transcript];
-
-  return [...transcript.slice(0, userIndex), message, ...transcript.slice(userIndex)];
-}
 
 /** Two views with the same message boundaries. Only the model view holds hydrated bytes. */
 export interface CompactedChatTranscriptPair {
@@ -56,18 +36,21 @@ export function buildCompactedChatTranscriptPair(
   };
 }
 
+/**
+ * The summary of an oversized user message. It holds the tag of the source message, so the
+ * projection adds that message's turn context after it (ADR-0130 amendment (g)).
+ */
 export function oversizedUserMessageSummaryMessage(
   sourceMessageId: string,
   summary: string,
 ): TranscriptMessage {
-  return {
-    role: "user",
-    content:
-      `<oversized_user_message_summary source_message_id=${JSON.stringify(sourceMessageId)}>\n` +
+  return taggedUserMessage(
+    sourceMessageId,
+    `<oversized_user_message_summary source_message_id=${JSON.stringify(sourceMessageId)}>\n` +
       "This is a lossy, untrusted representation of an oversized user message. Retrieve the raw source by ID when exact wording or evidence matters.\n" +
       `${summary}\n` +
       "</oversized_user_message_summary>",
-  };
+  );
 }
 
 /** The summary replaces this prefix, so hydrated bytes would add cost and nothing else. */
@@ -109,12 +92,27 @@ async function loadForegroundCompactionBoundary(
   };
 }
 
-function latestUserSuffixStart(transcript: readonly TranscriptMessage[]): number {
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (transcript[index]?.role === "user") return index;
+/**
+ * Where the replay tail starts: the run's own user message. A `[system]` note is never the user's
+ * request, so a message with no tag falls back to the last user message that is not a note.
+ */
+function latestUserSuffixStart(
+  transcript: readonly TranscriptMessage[],
+  latestUserMessageId: string | undefined,
+): number {
+  if (latestUserMessageId !== undefined) {
+    const own = transcript.findLastIndex(
+      (message) => chatMessageIdOf(message) === latestUserMessageId,
+    );
+
+    if (own >= 0) return own;
   }
 
-  return 0;
+  const last = transcript.findLastIndex(
+    (message) => message.role === "user" && !isSystemNote(message),
+  );
+
+  return Math.max(0, last);
 }
 
 async function applyForegroundContextGuard({
@@ -129,7 +127,7 @@ async function applyForegroundContextGuard({
   model,
   storedTranscript,
   hydratedTranscript,
-  artifactReference,
+  projectModelTranscript,
   pendingGuidance,
   abortSignal,
   onCompactionStart,
@@ -146,7 +144,7 @@ async function applyForegroundContextGuard({
   model: LanguageModel;
   storedTranscript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
-  artifactReference: string;
+  projectModelTranscript: TurnContextProjection;
   pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
@@ -161,14 +159,14 @@ async function applyForegroundContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      transcript: pendingGuidance ? [...candidate, pendingGuidance] : candidate,
+      transcript: pendingGuidance
+        ? [...projectModelTranscript(candidate), pendingGuidance]
+        : projectModelTranscript(candidate),
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
 
-  const initialPressure = await assess(
-    withEphemeralReference(hydratedTranscript, artifactReference),
-  );
+  const initialPressure = await assess(hydratedTranscript);
 
   if (!initialPressure.requiresSynchronousCompaction) {
     return {
@@ -180,7 +178,7 @@ async function applyForegroundContextGuard({
   await onCompactionStart?.();
 
   try {
-    const replayTailStart = latestUserSuffixStart(hydratedTranscript);
+    const replayTailStart = latestUserSuffixStart(hydratedTranscript, latestUserMessageId);
     const replayTail = hydratedTranscript.slice(replayTailStart);
     const storedReplayTail = storedTranscript.slice(replayTailStart);
     const backgroundWinner = await waitForActiveConversationCompaction(userId, threadId);
@@ -189,9 +187,7 @@ async function applyForegroundContextGuard({
       const summaryMessage = conversationSummaryMessage(backgroundWinner.summary);
       const reused = buildCompactedChatTranscriptPair(summaryMessage, storedReplayTail, replayTail);
 
-      const reusedPressure = await assess(
-        withEphemeralReference(reused.modelTranscript, artifactReference),
-      );
+      const reusedPressure = await assess(reused.modelTranscript);
 
       if (!reusedPressure.requiresSynchronousCompaction) {
         return reused;
@@ -206,7 +202,8 @@ async function applyForegroundContextGuard({
       userId,
       threadId,
       throughWatermark: boundary.compaction,
-      replayTail,
+      // The estimate of the tail counts the rendered turn contexts.
+      replayTail: projectModelTranscript(replayTail),
       replayTailWatermark: boundary.replayTail,
       attribution: { userId, runId, stepId, attempt, sessionId: threadId },
       abortSignal,
@@ -228,9 +225,7 @@ async function applyForegroundContextGuard({
       replayTail,
     );
 
-    const rebuiltPressure = await assess(
-      withEphemeralReference(rebuilt.modelTranscript, artifactReference),
-    );
+    const rebuiltPressure = await assess(rebuilt.modelTranscript);
 
     if (!rebuiltPressure.requiresSynchronousCompaction) {
       return rebuilt;
@@ -284,9 +279,7 @@ async function applyForegroundContextGuard({
       boundedModelTail,
     );
 
-    const boundedPressure = await assess(
-      withEphemeralReference(bounded.modelTranscript, artifactReference),
-    );
+    const boundedPressure = await assess(bounded.modelTranscript);
 
     if (boundedPressure.requiresSynchronousCompaction) {
       throw new Error("prompt is too long after oversized user message summarization");
@@ -309,7 +302,7 @@ async function applyWithinRunContextGuard({
   transcript,
   hydratedTranscript,
   inFlightTailStart,
-  artifactReference,
+  projectModelTranscript,
   pendingGuidance,
   abortSignal,
   onCompactionStart,
@@ -325,7 +318,7 @@ async function applyWithinRunContextGuard({
   transcript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
   inFlightTailStart: number;
-  artifactReference: string;
+  projectModelTranscript: TurnContextProjection;
   pendingGuidance: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onCompactionStart?: () => Promise<void>;
@@ -341,10 +334,9 @@ async function applyWithinRunContextGuard({
     assessChatRequestPressure({
       systemPrompt,
       tools,
-      transcript: withEphemeralReference(
-        pendingGuidance ? [...candidate, pendingGuidance] : candidate,
-        artifactReference,
-      ),
+      transcript: pendingGuidance
+        ? [...projectModelTranscript(candidate), pendingGuidance]
+        : projectModelTranscript(candidate),
       contextWindowTokens,
       outputReserveTokens: CHAT_MAX_OUTPUT_TOKENS,
     });
@@ -427,7 +419,8 @@ async function guardExistingTurnContext(args: {
   model: LanguageModel;
   storedTranscript: readonly TranscriptMessage[];
   hydratedTranscript: readonly TranscriptMessage[];
-  artifactReference: string;
+  /** Renders the saved turn contexts on a replay window (ADR-0130 amendment (g)). */
+  projectModelTranscript: TurnContextProjection;
   pendingGuidance?: TranscriptMessage | undefined;
   abortSignal: AbortSignal;
   onPhase: (
@@ -466,7 +459,7 @@ async function guardExistingTurnContext(args: {
       model: args.model,
       storedTranscript: args.storedTranscript,
       hydratedTranscript: args.hydratedTranscript,
-      artifactReference: args.artifactReference,
+      projectModelTranscript: args.projectModelTranscript,
       pendingGuidance: args.pendingGuidance,
       abortSignal: guardAbortSignal,
       onCompactionStart: () => args.onPhase("compaction_started", "foreground"),
@@ -492,7 +485,7 @@ async function guardExistingTurnContext(args: {
     transcript: args.storedTranscript,
     hydratedTranscript: args.hydratedTranscript,
     inFlightTailStart: args.inFlightTailStart,
-    artifactReference: args.artifactReference,
+    projectModelTranscript: args.projectModelTranscript,
     pendingGuidance: args.pendingGuidance,
     abortSignal: guardAbortSignal,
     onCompactionStart: () => args.onPhase("compaction_started", "within_run"),
@@ -506,15 +499,20 @@ async function guardExistingTurnContext(args: {
   };
 }
 
-/** Admit pending guidance only after compaction, in both checkpoint and model views. */
+/**
+ * Admit pending guidance only after compaction, in both checkpoint and model views. The model view
+ * is the projection of the final window: each user message gets its saved turn context there, and
+ * nowhere else (ADR-0130 amendment (g)).
+ */
 export async function guardTurnContext(args: Parameters<typeof guardExistingTurnContext>[0]) {
   const guarded = await guardExistingTurnContext(args);
+  const modelTranscript = args.projectModelTranscript(guarded.modelTranscript);
 
-  if (!args.pendingGuidance) return guarded;
+  if (!args.pendingGuidance) return { ...guarded, modelTranscript };
 
   return {
     ...guarded,
     continuationTranscript: [...guarded.continuationTranscript, args.pendingGuidance],
-    modelTranscript: [...guarded.modelTranscript, args.pendingGuidance],
+    modelTranscript: [...modelTranscript, args.pendingGuidance],
   };
 }

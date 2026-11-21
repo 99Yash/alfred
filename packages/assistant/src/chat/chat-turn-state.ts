@@ -15,10 +15,19 @@ import { z } from "zod";
 import {
   foldToolSurfaceState,
   pendingToolCallSchema as basePendingToolCallSchema,
-  RUNTIME_GROUNDING_PARK_GRACE_MS,
   toolSurfaceStateFields,
   type StepResult,
 } from "@alfred/assistant/execution";
+import type { IanaTimezone } from "@alfred/contracts";
+import {
+  isNewLocalDate,
+  isTimeNoteDue,
+  parkWaitSchema,
+  resumeTimeNote,
+  startTimeNote,
+  TIME_NOTE_PAUSE_MS,
+  type ParkWait,
+} from "./turn-context";
 
 /**
  * Durable chat turn state and the pure operations on it.
@@ -95,13 +104,9 @@ export const chatRunStateSchema = z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
-    // Ephemeral text, read once per run. An edit does not rebuild it (see `artifactMediumStale`).
-    artifactThreadFacts: z.string().optional(),
-    // The selected artifact body, sent as a lower-trust assistant message, not system text.
-    artifactReference: z.string().optional(),
     // `pdf` admits the PDF guide to the transcript.
     artifactDesignMedium: artifactFormatSchema.optional(),
-    // Set by an artifact edit. A create can change the medium; the run-start reference stays.
+    // Set by an artifact edit. A create can change the medium; the saved turn context stays.
     artifactMediumStale: z.literal(true).optional(),
     // The PDF guide enters the transcript once per run.
     pdfDesignGuideAdmitted: z.literal(true).optional(),
@@ -140,8 +145,20 @@ export const chatRunStateSchema = z
     parkedAt: z.iso.datetime().optional(),
     /** Why the run parked: `join` = sub-agent await, `gate` = HIL approval. */
     parkKind: z.enum(["join", "gate"]).optional(),
-    // The instant `<runtime_context>` states (#410). Held stable so the cached tail survives.
-    runtimeGroundingAnchor: z.iso.datetime().optional(),
+    /** What the current park waits on. The time note of the resumed run names it. */
+    parkWait: parkWaitSchema.optional(),
+    /**
+     * A park that lasted the pause or longer, or that crossed a local midnight. The next model step
+     * gets a time note for it.
+     */
+    pausedWait: z.object({ kind: parkWaitSchema, since: z.iso.datetime() }).optional(),
+    /**
+     * The latest instant that the transcript states: the send time of the user message, or the
+     * latest time note. A change of its local date adds a note.
+     */
+    clockAnchor: z.iso.datetime().optional(),
+    /** The start of the latest model step. A long gap before the next one adds a note. */
+    lastModelStepAt: z.iso.datetime().optional(),
     // Children whose outcome the transcript already has, folded or awaited (ADR-0073).
     foldedChildRunIds: z.array(z.string()).default([]),
     // Failures the honesty guard already noted (#346), so it never loops on one.
@@ -195,10 +212,10 @@ export function interruptChatRun(
   transcript: TranscriptMessage[],
   wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
 ): Extract<StepResult<ChatRunState>, { kind: "interrupt" }> {
-  // Keep the grounding anchor: `foldResumedPark` knows the park length and decides.
-  // A signal wake is a sub-agent join; an HIL wake is an approval.
+  // A signal wake is a sub-agent join; an HIL wake is an approval or a question.
   state.parkedAt = new Date().toISOString();
   state.parkKind = wake.kind === "hil" ? "gate" : "join";
+  state.parkWait = parkWaitOf(wake);
 
   // An approval wait is the user's time, not the model's.
   if (state.parkKind === "gate") freezeReasoningMs(state, Date.now());
@@ -223,13 +240,25 @@ export function freezeReasoningMs(
   if (Number.isFinite(startedAtMs)) state.reasoningMs = Math.max(1, now - startedAtMs);
 }
 
+function parkWaitOf(
+  wake: Extract<StepResult<ChatRunState>, { kind: "interrupt" }>["wake"],
+): ParkWait {
+  if (wake.kind !== "hil") return "sub_agent";
+
+  return wake.approvalKind === "question" ? "question" : "approval";
+}
+
 /**
  * Close a park on resume (#902). A join park counts as dispatch; an approval park
- * is human time and lands in `other`. Clear the anchor only past
- * {@link RUNTIME_GROUNDING_PARK_GRACE_MS}. Returns the gap.
+ * is human time and lands in `other`. A park of {@link TIME_NOTE_PAUSE_MS} or longer, or one that
+ * crossed a local midnight, leaves a wait for the next time note (ADR-0130 amendment (f)).
+ * Returns the gap.
  */
 export function foldResumedPark(
-  state: Pick<ChatRunState, "parkedAt" | "parkKind" | "dispatchMs" | "runtimeGroundingAnchor">,
+  state: Pick<
+    ChatRunState,
+    "parkedAt" | "parkKind" | "parkWait" | "pausedWait" | "dispatchMs" | "timezone"
+  >,
   now: number,
 ): number {
   if (state.parkedAt === undefined || state.parkKind === undefined) return 0;
@@ -238,13 +267,78 @@ export function foldResumedPark(
 
   if (state.parkKind === "join") state.dispatchMs += gap;
 
-  // Past the grace the cached prefix is gone anyway, so the re-stamp is free.
-  if (gap >= RUNTIME_GROUNDING_PARK_GRACE_MS) state.runtimeGroundingAnchor = undefined;
+  const crossedMidnight =
+    state.timezone !== undefined &&
+    gap > 0 &&
+    isNewLocalDate(state.timezone, new Date(parkedAtMs), new Date(now));
+
+  // An older checkpoint has no `parkWait`; its kind is the best guess.
+  if (gap >= TIME_NOTE_PAUSE_MS || crossedMidnight) {
+    state.pausedWait = {
+      kind: state.parkWait ?? (state.parkKind === "join" ? "sub_agent" : "approval"),
+      since: state.parkedAt,
+    };
+  }
 
   state.parkedAt = undefined;
   state.parkKind = undefined;
+  state.parkWait = undefined;
 
   return gap;
+}
+
+/**
+ * The `[system]` time note before a model step, if one is due (ADR-0130 amendment (f)). The note
+ * goes at the end of the run transcript and is saved with the step, so it does not break the cache.
+ *
+ * - The first step: the anchor is the send time of the run's user message, not admission. A late
+ *   start, for example a retry, gets a note when the pause or the date rule holds at that point.
+ * - A later step: a park that left a wait, {@link TIME_NOTE_PAUSE_MS} or more since the previous
+ *   model step, or a new local date since the anchor.
+ */
+export async function takeTimeNote(
+  state: Pick<ChatRunState, "clockAnchor" | "pausedWait" | "startedAt" | "lastModelStepAt">,
+  timezone: IanaTimezone,
+  now: Date,
+  /** The send time of the run's user message. Read only on the first step. */
+  sentAt: () => Promise<Date | undefined>,
+): Promise<string | undefined> {
+  const previousStepAt =
+    state.lastModelStepAt === undefined ? undefined : new Date(state.lastModelStepAt);
+
+  state.lastModelStepAt = now.toISOString();
+
+  if (state.clockAnchor === undefined) {
+    const sent = await sentAt();
+
+    if (sent === undefined || !isTimeNoteDue(timezone, sent, now)) {
+      state.clockAnchor = (sent ?? now).toISOString();
+
+      return;
+    }
+
+    state.clockAnchor = now.toISOString();
+
+    return startTimeNote({ timezone, now, sentAt: sent });
+  }
+
+  const anchor = new Date(state.clockAnchor);
+  const wait = state.pausedWait;
+
+  const longStep =
+    previousStepAt !== undefined && now.getTime() - previousStepAt.getTime() >= TIME_NOTE_PAUSE_MS;
+
+  if (wait === undefined && !longStep && !isNewLocalDate(timezone, anchor, now)) return;
+  state.clockAnchor = now.toISOString();
+  state.pausedWait = undefined;
+
+  return resumeTimeNote({
+    timezone,
+    now,
+    runStartedAt: state.startedAt === undefined ? undefined : new Date(state.startedAt),
+    wait: wait && { kind: wait.kind, since: new Date(wait.since) },
+    previousStepAt: longStep ? previousStepAt : undefined,
+  });
 }
 
 /** The two ways the lead-in close and the guard close differ. */

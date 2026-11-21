@@ -225,6 +225,11 @@ export interface LocalWallClock {
   utcOffset: string;
 }
 
+/** The 24-hour `HH:MM` of a wall clock, with no seconds. */
+export function formatHourMinute(clock: LocalWallClock): string {
+  return clock.localTime.slice(0, 5);
+}
+
 /** Zone-bound readings from {@link inZone}. `at` defaults to now. */
 export interface ZoneClock {
   readonly timezone: IanaTimezone;
