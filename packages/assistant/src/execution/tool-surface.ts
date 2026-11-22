@@ -19,7 +19,10 @@ import {
   type ToolCallRun,
   uniqueToolNames,
 } from "@alfred/assistant/tool-runtime";
-import { buildConnectedSummaryFromAvailability } from "./connected-summary";
+import {
+  buildCodeRunIndexFromAvailability,
+  buildConnectedSummaryFromAvailability,
+} from "./connected-summary";
 import { startToolPreloadSpan, startToolSurfaceSpan } from "./runtime-spans";
 
 export function systemToolKernel(): ToolName[] {
@@ -116,6 +119,7 @@ export function buildSdkToolSet(
 function buildTurnToolSurface(args: {
   activeTools: readonly ToolName[];
   context: ToolRunContext;
+  codeRunIndex: readonly string[] | undefined;
   runId: string;
   workflow: string;
   /** `boss` or `sub:<id>`; not the availability caller kind. */
@@ -127,6 +131,7 @@ function buildTurnToolSurface(args: {
   const surface = resolveToolSurface({
     activeNames: args.activeTools,
     context: args.context,
+    codeRunIndex: args.codeRunIndex,
   });
 
   const tools = surface.tools;
@@ -226,7 +231,11 @@ type ToolRound<Call extends ProposedToolCall> = Omit<ToolCallRoundInput<Call>, "
 
 export interface ToolRunTools {
   readonly context: ToolRunContext;
-  forModel(activeTools: readonly ToolName[]): ToolSet;
+  /**
+   * `codeRunIndex` is the run's pinned `system.code_run` index (ADR-0130 decision 6). Absent: the
+   * index lists every host function, as it did before the run pinned one.
+   */
+  forModel(activeTools: readonly ToolName[], codeRunIndex?: readonly string[]): ToolSet;
   /** Run one tool round under this run's identity, or return its durable wait. */
   dispatch<Call extends ProposedToolCall>(
     round: ToolRound<Call>,
@@ -249,6 +258,11 @@ export interface ToolTurnTools extends ToolRunTools {
    * once, because the system prompt hash depends on it.
    */
   connectedSummary(): Promise<string>;
+  /**
+   * The host paths of the `system.code_run` index: the reads that this run can call (ADR-0130
+   * decision 6). The workflow pins it into run state once, with the connected summary.
+   */
+  codeRunIndex(): Promise<string[]>;
 }
 
 /**
@@ -268,10 +282,11 @@ export function toolRuntimeForRun(
 
   const tools: ToolRunTools = {
     context: identity.runContext,
-    forModel: (activeTools) =>
+    forModel: (activeTools, codeRunIndex) =>
       buildTurnToolSurface({
         activeTools,
         context: identity.runContext,
+        codeRunIndex,
         runId: identity.runId,
         workflow: identity.workflow,
         spanCaller,
@@ -298,6 +313,13 @@ export function toolRuntimeForRun(
       }),
     connectedSummary: () =>
       buildConnectedSummaryFromAvailability(
+        identity.userId,
+        availability,
+        identity.allowedIntegrations,
+        identity.runContext,
+      ),
+    codeRunIndex: () =>
+      buildCodeRunIndexFromAvailability(
         identity.userId,
         availability,
         identity.allowedIntegrations,

@@ -12,7 +12,7 @@ import {
   mcpServerIdsAdmittedBy,
   type McpServerScope,
 } from "@alfred/assistant/connections/mcp";
-import { availableToolNamesByIntegration } from "@alfred/assistant/tool-runtime";
+import { availableToolNamesByIntegration, codeRunIndexPaths } from "@alfred/assistant/tool-runtime";
 import {
   isDeclaredScriptRead,
   toolAlwaysWaitsForApproval,
@@ -104,6 +104,52 @@ export async function buildConnectedSummaryFromAvailability(
   if (lines.length === 0) return NO_INTEGRATIONS_TEXT;
 
   return [scriptReads ? CONNECTED_HEADER_CODE_RUN : CONNECTED_HEADER, ...lines].join("\n");
+}
+
+/**
+ * ADR-0130 decision 6: the host paths that the run's `system.code_run` index lists. These are the
+ * read tools that the run can call, from the same direct view as the summary. The MCP discovery
+ * reads and `mcp.read` are listed only when the summary names a callable MCP server. Computed
+ * once per run with the summary, so the tool description stays cache-stable.
+ */
+export async function buildCodeRunIndexFromAvailability(
+  userId: string,
+  availability: IntegrationAvailabilitySnapshot,
+  allowedIntegrations: readonly IntegrationSlug[],
+  context: ToolRunContext,
+): Promise<string[]> {
+  const { readPath: _readPath, ...directView } = context;
+
+  const availableByIntegration = availableToolNamesByIntegration({
+    availability,
+    allowedIntegrations,
+    context: directView,
+  });
+
+  const mcpCallable =
+    availableByIntegration.has("mcp") &&
+    (await hasCallableMcpConnection(
+      userId,
+      await mcpServerIdsAdmittedBy(userId, allowedIntegrations),
+    ));
+
+  const reads = [...availableByIntegration]
+    .filter(([integration]) => integration !== "mcp" || mcpCallable)
+    .flatMap(([, names]) => names.filter((name) => isDeclaredScriptRead(name)));
+
+  return codeRunIndexPaths(reads);
+}
+
+/** A connection that `mcpConnectionLines` names as callable: in scope, authorized, with tools. */
+async function hasCallableMcpConnection(userId: string, scope: McpServerScope): Promise<boolean> {
+  const connections = await listOwnedConnections(userId);
+
+  return connections.some(
+    (connection) =>
+      mcpScopeAdmits(scope, connection.serverId) &&
+      connection.status !== "auth_required" &&
+      Boolean(connection.toolCount),
+  );
 }
 
 /**

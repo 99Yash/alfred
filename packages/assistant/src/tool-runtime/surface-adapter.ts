@@ -1,6 +1,7 @@
 import { tool, type Tool } from "@alfred/ai";
 import {
   assertNever,
+  CODE_RUN_TOOL,
   isIntegrationSlug,
   isToolName,
   type ToolName,
@@ -23,6 +24,7 @@ import {
   listToolsForIntegration,
   type RegisteredTool,
 } from "./internal/registry";
+import { codeRunDescription } from "./code-mode/index-text";
 import { estimateToolSurfaceBudget } from "./schema-budget";
 
 const sdkSurfaceCache = new Map<string, ResolvedToolSurface>();
@@ -63,7 +65,8 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       readPath: input.context.readPath ?? "direct",
     } satisfies Record<keyof ToolRunContext, string>;
 
-    const key = JSON.stringify([context, activeNames]);
+    const codeRunIndex = input.codeRunIndex ?? null;
+    const key = JSON.stringify([context, activeNames, codeRunIndex]);
     const cached = sdkSurfaceCache.get(key);
 
     if (cached) return cached;
@@ -77,13 +80,23 @@ const toolsRuntimeAdapter: ToolRuntimeAdapter = {
       if (!definition || !evaluateToolRunContext(definition, input.context).available) continue;
       definitions.push(definition);
       tools[name] = tool({
-        description: definition.description,
+        description:
+          name === CODE_RUN_TOOL && codeRunIndex !== null
+            ? pinnedCodeRunDescription(codeRunIndex)
+            : definition.description,
         // Model-facing. See `LiveToolArgs.modelInputSchema`.
         inputSchema: definition.modelInputSchema,
       });
     }
 
-    const budget = estimateToolSurfaceBudget(definitions);
+    const budget = estimateToolSurfaceBudget(
+      definitions.map((definition) =>
+        definition.name === CODE_RUN_TOOL && codeRunIndex !== null
+          ? { ...definition, description: pinnedCodeRunDescription(codeRunIndex) }
+          : definition,
+      ),
+    );
+
     const surfacedNames = definitions.map((definition) => definition.name);
 
     const loadedNames = definitions
@@ -157,6 +170,24 @@ export function registerToolsRuntimeAdapter(): void {
 /** Test-only: the cache keys assume a write-once registry. */
 export function clearToolRuntimeCacheForTests(): void {
   sdkSurfaceCache.clear();
+  pinnedCodeRunDescriptions.clear();
+}
+
+/** Keyed by the joined paths. Safe for the same reason as `sdkSurfaceCache`. */
+const pinnedCodeRunDescriptions = new Map<string, string>();
+
+/** The `system.code_run` description whose index lists only the run's pinned paths. */
+function pinnedCodeRunDescription(paths: readonly string[]): string {
+  const key = paths.join("\n");
+  const cached = pinnedCodeRunDescriptions.get(key);
+
+  if (cached !== undefined) return cached;
+
+  const readTools = listRegisteredTools().filter((definition) => definition.codeModeRead);
+  const description = codeRunDescription(readTools, new Set(paths));
+  pinnedCodeRunDescriptions.set(key, description);
+
+  return description;
 }
 
 function requiredToolKernelNames(): ToolName[] {

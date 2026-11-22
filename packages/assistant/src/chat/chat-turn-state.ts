@@ -100,6 +100,10 @@ export const chatRunStateSchema = z
     // ADR-0124: how the run reads, from the user's flag on the first turn. The tool gate and the
     // prompt both follow it, so it is pinned with the prompt. Older runs read as `direct`.
     readPath: chatReadPathSchema.optional(),
+    // ADR-0130 decision 6: the host paths of the `system.code_run` index, the reads that the run
+    // can call. Pinned with the prompt, because a new tool description breaks the prompt cache.
+    // Absent on a direct run and on an older pinned run: those keep the full index.
+    codeRunIndex: z.array(z.string().min(1)).optional(),
     // Pins the system prompt for the whole run. Never cleared once set.
     systemPromptHash: z
       .string()

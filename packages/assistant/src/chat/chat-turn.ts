@@ -383,6 +383,15 @@ const chatTurnStep: Step<ChatRunState> = {
       const tools = toolRuntimeForRun(chatToolRunIdentity(ctx, state), availability);
       state.connectedSummary ??= await tools.connectedSummary();
 
+      // An older run pinned its prompt with the full index, so it keeps that surface.
+      if (
+        state.readPath === "code_run" &&
+        state.codeRunIndex === undefined &&
+        state.systemPromptHash === undefined
+      ) {
+        state.codeRunIndex = await tools.codeRunIndex();
+      }
+
       if (state.selfIdentity === undefined) {
         // An older checkpoint already pinned a prompt without this block; adding it fails the hash.
         // The evidence map is pinned with the identity, so a redeploy that changes it keeps the pin.
@@ -469,7 +478,7 @@ const chatTurnStep: Step<ChatRunState> = {
 
       assertStableChatSystem(state, systemPrompt);
 
-      const sdkTools = landing ? {} : tools.forModel(state.activeTools);
+      const sdkTools = landing ? {} : tools.forModel(state.activeTools, state.codeRunIndex);
       const chatRoute = route(state.tier);
       const chatModel = chatRoute.model();
 

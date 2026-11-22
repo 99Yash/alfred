@@ -200,6 +200,7 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
 - The research found no security gain at the host boundary. The gains are a fixed tool list, which keeps the prompt cache, and fewer plumbing steps.
 - Other surface cuts, with no new theory:
   - The `code_run` index lists only the reads that the user can call. This saves about 1,850 tokens on each turn.
+    - **Built 2026-11-22 (#1806, part 1).** The first step of a Code Mode chat pins the index with the connected summary (`state.codeRunIndex`, `buildCodeRunIndexFromAvailability`). The index lists `time.now`, the reads that the run can call from the direct view of the summary, and the MCP reads with `mcp.read` only when the summary names a callable MCP server. A run that pinned its prompt before this change keeps the full index (C6). For a user with no connection, the first step drops from 24,399 B (~6,100 tok) to 16,073 B (~4,019 tok). A user who can call every read gets the same description as before.
   - `system.spawn_sub_agent` and `system.await_sub_agent` merge into one lazy tool. Prod used neither tool in 90 days.
 
 ### 7. The model asks for the time, and the runtime tells it only when time has passed (settled)

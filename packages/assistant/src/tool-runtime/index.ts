@@ -68,6 +68,8 @@ export { startToolLoadSpan, startToolSearchSpan } from "./internal/runtime-spans
 
 export { itemEvidence, type DeliveredItem } from "./item-evidence";
 
+export { codeRunIndexPaths } from "./code-mode/index-text";
+
 export {
   registerWorkflowToolCatalogSource,
   workflowToolCatalog,
@@ -108,6 +110,16 @@ export interface ResolvedToolSurface {
   kernelCount: number;
   schemaBytes: number;
   schemaTokens: number;
+}
+
+export interface ResolveToolSurfaceInput {
+  activeNames: readonly ToolName[];
+  context: ToolRunContext;
+  /**
+   * The host paths that the `system.code_run` index lists, pinned by the run
+   * (ADR-0130 decision 6, `codeRunIndexPaths`). Absent: the index lists every host function.
+   */
+  codeRunIndex?: readonly string[] | undefined;
 }
 
 export interface SelectedToolPreload {
@@ -224,10 +236,7 @@ export type ToolCallRoundOutcome<Call extends ProposedToolCall = ProposedToolCal
  */
 export interface ToolRuntimeAdapter {
   restore(source: ToolSurfaceSource): ToolName[];
-  resolve(input: {
-    activeNames: readonly ToolName[];
-    context: ToolRunContext;
-  }): ResolvedToolSurface;
+  resolve(input: ResolveToolSurfaceInput): ResolvedToolSurface;
   namesForIntegrations(integrations: readonly string[]): ToolName[];
   availableToolNamesByIntegration(input: {
     availability: IntegrationAvailabilitySnapshot;
@@ -1171,10 +1180,7 @@ export function restoreToolSurface(source: ToolSurfaceSource): ToolName[] {
 }
 
 /** Project names that already passed the load-time gates. Throws before boot. */
-export function resolveToolSurface(input: {
-  activeNames: readonly ToolName[];
-  context: ToolRunContext;
-}): ResolvedToolSurface {
+export function resolveToolSurface(input: ResolveToolSurfaceInput): ResolvedToolSurface {
   return requireToolRuntimeAdapter().resolve(input);
 }
 

@@ -16,10 +16,34 @@ import { HOST_READS_IN_FLIGHT, READ_PROGRAM_LIMITS } from "./run-read-program";
 type GuestPath = keyof typeof GUEST_OUTPUT_TYPES;
 
 /**
- * The description, built at boot from the registered read tools. Throws when the read tools and the
- * generated index disagree, so a new `codeModeRead` tool cannot ship without its output type.
+ * The host paths that every index lists: the clock is not a read and needs no connection.
+ * `mcp.read` is listed with the MCP discovery reads (`codeRunIndexPaths`).
  */
-export function codeRunDescription(readTools: readonly RegisteredTool[]): string {
+const ALWAYS_LISTED_PATHS: ReadonlySet<string> = new Set([TIME_NOW_PATH]);
+
+/**
+ * The paths that one run's index lists (ADR-0130 decision 6): `time.now`, the read tools that
+ * the run can call, and `mcp.read` when the run can call the MCP discovery reads. Sorted, so the
+ * same reads give the same description, and the prompt cache holds.
+ */
+export function codeRunIndexPaths(callableReads: readonly string[]): string[] {
+  const paths = new Set([...callableReads, ...ALWAYS_LISTED_PATHS]);
+
+  if (callableReads.some((name) => name.startsWith("mcp."))) paths.add(MCP_READ_PATH);
+
+  return [...paths].toSorted();
+}
+
+/**
+ * The description, built from the registered read tools. Throws when the read tools and the
+ * generated index disagree, so a new `codeModeRead` tool cannot ship without its output type.
+ * `listed` limits the index lines to one run's paths (`codeRunIndexPaths`). Without it, the index
+ * lists every host function: the boot description, which a run with no pinned index keeps.
+ */
+export function codeRunDescription(
+  readTools: readonly RegisteredTool[],
+  listed?: ReadonlySet<string>,
+): string {
   const indexed = new Set<string>(Object.keys(GUEST_OUTPUT_TYPES));
   const hostPaths = [MCP_READ_PATH, TIME_NOW_PATH];
   const declared = new Set<string>([...readTools.map((tool) => tool.name), ...hostPaths]);
@@ -34,17 +58,31 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
     );
   }
 
-  const lines = readTools.map((tool) =>
-    indexLine(tool.name, firstSentence(tool.description), inputParam(tool), outputType(tool.name)),
-  );
+  const isListed = (path: string): boolean => listed === undefined || listed.has(path);
+
+  const lines = readTools
+    .filter((tool) => isListed(tool.name))
+    .map((tool) =>
+      indexLine(
+        tool.name,
+        firstSentence(tool.description),
+        inputParam(tool),
+        outputType(tool.name),
+      ),
+    );
+
+  if (isListed(MCP_READ_PATH)) {
+    lines.push(
+      indexLine(
+        MCP_READ_PATH,
+        "Call one read-only tool of a connected MCP server (Gmail, Calendar, GitHub, and others).",
+        'ref: <a ref whose route is "script", from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }',
+        outputType(MCP_READ_PATH),
+      ),
+    );
+  }
 
   lines.push(
-    indexLine(
-      MCP_READ_PATH,
-      "Call one read-only tool of a connected MCP server (Gmail, Calendar, GitHub, and others).",
-      'ref: <a ref whose route is "script", from mcp.list_tools or system.search_tools>, args?: { [key: string]: JsonValue }',
-      outputType(MCP_READ_PATH),
-    ),
     indexLine(
       TIME_NOW_PATH,
       "The time now, in the user's timezone.",
@@ -81,11 +119,15 @@ export function codeRunDescription(readTools: readonly RegisteredTool[]): string
       `${READ_PROGRAM_LIMITS.maxBridgeRequests} reads. It has no network, no imports, and no ` +
       "timers. `Date.now()` and `Math.random()` are fixed for the run, and `Date` uses the server's " +
       "timezone: get the user's date and time from `time.now()`.",
-    "- MCP tools: find one with `mcp.list_tools({ query })`, read its schemas with " +
-      '`mcp.inspect_tool({ ref })`, and call a hit whose `route` is `"script"` with ' +
-      '`mcp.read(ref, args)`. A `"direct"` hit runs only as a direct mcp.call. `mcp.read` returns ' +
-      '`{ status: "completed", result }` on success. If the tool has no output schema, first ' +
-      "return a short sample of `result`, then write the real script.",
+    ...(isListed(MCP_READ_PATH)
+      ? [
+          "- MCP tools: find one with `mcp.list_tools({ query })`, read its schemas with " +
+            '`mcp.inspect_tool({ ref })`, and call a hit whose `route` is `"script"` with ' +
+            '`mcp.read(ref, args)`. A `"direct"` hit runs only as a direct mcp.call. `mcp.read` returns ' +
+            '`{ status: "completed", result }` on success. If the tool has no output schema, first ' +
+            "return a short sample of `result`, then write the real script.",
+        ]
+      : []),
     "",
     "type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };",
     "",
