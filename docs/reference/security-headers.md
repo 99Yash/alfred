@@ -6,7 +6,12 @@ security-header policy lives in two repo-owned places:
 | Surface   | Origin              | Policy owner                                       | Mechanism                                                                   |
 | --------- | ------------------- | -------------------------------------------------- | --------------------------------------------------------------------------- |
 | API       | `api.alfred.beauty` | `packages/http/src/middleware/security-headers.ts` | Elysia `onRequest` plugin, wired in `apps/server/src/index.ts` next to CORS |
-| Web (SPA) | `alfred.beauty`     | root `Caddyfile`                                   | Railpack serves the Vite build with Caddy and uses this file verbatim       |
+| Web (SPA) | `alfred.beauty`     | `docker/web.Caddyfile`                             | `docker/web.Dockerfile` copies it into the Caddy runtime image (ADR-0128)   |
+
+`docker/web.Caddyfile` is the only web Caddyfile. The web service builds from
+`docker/web.Dockerfile`, which `infra/src/services.ts` names for the service, so
+Railpack does not generate or read a Caddyfile for it. A Caddyfile at the repo
+root is not deployed; do not add one.
 
 ## API (`api.alfred.beauty`)
 
@@ -47,6 +52,8 @@ from a **live capture of the authenticated app**, not guessed:
   `form-action 'self'` — the high-value clickjacking/injection levers stay tight.
 - `Permissions-Policy: geolocation=(self)` — the weather hero reads
   `navigator.geolocation`; dropping to `()` silently forces IP fallback.
+- `X-Robots-Tag: noindex, nofollow` on `/c/*` — a shared thread (ADR-0102) must
+  never be indexed. `robots.txt` and the route `head` state the same rule.
 
 Deployment-specific origins are Caddy env placeholders with production defaults:
 
@@ -64,7 +71,8 @@ different API, PostHog region, or Sentry ingest region. Do not widen to `*`.
 
 `script-src` pins the anti-FOUC theme stamp and the `vite:preloadError` chunk
 recovery script by hash. If you edit either `<script>` in `apps/web/index.html`,
-regenerate its hash in the `Caddyfile` or the browser silently blocks it:
+regenerate its hash in `docker/web.Caddyfile` or the browser silently blocks it.
+The `packages/http/test/security-headers.test.ts` suite fails on a stale hash.
 
 ```sh
 python3 - <<'PY'
@@ -77,7 +85,11 @@ PY
 
 ## Verification checklist (post-deploy)
 
-Caddy isn't installed in CI, so verify the deployed headers with curl:
+The `deploy-production` workflow (`.github/workflows/deploy.yml`) runs a
+"Verify web security headers" step after `alchemy deploy`. It fails the run when
+`https://alfred.beauty/` does not send the CSP, HSTS, `X-Frame-Options`, and
+`X-Content-Type-Options` headers, or when a `/c/` path does not send
+`X-Robots-Tag`. To check by hand:
 
 ```sh
 # Web — expect CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy, HSTS

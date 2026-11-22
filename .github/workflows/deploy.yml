@@ -64,3 +64,34 @@ jobs:
         run: corepack pnpm --filter @alfred/infra adopt
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+      # The web's headers live in `docker/web.Caddyfile` (#295). A Caddyfile the
+      # image does not copy ships no headers and no gate notices, so read them
+      # back from the live origin. `alchemy deploy` returns after the web
+      # deployment reaches SUCCESS; the retry covers the edge switch-over.
+      - name: Verify web security headers
+        run: |
+          check() {
+            local url="$1"; shift
+            local headers missing=""
+            headers="$(curl -fsSI --max-time 15 "$url")" || return 1
+            for pattern in "$@"; do
+              grep -qiE "^${pattern}" <<<"$headers" || missing="$missing ${pattern%%:*}"
+            done
+            if [ -n "$missing" ]; then
+              echo "$url is missing:$missing"
+              return 1
+            fi
+          }
+          for _ in 1 2 3 4 5 6; do
+            if check https://alfred.beauty/ \
+                "content-security-policy:.*frame-ancestors 'none'" "strict-transport-security:" \
+                "x-frame-options:" "x-content-type-options: *nosniff" \
+              && check https://alfred.beauty/c/header-check "x-robots-tag:.*noindex"; then
+              echo "Web security headers present."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::alfred.beauty does not serve the headers in docker/web.Caddyfile"
+          exit 1

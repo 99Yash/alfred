@@ -7,7 +7,7 @@ import { SharedThreadPage } from "./-chat/shared-thread-page";
  * `/c/`, not `/chat/`, so a typo never reaches a private route.
  * `head` has no title: titles can quote private context, and link previews read `head`.
  * `noindex`, because the 80-bit slug is the only access control. robots.txt and
- * the Caddyfile's `X-Robots-Tag` say the same for crawlers that skip this code.
+ * the `X-Robots-Tag` in `docker/web.Caddyfile` say the same for crawlers that skip this code.
  */
 export const Route = createFileRoute("/c/$slug")({
   staticData: { publicRoute: true },
