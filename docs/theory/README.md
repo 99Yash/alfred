@@ -46,7 +46,7 @@ Each principle comes from an owner correction. The tag says when the correction 
 
 The usual pattern: the owner states the principle early, and the agent applies it to the current diff only. The same fault then comes back in production. Thus **one owner correction is a rule for the whole area, not for one diff.** The owner's principles are not perfect, but the vision comes first. If a principle and the vision disagree, raise it with the owner. Do not work around it.
 
-1. **A fix that only adds a rule is a warning.** The warning applies to a new prompt line, floor, regex, or sender list. Name the principle that the fault breaks. Make the fault an eval case. *(Early 2026-06-02 and 06-26; late 2026-11-06: the triage prompt grew to 38 rules, and 21 of the 41 commits to `classify.ts` after 09-01 are fixes.)*
+1. **A fix that only adds a rule is a warning.** The warning applies to a new prompt line, floor, regex, or sender list. Name the principle that the fault breaks. Make the fault an eval case. A gate works the other way too: a stage's theory names its worst error and its eval gate before the first slice of it builds ([ADR-0133](../decisions/ADR-0133-evals-carry-the-product-direction-langfuse.md)). *(Early 2026-06-02 and 06-26; late 2026-11-06: the triage prompt grew to 38 rules, and 21 of the 41 commits to `classify.ts` after 09-01 are fixes; 2026-11-22: the eval-lane audit found the forward rule missing, so the owner added it.)*
    Touches: triage, chat tool selection, todos, briefing copy.
 2. **Know when to stop and rethink.** Stop patching and write the theory (the job, and what counts as an error) before code, when one of these occurs:
    - An area gets its third patch.
