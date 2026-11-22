@@ -44,8 +44,6 @@ import { inGateScopeExcept } from "../shared/scope.ts";
 const OWNERS: ReadonlySet<string> = new Set([
   // ActiveEntity* rows are pinned to the active run.
   "packages/assistant/src/knowledge/reader.ts",
-  // ParkWake is a signal wake plus a persisted deadline.
-  "packages/assistant/src/execution/sub-agent-join.ts",
   // CallKind is api_call_log.kind, owned by @alfred/contracts.
   "packages/ai/src/metering/metered.ts",
   // The catalog owns the provider key space.

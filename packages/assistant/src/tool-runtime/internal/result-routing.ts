@@ -24,10 +24,7 @@ import { parkResult } from "./result-handles";
 import { approvalCauseFact, type ApprovalCauseFact } from "../approval-rule";
 import type { ToolResultPart } from "ai";
 
-export type TerminalToolCallDispatchResult = Exclude<
-  ToolCallDispatchResult,
-  { kind: "staged" | "parked" }
->;
+export type TerminalToolCallDispatchResult = Exclude<ToolCallDispatchResult, { kind: "staged" }>;
 
 /**
  * The transcript message of one call. An executed result of a chat turn on the script read path
@@ -262,7 +259,6 @@ export function completedToolCall<Call extends ProposedToolCall>(
         : undefined,
     executedInput:
       result.kind === "executed" || result.kind === "failed" ? result.executedInput : undefined,
-    joinedChildRunId: result.kind === "executed" ? result.joinedChildRunId : undefined,
     verifiedRead: result.kind === "invalid_input" ? result.verifiedRead : undefined,
     effects: result.kind === "executed" ? result.effects : NO_TOOL_EFFECTS,
   };

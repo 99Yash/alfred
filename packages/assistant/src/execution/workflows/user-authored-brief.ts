@@ -15,7 +15,8 @@ import {
   parseIntegrationMentions,
   isIntegrationSlug,
   isToolName,
-  workflowRevisionDefinitionSchema,
+  savedToolEntryList,
+  storedWorkflowRevisionDefinitionSchema,
   workflowRequiredCapabilitySchema,
   type InboundEventSource,
   type GmailDocumentMetadata,
@@ -54,11 +55,21 @@ import {
   type ToolRunIdentity,
 } from "../tool-surface";
 import { subAgentMetadataSchema, SUB_AGENT_WORKFLOW_SLUG } from "../sub-agent-metadata";
+import {
+  appendChildResultNotes,
+  joinSpawnedChildren,
+  type SpawnedChildrenJoin,
+} from "../sub-agent-join";
+import { appendSystemNote } from "../transcript-notes";
 import { isTerminalStatus } from "@alfred/contracts";
-import type { Step, StepContext, Workflow, WorkflowInput } from "../registry";
+import type { Step, StepContext, StepResult, Workflow, WorkflowInput } from "../registry";
 import { getRun } from "../run-summary";
 import { pendingToolCallSchema } from "./pending-tool-call";
-import { BRIEF_TURN_CAP_MAX, openBriefTurnRetries } from "./turn-budgets";
+import {
+  BRIEF_SYNTHESIS_LANDING_NOTE,
+  BRIEF_TURN_CAP_MAX,
+  openBriefTurnRetries,
+} from "./turn-budgets";
 import { checkWorkflowReadiness } from "./readiness-port";
 import { logger } from "@alfred/logging";
 
@@ -75,7 +86,8 @@ const briefRunStateSchema = z
     timezone: ianaTimezoneSchema.optional(),
     // Undefined only on legacy sub-agent runs.
     allowedTools: z.array(z.string()).optional(),
-    requiredCapabilities: z.array(workflowRequiredCapabilitySchema).optional(),
+    // A saved state can name a removed tool (ADR-0130 amendment (i)). The list max is the revision's.
+    requiredCapabilities: savedToolEntryList(workflowRequiredCapabilitySchema, 50).optional(),
     pendingToolCalls: z.array(pendingToolCallSchema),
     subAgent: subAgentMetadataSchema.nullable(),
     inFlightTailStart: z.number().int().min(0),
@@ -88,6 +100,26 @@ const briefRunStateSchema = z
     // Consecutive empties only; a productive turn resets it.
     emptyRetries: z.number().int().min(0).default(0),
     readinessDeferrals: z.number().int().min(0).default(0),
+    // ADR-0130 amendment (i): the runtime joins each spawned child, because the model has no
+    // await tool. The children whose outcome the boss already read.
+    foldedChildRunIds: z.array(z.string()).default([]),
+    /**
+     * A completion that waits on a running child. `synthesize`: the boss answered, the runtime
+     * dropped the answer, and the boss answers again with the child results. `stopped`: the
+     * provider stopped the boss, and the run ends with that stop after the children end.
+     */
+    pendingCompletion: z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("synthesize") }),
+        z.object({ kind: z.literal("stopped"), reason: z.enum(["length", "content-filter"]) }),
+      ])
+      .optional(),
+    /**
+     * The runtime dropped an answer to give the boss its child results. The next model call may
+     * go one past the turn cap, with no tools, so a child that finished at the cap cannot fail
+     * the brief.
+     */
+    synthesisReserved: z.boolean().optional(),
   })
   .transform((state) => foldToolSurfaceState(state));
 
@@ -155,7 +187,7 @@ const BOSS_SYSTEM_PROMPT_BASE = [
     "- If the needed exact tool is not visible, call system.search_tools for the capability; its best registered hit is already loaded, so issue the real call on the next turn. Use system.load_tool only for a different exact name, including mcp.call. Do not ask the user to load a tool.",
     '- Resolve relative or partial dates yourself from today\'s date (stated below) — "this week", "in October", "October 2026", "next Tuesday" — and never ask the user to clarify a date you can work out. For a calendar range, give the calendar tool explicit RFC3339 bounds.',
     "- Use system.read_user_context before answering questions or making judgments about the user's mail history by address, preferences, standing instructions, or personal context. Do not guess from generic memory when this tool can read Alfred's stored context.",
-    "- Use system.spawn_sub_agent for focused independent investigation, then call system.await_sub_agent with its childRunId to get the real result before you continue; read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*. Never promise an out-of-turn notification when a sub-agent finishes — await it and use the result, or report honestly that it could not complete.",
+    "- Use system.spawn_sub_agent for focused independent investigation. Before your final answer, Alfred waits for each sub-agent you spawned and gives you its result as a note; read sub-agent findings from scratch.<subId>.* and promote verified findings to shared.*. Never promise an out-of-turn notification when a sub-agent finishes — use its result, or report honestly that it could not complete.",
     "- When the user asks Alfred to track something they need to do, use system.suggest_todo with a concise imperative title and any source ids you know. This creates a rail todo suggestion; it does not execute the task.",
     "- A standing instruction (for example, stop surfacing a sender or a class of mail) is stored only in a live chat. If the user asks for one here, say so; do not claim it is stored.",
     "- When the user asks to dismiss or clear existing todos from a Gmail sender/thread, use system.resolve_todo after resolving the sender email or thread id.",
@@ -214,22 +246,75 @@ export function buildSubAgentSystemPrompt(
   });
 }
 
+type StoppedReason = Extract<
+  NonNullable<BriefRunState["pendingCompletion"]>,
+  { kind: "stopped" }
+>["reason"];
+
+/** The end of a brief that the provider stopped. Its output keeps the provider's stop reason. */
+function stoppedBriefResult(
+  state: BriefRunState,
+  transcript: TranscriptMessage[],
+  reason: StoppedReason,
+): StepResult<BriefRunState> {
+  return {
+    kind: "done",
+    state,
+    transcript,
+    output: { stoppedReason: reason },
+    summary: `Stopped: ${reason}`,
+  };
+}
+
 const bossTurnStep: Step<BriefRunState> = {
   id: "boss-turn",
   // One non-streaming model call can run minutes. A reclaim would pay for it twice.
   staleAfterMs: 6 * 60_000,
   async run(ctx) {
-    if (ctx.state.turnCount >= BRIEF_TURN_CAP_MAX) {
+    const state: BriefRunState = { ...ctx.state };
+    let transcript = [...ctx.transcript];
+    const subAgent = state.subAgent;
+
+    // A completion waits on a running child, and the wake lands here. The join makes no model
+    // call, so it does not count a turn.
+    const pending = state.pendingCompletion;
+
+    if (pending) {
+      const join = await joinBriefChildren(ctx, state);
+
+      // The stop stays the result, so its child results do not go to a model. A synthesis keeps
+      // the result of each child that finished, also when another child still runs.
+      if (pending.kind === "synthesize")
+        transcript = appendChildResultNotes(transcript, join.notes);
+
+      if (join.park) return { kind: "interrupt", state, transcript, wake: join.park };
+      state.pendingCompletion = undefined;
+
+      if (pending.kind === "stopped") return stoppedBriefResult(state, transcript, pending.reason);
+
+      state.synthesisReserved = true;
+    }
+
+    const landing = state.turnCount >= BRIEF_TURN_CAP_MAX;
+
+    if (landing && !state.synthesisReserved) {
       throw new Error("turn_limit_exceeded");
     }
 
-    const state: BriefRunState = {
-      ...ctx.state,
-      turnCount: ctx.state.turnCount + 1,
-    };
+    if (landing) {
+      logger.warn(
+        { event: "brief_synthesis_landing", runId: ctx.runId, turnCount: state.turnCount },
+        "Brief reached its turn cap with child results to give; one tool-less synthesis turn",
+      );
+    }
 
-    const transcript = [...ctx.transcript];
-    const subAgent = state.subAgent;
+    // A retry starts from `transcript`, so the landing note enters the model input only once.
+    const modelInput = landing
+      ? appendSystemNote(transcript, BRIEF_SYNTHESIS_LANDING_NOTE)
+      : transcript;
+
+    // Count each model call, not each step.
+    state.turnCount += 1;
 
     state.timezone ??= await settings({ userId: ctx.userId }).timezone();
 
@@ -242,7 +327,7 @@ const bossTurnStep: Step<BriefRunState> = {
       state.selfIdentity = selfIdentityGrounding();
     }
 
-    await tools.preload(state, transcript);
+    if (!landing) await tools.preload(state, modelInput);
 
     const agent = new AlfredAgent({
       id: subAgent ? subAgent.subId : "boss",
@@ -254,7 +339,8 @@ const bossTurnStep: Step<BriefRunState> = {
             subAgent.subId,
           )
         : buildBossSystemPrompt(grounding, state.connectedSummary, state.selfIdentity),
-      tools: () => tools.forModel(state.activeTools),
+      // The synthesis turn past the cap has no tools, so it must answer.
+      tools: () => (landing ? {} : tools.forModel(state.activeTools)),
       model: subAgent ? route("subAgent").model() : route("boss").model(),
       attribution: {
         kind: "llm",
@@ -267,7 +353,7 @@ const bossTurnStep: Step<BriefRunState> = {
 
     const result = await agent.turn({
       ctx,
-      transcript: toModelMessages(transcript),
+      transcript: toModelMessages(modelInput),
       attribution: {
         stepId: ctx.idempotencyKey,
         attempt: ctx.attempt,
@@ -282,12 +368,12 @@ const bossTurnStep: Step<BriefRunState> = {
     );
 
     const nextTranscript = appendModelResponseMessages(
-      transcript,
+      modelInput,
       result.raw.responseMessages,
       stepCallIds,
     );
 
-    state.inFlightTailStart = transcript.length;
+    state.inFlightTailStart = modelInput.length;
     state.lastInputTokens = result.usage.inputTokens ?? 0;
 
     if (result.kind === "empty") {
@@ -304,6 +390,56 @@ const bossTurnStep: Step<BriefRunState> = {
       }
 
       throw new Error("boss_turn_empty_completion");
+    }
+
+    // The reserved pass is spent once the model gives a real result, and the empty streak ends.
+    state.synthesisReserved = undefined;
+    state.emptyRetries = 0;
+
+    const stoppedReason =
+      result.kind === "stopped" &&
+      (result.reason === "length" || result.reason === "content-filter")
+        ? result.reason
+        : null;
+
+    // The boss never ends while a child it spawned is not folded (ADR-0073). The join reads the
+    // durable child rows at each completion. A sub-agent cannot spawn, so it has no children.
+    if (!subAgent && (result.kind === "final" || stoppedReason)) {
+      const join = await joinBriefChildren(ctx, state);
+
+      if (stoppedReason) {
+        // A stop keeps its result. The run waits for each running child, then ends with the stop.
+        if (join.park) {
+          state.pendingCompletion = { kind: "stopped", reason: stoppedReason };
+
+          return { kind: "interrupt", state, transcript: nextTranscript, wake: join.park };
+        }
+
+        return stoppedBriefResult(state, nextTranscript, stoppedReason);
+      }
+
+      // Drop the answer, so a resumed park does not send a trailing assistant message.
+      if (join.park) {
+        state.pendingCompletion = { kind: "synthesize" };
+
+        return {
+          kind: "interrupt",
+          state,
+          transcript: appendChildResultNotes(transcript, join.notes),
+          wake: join.park,
+        };
+      }
+
+      if (join.notes.length > 0) {
+        state.synthesisReserved = true;
+
+        return {
+          kind: "next",
+          state,
+          transcript: appendChildResultNotes(transcript, join.notes),
+          nextStep: "boss-turn",
+        };
+      }
     }
 
     if (result.kind === "final") {
@@ -342,19 +478,30 @@ const bossTurnStep: Step<BriefRunState> = {
       };
     }
 
-    if (result.reason === "length" || result.reason === "content-filter") {
-      return {
-        kind: "done",
-        state,
-        transcript: nextTranscript,
-        output: { stoppedReason: result.reason },
-        summary: `Stopped: ${result.reason}`,
-      };
-    }
+    if (stoppedReason) return stoppedBriefResult(state, nextTranscript, stoppedReason);
 
     throw new Error(`boss_turn_stopped:${result.reason}`);
   },
 };
+
+/**
+ * Join the children that this boss spawned and did not fold (ADR-0073). It records the folded
+ * children in `state`. The caller decides where the notes go.
+ */
+async function joinBriefChildren(
+  ctx: StepContext<BriefRunState>,
+  state: BriefRunState,
+): Promise<SpawnedChildrenJoin> {
+  const join = await joinSpawnedChildren({
+    parentRunId: ctx.runId,
+    userId: ctx.userId,
+    foldedChildRunIds: state.foldedChildRunIds,
+  });
+
+  state.foldedChildRunIds = join.foldedChildRunIds;
+
+  return join;
+}
 
 /**
  * False when the parent run is terminal or missing; then a sub-agent card would arm a barrier
@@ -540,7 +687,7 @@ const compactTranscriptStep: Step<BriefRunState> = {
  * also binds execution. Every key is optional: sub-agent runs carry only `allowedIntegrations` and
  * `subAgent`, and legacy runs carry none. A malformed `subAgent` refuses the run.
  */
-const briefRunMetadataSchema = workflowRevisionDefinitionSchema
+const briefRunMetadataSchema = storedWorkflowRevisionDefinitionSchema
   .pick({
     allowedIntegrations: true,
     allowedTools: true,
@@ -593,6 +740,7 @@ export const userAuthoredBriefWorkflow: Workflow<BriefRunState, string, BriefRun
       ...(allowedTools ? { allowedTools } : {}),
       ...(requiredCapabilities ? { requiredCapabilities } : {}),
       pendingToolCalls: [],
+      foldedChildRunIds: [],
       subAgent: subAgent ?? null,
       inFlightTailStart: 0,
       turnCount: 0,

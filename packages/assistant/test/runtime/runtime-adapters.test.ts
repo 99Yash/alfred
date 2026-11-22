@@ -202,16 +202,6 @@ describe("runtime adapter lifecycle", () => {
             childRunId: "run_child",
             subId: "sub_1",
           } as const),
-        readChildRunOutcome: () =>
-          Promise.resolve({ ok: true, done: true, status: "completed" } as const),
-        resolveAwaitSubAgent: () =>
-          Promise.resolve({
-            kind: "executed",
-            stagingId: null,
-            toolResult: null,
-            effects: {},
-            editedByUser: false,
-          }),
         scratchpad: () => ({
           refusal: () => null,
           read: () => Promise.resolve(null),

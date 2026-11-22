@@ -31,11 +31,11 @@ export type ConversationHeader = Pick<ConversationRow, "id" | "title">;`,
     },
     {
       name: "a sanctioned rename that documents its fact",
-      filename: "packages/assistant/src/execution/sub-agent-join.ts",
-      code: `import type { SafeToParkWake } from "@alfred/assistant/tool-runtime";
+      filename: "packages/ai/src/metering/metered.ts",
+      code: `import type { AttributionKind } from "@alfred/contracts";
 
-/** A signal wake plus a persisted deadline. */
-export type ParkWake = SafeToParkWake;`,
+/** \`api_call_log.kind\`. Defined in \`@alfred/contracts\` so the web can read it. */
+export type CallKind = AttributionKind;`,
     },
     {
       // `contracts/src/chat.ts` aliases its own `TurnStartResponse` for a

@@ -1,10 +1,5 @@
 import * as Accordion from "@radix-ui/react-accordion";
-import {
-  AWAIT_SUB_AGENT_TOOL,
-  isQuestionApproval,
-  SPAWN_SUB_AGENT_TOOL,
-  toNonEmptyString,
-} from "@alfred/contracts";
+import { isQuestionApproval, SPAWN_SUB_AGENT_TOOL } from "@alfred/contracts";
 import type { SyncedChatNarration } from "@alfred/sync";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -83,20 +78,6 @@ export function ToolCallGroup({
     return childTrail ? { tool, childTrail } : undefined;
   };
 
-  /**
-   * Hide an `await_sub_agent` card when that child's trail is already on screen.
-   * It still counts in `shown` for the headline.
-   */
-  const isRedundantAwait = (item: ResolvedToolCall[]): boolean => {
-    const [tool] = item;
-
-    if (item.length !== 1 || tool?.toolName !== AWAIT_SUB_AGENT_TOOL) return false;
-
-    const childRunId = toNonEmptyString(tool.args?.childRunId);
-
-    return childRunId !== undefined && subAgents.some((s) => s.childRunId === childRunId);
-  };
-
   const shown = visibleTools(tools);
   const trail = buildTrail(shown, narration);
 
@@ -150,11 +131,9 @@ export function ToolCallGroup({
   // Each trail row owns its enter and exit, so the cards inside run no `animate-chat-in`.
   const rail = (
     <CollapseList className="mt-1.5 ml-3 flex flex-col gap-1.5 border-l-2 border-app-fg-a1 pl-3">
-      {trail.map((item) => {
-        if (item.kind === "tool" && isRedundantAwait(item.tools)) return null;
-
-        return <CollapseItem key={item.key}>{trailRow(item)}</CollapseItem>;
-      })}
+      {trail.map((item) => (
+        <CollapseItem key={item.key}>{trailRow(item)}</CollapseItem>
+      ))}
     </CollapseList>
   );
 

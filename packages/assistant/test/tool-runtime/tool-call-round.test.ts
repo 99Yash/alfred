@@ -55,18 +55,6 @@ function executed(
   };
 }
 
-function staged(id: string): ToolCallDispatchResult {
-  return {
-    kind: "staged",
-    stagingId: id,
-    wake: { kind: "hil", approvalId: id, approvalKind: "action_staging", prompt: `Approve ${id}` },
-  };
-}
-
-function parked(name: string): ToolCallDispatchResult {
-  return { kind: "parked", wake: { kind: "signal", name } };
-}
-
 async function withAdapters<T>(
   round: ToolCallRoundAdapter,
   registeredNames: readonly ToolName[],
@@ -231,47 +219,6 @@ describe("executeToolCallRound", () => {
         releaseLookup();
         const outcome = await pending;
         assert.equal(outcome.kind, "completed");
-      },
-    );
-  });
-
-  test("one approval wait wins over a child wait and later gated calls stay undispatched", async () => {
-    const dispatched: string[] = [];
-    await withAdapters(
-      {
-        dispatch: async (args) => {
-          dispatched.push(args.toolCallId);
-
-          if (args.toolCallId === "child") return parked("child-finished");
-
-          return staged(`stage-${args.toolCallId}`);
-        },
-        dispatchUnlessGated: () => Promise.reject(new Error("no waivable call")),
-        forecastApproval: (_userId, name) =>
-          Promise.resolve(
-            name === "vercel.redeploy" || name === "sheets.append_values" ? "waivable" : "none",
-          ),
-        readFullAutonomy: () => Promise.resolve(false),
-        executionLane: () => null,
-        artifactStreamMode: () => null,
-      },
-      ["system.await_sub_agent", "vercel.redeploy", "sheets.append_values"],
-      async () => {
-        const outcome = await executeToolCallRound({
-          calls: [
-            call("child", "system.await_sub_agent"),
-            call("send", "vercel.redeploy"),
-            call("archive", "sheets.append_values"),
-          ],
-          transcript: [],
-          activeNames: ["system.await_sub_agent", "vercel.redeploy", "sheets.append_values"],
-          run: liveRun,
-        });
-
-        assert.equal(outcome.kind, "waiting");
-
-        assert.equal(outcome.wake.kind, "hil");
-        assert.deepEqual(dispatched, ["child", "send"]);
       },
     );
   });

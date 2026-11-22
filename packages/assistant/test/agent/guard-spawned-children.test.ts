@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import { toDisplayText, type AgentTranscriptMessage } from "@alfred/contracts";
-import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agents";
+import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agent-children";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "@alfred/assistant/execution/sub-agent-join-wake-queue";
 import {
   crossFinalizeBoundary,
@@ -117,7 +117,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const rec = recorder({
       children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
+      outcomes: {
+        child_a: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
+      },
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -134,12 +140,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_a" }],
       outcomes: {
-        child_a: {
-          ok: true,
-          done: false,
-          status: "running",
-          runningMs: AWAIT_SUB_AGENT_CEILING_MS + 60_000,
-        },
+        child_a: { kind: "live", status: "running", deadlineAt: new Date(Date.now() - 60_000) },
       },
     });
 
@@ -148,7 +149,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.deepEqual(rec.scheduleCalls, [], "no fresh timer is armed for a past-ceiling child");
     assert.deepEqual(state.foldedChildRunIds, ["child_a"]);
     const folded = result.transcript;
-    assert.match(toDisplayText(folded?.[0]?.content), /could not be awaited/);
+    assert.match(toDisplayText(folded?.[0]?.content), /did not finish in time/);
   });
 
   test("a terminal child is folded and regenerates an informed answer", async () => {
@@ -158,10 +159,10 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       children: [{ id: "child_a" }],
       outcomes: {
         child_a: {
-          ok: true,
-          done: true,
+          kind: "ended",
           status: "completed",
           output: { summary: "did the thing" },
+          error: null,
         },
       },
     });
@@ -173,7 +174,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const folded = result.transcript;
     assert.match(
       toDisplayText(folded?.[0]?.content),
-      /finished without you awaiting it — it completed/,
+      /finished — it completed/,
       "the fold carries the terminal result for the regenerated answer",
     );
   });
@@ -234,8 +235,12 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_done" }, { id: "child_run" }],
       outcomes: {
-        child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
-        child_run: { ok: true, done: false, status: "running", runningMs: 500 },
+        child_done: { kind: "ended", status: "completed", output: { ok: 1 }, error: null },
+        child_run: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
       },
     });
 
@@ -271,7 +276,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const rec = recorder({
       children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
+      outcomes: {
+        child_a: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
+      },
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, prematureTail(), rec.deps);
@@ -298,10 +309,10 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       children: [{ id: "child_a" }],
       outcomes: {
         child_a: {
-          ok: true,
-          done: true,
+          kind: "ended",
           status: "completed",
           output: { summary: "did the thing" },
+          error: null,
         },
       },
     });
@@ -314,10 +325,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
       "user",
       "the regenerate transcript ends in the synthetic fold",
     );
-    assert.match(
-      toDisplayText(forwarded.at(-1)?.content),
-      /finished without you awaiting it — it completed/,
-    );
+    assert.match(toDisplayText(forwarded.at(-1)?.content), /finished — it completed/);
     assert.ok(
       !forwarded.some(
         (m) =>
@@ -333,8 +341,12 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     const rec = recorder({
       children: [{ id: "child_done" }, { id: "child_run" }],
       outcomes: {
-        child_done: { ok: true, done: true, status: "completed", output: { ok: 1 } },
-        child_run: { ok: true, done: false, status: "running", runningMs: 500 },
+        child_done: { kind: "ended", status: "completed", output: { ok: 1 }, error: null },
+        child_run: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
       },
     });
 
@@ -355,7 +367,7 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const rec = recorder({
       children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: true, status: "completed", output: {} } },
+      outcomes: { child_a: { kind: "ended", status: "completed", output: {}, error: null } },
     });
 
     const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -363,42 +375,18 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
     assert.equal(rec.published.length, 0, "no segment churn when there's nothing to guard");
   });
 
-  test("spawn + terminal await → guard returns null (no false 'unawaited' note)", async () => {
-    // The commit pass already put the awaited child in `foldedChildRunIds`.
-    const state = baseState({
-      toolCallsLog: [
-        {
-          toolCallId: "tc_spawn",
-          toolName: "system.spawn_sub_agent",
-          status: "succeeded",
-          segmentIndex: 0,
-        },
-        {
-          toolCallId: "tc_await",
-          toolName: "system.await_sub_agent",
-          status: "succeeded",
-          segmentIndex: 0,
-        },
-      ],
-      foldedChildRunIds: ["child_a"],
-    });
-
-    const rec = recorder({
-      children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: true, status: "completed", output: { ok: 1 } } },
-    });
-
-    const result = await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
-    assert.equal(result, null, "the awaited child is already accounted for → finalize normally");
-    assert.equal(rec.published.length, 0, "no segment churn for a correctly-awaited child");
-  });
-
   test("the live segment transition: a zero-length delta closes the premature answer", async () => {
     const state = baseState({ assistantText: "premature answer", segmentIndex: 2, deltaSeq: 9 });
 
     const rec = recorder({
       children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
+      outcomes: {
+        child_a: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
+      },
     });
 
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);
@@ -424,7 +412,13 @@ describe("guardSpawnedChildren (ADR-0073 runtime invariant)", () => {
 
     const rec = recorder({
       children: [{ id: "child_a" }],
-      outcomes: { child_a: { ok: true, done: false, status: "running", runningMs: 1_000 } },
+      outcomes: {
+        child_a: {
+          kind: "live",
+          status: "running",
+          deadlineAt: new Date(Date.now() + AWAIT_SUB_AGENT_CEILING_MS),
+        },
+      },
     });
 
     await guardSpawnedChildren(baseCtx(state), state, [], rec.deps);

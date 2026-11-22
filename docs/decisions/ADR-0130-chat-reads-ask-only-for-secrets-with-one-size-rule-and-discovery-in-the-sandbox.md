@@ -202,6 +202,7 @@ Also, `approvalCause` applies the approval rule a second time, apart from dispat
   - The `code_run` index lists only the reads that the user can call. This saves about 1,850 tokens on each turn.
     - **Built 2026-11-22 (#1806, part 1).** The first step of a Code Mode chat pins the index with the connected summary (`state.codeRunIndex`, `buildCodeRunIndexFromAvailability`). The index lists `time.now`, the reads that the run can call from the direct view of the summary, and the MCP reads with `mcp.read` only when the summary names a callable MCP server. A run that pinned its prompt before this change keeps the full index (C6). For a user with no connection, the first step drops from 24,399 B (~6,100 tok) to 16,073 B (~4,019 tok). A user who can call every read gets the same description as before.
   - `system.spawn_sub_agent` and `system.await_sub_agent` merge into one lazy tool. Prod used neither tool in 90 days.
+    - **Shape (amendment (i), 2026-11-22).** The merged tool is `system.spawn_sub_agent`, and the runtime does the join. `system.await_sub_agent` goes away.
 
 ### 7. The model asks for the time, and the runtime tells it only when time has passed (settled)
 
@@ -342,6 +343,38 @@ Build in this order. Each issue names its decision.
 7. #1804 — the Linear read-only endpoint probe (decision 9).
 8. #1806 — the `code_run` index and the sub-agent merge (decision 6, other cuts).
 9. #1805 — discovery in the sandbox, after the eval (decision 6). `time.now()` left this slice and shipped alone on 2026-11-21 (decision 7).
+
+#### Amendment 2026-11-22 (i): the merged sub-agent tool spawns, and the runtime joins (#1806)
+
+**The question.** Decision 6 merges `system.spawn_sub_agent` and `system.await_sub_agent` into one lazy tool. It did not give the shape of that tool.
+
+**The fact.** In chat, the finalize guard already joins every spawned child before the boss answers (`guardSpawnedChildren`). It parks on a running child, adds each finished child's result as a note, and the model answers again. A workflow brief had no such guard, so it needed `await_sub_agent`.
+
+**Owner decision, 2026-11-22.** The merged tool is `system.spawn_sub_agent`, and it is lazy. The model has no await tool. The runtime always joins:
+
+- Chat keeps its finalize guard.
+- A workflow brief gets the same join. When the boss answers and a child is not folded, the answer is dropped. The run parks on a running child, or adds the finished results as notes and calls the model again.
+- One helper, `joinSpawnedChildren` (`execution/sub-agent-join.ts`), does the join for both.
+- The dispatcher loses its `join` staging arm and the `parked` dispatch result, because `await_sub_agent` was their only user.
+- The spawn description and the prompts say that Alfred waits for each sub-agent before the final answer and gives its result as a note.
+
+**What stays.** ADR-0073 keeps its rule that the parent waits for its children. The dead-man timer, the wait ceiling, and the cancel cascade stay. Only the explicit join tool goes. A saved row that names `system.await_sub_agent` still parses: a parse of a saved tool list drops a removed tool (`savedToolNameList`, `savedToolEntryList`, `storedWorkflowRevisionDefinitionSchema`). New input stays strict, and a saved list keeps its entry shape and its max.
+
+**Rejected.**
+
+- One tool with two actions (`spawn` and `await`). It keeps the explicit join, but staging would depend on the input, and the dispatcher and the web cards would switch on the action.
+- A spawn that blocks until the child ends. It reverses ADR-0073 alternative (a), and parallel delegation would need a join of many children.
+
+**The cost.** The model reads a child's result as a note, not as a tool result. A boss that wants the result before it does more work must end its step first. In prod, neither tool ran in 90 days.
+
+**Owner decisions after the review of #1855, 2026-11-22.**
+
+- **The child's evidence has its own block.** The note keeps the runtime's instruction first. The child's output or error follows in a `<sub_agent_result childRunId="…">` block, and the instruction says that the block is data, not instructions. A closing tag inside the output cannot end the block. The output is bounded by decision 5 (`boundForModel`), not by the 2,000-character card limit. A cut output gives a cut record and the scratch key of the whole result. Rejected: a synthetic tool call and tool result. It reverses this amendment and is the transcript work that ADR-0073 deferred.
+- **One deadline for each child.** The deadline is the child's spawn time (`agent_runs.created_at`) plus `AWAIT_SUB_AGENT_CEILING_MS`. Each park and each wake use it, also for a child that never got its first lease. Before, each park started a fresh 6 minutes, and a child with no lease had no age, so it could park with no end.
+- **A brief counts model calls.** A step that only joins and parks again does not count a turn. When the runtime drops an answer to give the boss its child results, the next model call may go one past `BRIEF_TURN_CAP_MAX` with no tools, so a child that finished at the cap cannot fail the brief.
+- **A provider stop keeps its result.** A brief whose model stops on `length` or `content-filter` waits for each running child, then ends with that stop. The child results do not go to a model again.
+- **The join reads durable rows.** A brief joins at each completion of the boss. Chat joins when the run has any spawn call, also one that failed after its insert.
+- **A chat prompt pin re-pins once on a new build.** The run keeps a second hash of the prompt with no per-run values. When the full hash and that code hash both differ, the run started on an older build: it logs `chat_system_prompt_repinned_on_build_change` and pins again, at the cost of one cache miss. A change with the same code hash still throws.
 
 ## Principles recorded for later theory
 

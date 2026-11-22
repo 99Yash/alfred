@@ -6,7 +6,7 @@ import {
   EVENT_SOURCES,
   rawEventKindSchema,
 } from "./event-triggers";
-import { canonicalJson, toolNameSchema } from "./tools";
+import { canonicalJson, savedToolEntryList, savedToolNameList, toolNameSchema } from "./tools";
 import { isRecord } from "./guards";
 import { jsonObjectSchema } from "./user-model";
 
@@ -343,6 +343,8 @@ export const workflowRecoveryNavigationSchema = z.object({
 
 export type WorkflowRecoveryNavigation = z.infer<typeof workflowRecoveryNavigationSchema>;
 
+const WORKFLOW_REQUESTED_CAPABILITIES_MAX = 50;
+
 /**
  * What authoring understood, for the activation card. Outside the content hash,
  * but a changed proposal still creates a revision.
@@ -354,11 +356,25 @@ export const workflowAuthoringProposalSchema = z.object({
   /** Categories of external change this workflow may cause ("sends email"). */
   externalEffects: z.array(z.string().min(1).max(200)).max(20),
   /** Before the resolver narrows the envelope. */
-  requestedCapabilities: z.array(workflowRequestedCapabilitySchema).max(50),
+  requestedCapabilities: z
+    .array(workflowRequestedCapabilitySchema)
+    .max(WORKFLOW_REQUESTED_CAPABILITIES_MAX),
   scheduleSummary: z.string().max(200).optional(),
 });
 
 export type WorkflowAuthoringProposal = z.infer<typeof workflowAuthoringProposalSchema>;
+
+/**
+ * A saved authoring proposal. A requested capability with a removed tool drops (ADR-0130
+ * amendment (i)), so recovery and activation do not see the removed tool. New input uses
+ * {@link workflowAuthoringProposalSchema}.
+ */
+export const storedWorkflowAuthoringProposalSchema = workflowAuthoringProposalSchema.extend({
+  requestedCapabilities: savedToolEntryList(
+    workflowRequestedCapabilitySchema,
+    WORKFLOW_REQUESTED_CAPABILITIES_MAX,
+  ),
+});
 
 /**
  * A machine blocker on a workflow. Separate from `status='paused'`, which is user intent.
@@ -390,6 +406,10 @@ export function workflowBlockedGeneration(
   });
 }
 
+const WORKFLOW_ALLOWED_TOOLS_MAX = 100;
+
+const WORKFLOW_REQUIRED_CAPABILITIES_MAX = 50;
+
 /**
  * Every field a run depends on, and nothing else. `workflowRevisionContentHash` digests
  * this, so a no-op edit appends no revision.
@@ -403,12 +423,34 @@ export const workflowRevisionDefinitionSchema = z.object({
   /** Coarse backstop: the integrations a run may load. */
   allowedIntegrations: z.array(integrationSlugSchema).max(20),
   /** The only tools a run may activate or dispatch. */
-  allowedTools: z.array(toolNameSchema).max(100),
+  allowedTools: z.array(toolNameSchema).max(WORKFLOW_ALLOWED_TOOLS_MAX),
   /** Each tool here is also in `allowedTools`. */
-  requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+  requiredCapabilities: z
+    .array(workflowRequiredCapabilitySchema)
+    .max(WORKFLOW_REQUIRED_CAPABILITIES_MAX),
 });
 
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;
+
+/**
+ * A saved workflow revision. It accepts a removed tool in `allowedTools` and `requiredCapabilities`
+ * and drops it (ADR-0130 amendment (i)), so a revision published before the removal still runs.
+ * The lists keep their max and their entry shape. New input uses
+ * {@link workflowRevisionDefinitionSchema}, which stays strict.
+ */
+export const storedWorkflowRevisionDefinitionSchema = workflowRevisionDefinitionSchema.extend({
+  allowedTools: savedToolNameList(WORKFLOW_ALLOWED_TOOLS_MAX),
+  requiredCapabilities: savedToolEntryList(
+    workflowRequiredCapabilitySchema,
+    WORKFLOW_REQUIRED_CAPABILITIES_MAX,
+  ),
+});
+
+/** The tool lists of a saved workflow revision, for a reader that selects only these columns. */
+export const storedWorkflowRevisionToolsSchema = storedWorkflowRevisionDefinitionSchema.pick({
+  allowedTools: true,
+  requiredCapabilities: true,
+});
 
 /**
  * The event trigger a user may author. Shared by the editor mutator and chat authoring.
@@ -534,3 +576,20 @@ export const activateWorkflowInputSchema = z
   .strict();
 
 export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;
+
+/**
+ * A saved activation card, for example the proposed input of a pending approval. Each tool list
+ * drops a removed tool (ADR-0130 amendment (i)), so the server can refresh the card. New input
+ * uses {@link activateWorkflowInputSchema}.
+ */
+export const storedActivateWorkflowInputSchema = activateWorkflowInputSchema.extend({
+  definition: storedWorkflowRevisionDefinitionSchema.safeExtend({
+    trigger: authorableWorkflowTriggerSchema,
+  }),
+  // The card shows one capability for each required capability, so the same max applies.
+  resolvedCapabilities: savedToolEntryList(
+    workflowCapabilityDisplaySchema,
+    WORKFLOW_REQUIRED_CAPABILITIES_MAX,
+  ),
+  authoringProposal: storedWorkflowAuthoringProposalSchema,
+});

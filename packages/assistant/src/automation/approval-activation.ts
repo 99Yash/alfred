@@ -1,8 +1,9 @@
 import {
-  activateWorkflowInputSchema,
   canonicalJson,
   hashToolInput,
   jsonValueSchema,
+  storedActivateWorkflowInputSchema,
+  type ActivateWorkflowInput,
   type JsonValue,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -43,9 +44,11 @@ export async function prepareStagedApproval(args: {
     return { kind: "invalid", message: "The approval changed. Review the latest contract." };
   }
 
-  const staged = activateWorkflowInputSchema.safeParse(candidate.proposedInput);
+  // The staged card is a saved row, and an edit echoes it, so both can name a removed tool. The
+  // saved parse drops it. The refresh below parses the result strictly.
+  const staged = storedActivateWorkflowInputSchema.safeParse(candidate.proposedInput);
 
-  const edited = activateWorkflowInputSchema.safeParse(
+  const edited = storedActivateWorkflowInputSchema.safeParse(
     args.editedInput === undefined ? candidate.proposedInput : args.editedInput,
   );
 
@@ -97,7 +100,7 @@ export async function prepareStagedApproval(args: {
   };
 }
 
-function reviewedDerivedContract(input: ReturnType<typeof activateWorkflowInputSchema.parse>) {
+function reviewedDerivedContract(input: ActivateWorkflowInput) {
   const {
     workflowId: _workflowId,
     baseRevisionId: _baseRevisionId,

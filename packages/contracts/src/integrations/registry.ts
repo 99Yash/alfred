@@ -136,7 +136,6 @@ export const INTEGRATIONS = {
       "recover_workflow",
       "activate_workflow",
       "spawn_sub_agent",
-      "await_sub_agent",
       "read_user_context",
       "read_chat_history",
       "read_scratch",

@@ -6,7 +6,6 @@ import {
   leavesEffectUnconfirmed,
   mcpBoundCallInput,
   SPAWN_SUB_AGENT_TOOL,
-  toDisplayText,
   withDefaults,
 } from "@alfred/contracts";
 import { publishEvent } from "@alfred/assistant/triggers";
@@ -15,15 +14,13 @@ import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import {
-  isTerminalChildStatus,
-  joinChildOutcome,
+  appendChildResultNotes,
+  joinSpawnedChildren,
   listSpawnedChildRuns,
-  PREVIEW_CHARS,
   appendSystemNote,
   resetChatTurnRetryBudgets,
   scheduleSubAgentJoinWakeJob,
-  type ChildRunOutcome,
-  type ParkWake,
+  type JoinSpawnedChildrenDeps,
   type StepContext,
   type StepResult,
 } from "@alfred/assistant/execution";
@@ -39,38 +36,6 @@ import { judgeFailedWriteReport, type FailedWrite } from "./failed-write-report"
  * The work between "the model answered" and "the turn may complete".
  * Each guard returns a `StepResult` to take over (park or regenerate), or `null`.
  */
-
-/** Truncated, model-readable rendering of a folded child's output/error. */
-function renderChildOutcome(value: unknown): string {
-  const text = toDisplayText(value);
-
-  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
-}
-
-/** A note that hands an unawaited child's outcome to the boss. No tool call exists to attach it to. */
-function syntheticChildResultNote(childRunId: string, outcome: ChildRunOutcome): string {
-  if (!isTerminalChildStatus(outcome.status)) {
-    // The join gave up: no dead-man timer, or the child outran the wait ceiling.
-    const why = outcome.reason ? ` (${outcome.reason})` : ` (still ${outcome.status})`;
-
-    return (
-      `A sub-agent you spawned (childRunId ${childRunId}) could not be awaited${why}. ` +
-      "Answer now with what you already have. Tell the user that part of the work is still in progress; do not fabricate its result."
-    );
-  }
-
-  const detail =
-    outcome.status === "completed"
-      ? `completed with result:\n${renderChildOutcome(outcome.output)}`
-      : outcome.status === "failed"
-        ? `failed: ${renderChildOutcome(outcome.error)}`
-        : outcome.status; // cancelled / other terminal
-
-  return (
-    `A sub-agent you spawned (childRunId ${childRunId}) finished without you awaiting it — it ${detail}. ` +
-    "Incorporate this into your answer now. Do not say you will follow up when it finishes; it already has."
-  );
-}
 
 /** Publish one `chat.delta` on the current segment, with the step's replay fence. */
 async function publishSegmentDelta(
@@ -119,10 +84,8 @@ async function closePrematureAnswerSegment(
   return true;
 }
 
-/** Injectable I/O for tests. `scheduleWake` goes to {@link joinChildOutcome}. */
-export interface GuardSpawnedChildrenDeps {
-  listChildren: typeof listSpawnedChildRuns;
-  scheduleWake: typeof scheduleSubAgentJoinWakeJob;
+/** Injectable I/O for tests. `listChildren` and `scheduleWake` go to {@link joinSpawnedChildren}. */
+export interface GuardSpawnedChildrenDeps extends JoinSpawnedChildrenDeps {
   publish: typeof publishEvent;
 }
 
@@ -133,9 +96,11 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
 };
 
 /**
- * The parent never answers while a child it spawned still runs (ADR-0073).
- * Park on a running child; fold finished ones and regenerate. The list reads each child one
- * time, and {@link joinChildOutcome} decides park or fold, the same as `await_sub_agent`.
+ * The parent never answers while a child it spawned still runs (ADR-0073). The model has no await
+ * tool, so this guard is the join (ADR-0130 amendment (i)). Any spawn call of the run, also one
+ * that failed after its insert, makes the guard read the durable child rows. A run with no spawn
+ * call has no child, so it makes no read. Park on a running child; fold finished ones and
+ * regenerate.
  */
 export async function guardSpawnedChildren(
   ctx: StepContext<ChatRunState>,
@@ -143,33 +108,16 @@ export async function guardSpawnedChildren(
   transcript: TranscriptMessage[],
   deps: GuardSpawnedChildrenDeps = defaultGuardSpawnedChildrenDeps,
 ): Promise<StepResult<ChatRunState> | null> {
-  const spawnedThisTurn = state.toolCallsLog.some(
-    (t) => t.toolName === SPAWN_SUB_AGENT_TOOL && t.status === "succeeded",
+  if (!state.toolCallsLog.some((t) => t.toolName === SPAWN_SUB_AGENT_TOOL)) return null;
+
+  const join = await joinSpawnedChildren(
+    { parentRunId: ctx.runId, userId: ctx.userId, foldedChildRunIds: state.foldedChildRunIds },
+    deps,
   );
 
-  if (!spawnedThisTurn) return null;
+  if (join.notes.length === 0 && join.park === null) return null;
 
-  const children = await deps.listChildren({ parentRunId: ctx.runId, userId: ctx.userId });
-  const unfolded = children.filter((c) => !state.foldedChildRunIds.includes(c.id));
-
-  if (unfolded.length === 0) return null;
-
-  const foldNotes: string[] = [];
-  // Only wakes the join returned: each one carries a persisted deadline.
-  const parkWakes: ParkWake[] = [];
-
-  for (const child of unfolded) {
-    const join = await joinChildOutcome(child, deps);
-
-    if (join.kind === "park") {
-      parkWakes.push(join.wake);
-      continue;
-    }
-
-    // Stop tracking a resolved child, so a stuck one cannot re-park forever.
-    foldNotes.push(syntheticChildResultNote(child.id, join.outcome));
-    state.foldedChildRunIds = [...state.foldedChildRunIds, child.id];
-  }
+  state.foldedChildRunIds = join.foldedChildRunIds;
 
   const closedPrematureAnswer = await closePrematureAnswerSegment(ctx, state, deps.publish);
 
@@ -180,15 +128,10 @@ export async function guardSpawnedChildren(
       ? transcript.slice(0, -1)
       : transcript;
 
-  const nextTranscript = foldNotes.reduce<TranscriptMessage[]>(
-    (acc, note) => appendSystemNote(acc, note),
-    [...baseTranscript],
-  );
+  const nextTranscript = appendChildResultNotes(baseTranscript, join.notes);
 
-  const [firstParkWake] = parkWakes;
-
-  if (firstParkWake) {
-    return interruptChatRun(state, nextTranscript, firstParkWake);
+  if (join.park) {
+    return interruptChatRun(state, nextTranscript, join.park);
   }
 
   return { kind: "next", state, transcript: nextTranscript, nextStep: "chat-turn" };

@@ -27,9 +27,10 @@ import { registerBuiltinTools } from "../../src/tool-runtime/builtin-tools";
 // Measured 2026-10-12: kernel 12,386 B / ~3,097 tok across 10 tools; full 89,881 B across 72 tools.
 // 2026-11-21: kernel 12,800 B / ~3,201 tok across 10 tools, with the short system.current_time
 // text (275 B).
-const KERNEL_SCHEMA_BYTES_CEILING = 13_000;
+// 2026-11-22 (#1806): kernel 10,908 B / ~2,728 tok across 8 tools; the sub-agent tools left it.
+const KERNEL_SCHEMA_BYTES_CEILING = 12_000;
 
-const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
+const KERNEL_SCHEMA_TOKENS_CEILING = 3_000;
 
 // The minimum first step of a Code Mode chat: the kernel plus `system.code_run`, through the same
 // projection that the chat surface uses (`resolveToolSurface`), so the reads that run only in a
@@ -37,8 +38,9 @@ const KERNEL_SCHEMA_TOKENS_CEILING = 3_300;
 // adds to it, so a real first step can be larger. The index is the one that a user with no
 // connection pins: only the system reads (ADR-0130 decision 6, #1806).
 // Measured 2026-11-21: 24,153 B / ~6,038 tok across 7 tools; system.code_run alone is 17,863 B.
-// 2026-11-22 (#1806): 16,073 B / ~4,019 tok with the pinned index; the full index is 24,399 B.
-const CODE_RUN_FIRST_STEP_BYTES_CEILING = 17_700;
+// 2026-11-22 (#1806 part 1): 16,073 B / ~4,019 tok with the pinned index; the full index is 24,399 B.
+// 2026-11-22 (#1806 part 2): 14,277 B / ~3,570 tok across 5 tools; the sub-agent tools left the kernel.
+const CODE_RUN_FIRST_STEP_BYTES_CEILING = 15_700;
 
 /** The context of a Code Mode chat turn (`chat-turn.ts` `chatToolRunIdentity`). */
 const CODE_RUN_CHAT_CONTEXT = {

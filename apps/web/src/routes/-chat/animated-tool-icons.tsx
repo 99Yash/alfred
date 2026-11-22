@@ -3,7 +3,6 @@ import {
   Blocks,
   Bookmark,
   Brain,
-  Cctv,
   CircleCheckBig,
   CirclePlay,
   Clock,
@@ -50,7 +49,6 @@ const BRANDLESS_TOOL_ICONS = {
 
   // Delegation.
   "system.spawn_sub_agent": Fan,
-  "system.await_sub_agent": Cctv,
   "system.ask_user": MessageCircleQuestionMark,
 
   // What Alfred knows about the user.

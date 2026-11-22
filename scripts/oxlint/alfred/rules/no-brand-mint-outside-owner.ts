@@ -30,7 +30,7 @@ import { inGateScope } from "../shared/scope.ts";
  * declaration, or when it is the right side of a qualified name or an
  * `import("…").X` type. A type alias or an interface of the same file that
  * names a brand, at any depth and through other local aliases, is a brand too:
- * `type ParkWake = SafeToParkWake` carries `SafeToParkWake`.
+ * `type JoinWake = ParkWake` carries `ParkWake`.
  *
  * Table completeness. In each file, a `unique symbol` that a type declaration
  * uses as a computed key makes that declaration a brand. The rule reports such
@@ -71,10 +71,10 @@ const BRANDS: ReadonlyMap<string, string> = new Map([
   ["IanaTimezone", "packages/contracts/src/briefing.ts"],
   ["LocalDateKey", "packages/assistant/src/time/local-time.ts"],
   ["McpServerId", "packages/contracts/src/source-identity.ts"],
+  ["ParkWake", "packages/assistant/src/execution/sub-agent-join.ts"],
   ["PublicAppErrorMessage", "packages/contracts/src/app-errors/index.ts"],
   ["ReceiptProjection", "packages/assistant/src/connections/ingestion/receipt-document.ts"],
   ["RedactedToolInput", "packages/ai/src/metering/langfuse.ts"],
-  ["SafeToParkWake", "packages/assistant/src/tool-runtime/index.ts"],
   ["SealedCredentialSecret", "packages/db/src/credential-envelope.ts"],
 ]);
 

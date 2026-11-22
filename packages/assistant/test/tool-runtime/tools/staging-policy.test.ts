@@ -12,7 +12,7 @@ afterEach(() => {
 
 function tool(args: {
   action: "read_scratch" | "web_search";
-  staging?: "fast_path" | "join";
+  staging?: "fast_path" | "confirm";
   riskTier?: "no_risk" | "high";
   dynamicRisk?: boolean;
   policyGateWaiver?: string;
@@ -46,22 +46,6 @@ function sheetsTool(args: { staging?: "fast_path"; policyGateWaiver?: string }) 
   });
 }
 
-function joinTool(args: {
-  inputSchema: z.ZodType;
-  action?: "await_sub_agent" | "spawn_sub_agent";
-}) {
-  return liveTool({
-    integration: "system",
-    action: args.action ?? "await_sub_agent",
-    riskTier: "no_risk",
-    replay: "safe",
-    description: "test join tool",
-    staging: "join",
-    inputSchema: args.inputSchema,
-    execute: async () => ({ ok: true }),
-  });
-}
-
 describe("the staging policy is declared, and defaults to staged", () => {
   test("an omitted policy resolves to `staged`", () => {
     assert.equal(tool({ action: "web_search" }).staging, "staged");
@@ -69,7 +53,7 @@ describe("the staging policy is declared, and defaults to staged", () => {
 
   test("a declared policy survives the registry boundary", () => {
     assert.equal(tool({ action: "read_scratch", staging: "fast_path" }).staging, "fast_path");
-    assert.equal(tool({ action: "read_scratch", staging: "join" }).staging, "join");
+    assert.equal(tool({ action: "read_scratch", staging: "confirm" }).staging, "confirm");
   });
 });
 
@@ -114,35 +98,6 @@ describe("the fast path may not waive an approval a tool could require", () => {
     assert.throws(
       () => registerTool(sheetsTool({ policyGateWaiver: "local read" })),
       /does not declare staging='fast_path'/,
-    );
-  });
-});
-
-describe("`join` is a protocol, and registration proves the declarer speaks it", () => {
-  test("a join tool whose schema lacks childRunId throws at boot", () => {
-    assert.throws(
-      () => registerTool(joinTool({ inputSchema: z.object({ runId: z.string() }) })),
-      /does not accept.*childRunId/s,
-    );
-  });
-
-  test("a join tool that accepts childRunId registers", () => {
-    assert.doesNotThrow(() =>
-      registerTool(joinTool({ inputSchema: z.object({ childRunId: z.string().min(1) }) })),
-    );
-  });
-
-  test("a second join declarer throws — the arm has one implementation", () => {
-    registerTool(joinTool({ inputSchema: z.object({ childRunId: z.string().min(1) }) }));
-    assert.throws(
-      () =>
-        registerTool(
-          joinTool({
-            action: "spawn_sub_agent",
-            inputSchema: z.object({ childRunId: z.string().min(1) }),
-          }),
-        ),
-      /already does/,
     );
   });
 });

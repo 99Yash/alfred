@@ -4,7 +4,7 @@ import type { PriorRejectionStatus } from "./staging-store";
 
 /**
  * What the staged path does differently per arm, so a new arm is one row (ADR-0099).
- * `join` and `fast_path` return before the staged path.
+ * `fast_path` returns before the staged path.
  */
 export interface GatedArmPolicy {
   /** Park on approval whatever policy and tier say. */
@@ -53,5 +53,4 @@ export const STAGING_ARM = {
     rejectedWithoutReason: "dismissed by user",
   },
   fast_path: null,
-  join: null,
 } satisfies Record<ToolStagingPolicy, GatedArmPolicy | null>;
