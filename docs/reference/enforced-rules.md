@@ -251,6 +251,7 @@ Each script below runs in `pnpm check`, in CI (`.github/workflows/ci.yml`), or i
 | Script | `pnpm check` | CI | Command | Summary |
 | --- | --- | --- | --- | --- |
 | `check-types` | no | yes | `turbo run check-types && tsc -p scripts/tsconfig.json` |  |
+| `check:action-pins` | yes | yes | `node scripts/check-action-pins.mjs` | Fails when a GitHub Actions `uses:` reference is not pinned by a full commit SHA. |
 | `check:architecture` | yes | yes | `node scripts/check-module-architecture.mjs` |  |
 | `check:campaign-state` | yes | yes | `node scripts/campaign-state.selftest.mjs` | Drives `campaign-state.mjs` against the failure it exists to prevent: two phases writing two different items of one `state.json` at the same time. |
 | `check:code-mode-index` | yes | yes | `node scripts/generate-code-mode-index.mjs --check` | Generate the Code Mode index of host-function output types (ADR-0124 decision 3). |
