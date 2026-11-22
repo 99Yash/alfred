@@ -2,6 +2,7 @@ import { EVENT_KINDS } from "@alfred/contracts/events";
 import { parseEventFrame, type EventStreamFrame } from "./frame";
 import { getReplaySince, noteReplayFrame } from "./replay-anchor";
 import { API_URL } from "~/lib/eden";
+import { subscribeToBackForwardCache } from "~/lib/page-lifecycle";
 import { getEventStreamStatus, setEventStreamStatus } from "./event-stream-status";
 
 export interface OpenEventStreamOptions {
@@ -128,12 +129,58 @@ function attachSource(shared: SharedEventStream): void {
   }
 }
 
+let pageLifecycleBound = false;
+
+/**
+ * Close the source while the page is in the back/forward cache, so a cached page does not hold a
+ * connection. On restore, reconnect: the `?since` replay resends the frames that the gap lost.
+ */
+function bindPageLifecycle(): void {
+  if (pageLifecycleBound) return;
+  pageLifecycleBound = true;
+
+  subscribeToBackForwardCache({
+    onEnter: () => {
+      const shared = sharedStream;
+
+      if (!shared) return;
+
+      if (shared.reconnectTimer) {
+        clearTimeout(shared.reconnectTimer);
+        shared.reconnectTimer = null;
+      }
+
+      if (shared.source) {
+        try {
+          shared.source.close();
+        } catch {
+          // ignore
+        }
+
+        shared.source = null;
+      }
+    },
+    onRestore: () => {
+      const shared = sharedStream;
+
+      if (!shared || shared.subscribers.size === 0 || shared.source || shared.reconnectTimer)
+        return;
+
+      shared.reconnectAttempts = 0;
+      setEventStreamStatus("connecting");
+      attachSource(shared);
+    },
+  });
+}
+
 /**
  * Subscribe to the one shared SSE connection to /api/events. Returns the unsubscribe.
  * A reload loses `Last-Event-ID`, so the persisted cursor goes out as `?since`.
  * A fatal close retries with backoff, and the `?since` replay resends what the gap lost.
  */
 export function openEventStream(opts: OpenEventStreamOptions): () => void {
+  bindPageLifecycle();
+
   if (!sharedStream) {
     sharedStream = {
       source: null,
