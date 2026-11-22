@@ -8,14 +8,14 @@ import { ianaTimezoneSchema, type TriageCategory } from "@alfred/contracts";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
-import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { gatherBriefing } from "@alfred/assistant/briefings/gather";
 import { settings } from "@alfred/assistant/settings";
 import { isQuietMorning } from "@alfred/assistant/briefings/read";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * Real rows through {@link gatherBriefingWithSuppressionAudit} into {@link isQuietMorning} (ADR-0064).
+ * Real rows through {@link gatherBriefing} into {@link isQuietMorning} (ADR-0064).
  * The smoke run cannot cover this: it uses `reason: "forced"`, which skips the gate.
  */
 
@@ -84,7 +84,7 @@ async function gateFor(userId: string): Promise<{
   emailCount: number;
   quiet: boolean;
 }> {
-  const { gather } = await gatherBriefingWithSuppressionAudit({
+  const { gather } = await gatherBriefing({
     userId,
     settings: settings({ userId }),
     briefingDate: "2026-06-27",

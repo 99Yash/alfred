@@ -16,21 +16,10 @@ import type {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
-import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
-import {
-  describeCorrespondentHistory,
-  loadMailFacts,
-  standingInstructions,
-  type MailFacts,
-  type MailStandingInstructions,
-} from "../knowledge";
-import {
-  deriveEffectiveTriage,
-  parseTriageEvaluationColumns,
-  TRIAGE_OUT_OF_SCOPE_MEANING,
-  triageOutOfScope,
-  type EffectiveTriageRow,
-} from "@alfred/assistant/triage";
+import { and, desc, eq, gt, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { describeCorrespondentHistory, loadMailFacts, type MailFacts } from "../knowledge";
+import { TRIAGE_OUT_OF_SCOPE_MEANING, triageOutOfScope } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
 import type { ActivityWindow } from "@alfred/assistant/connections";
 import { officialWarningsFallback } from "./provenance";
@@ -44,9 +33,6 @@ import { officialWarningsFallback } from "./provenance";
 const PRIOR_BRIEFINGS_DEFAULT_LIMIT = 5;
 
 const EMAIL_LIST_DEFAULT_LIMIT = 60;
-
-/** Larger page while skipping suppressed senders. */
-const EMAIL_LIST_SUPPRESSION_PAGE_SIZE = 200;
 
 const READ_EMAIL_BODY_CHAR_CAP = 8_000;
 
@@ -128,6 +114,23 @@ interface ListEmailsSinceArgs {
   /** Renders `receivedAtLocal`. Omit it and `receivedAtLocal` stays null. */
   timezone?: IanaTimezone;
   limit?: number;
+  /**
+   * The `before` of the previous page: the document id of its oldest row in the read order.
+   * Omit it to read the newest page. Check it with `emailCursorInWindow` first: a cursor that
+   * names no row of the window gives an empty page, which reads like the end of the list.
+   */
+  before?: string;
+}
+
+/**
+ * One page of the window, newest first by arrival. The composer pages with `before`, so newer
+ * noise cannot hide an older mail that asks for something: no code filters the window by an
+ * instruction since triage slice 4a.
+ */
+export interface EmailListPage {
+  items: EmailListItem[];
+  /** The cursor of the next older page, or null when this page holds the oldest mail of the window. */
+  before: string | null;
 }
 
 interface EmailListRow {
@@ -136,78 +139,17 @@ interface EmailListRow {
   authoredAt: Date | null;
   ingestedAt: Date;
   sourceThreadId: string | null;
-  accountId: string | null;
   metadata: unknown;
   gmailInternalDate: string | null;
   contentLength: number;
   triageCategory: TriageCategory | null;
   triageRationale: string | null;
-  triageDocumentId: string | null;
-  triageModelVerdict: unknown;
-  triageInstructionEvaluation: unknown;
 }
 
-/**
- * The thread's triage row for the derivation. The briefing reads only the category, so the
- * cached ask and todo stay out.
- */
-function briefingTriageRow(triage: {
-  documentId: string | null;
-  category: TriageCategory;
-  modelVerdict: unknown;
-  instructionEvaluation: unknown;
-}): EffectiveTriageRow {
-  return {
-    documentId: triage.documentId,
-    category: triage.category,
-    documentAsk: null,
-    todoSuggestion: null,
-    todoDecision: null,
-    ...parseTriageEvaluationColumns(triage),
-  };
-}
-
-/**
- * The row with its effective category (ADR-0113), or null when an instruction excludes it.
- * The triage row is the thread's. A stored scope result counts only for the document that
- * triage evaluated, so an older message of the thread reads its scoped instructions as `unknown`.
- */
-function effectiveListRow(
-  row: EmailListRow,
-  suppressions: {
-    forMail(lookup: {
-      sender: string | null;
-      accountId: string | null;
-    }): Extract<MailStandingInstructions, { kind: "loaded" }>;
-  },
-): EmailListRow | null {
-  const effective = deriveEffectiveTriage({
-    triage:
-      row.triageCategory === null
-        ? null
-        : briefingTriageRow({
-            documentId: row.triageDocumentId,
-            category: row.triageCategory,
-            modelVerdict: row.triageModelVerdict,
-            instructionEvaluation: row.triageInstructionEvaluation,
-          }),
-    documentId: row.documentId,
-    instructions: suppressions.forMail({
-      sender: parseGmailDocumentMetadata(row.metadata).from ?? null,
-      accountId: row.accountId,
-    }),
-  });
-
-  if (effective.briefingPriority?.effect === "exclude_briefing_priority") return null;
-
-  return { ...row, triageCategory: effective.result?.category ?? row.triageCategory };
-}
-
-export async function listEmailsSinceWatermark(
-  args: ListEmailsSinceArgs,
-): Promise<EmailListItem[]> {
-  const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
-
+/** The Gmail documents of the briefing window: after `since`, up to and with `until`. */
+function emailWindowConditions(
+  args: Pick<ListEmailsSinceArgs, "userId" | "sinceIngestedAt" | "untilIngestedAt">,
+): SQL[] {
   const conditions = [
     eq(documents.userId, args.userId),
     eq(documents.source, "gmail"),
@@ -218,68 +160,82 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
-  const [surfaced, suppressions] = await Promise.all([
-    // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
-    listRecentlySurfacedKeys({ userId: args.userId, before: args.untilIngestedAt }),
-    // The agent writes prose from this list, not from `gather`, so suppression applies here too.
-    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
-  ]);
+  return conditions;
+}
 
-  const rows: EmailListRow[] = [];
-  const hasSuppression = !suppressions.isEmpty;
-  const pageSize = hasSuppression ? Math.max(limit, EMAIL_LIST_SUPPRESSION_PAGE_SIZE) : limit;
-  let offset = 0;
+/**
+ * The rows after the cursor row in the read order (`ingested_at` desc, then `id` desc). Postgres
+ * reads the time of the cursor row, so the compare keeps the microseconds that a `Date` loses.
+ */
+function olderThanEmail(userId: string, before: string): SQL {
+  const cursor = alias(documents, "email_cursor");
 
-  while (rows.length < limit) {
-    const page = await db()
-      .select({
-        documentId: documents.id,
-        subject: documents.title,
-        authoredAt: documents.authoredAt,
-        ingestedAt: documents.ingestedAt,
-        sourceThreadId: documents.sourceThreadId,
-        accountId: documents.accountId,
-        metadata: documents.metadata,
-        gmailInternalDate: sql<
-          string | null
-        >`coalesce(${documents.metadata}->>'internalDate', ${documents.raw}->>'internalDate')`,
-        contentLength: sql<number>`length(${documents.content})`,
-        triageCategory: emailTriage.category,
-        triageRationale: emailTriage.rationale,
-        triageDocumentId: emailTriage.documentId,
-        triageModelVerdict: emailTriage.modelVerdict,
-        triageInstructionEvaluation: emailTriage.instructionEvaluation,
-      })
-      .from(documents)
-      .leftJoin(
-        emailTriage,
-        and(
-          eq(emailTriage.userId, documents.userId),
-          eq(emailTriage.sourceThreadId, documents.sourceThreadId),
-        ),
-      )
-      .where(and(...conditions))
-      .orderBy(desc(documents.ingestedAt), desc(documents.id))
-      .limit(pageSize)
-      .offset(offset);
+  const cursorRow = db()
+    .select({ ingestedAt: cursor.ingestedAt, id: cursor.id })
+    .from(cursor)
+    .where(and(eq(cursor.id, before), eq(cursor.userId, userId)));
 
-    if (page.length === 0) break;
-    offset += page.length;
+  return sql`(${documents.ingestedAt}, ${documents.id}) < ${cursorRow}`;
+}
 
-    // Drop excluded items before scoring so they do not skew recurrence.
-    for (const row of page) {
-      // Always derived: with no instruction left, a demoted row shows its model verdict again.
-      const listed = effectiveListRow(row, suppressions);
+/** True when `before` names a Gmail document of the window, so the page after it is real. */
+export async function emailCursorInWindow(
+  args: Pick<ListEmailsSinceArgs, "userId" | "sinceIngestedAt" | "untilIngestedAt"> & {
+    before: string;
+  },
+): Promise<boolean> {
+  const rows = await db()
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(...emailWindowConditions(args), eq(documents.id, args.before)))
+    .limit(1);
 
-      if (listed === null) continue;
+  return rows.length > 0;
+}
 
-      rows.push(listed);
+export async function listEmailsSinceWatermark(args: ListEmailsSinceArgs): Promise<EmailListPage> {
+  const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
+  const conditions = emailWindowConditions(args);
 
-      if (rows.length >= limit) break;
-    }
+  if (args.before !== undefined) conditions.push(olderThanEmail(args.userId, args.before));
 
-    if (!hasSuppression || page.length < pageSize) break;
-  }
+  // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
+  const surfaced = await listRecentlySurfacedKeys({
+    userId: args.userId,
+    before: args.untilIngestedAt,
+  });
+
+  // The stored label of each mail. No code applies a standing instruction since triage slice 4a;
+  // the composer reads the instructions in words. One extra row tells whether an older page exists.
+  const fetched: EmailListRow[] = await db()
+    .select({
+      documentId: documents.id,
+      subject: documents.title,
+      authoredAt: documents.authoredAt,
+      ingestedAt: documents.ingestedAt,
+      sourceThreadId: documents.sourceThreadId,
+      metadata: documents.metadata,
+      gmailInternalDate: sql<
+        string | null
+      >`coalesce(${documents.metadata}->>'internalDate', ${documents.raw}->>'internalDate')`,
+      contentLength: sql<number>`length(${documents.content})`,
+      triageCategory: emailTriage.category,
+      triageRationale: emailTriage.rationale,
+    })
+    .from(documents)
+    .leftJoin(
+      emailTriage,
+      and(
+        eq(emailTriage.userId, documents.userId),
+        eq(emailTriage.sourceThreadId, documents.sourceThreadId),
+      ),
+    )
+    .where(and(...conditions))
+    .orderBy(desc(documents.ingestedAt), desc(documents.id))
+    .limit(limit + 1);
+
+  const rows = fetched.slice(0, limit);
+  const before = fetched.length > limit ? (rows.at(-1)?.documentId ?? null) : null;
 
   const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
   const senders = metas.map((meta) => meta.from ?? null);
@@ -290,7 +246,8 @@ export async function listEmailsSinceWatermark(
     rows.map((r) => r.documentId),
   );
 
-  // Score the whole window together: recurrence is cross-row. Untriaged rows stay `normal`.
+  // Score the page together: recurrence is cross-row, so a repeat split across two pages
+  // counts only within each page. Untriaged rows stay `normal`.
   // No significance input: the band is recurrence only (ADR-0127).
   const attention = scoreAttentionForItems(
     rows.map((r, i) => ({
@@ -339,11 +296,15 @@ export async function listEmailsSinceWatermark(
     } satisfies EmailListItem;
   });
 
-  // The window picks by the received time; the list reads in sent order, newest first
-  // (stores.md § Time). A row with no sent time sorts by its received time.
-  return items.toSorted(
-    (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
-  );
+  // The window picks by the received time; the page reads in sent order, newest first
+  // (stores.md § Time). A row with no sent time sorts by its received time. The cursor stays the
+  // oldest row by arrival, so the next page starts where this one ended.
+  return {
+    items: items.toSorted(
+      (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
+    ),
+    before,
+  };
 }
 
 function outsideTriageOf(
@@ -650,8 +611,6 @@ export async function readEmailDocument(args: {
       subject: documents.title,
       authoredAt: documents.authoredAt,
       content: documents.content,
-      accountId: documents.accountId,
-      sourceThreadId: documents.sourceThreadId,
       metadata: documents.metadata,
     })
     .from(documents)
@@ -668,35 +627,6 @@ export async function readEmailDocument(args: {
 
   if (!row) return null;
   const meta = parseGmailDocumentMetadata(row.metadata);
-
-  const [suppressions, [triage]] = await Promise.all([
-    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
-    row.sourceThreadId
-      ? db()
-          .select({
-            documentId: emailTriage.documentId,
-            category: emailTriage.category,
-            modelVerdict: emailTriage.modelVerdict,
-            instructionEvaluation: emailTriage.instructionEvaluation,
-          })
-          .from(emailTriage)
-          .where(
-            and(
-              eq(emailTriage.userId, args.userId),
-              eq(emailTriage.sourceThreadId, row.sourceThreadId),
-            ),
-          )
-          .limit(1)
-      : [],
-  ]);
-
-  const effective = deriveEffectiveTriage({
-    triage: triage ? briefingTriageRow(triage) : null,
-    documentId: row.documentId,
-    instructions: suppressions.forMail({ sender: meta.from ?? null, accountId: row.accountId }),
-  });
-
-  if (effective.briefingPriority?.effect === "exclude_briefing_priority") return null;
 
   const full = row.content;
   const truncated = full.length > READ_EMAIL_BODY_CHAR_CAP;

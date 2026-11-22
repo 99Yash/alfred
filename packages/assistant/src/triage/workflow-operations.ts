@@ -13,10 +13,9 @@ import { settings, type FeatureFlags, type UserSettings } from "@alfred/assistan
 import {
   describeCorrespondentHistory,
   loadMailFacts,
+  readInstructionsInWords,
   readUserContextLine,
-  standingInstructions,
   type MailFacts,
-  type ReportedStandingInstructionSet,
 } from "../knowledge";
 import {
   resolvePaymentTodoFromReceipt,
@@ -42,15 +41,9 @@ import {
   upsertTriage,
   type TriageDocumentContext,
 } from "./store";
-import { triageRematchQueue } from "./rematch-queue";
 import { reconcileThreadLabel } from "./tags";
 import { getThreadState } from "./thread-state";
-import {
-  decideTriageTodo,
-  triageTodoStanding,
-  type TodoTriageResult,
-  type TriageTodoDecision,
-} from "./todo-decision";
+import { decideTriageTodo, type TriageTodoDecision } from "./todo-decision";
 import { assembleObservations, type Observations } from "./observations";
 import { appendMailObjectLink, proposeMailObjectLinks } from "./object-links";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
@@ -69,7 +62,6 @@ import {
   type TodoObjectRef,
   type TodoSource,
   type TriageCategory,
-  type TriageInstructionEvaluation,
   type TriageModelVerdict,
   todoSourceKey,
   toMessage,
@@ -254,9 +246,8 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let model: string;
   let audit: ClassifyAudit | null = null;
   let observations: Observations | null = null;
-  // Null on the fallback path: no verdict, and every scoped instruction is unknown.
+  // Null on the fallback path: no verdict.
   let modelVerdict: TriageModelVerdict | null = null;
-  let instructionEvaluation: TriageInstructionEvaluation | null = null;
   // This run owns the row. Gates the side effects below on both paths (#157).
   let written = false;
   // The proactive draft gate still reads the old triage snapshot (ADR-0098).
@@ -265,9 +256,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
   let todo: TriageTodoDecision;
   const reusedExistingRow = Boolean(existing && existing.runId === ctx.runId);
 
-  // The todo lane derives from the triage result it decides on (ADR-0113), under the same
-  // instruction read as the category lane.
-  const decideTodo = (suppressions: ReportedStandingInstructionSet, triage: TodoTriageResult) =>
+  const decideTodo = () =>
     decideTriageTodo({
       userId: ctx.userId,
       settings: userSettings,
@@ -276,12 +265,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       classification,
       document: ctxData.document,
       actionItemsEnabled: flags.actionItems,
-      standing: triageTodoStanding({
-        suppressions,
-        sender: senderContextResult.senderAddress ?? ctxData.document.metadata.from ?? null,
-        accountId: ctxData.document.accountId,
-        triage,
-      }),
     });
 
   if (reusedExistingRow && existing) {
@@ -301,11 +284,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     // A prior attempt may have written the row and died before the side effects (#157).
     written = true;
     draftSenderIsCold = existing.senderRelationshipIsCold ?? null;
-    // No gather runs on reuse, so the todo lane loads the suppressions itself.
-    todo = await decideTodo(
-      await standingInstructions({ userId: ctx.userId, onReadFailure: "report" }),
-      { ...existing, documentId: existing.documentId ?? ctx.state.documentId },
-    );
+    todo = await decideTodo();
     await ctx.log(`classify: reuse existing thread row category=${classification.category}`);
   } else {
     // Before the try, so the fallback path still has them for the trace.
@@ -318,7 +297,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
         documentId: ctx.state.documentId,
         sourceThreadId,
         document: ctxData.document,
-        accountId: ctxData.document.accountId,
         persona: ctxData.persona,
         mailFacts,
       }),
@@ -355,7 +333,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       model = result.model;
       audit = result.audit;
       modelVerdict = result.modelVerdict;
-      instructionEvaluation = result.instructionEvaluation;
     } catch (err) {
       // A low-confidence label beats none. The error goes in `rationale` so the row
       // says why. The row never teaches a prior: triage does not learn from its own
@@ -370,15 +347,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       model = "fallback";
     }
 
-    todo = await decideTodo(gathered.suppressions, {
-      documentId: ctx.state.documentId,
-      category: classification.category,
-      documentAsk: classification.documentAsk ?? null,
-      todoSuggestion: classification.todoSuggestion ?? null,
-      todoDecision: classification.todoDecision ?? null,
-      modelVerdict,
-      instructionEvaluation,
-    });
+    todo = await decideTodo();
 
     const decisionTrace = senderExtractionEvent({
       senderContextResult,
@@ -390,7 +359,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       audit,
       classification,
       todoSuggested: todo.outcome.kind !== "none",
-      standingSuppression: todo.standingSuppression,
     });
 
     // `written` is false when a run for a newer message owns the row; then skip
@@ -409,7 +377,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
       todoSuggestion: classification.todoSuggestion ?? null,
       todoDecision: classification.todoDecision ?? null,
       modelVerdict,
-      instructionEvaluation,
       // The reuse path has no observations, so it reads this from the row (#517 D1).
       senderRelationshipIsCold: draftSenderIsCold,
       decisionTrace: {
@@ -423,18 +390,7 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
 
     written = upserted.written;
 
-    if (upserted.written) {
-      ctx.trace("triage.classification", decisionTrace);
-
-      // A write during the classify call: the re-match job brings this row up to the new set.
-      if (upserted.instructionSetMoved) {
-        try {
-          await triageRematchQueue.add("triage.rematch.user", { userId: ctx.userId });
-        } catch (err) {
-          await ctx.log(`re-match enqueue failed: ${toMessage(err)}`);
-        }
-      }
-    }
+    if (upserted.written) ctx.trace("triage.classification", decisionTrace);
   }
 
   // Side effects run on both paths (#157). Each is idempotent, so a re-entry is safe.
@@ -532,12 +488,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     }
   }
 
-  if (todo.standingSuppression.kind === "read_failed") {
-    await ctx.log(
-      `standing_instruction: read failed for block_todo_suggestion (suppressing todo): ${toMessage(todo.standingSuppression.error)}`,
-    );
-  }
-
   // Unknown closure mints the todo and makes `close-loop-todos` a no-op.
   if (todo.closure.kind === "read_failed") {
     await ctx.log(
@@ -551,31 +501,6 @@ export async function runEmailTriageClassify<State extends EmailTriageOperationS
     const { suppression } = todo.outcome;
 
     switch (suppression.kind) {
-      case "standing_instruction_matched": {
-        const { match } = suppression;
-
-        await ctx.log(
-          `suggest_todo: suppressed reason=standing_instruction_matched ` +
-            `effect=block_todo_suggestion instruction=${match.value.instructionId} ` +
-            `revision=${match.value.revision} match=${match.via.kind}`,
-        );
-        break;
-      }
-
-      case "standing_instruction_unknown": {
-        const ids = suppression.instructions.map((instruction) => instruction.value.instructionId);
-
-        await ctx.log(
-          `suggest_todo: suppressed reason=standing_instruction_unknown ` +
-            `effect=block_todo_suggestion instructions=${ids.join(",")}`,
-        );
-        break;
-      }
-
-      case "standing_instruction_read_failed":
-        await ctx.log(`suggest_todo: suppressed reason=standing_instruction_read_failed`);
-        break;
-
       case "gate":
         await ctx.log(`suggest_todo: suppressed reason=${suppression.reason}`);
         break;
@@ -1055,7 +980,6 @@ export async function loadStoredTriageClassifyInput(args: {
     documentId: args.documentId,
     sourceThreadId,
     document,
-    accountId: document.accountId,
     persona: ctxData.persona,
     mailFacts,
   });
@@ -1080,14 +1004,11 @@ export async function loadStoredTriageClassifyInput(args: {
 
 export interface GatheredObservations {
   observations: Observations;
-  /** One `"report"` load. The todo lane matches against it too. */
-  suppressions: ReportedStandingInstructionSet;
 }
 
 /**
  * The IO for `assembleObservations` (ADR-0051 §4a). Every read is best-effort.
  * Dry-run scripts call this too, so a replay sees the facts the live classify sees.
- * The sender suppressions are read one time here.
  */
 export async function gatherObservations(args: {
   userId: string;
@@ -1095,19 +1016,24 @@ export async function gatherObservations(args: {
   settings: UserSettings;
   documentId: string;
   sourceThreadId: string;
-  document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
-  /** Scopes a per-account standing instruction. */
-  accountId: string | null;
+  /**
+   * `accountId` is the mailbox of the mail. Only the instructions for it, or for every mailbox,
+   * go to the model.
+   */
+  document: {
+    accountId: string;
+    title: string | null;
+    content: string;
+    metadata: GmailDocumentMetadata;
+  };
   persona: AccountPersona | null;
   /** The sender parse and the labels come from here. */
   mailFacts: MailFacts;
 }): Promise<GatheredObservations> {
   const meta = args.document.metadata;
   const { labelIds } = args.mailFacts;
-  // The parse's own address, as the classify step read it before the reader.
-  const { senderAddress } = args.mailFacts.sender.parse;
 
-  const [thread, suppressions, userContext] = await Promise.all([
+  const [thread, standingInstructions, userContext] = await Promise.all([
     getThreadState({
       userId: args.userId,
       sourceThreadId: args.sourceThreadId,
@@ -1118,21 +1044,15 @@ export async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    // Read before the model call. A blip makes every `matchSender` report `read_failed`,
-    // so the trace can tell none from unknown.
-    standingInstructions({ userId: args.userId, onReadFailure: "report" }),
+    // Every active instruction in the user's words (slice 4a), for every mailbox or for the
+    // mailbox of this mail. A blip reads as `read_failed`, so the trace can tell none from unknown.
+    readInstructionsInWords(args.userId, { forAccountId: args.document.accountId }),
     // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
     // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)
       .then((line) => ({ line, readFailed: false }))
       .catch(() => ({ line: null, readFailed: true })),
   ]);
-
-  // The target hits and the scoped candidates for this mail (ADR-0113).
-  const mailInstructions = suppressions.forMail({
-    sender: senderAddress ?? meta.from ?? null,
-    accountId: args.accountId,
-  });
 
   const signalText = [
     meta.from,
@@ -1149,14 +1069,14 @@ export async function gatherObservations(args: {
   const observations = assembleObservations({
     persona: args.persona,
     thread,
-    standingInstructions: mailInstructions,
+    standingInstructions,
     userContext: userContext.line,
     userContextReadFailed: userContext.readFailed,
     labelIds,
     signalText,
   });
 
-  return { observations, suppressions };
+  return { observations };
 }
 
 /** The step set. The order lives in `EMAIL_TRIAGE_EDGES`, not in this key order. */

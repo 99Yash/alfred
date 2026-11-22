@@ -40,6 +40,7 @@
     "./knowledge/extractor": "./src/knowledge/extractor.ts",
     "./knowledge/fact-policy": "./src/knowledge/fact-policy.ts",
     "./knowledge/gmail-reducer": "./src/knowledge/gmail-reducer.ts",
+    "./knowledge/instructions-in-words": "./src/knowledge/instructions-in-words.ts",
     "./knowledge/mail-facts": "./src/knowledge/mail-facts.ts",
     "./knowledge/run": "./src/knowledge/run.ts",
     "./knowledge/sender-context": "./src/knowledge/sender-context.ts",

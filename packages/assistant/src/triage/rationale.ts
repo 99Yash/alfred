@@ -1,6 +1,6 @@
 /** A leaf module, so `classify.ts` and `floors/` share it without a cycle. */
 
-/** Matches the schema's `.max()`. */
+/** The longest stored rationale. `normalizeClassifierOutput` and the floors cut to it. */
 export const MAX_RATIONALE_LEN = 500;
 
 export function truncateRationale(value: string): string {

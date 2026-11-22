@@ -271,7 +271,7 @@ describe("runtime adapter lifecycle", () => {
       };
 
       const instructions: SystemToolInstructionAdapter = {
-        rememberInstructionAndDismissTodos: () =>
+        rememberStandingInstruction: () =>
           Promise.resolve({
             ok: false,
             status: "invalid_sender",

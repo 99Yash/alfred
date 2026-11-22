@@ -1,7 +1,7 @@
 import type { AccountPersona } from "@alfred/contracts";
 // Top-level `import type`: an inline `{ type X }` survives as a side-effect import
 // and loads the whole knowledge barrel at runtime.
-import type { MailStandingInstructions, UserContextLine } from "../knowledge";
+import type { InstructionsInWordsRead, UserContextLine } from "../knowledge";
 import type { ThreadState } from "./thread-state";
 
 /**
@@ -118,12 +118,11 @@ export interface Observations {
   persona: AccountPersona | null;
   thread: ThreadState;
   /**
-   * The user's standing instructions for this mail (ADR-0113): the target hits that code
-   * decided, and the scoped candidates for the model. Not rendered as a hint; the scoped
-   * block is its own prompt section, and the instruction floor applies the effects.
-   * Null means not read (evals and smokes), so every instruction is unknown.
+   * The user's standing instructions in his words (slice 4a): those for every mailbox and those
+   * for the mailbox of this mail. Not rendered as a hint; they are their own prompt section.
+   * Null means not read (smokes), so the prompt carries none.
    */
-  standingInstructions: MailStandingInstructions | null;
+  standingInstructions: InstructionsInWordsRead | null;
   /** Cold-start research prior (ADR-0050 D1). Weaker than the body and the user's words. */
   userContext: UserContextLine | null;
   /** A null `userContext` means unknown, not absent. Else a total read failure looks normal. */
@@ -135,7 +134,7 @@ export interface Observations {
 export interface AssembleObservationsArgs {
   persona: AccountPersona | null;
   thread: ThreadState;
-  standingInstructions?: MailStandingInstructions | null | undefined;
+  standingInstructions?: InstructionsInWordsRead | null | undefined;
   /** Not capped here; `classify.ts` caps it at render. */
   userContext?: UserContextLine | null | undefined;
   userContextReadFailed?: boolean | undefined;

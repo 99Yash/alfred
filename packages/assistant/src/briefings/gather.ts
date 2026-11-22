@@ -45,19 +45,11 @@ import {
   countActivityActs,
   readActivity,
   readUserLocation,
-  standingInstructions,
-  type ActiveStandingInstruction,
   type ExtraLoopMail,
   type UserLocation,
   verifyLoops,
   type VerifyLoopsResult,
 } from "../knowledge";
-import {
-  deriveEffectiveTriage,
-  parseTriageEvaluationColumns,
-  standingInstructionEvidence,
-} from "@alfred/assistant/triage";
-import type { StandingInstructionMatchVia } from "@alfred/assistant/triage/floors";
 import {
   addDays,
   formatDay,
@@ -149,8 +141,6 @@ export interface BriefingDigest {
    * variants; only `completed` carries a read.
    */
   githubMerged: GithubMergedReadOutcome;
-  /** Priority items dropped because a standing instruction matched the sender. */
-  suppressedByInstruction: BriefingInstructionSuppression[];
   /**
    * Items whose every thing is `closed` (ADR-0120 decision 8). Feeds the open-ask guard and the
    * `briefings.closed_loops` column. The composer recap reads `loops` through `list_loops`.
@@ -162,55 +152,6 @@ export interface BriefingDigest {
   loopsProvenance: StatedProvenance;
   totalPriority: number;
   totalSuppressed: number;
-}
-
-export interface BriefingInstructionSuppression {
-  documentId: string;
-  category: PriorityCategory;
-  sender: string | null;
-  factId: string;
-  instructionId: string;
-  revision: number;
-  /** How the instruction reached the item, with the scope reason and cover (ADR-0113). */
-  match: StandingInstructionMatchVia;
-  effect: "exclude_briefing_priority";
-}
-
-/** An instruction with a rank effect (ADR-0113 rule 4): a category or briefing-priority move. */
-function hasRankEffect(instruction: ActiveStandingInstruction): boolean {
-  return instruction.value.effects.some(
-    (effect) => effect.kind !== "block_todo_suggestion" && effect.kind !== "block_reply_draft",
-  );
-}
-
-/**
- * The persisted decision trace of the briefing's instruction suppressions (ADR-0113, "Precedence,
- * safety, and audit"). The triage trace cannot explain an instruction added after triage.
- */
-export const BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND = "briefing.instruction_suppressions";
-
-export interface BriefingInstructionSuppressionTrace {
-  items: BriefingInstructionSuppression[];
-}
-
-// Module augmentation, not an import: `ctx.trace` stays typed and execution never imports briefings.
-declare module "@alfred/assistant/execution/decision-traces" {
-  interface DecisionTraceRegistry {
-    "briefing.instruction_suppressions": BriefingInstructionSuppressionTrace;
-  }
-}
-
-export function instructionSuppressionLogPart(
-  items: readonly BriefingInstructionSuppression[],
-): string {
-  if (items.length === 0) return " instruction_suppressions=0";
-  const factIds = [...new Set(items.map((item) => item.factId))].join(",");
-
-  const instructions = [
-    ...new Set(items.map((item) => `${item.instructionId}@r${item.revision}:${item.match.kind}`)),
-  ].join(",");
-
-  return ` instruction_suppressions=${items.length} fact_ids=${factIds} instructions=${instructions}`;
 }
 
 export interface GatherBriefingDigestArgs {
@@ -250,9 +191,8 @@ export interface GatherBriefingArgs {
   activityWindow?: BriefingActivityWindow;
 }
 
-export interface GatherBriefingWithSuppressionAuditResult {
+export interface GatherBriefingResult {
   gather: BriefingGather;
-  suppressedByInstruction: BriefingInstructionSuppression[];
   /** Priority mails dropped because every thing that they point to is `closed` (ADR-0120). */
   closedLoops: BriefingClosedLoop[];
   /** The verdict of each loop (ADR-0120 decision 8). */
@@ -283,15 +223,13 @@ export async function gatherBriefingDigest(
   const maxPerBucket = args.maxPerBucket ?? DEFAULT_MAX_PER_BUCKET;
 
   // One query, then partition in JS.
-  const [rows, suppressions, identity] = await Promise.all([
+  const [rows, identity] = await Promise.all([
     db()
       .select({
         // `emailTriage.documentId` can dangle after a purge; the joined id cannot.
         documentId: documents.id,
         accountId: documents.accountId,
         category: emailTriage.category,
-        modelVerdict: emailTriage.modelVerdict,
-        instructionEvaluation: emailTriage.instructionEvaluation,
         confidence: emailTriage.confidence,
         rationale: emailTriage.rationale,
         title: documents.title,
@@ -311,7 +249,6 @@ export async function gatherBriefingDigest(
         ),
       )
       .orderBy(desc(documents.authoredAt)),
-    standingInstructions({ userId: args.userId, onReadFailure: "throw" }),
     userIdentity({ userId: args.userId }),
   ]);
 
@@ -332,36 +269,16 @@ export async function gatherBriefingDigest(
     promo: 0,
   };
 
-  const suppressedByInstruction: BriefingInstructionSuppression[] = [];
   // Every triaged row, including `fyi`, so a failure notice triaged as `fyi` still triggers a live read.
   const triggerItems: VerifiedPullTriggerItem[] = [];
-
-  // Items whose instruction state is `unknown` for a rank effect. They keep the model verdict.
-  let instructionUnknownItems = 0;
 
   for (const r of rows) {
     const meta = parseGmailDocumentMetadata(r.metadata);
     const from = meta.from ?? null;
 
-    // ADR-0113 rule 3: the category comes from the stored model verdict and the current
-    // instructions, never from the cached post-floor category alone.
-    const effective = deriveEffectiveTriage({
-      // Gather reads only the category, so the cached ask and todo stay out.
-      triage: {
-        documentId: r.documentId,
-        category: r.category,
-        documentAsk: null,
-        todoSuggestion: null,
-        todoDecision: null,
-        ...parseTriageEvaluationColumns(r),
-      },
-      documentId: r.documentId,
-      instructions: suppressions.forMail({ sender: from, accountId: r.accountId }),
-    });
-
-    const cat = effective.result?.category ?? r.category;
-
-    if (effective.unknown.some(hasRankEffect)) instructionUnknownItems += 1;
+    // The stored label. No code applies an instruction since triage slice 4a; the composer
+    // reads the instructions in words.
+    const cat = r.category;
 
     triggerItems.push({
       subject: r.title,
@@ -376,21 +293,6 @@ export async function gatherBriefingDigest(
 
     if (!isPriority(cat)) continue;
 
-    // An inclusion cancels an earlier exclusion. It adds no item that is outside the priority
-    // categories: no bucket exists for one yet.
-    const exclusion = effective.briefingPriority;
-
-    if (exclusion?.effect === "exclude_briefing_priority") {
-      suppressedByInstruction.push({
-        documentId: r.documentId,
-        category: cat,
-        sender: from,
-        ...standingInstructionEvidence(exclusion.match),
-        effect: "exclude_briefing_priority",
-      });
-      continue;
-    }
-
     buckets[cat].push({
       documentId: r.documentId,
       category: cat,
@@ -403,13 +305,6 @@ export async function gatherBriefingDigest(
       threadId: r.sourceThreadId,
       mailbox: r.accountId ? (identity.mailboxByAccountId.get(r.accountId) ?? null) : null,
     });
-  }
-
-  if (instructionUnknownItems > 0) {
-    logger.info(
-      { userId: args.userId, instructionUnknownItems },
-      "briefing gather: standing instruction state unknown, model verdict kept",
-    );
   }
 
   // The time of the loop run. `windowEnd` can be a frozen watermark or the end of the local day.
@@ -504,7 +399,6 @@ export async function gatherBriefingDigest(
     suppressedCounts,
     verifiedPull,
     githubMerged,
-    suppressedByInstruction,
     closedLoops,
     loops: verified.loops.value,
     loopsProvenance: verified.loops.provenance,
@@ -579,13 +473,7 @@ function dropClosedLoops(
   return closedLoops;
 }
 
-export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
-  return (await gatherBriefingWithSuppressionAudit(args)).gather;
-}
-
-export async function gatherBriefingWithSuppressionAudit(
-  args: GatherBriefingArgs,
-): Promise<GatherBriefingWithSuppressionAuditResult> {
+export async function gatherBriefing(args: GatherBriefingArgs): Promise<GatherBriefingResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
 
@@ -751,7 +639,6 @@ export async function gatherBriefingWithSuppressionAudit(
       broken_mcp_connections: brokenConnections.mcp,
       provenance,
     },
-    suppressedByInstruction: digest.suppressedByInstruction,
     closedLoops: digest.closedLoops,
     loops: digest.loops,
   };

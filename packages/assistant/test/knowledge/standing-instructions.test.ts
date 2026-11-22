@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-  liftStandingInstructionV1,
   normalizeEmailAddress,
   SUPPRESSION_EFFECTS,
   rememberInput,
@@ -10,12 +9,6 @@ import {
   standingInstructionValueSchema,
   type StandingInstructionValue,
 } from "@alfred/contracts";
-
-// Internal, not in the `knowledge` barrel.
-import {
-  standingInstructionsOf,
-  type ActiveStandingInstruction,
-} from "@alfred/assistant/knowledge/standing-instructions";
 
 function instruction(overrides: Partial<StandingInstructionValue> = {}): StandingInstructionValue {
   return standingInstructionValueSchema.parse({
@@ -35,14 +28,6 @@ function instruction(overrides: Partial<StandingInstructionValue> = {}): Standin
   });
 }
 
-function active(value: StandingInstructionValue): ActiveStandingInstruction {
-  return {
-    factId: "fact_1",
-    value: liftStandingInstructionV1(value, "fact_1"),
-    validFrom: new Date("2026-06-15T00:00:00.000Z"),
-  };
-}
-
 describe("normalizeEmailAddress", () => {
   test("extracts and canonicalizes an RFC-822 display address", () => {
     assert.equal(normalizeEmailAddress("Ben Book <BEN@Example.com>"), "ben@example.com");
@@ -51,58 +36,6 @@ describe("normalizeEmailAddress", () => {
   test("returns null for an unresolved or malformed sender", () => {
     assert.equal(normalizeEmailAddress("Ben Book"), null);
     assert.equal(normalizeEmailAddress(""), null);
-  });
-});
-
-describe("standingInstructions match", () => {
-  test("matches cross-account sender suppressions by canonical email", () => {
-    const mail = standingInstructionsOf([active(instruction())]).forMail({
-      sender: "Ben Book <BEN@example.com>",
-      accountId: "google-work",
-    });
-
-    assert.equal(mail.kind, "loaded");
-    assert.equal(mail.targetHits.length, 1);
-    const [hit] = mail.targetHits;
-    assert.ok(hit);
-    assert.equal(hit.factId, "fact_1");
-    assert.equal(hit.matchedVia, "sender_email");
-  });
-
-  test("honors account-specific suppressions when present", () => {
-    const value = instruction({
-      target: {
-        kind: "sender_email",
-        email: "ben@example.com",
-        label: "Ben Book",
-        accountId: "google-work",
-      },
-    });
-
-    const suppressions = standingInstructionsOf([active(value)]);
-
-    assert.equal(
-      suppressions.forMail({ sender: "ben@example.com", accountId: "google-personal" }).targetHits
-        .length,
-      0,
-    );
-    assert.equal(
-      suppressions.forMail({ sender: "ben@example.com", accountId: "google-work" }).targetHits
-        .length,
-      1,
-    );
-  });
-
-  test("lifts a v1 row to its enforced effects — the stored v1 array never filters", () => {
-    const value = instruction({ effects: ["exclude_briefing_priority"] });
-
-    const [hit] = standingInstructionsOf([active(value)]).forMail({
-      sender: "ben@example.com",
-      accountId: null,
-    }).targetHits;
-
-    assert.ok(hit);
-    assert.ok(hit.value.effects.some((effect) => effect.kind === "block_todo_suggestion"));
   });
 });
 

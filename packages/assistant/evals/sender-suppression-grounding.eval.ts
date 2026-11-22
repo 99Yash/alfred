@@ -163,8 +163,9 @@ function runFirstCall(input: string) {
       }),
       [RESOLVE_TODO_TOOL]: tool({
         description:
-          "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a " +
-          "sender suppression so current matching todos disappear instead of lingering.",
+          "Dismiss live todos, only when the user asks you to dismiss or clear them. A saved " +
+          "standing instruction is not such a request: do not call this after system.remember " +
+          "unless the user also asked to clear the todos.",
         inputSchema: resolveTodoInput,
       }),
     },
@@ -277,14 +278,14 @@ async function runResolutionScenario(
             factId: "fact_eval_sender",
             instruction: { targets: input.targets ?? [], effects: input.effects },
             related: [],
-            resolvedTodos: [{ ok: true, status: "not_found", dismissedCount: 0 }],
           };
         },
       }),
       [RESOLVE_TODO_TOOL]: tool({
         description:
-          "Dismiss live todos by resolved Gmail sender or Gmail thread source. Use after storing a " +
-          "sender suppression so current matching todos disappear instead of lingering.",
+          "Dismiss live todos, only when the user asks you to dismiss or clear them. A saved " +
+          "standing instruction is not such a request: do not call this after system.remember " +
+          "unless the user also asked to clear the todos.",
         inputSchema: resolveTodoInput,
         execute: async (input) => {
           resolvedTodos.push({

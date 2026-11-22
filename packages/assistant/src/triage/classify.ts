@@ -10,45 +10,30 @@ import {
   collabActivitySchema,
   confidenceSchema,
   documentAskProposalSchema,
+  parseIanaTimezone,
   sanitizeErrorMessage,
   sanitizeToolResult,
   type GmailDocumentMetadata,
   type TodoDecisionOutcome,
-  type TriageInstructionEvaluation,
   type TriageModelVerdict,
   type TriageTodoDecision,
   type TriageTodoSuggestion,
-  toMessage,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { NoObjectGeneratedError } from "ai";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { TRIAGE_CATEGORIES, type TriageCategory } from "@alfred/integrations/google";
 import { z } from "zod";
 import type { MailFacts, MailRecipient } from "../knowledge";
-import { describeCorrespondentHistory } from "../knowledge";
+import { describeCorrespondentHistory, renderInstructionsInWords } from "../knowledge";
 import {
-  TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS,
+  TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS,
   TRIAGE_MAX_OUTPUT_TOKENS,
   TRIAGE_REQUEST_TIMEOUT_MS,
 } from "./constants";
-import {
-  applyFloors,
-  applyStandingInstructionEffects,
-  matchesExposedSecret,
-  type FloorAudits,
-  type StandingFloorAudit,
-  type StandingInstructionMatch,
-} from "./floors";
+import { applyFloors, matchesExposedSecret, type FloorAudits } from "./floors";
 import { createHedgeBudget, hedgeCeilingFor, runHedged, type HedgeBudget } from "./hedge";
 import type { Observations } from "./observations";
 import { MAX_RATIONALE_LEN, truncateRationale } from "./rationale";
-import {
-  buildStandingScopeBlock,
-  readStandingScopeMatches,
-  triageInstructionMatchOutputSchema,
-  type StandingScopeCounter,
-} from "./standing-scope";
 
 // Defined in the leaf `rationale.ts` to avoid a `classify ↔ floors` cycle.
 export { MAX_RATIONALE_LEN, truncateRationale };
@@ -64,8 +49,8 @@ export { TODO_DECISION_OUTCOMES, type TodoDecisionOutcome };
 
 /**
  * The classifier's answer (ADR-0121). The todo rubric left in slice 3; slice 7 returns todos
- * as a follow-up workflow with its own prompt. The todo fields below stay on the row type:
- * the standing instruction floor writes `todoDecision`, and stored rows keep them.
+ * as a follow-up workflow with its own prompt. The todo fields below stay on the row type,
+ * because stored rows keep them and the reuse path reads them back.
  */
 export const triageClassificationSchema = z.object({
   category: z.enum(TRIAGE_CATEGORIES),
@@ -74,7 +59,12 @@ export const triageClassificationSchema = z.object({
    * Bare number because some providers reject numeric bounds; `defaultRunPass` clamps it.
    */
   confidence: confidenceSchema,
-  rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
+  /**
+   * No `.max()`: an over-long rationale must not reject the label with it (the deck's
+   * `sign-in-by-another-person-is-loud`, 2026-11-22). `normalizeClassifierOutput` cuts it to
+   * `MAX_RATIONALE_LEN`.
+   */
+  rationale: z.string().min(1),
   documentAsk: documentAskProposalSchema.nullable().optional(),
   /**
    * Collaboration-tool activity kind (#218); null for non-tracker mail. Its reader left in
@@ -83,23 +73,16 @@ export const triageClassificationSchema = z.object({
   collabActivity: collabActivitySchema.nullable().optional(),
 });
 
-const triageClassificationWithMatchesSchema = triageClassificationSchema.extend({
-  // Optional, so an omitted list does not fail the parse. Each sent instruction then stays
-  // `unknown`. Only an entry with an explicit decision gives a result (`readStandingScopeMatches`).
-  instructionMatches: z.array(triageInstructionMatchOutputSchema).optional(),
-});
-
-/** Row- and floor-level todo fields. The model never emits them; the schema has no rubric. */
+/** Row-level todo fields. The model never emits them; the schema has no rubric. */
 interface TriageRowTodos {
   /** A stored proposal from before the rubric left. New writes are always `null`. */
   todoSuggestion?: TriageTodoSuggestion | null | undefined;
-  /** The standing floor or the old rubric wrote it. */
+  /** The old rubric or the old instruction floor wrote it. New writes are always `null`. */
   todoDecision?: TriageTodoDecision | null | undefined;
 }
 
-/** A pass's answer, plus the todo fields the row and the floors carry. */
-export type TriageClassifierOutput = z.infer<typeof triageClassificationWithMatchesSchema> &
-  TriageRowTodos;
+/** A pass's answer, plus the todo fields the row carries. */
+export type TriageClassifierOutput = z.infer<typeof triageClassificationSchema> & TriageRowTodos;
 
 export type TriageClassification = TriageClassifierOutput;
 
@@ -107,20 +90,12 @@ export type TriageClassification = TriageClassifierOutput;
 export type RunPass = (input: {
   system: string;
   prompt: string;
-  /** The prompt carries scoped instructions, so the pass asks for `instructionMatches`. */
-  withInstructionMatches: boolean;
 }) => Promise<TriageClassifierOutput>;
 
 /** A pass plus the model id that served it. An injected pass serves as `injected`. */
 type ServedPass = (
   input: Parameters<RunPass>[0],
 ) => Promise<{ classification: TriageClassifierOutput; modelId: string }>;
-
-/** A served pass, and why its match list failed, if it did. */
-interface ClassifyPassResult {
-  served: Awaited<ReturnType<ServedPass>>;
-  matchFailure: { message: string } | null;
-}
 
 export interface ClassifyEmailArgs {
   /** Metering only; never sent to the model. */
@@ -172,31 +147,24 @@ export interface ClassifyAudit {
   secondPassFailure: { message: string } | null;
   /** Per-floor audits from {@link applyFloors}, keyed by floor name. */
   floors: FloorAudits;
-  /** The instruction floor after the system floors (ADR-0113). */
+  /** The standing instructions that the prompt carried in words (slice 4a). */
   standing: StandingClassifyAudit;
 }
 
 export interface StandingClassifyAudit {
-  floor: StandingFloorAudit;
-  counter: StandingScopeCounter;
-  /**
-   * The stored pass's output failed with the match list, so it ran again without it. Every
-   * sent instruction is `unknown`. Null when the match list did not fail.
-   */
-  matchFailure: { message: string } | null;
-  /**
-   * Sent instructions with no result from the stored pass, so their state is `unknown`: the
-   * model left them out or gave no valid decision, or the match list failed.
-   */
-  undecided: number;
+  /** Instructions in the prompt. */
+  sent: number;
+  /** Instructions left out because the section was over its character cap. */
+  omitted: number;
+  /** The instruction read failed, so the prompt carried no instruction. */
+  readFailed: boolean;
 }
 
 /**
-/**
  * The system prompt is the theory page (`docs/theory/triage.md`) in prompt form: the job, the
  * labels, precedence, the echoes, and the evidence principles. A past error becomes an eval
- * case, never a new prompt rule. The standing instructions arrive in the email block in
- * Yash's words. The triage profile joins here in slice 4.
+ * case, never a new prompt rule. The standing instructions arrive in the user prompt in
+ * Yash's words, with their dates. The triage profile joins in slice 4d.
  */
 export const SYSTEM_PROMPT = `You triage Yash's email. For each email, decide what it costs Yash to ignore it, and answer with one label. Triage does nothing else. Yash reads the labels in the inbox list and never filters by them, so a loud label must be correct, and a quiet label must not attract the eye.
 
@@ -251,7 +219,7 @@ The evidence lines in the block below:
 - Thread state and the recent messages show what the thread still needs. Classify the whole thread; the newest message rewrites the one label.
 - The researched line about Yash is Alfred's own web research, not his words and not this mail. It is the weakest signal. It never decides a category on its own and never outranks the mail body.
 
-Yash's standing instructions arrive in the block in his own words, each with its date, oldest first. Weigh them as evidence. An instruction that names one person is applied by code after you answer; answer the mail on its own merits.
+Yash's standing instructions arrive in the block in his own words, each with its date, oldest first. Weigh them as evidence.
 
 Answer with exactly one label, a confidence, and a rationale. The confidence: 0.9 or above for an unambiguous mail, 0.7 to 0.9 when the category is clear with some overlap, 0.5 to 0.7 for an educated guess, and below 0.5 only when no label fits well. The rationale is one or two sentences grounded in concrete cues: quote the subject or body, and name the decisive evidence line. Never invent contact history, ownership, or relationship strength: call a sender known, strong, two-way, or cold only when the evidence lines say it.`;
 
@@ -316,8 +284,7 @@ const USER_CONTEXT_HANDLING_RULE =
 function renderObservations(obs: Observations): string {
   const lines: string[] = ["=== Observations (deterministic context — hints, not verdicts) ==="];
 
-  // No standing-instruction line: the model classifies on its own evidence, and the
-  // instruction floor applies the user's effects after it (ADR-0113).
+  // No standing-instruction line: the instructions are their own section (`userPrompt`).
   // Above the derived signals.
   // `senderExtractionEvent` mirrors this null check as `userContextPresent`. Change both together.
   if (obs.userContext) {
@@ -463,17 +430,56 @@ function classifySystemPrompt(): string {
 }
 
 export interface ClassifyEmailResult {
-  /** The effective result: the model verdict with the user's instruction effects applied. */
+  /** The effective result: the model verdict after the floors. */
   classification: TriageClassification;
   model: string;
   audit: ClassifyAudit;
   /** The `email_triage.model_verdict` column (ADR-0113). */
   modelVerdict: TriageModelVerdict;
-  /** The `email_triage.instruction_evaluation` column. Null when the instruction read failed. */
-  instructionEvaluation: TriageInstructionEvaluation | null;
 }
 
-/** One cheap pass, then the floors and the instruction floor. */
+/** Shown before each instruction line. One line, so a value cannot forge a `===` section. */
+const INSTRUCTION_SECTION_HEADER =
+  "=== Yash's standing instructions (his own words, oldest first) ===";
+
+const UTC = parseIanaTimezone("UTC");
+
+/** The instruction section of the user prompt, and its audit. */
+interface InstructionSection {
+  /** Null when no instruction is sent. */
+  section: string | null;
+  audit: StandingClassifyAudit;
+}
+
+/**
+ * The date of each instruction is in the user's zone, which the mail facts carry with the
+ * arrival time. The read holds only the instructions for every mailbox and for the mailbox of
+ * this mail; a line for one mailbox names it.
+ */
+function instructionSection(args: ClassifyEmailArgs): InstructionSection {
+  const read = args.observations.standingInstructions;
+
+  if (read === null || read.kind === "read_failed") {
+    return {
+      section: null,
+      audit: { sent: 0, omitted: 0, readFailed: read?.kind === "read_failed" },
+    };
+  }
+
+  const rendered = renderInstructionsInWords({
+    instructions: read.instructions,
+    header: INSTRUCTION_SECTION_HEADER,
+    timezone: args.mailFacts.arrivedAt?.timezone ?? UTC,
+    maxChars: TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS,
+  });
+
+  return {
+    section: rendered.section,
+    audit: { sent: rendered.sent, omitted: rendered.omitted, readFailed: false },
+  };
+}
+
+/** One cheap pass, then the floors. No code applies an instruction (slice 4a). */
 export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEmailResult> {
   const injected = args.runPass;
 
@@ -482,92 +488,19 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
     : defaultRunPass(route("cheap").model(), args);
 
   const signalText = floorSignalText(args.document);
-  const floorMatches = matchesExposedSecret(signalText);
+  const instructions = instructionSection(args);
 
-  const standing = args.observations.standingInstructions;
-  const scopeBlock = buildStandingScopeBlock(standing);
-
-  /**
-   * One pass. When its output fails with the match list (cut at the token limit, or a bad
-   * shape), it runs again without the instruction section. The email verdict survives, and
-   * each sent instruction stays `unknown`: ADR-0113 reads a match that fails or exceeds its
-   * bound as `unknown`, and it never discards the verdict for it.
-   */
-  const runClassifyPass = async (): Promise<ClassifyPassResult> => {
-    const run = (section: string | null) =>
-      runPass({
-        system: classifySystemPrompt(),
-        prompt: userPrompt(args, section),
-        withInstructionMatches: section !== null,
-      });
-
-    if (scopeBlock.section === null) return { served: await run(null), matchFailure: null };
-
-    try {
-      return { served: await run(scopeBlock.section), matchFailure: null };
-    } catch (err) {
-      if (!NoObjectGeneratedError.isInstance(err)) throw err;
-
-      return { served: await run(null), matchFailure: { message: errorMessage(err) } };
-    }
-  };
-
-  const first = await runClassifyPass();
-  const firstPass = first.served.classification;
-
-  // `instructionMatches` is not a classification field, so it leaves before the floors.
-  const { instructionMatches: workingMatches, ...workingClassification } =
-    first.served.classification;
-
-  const floors = applyFloors(workingClassification, { signalText });
-
-  // The stored model verdict: the system floors' output, before any instruction effect.
-  const verdict = {
-    category: floors.classification.category,
-    documentAsk: floors.classification.documentAsk ?? null,
-    todoSuggestion: floors.classification.todoSuggestion ?? null,
-    todoDecision: floors.classification.todoDecision ?? null,
-  };
-
-  // Matches come from the pass whose classification the row stores.
-  const scopeRead = readStandingScopeMatches(scopeBlock.sent, workingMatches);
-
-  const targetMatches: StandingInstructionMatch[] =
-    standing?.kind === "loaded"
-      ? standing.targetHits.map(({ matchedVia, ...instruction }) => ({
-          ...instruction,
-          via: { kind: "target", targetKind: matchedVia },
-        }))
-      : [];
-
-  const standingFloor = applyStandingInstructionEffects(verdict, {
-    exposedSecret: floorMatches,
-    matches: [...targetMatches, ...scopeRead.matches],
+  const served = await runPass({
+    system: classifySystemPrompt(),
+    prompt: userPrompt(args, instructions.section),
   });
 
-  const effective = standingFloor.result;
+  const firstPass = served.classification;
+  const floors = applyFloors(firstPass, { signalText });
+  const { classification } = floors;
 
-  const classification: TriageClassification = {
-    ...floors.classification,
-    category: effective.category,
-    documentAsk: effective.documentAsk,
-    todoSuggestion: effective.todoSuggestion,
-    todoDecision: effective.todoDecision ?? undefined,
-    rationale: standingFloor.reason
-      ? truncateRationale(`${floors.classification.rationale} ${standingFloor.reason}`)
-      : floors.classification.rationale,
-  };
-
-  const standingApplied = standingFloor.audit.effects.some((effect) => effect.result === "applied");
-
-  // Pass tags, then floor tags in sequence order. Query with `LIKE '%+kindfloor%'`, never equality.
-  // The base names the leg whose classification the row stores.
-  const model_id = [
-    first.served.modelId,
-    ...floors.modelIdTags,
-    ...(first.matchFailure ? ["+match_failed"] : []),
-    ...(standingApplied ? ["+standingfloor"] : []),
-  ].join("");
+  // Pass tag, then floor tags in sequence order. Query with `LIKE '%+floor%'`, never equality.
+  const model_id = [served.modelId, ...floors.modelIdTags].join("");
 
   return {
     classification,
@@ -578,18 +511,15 @@ export async function classifyEmail(args: ClassifyEmailArgs): Promise<ClassifyEm
       secondPass: null,
       secondPassFailure: null,
       floors: floors.audits,
-      standing: {
-        floor: standingFloor.audit,
-        counter: scopeBlock.counter,
-        matchFailure: first.matchFailure,
-        undecided: scopeBlock.sent.length - scopeRead.scopes.length,
-      },
+      standing: instructions.audit,
     },
-    modelVerdict: { ...verdict, exposedSecret: floorMatches },
-    instructionEvaluation:
-      standing?.kind === "loaded"
-        ? { setRevision: standing.setRevision, scopes: scopeRead.scopes }
-        : null,
+    modelVerdict: {
+      category: classification.category,
+      documentAsk: classification.documentAsk ?? null,
+      todoSuggestion: classification.todoSuggestion ?? null,
+      todoDecision: classification.todoDecision ?? null,
+      exposedSecret: matchesExposedSecret(signalText),
+    },
   };
 }
 
@@ -602,15 +532,6 @@ function classifyHedgeBudget(): HedgeBudget {
   return _hedgeBudget;
 }
 
-/** One of two fixed schemas, so each request shape stays stable for the provider cache. */
-function classifierOutputSchema(input: {
-  withInstructionMatches: boolean;
-}): z.ZodType<TriageClassifierOutput> {
-  return input.withInstructionMatches
-    ? triageClassificationWithMatchesSchema
-    : triageClassificationSchema;
-}
-
 /**
  * The request one classify pass sends. `signal` is required: if it does not
  * reach the request, the hedge loser is never cancelled and silently bills twice.
@@ -621,17 +542,14 @@ export function classifyCallOptions(input: {
   prompt: string;
   signal: AbortSignal;
   maxRetries: number | undefined;
-  withInstructionMatches: boolean;
 }): MeteredGenerateObjectArgs<TriageClassifierOutput> {
   return {
     model: input.model,
     instructions: input.instructions,
     prompt: input.prompt,
-    schema: classifierOutputSchema(input),
+    schema: triageClassificationSchema,
     temperature: 0,
-    maxOutputTokens:
-      TRIAGE_MAX_OUTPUT_TOKENS +
-      (input.withInstructionMatches ? TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS : 0),
+    maxOutputTokens: TRIAGE_MAX_OUTPUT_TOKENS,
     // A hung call must not hold a worker slot. A total budget across retries,
     // so an expired timeout leaves nothing for `withFallback`.
     timeout: { totalMs: TRIAGE_REQUEST_TIMEOUT_MS },
@@ -646,7 +564,7 @@ export function classifyCallOptions(input: {
  * the first wins. {@link hedgeCeilingFor} caps it.
  */
 function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPass {
-  return async ({ system, prompt, withInstructionMatches }) => {
+  return async ({ system, prompt }) => {
     const delayMs = args.hedgeDelayMs ?? serverEnv().TRIAGE_CLASSIFY_HEDGE_MS;
 
     const result = await runHedged({
@@ -662,7 +580,6 @@ function defaultRunPass(model: LanguageModel, args: ClassifyEmailArgs): ServedPa
             prompt,
             signal,
             maxRetries: args.maxRetries,
-            withInstructionMatches,
           }),
           {
             role: "triage",
@@ -700,14 +617,11 @@ export function normalizeClassifierOutput<O extends TriageClassification>(output
   return {
     ...object,
     confidence: clamp01(object.confidence),
+    rationale: truncateRationale(object.rationale),
     // The model may omit the key. Never throw: a first-pass throw buries the real answer as `fyi`.
     collabActivity: object.collabActivity ?? null,
     documentAsk: object.documentAsk ?? null,
   };
-}
-
-function errorMessage(err: unknown): string {
-  return toMessage(err);
 }
 
 /** Failure-path category, so no message is left untriaged. */

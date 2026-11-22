@@ -95,6 +95,7 @@ export const standingInstructionSetRevisions = pgTable("standing_instruction_set
    * The last `revision` that the triage re-match job finished (ADR-0113, "Re-match after a
    * change"). The trigger owns `revision`; the job owns this. A sweep re-matches each user
    * whose `revision` is ahead, so every writer reaches old mail, also one that never enqueues.
+   * Triage slice 4a removed the job, so no code writes this column now.
    */
   rematchedRevision: integer("rematched_revision").notNull().default(0),
   ...lifecycle_dates,

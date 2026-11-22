@@ -41,8 +41,8 @@ Kept: the `@alfred/config` package. It is one tsconfig, but the module-structure
 | `sender_priors` + conflict second pass | ~400 | Write runs on every classify; 0 user corrections in 1,512 rows | Triage slice 1 unblocks it; the plan holds the write until the slice 3 prompt rewrite |
 | Old triage classify prompt + todo rubric | ~1,300 | Live | Triage slice 3 |
 | Meeting + sender-kind floors | ~450 | Live | Triage slice 3 |
-| Typed-effects instruction matching (`standing-scope`, `floors/standing`, `effective`) | ~850 | Live | ADR-0121 decision 7 supersedes ADR-0113/0106/0110; triage slice 4 |
-| Todo machinery in triage (`todo-decision`, instruction-todo sweep, document ask, close-loop step) | ~600 | Live | Triage slice 7 (follow-up workflow on the `email-triage.classified` seam) |
+| Typed-effects instruction matching (`standing-scope`, `floors/standing`, `effective`, the re-match job `rematch*`) | ~850 | Removed (2026-11-22) | Triage slice 4a removed the read side. The save path that still writes targets and effects leaves at slice 4b |
+| Todo machinery in triage (`todo-decision`, document ask, close-loop step) | ~600 | Live; the instruction-todo sweep left at slice 4a | Triage slice 7 (follow-up workflow on the `email-triage.classified` seam) |
 | `object-links.ts` (`email_interpretation` writer) | ~240 | Live | Triage slice 7 / ADR-0122 slice 3 |
 | Object-state union + reducers, verified-pull verifiers, `loop-key.ts`, knowledge loop set, open-ask guard, gather deploy/merge inputs | ~6,500 | `verifyLoops` runs in every briefing | ADR-0122 slices 1–8 |
 | `proposeFact` + 0.85 gate, `writeMemoryChunk`/`memory_chunks`, confirmed-only read rule | ~2,000 | Nightly memory extraction in prod | memory §10 steps 1–4 |
@@ -51,4 +51,4 @@ Kept: the `@alfred/config` package. It is one tsconfig, but the module-structure
 
 ## Already executed (verified 2026-11-16, no leftovers)
 
-The ADR-0125 GitHub tool deletions, the ADR-0126 Google model-tool deletions and `gmail.send_draft`, and the triage `deepen` step are out of the tree. ADR-0120's superseded decisions were replaced by ADR-0122 before code change.
+The ADR-0125 GitHub tool deletions, the ADR-0126 Google model-tool deletions and `gmail.send_draft`, and the triage `deepen` step are out of the tree. Triage slice 4a (2026-11-22) removed the instruction scope match, the typed effects at read time, the re-match job, and the instruction-todo sweep. ADR-0120's superseded decisions were replaced by ADR-0122 before code change.

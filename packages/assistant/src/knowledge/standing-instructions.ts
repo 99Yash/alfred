@@ -15,19 +15,17 @@ import {
   standingInstructionValueV2Schema,
   type rememberInput,
   type StandingInstructionEffect,
-  targetMatchesSender,
   targetNamesOneMailbox,
   type StandingInstructionValueV2,
   type MemorySource,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionTarget,
-  type StandingInstructionTargetKind,
   type StandingInstructionValue,
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { createId, type DbRunner } from "@alfred/db/helpers";
-import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
+import { rejectedInferences, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
@@ -39,6 +37,7 @@ import {
   STANDING_INSTRUCTION_OVERLAP_LIMIT,
   type CaptureClock,
 } from "./sender-suppression";
+import { instructionKeyOf } from "./instructions-in-words";
 import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
@@ -56,167 +55,6 @@ export interface ActiveStandingInstruction {
  */
 interface StoredStandingInstruction extends ActiveStandingInstruction {
   storedVersion: 1 | 2;
-}
-
-/** One message's sender, as the consumer holds it. */
-interface SenderLookup {
-  /** A bare address or a raw `From` header. An unparseable value matches nothing. */
-  sender: string | null | undefined;
-  /** The mailbox the message reached. A per-account instruction matches only its own mailbox. */
-  accountId: string | null;
-}
-
-/** An instruction whose sender-wide target hits one mail. A target hit covers the whole mail. */
-export type StandingInstructionTargetHit = ActiveStandingInstruction & {
-  matchedVia: StandingInstructionTargetKind;
-};
-
-/**
- * The instructions that can apply to one mail (ADR-0113). `targetHits` are decided in code.
- * `scoped` go to the triage model for the scope match: each has a `scope`, and its
- * `senderFilter` is absent or hits the sender. A filter alone never matches.
- */
-export type MailStandingInstructions =
-  | {
-      kind: "loaded";
-      /** The per-user set revision, read before the instructions. */
-      setRevision: number;
-      targetHits: StandingInstructionTargetHit[];
-      scoped: ActiveStandingInstruction[];
-    }
-  | { kind: "read_failed"; error: unknown };
-
-export type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
-
-/** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
-interface StandingInstructionSet<Mail extends MailStandingInstructions> {
-  /** No active instruction. A failed read is never empty, so `forMail` still reports it. */
-  readonly isEmpty: boolean;
-  /**
-   * Every target hit and every scoped candidate for one mail. Each consumer derives its
-   * result from these with `deriveEffectiveTriage` (ADR-0113).
-   */
-  forMail(sender: SenderLookup): Mail;
-}
-
-/** A set that loaded. `setRevision` is the per-user set revision, read before the instructions. */
-interface LoadedStandingInstructionSet extends StandingInstructionSet<LoadedMailStandingInstructions> {
-  readonly setRevision: number;
-}
-
-/**
- * A `"report"` load. The `onReadFailure: "report"` key rejects a `"throw"`
- * load and a value without the key where the todo lane needs fail-closed
- * reporting. A value that writes the key by hand still compiles. Review owns
- * that case.
- */
-export interface ReportedStandingInstructionSet extends StandingInstructionSet<MailStandingInstructions> {
-  readonly onReadFailure: "report";
-}
-
-/**
- * Each consumer owns its read-failure policy, so the caller must state it:
- * - `"throw"`: the returned promise rejects with the read error. No method reports `read_failed`.
- * - `"report"`: the promise always resolves. On a failed read, every method returns `read_failed`.
- */
-export function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "throw";
-}): Promise<LoadedStandingInstructionSet>;
-export function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "report";
-}): Promise<ReportedStandingInstructionSet>;
-export async function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "throw" | "report";
-}): Promise<ReportedStandingInstructionSet | LoadedStandingInstructionSet> {
-  if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
-
-  try {
-    return {
-      ...(await loadStandingInstructionSet(args.userId)),
-      onReadFailure: "report" as const,
-    };
-  } catch (error) {
-    return {
-      isEmpty: false,
-      onReadFailure: "report" as const,
-      forMail: () => ({ kind: "read_failed", error }),
-    };
-  }
-}
-
-/**
- * The set revision first, then the instructions. A write between the two reads leaves the
- * stored revision older than the instructions, so a later reader sees a change and reads
- * `unknown`. The other order could claim a newer revision for older instructions.
- */
-async function loadStandingInstructionSet(userId: string) {
-  const setRevision = await readStandingInstructionSetRevision(userId);
-
-  return standingInstructionsOf(await listActiveStandingInstructions(userId), setRevision);
-}
-
-/** Pure, for tests that build the instructions by hand. Consumers read with `standingInstructions`. */
-export function standingInstructionsOf(
-  instructions: readonly ActiveStandingInstruction[],
-  setRevision = 0,
-): LoadedStandingInstructionSet {
-  return {
-    isEmpty: instructions.length === 0,
-    setRevision,
-    forMail(sender) {
-      const email = normalizeEmailAddress(sender.sender);
-
-      const hits = (targets: readonly StandingInstructionTarget[] | undefined) =>
-        email === null
-          ? undefined
-          : targets?.find((target) => targetMatchesSender(target, email, sender.accountId));
-
-      const targetHits: StandingInstructionTargetHit[] = [];
-      const scoped: ActiveStandingInstruction[] = [];
-
-      for (const instruction of instructions) {
-        const hit = hits(instruction.value.targets);
-
-        // A target hit decides the match. The scope adds nothing for this mail.
-        if (hit) {
-          targetHits.push({ ...instruction, matchedVia: hit.kind });
-          continue;
-        }
-
-        if (instruction.value.scope === undefined) continue;
-
-        // A scope bound to one mailbox never matches mail of another.
-        if (
-          instruction.value.accountId !== undefined &&
-          instruction.value.accountId !== sender.accountId
-        ) {
-          continue;
-        }
-
-        const filter = instruction.value.senderFilter;
-
-        if (filter !== undefined && !hits(filter)) continue;
-
-        scoped.push(instruction);
-      }
-
-      return { kind: "loaded", setRevision, targetHits, scoped };
-    },
-  };
-}
-
-/** No row reads as 0. */
-async function readStandingInstructionSetRevision(userId: string): Promise<number> {
-  const [row] = await db()
-    .select({ revision: standingInstructionSetRevisions.revision })
-    .from(standingInstructionSetRevisions)
-    .where(eq(standingInstructionSetRevisions.userId, userId))
-    .limit(1);
-
-  return row?.revision ?? 0;
 }
 
 // ─── Capture (v2, ADR-0113) ─────────────────────────────────────────────────
@@ -357,7 +195,7 @@ function captureEffects(input: SaveStandingInstructionInput): StandingInstructio
   });
 }
 
-/** The stored value for one parsed input at one identity. Capture and its preview share it. */
+/** The stored value for one parsed input at one identity. */
 function captureValue(
   input: SaveStandingInstructionInput,
   parsed: Extract<ParsedCaptureInput, { ok: true }>,
@@ -379,24 +217,6 @@ function captureValue(
       ? {}
       : { accountId: parsed.accountId }),
   } satisfies z.input<typeof standingInstructionValueV2Schema>);
-}
-
-/**
- * The value that capture would store for this input as a new instruction, with no read and no
- * write. A review tool matches it over stored mail before the owner stores it. The caller
- * names the id, so an `exceptionOf` between two previews can point at a preview.
- */
-export function previewStandingInstructionValue(
-  input: SaveStandingInstructionInput,
-  instructionId: string,
-):
-  | { ok: true; value: StandingInstructionValueV2 }
-  | Extract<SaveStandingInstructionResult, { status: "invalid_sender" }> {
-  const parsed = parseCaptureInput(input);
-
-  if (!parsed.ok) return parsed;
-
-  return { ok: true, value: captureValue(input, parsed, { instructionId, revision: 0 }) };
 }
 
 /** The content of an instruction, without its identity, for the duplicate check. */
@@ -472,7 +292,7 @@ async function readCaptureState(
 /**
  * What capture does with one input over one read of the active set. The stored content and the
  * capture operation are separate: an input whose content an active row already holds can still
- * close the rows it replaces, and it still sweeps todos.
+ * close the rows it replaces.
  */
 type CapturePlan =
   | StandingInstructionCaptureRefusal
@@ -499,7 +319,7 @@ type CapturePlan =
  * `coexistsWith`.
  *
  * `replaces` states an end state, so an id that is already retired is accepted and closes
- * nothing. A repeat of a finished capture then plans `existing`, and its todo sweep runs again.
+ * nothing. A repeat of a finished capture then plans `existing`.
  */
 function planCapture(
   { active, retired }: CaptureState,
@@ -723,7 +543,7 @@ export async function saveStandingInstruction(args: {
           )
           .returning({ id: userFacts.id });
 
-        // Each app writer of a v2 row takes the capture lock, but a v1 edit does not. Roll back.
+        // The v1 writer and a v1 edit from an older deploy do not take the capture lock. Roll back.
         const closedIds = new Set(closed.map((row) => row.id));
         const missed = closing.find((row) => !closedIds.has(row.factId));
 
@@ -932,13 +752,8 @@ async function readStoredStandingInstructions(
   });
 }
 
-/** Every active instruction of any stored version, as v2. */
-function listActiveStandingInstructions(userId: string): Promise<ActiveStandingInstruction[]> {
-  return readStoredStandingInstructions(userId);
-}
-
 /**
- * One capture or forget at a time for each user, so a revision and an exception see a stable
+ * One capture, forget, or edit at a time for each user, so a revision and an exception see a stable
  * set. Do not change the key text: a rolling deploy would then run unserialized.
  */
 async function lockStandingInstructionCapture(
@@ -962,6 +777,10 @@ const captureClockSchema = z.object({ at: z.string().min(1) });
 // Chat-only. Background inference never calls these, so it cannot edit or delete what
 // the user said. Forget is a soft reject; edit supersedes. Each mutation appends a
 // `user_standing_instruction` observation in the same transaction (ADR-0067).
+//
+// Triage and the briefing composer read an instruction as its words (triage slice 4a), and
+// rows with the same words and mailbox bound are one instruction to them (`instructionKeyOf`). So
+// forget and a words edit act on every active row with that key, else the old words stay in force.
 
 /**
  * One active standing instruction as v2, for the model to reference. `schemaVersion` is the
@@ -973,6 +792,11 @@ export interface StandingInstructionSummary {
   schemaVersion: 1 | 2;
   instruction: StandingInstructionValueV2;
   validFrom: Date;
+  /**
+   * The active rows, this one included, whose words are the same as this row's. Triage and the
+   * briefing read them as one instruction. Forget and a words edit act on all of them.
+   */
+  sameWordsCount: number;
 }
 
 export interface StandingInstructionListResult {
@@ -983,18 +807,33 @@ export interface StandingInstructionListResult {
 }
 
 export type ForgetStandingInstructionResult =
-  | { ok: true; status: "forgotten"; factId: string; instruction: StandingInstructionValueV2 }
+  | {
+      ok: true;
+      status: "forgotten";
+      factId: string;
+      instruction: StandingInstructionValueV2;
+      /** Each row this call retired: `factId` and every active row with the same words. */
+      retiredFactIds: string[];
+    }
   | { ok: false; status: "not_found" };
 
 export type EditStandingInstructionResult =
   | {
       ok: true;
       status: "edited";
+      /** The successor of the named row, or the named row when only its siblings changed. */
       factId: string;
       previousFactId: string;
       instruction: StandingInstructionValue;
+      /** The rows this call superseded: the named row and its v1 rows with the same words. */
+      editedCount: number;
       /** Edits a class row cannot take. Empty on an address row. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
+      /**
+       * Active schemaVersion 2 rows with the same words. This tool does not change them, so
+       * their words stay in force until `system.remember` revises them.
+       */
+      sameWordsNotEdited: string[];
     }
   | {
       ok: true;
@@ -1003,6 +842,7 @@ export type EditStandingInstructionResult =
       instruction: StandingInstructionValue;
       /** Edits the row could not take. */
       droppedInputs: readonly StandingInstructionDroppedInput[];
+      sameWordsNotEdited: string[];
     }
   | { ok: false; status: "not_found" }
   | { ok: false; status: "revise_with_remember"; instructionId: string; message: string };
@@ -1021,14 +861,26 @@ export type EditStandingInstructionArgs = z.infer<typeof editStandingInstruction
 export async function listStandingInstructions(
   userId: string,
 ): Promise<StandingInstructionListResult> {
-  const instructions = (await readStoredStandingInstructions(userId)).map(
-    (row): StandingInstructionSummary => ({
+  const rows = await readStoredStandingInstructions(userId);
+  const countByWords = new Map<string, number>();
+
+  for (const row of rows) {
+    const key = instructionKeyOf(row.value);
+
+    if (key !== null) countByWords.set(key, (countByWords.get(key) ?? 0) + 1);
+  }
+
+  const instructions = rows.map((row): StandingInstructionSummary => {
+    const key = instructionKeyOf(row.value);
+
+    return {
       factId: row.factId,
       schemaVersion: row.storedVersion,
       instruction: row.value,
       validFrom: row.validFrom,
-    }),
-  );
+      sameWordsCount: key === null ? 1 : (countByWords.get(key) ?? 1),
+    };
+  });
 
   const capped = instructions.slice(0, STANDING_INSTRUCTION_LIST_LIMIT);
 
@@ -1040,33 +892,67 @@ export async function listStandingInstructions(
   };
 }
 
-/**
- * Null for an unknown, foreign, non-instruction, or retired id. A v2 row is `v2`: only
- * `system.remember` revises it.
- */
-async function loadOwnedStandingInstruction(
-  userId: string,
-  factId: string,
-): Promise<
-  { kind: "v1"; value: StandingInstructionValue } | { kind: "v2"; instructionId: string } | null
-> {
-  const [row] = await db()
-    .select({ value: userFacts.value })
-    .from(userFacts)
-    .where(activeStandingInstructionWhere(userId, factId))
-    .limit(1);
-
-  if (!row) return null;
-
-  const v2 = standingInstructionValueV2Schema.safeParse(row.value);
-
-  if (v2.success) return { kind: "v2", instructionId: v2.data.instructionId };
-
-  const parsed = standingInstructionValueSchema.safeParse(row.value);
-
-  return parsed.success ? { kind: "v1", value: parsed.data } : null;
+/** One active row as stored, with its v2 reading. `v1` is the stored v1 value, else null. */
+interface ManagedStandingInstruction {
+  factId: string;
+  stored: unknown;
+  value: StandingInstructionValueV2;
+  v1: StandingInstructionValue | null;
 }
 
+/** Every active row at `at`. Read it under the capture lock. A row of neither shape is skipped. */
+async function readManagedStandingInstructions(
+  tx: DbTransaction,
+  userId: string,
+  at: CaptureClock,
+): Promise<ManagedStandingInstruction[]> {
+  const facts = await selectActiveStandingInstructionFacts(userId, tx, at);
+
+  return facts.flatMap((fact): ManagedStandingInstruction[] => {
+    const value = readStoredStandingInstruction(fact.value, fact.id);
+
+    if (!value) return [];
+
+    const v1 = standingInstructionValueV2Schema.safeParse(fact.value).success
+      ? null
+      : (standingInstructionValueSchema.safeParse(fact.value).data ?? null);
+
+    return [{ factId: fact.id, stored: fact.value, value, v1 }];
+  });
+}
+
+/** The active rows with the same words as `named`, `named` included. */
+function sameWordsRows(
+  rows: readonly ManagedStandingInstruction[],
+  named: ManagedStandingInstruction,
+): ManagedStandingInstruction[] {
+  const key = instructionKeyOf(named.value);
+
+  if (key === null) return [named];
+
+  return rows.filter((row) => row.factId === named.factId || instructionKeyOf(row.value) === key);
+}
+
+/**
+ * The per-row lock that a v1 edit from an older deploy takes without the capture lock. Sorted,
+ * so two holders of many rows cannot deadlock.
+ */
+async function lockStandingInstructionRows(
+  tx: DbTransaction,
+  userId: string,
+  factIds: readonly string[],
+): Promise<void> {
+  for (const factId of factIds.toSorted()) {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${userId}:${factId}`}, 0))`,
+    );
+  }
+}
+
+/**
+ * Retire the named instruction and every active row with the same words, so neither triage nor
+ * the briefing reads those words again. Each retired row gets a rejection and an observation.
+ */
 export async function forgetStandingInstruction(args: {
   userId: string;
   factId: string;
@@ -1074,222 +960,287 @@ export async function forgetStandingInstruction(args: {
   source?: MemorySource | undefined;
 }): Promise<ForgetStandingInstructionResult> {
   const forgotten = await db().transaction(async (tx) => {
-    // Wait for a capture that reads this row as a revision or exception target.
+    // Wait for a capture that reads these rows as a revision or exception target.
     const at = await lockStandingInstructionCapture(tx, args.userId);
+    const rows = await readManagedStandingInstructions(tx, args.userId, at);
+    const named = rows.find((row) => row.factId === args.factId);
 
-    // The `status = 'confirmed'` guard is the concurrency control; the lock lets the loser see the retired row.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
+    if (!named) return null;
+
+    const group = sameWordsRows(rows, named);
+
+    await lockStandingInstructionRows(
+      tx,
+      args.userId,
+      group.map((row) => row.factId),
     );
 
-    const [old] = await tx
-      .select({ value: userFacts.value })
-      .from(userFacts)
-      .where(activeStandingInstructionWhere(args.userId, args.factId, at))
-      .limit(1);
-
-    if (!old) return null;
-
-    // Any stored version. The rejection signature keys on the stored value.
-    const instruction = readStoredStandingInstruction(old.value, args.factId);
-
-    if (!instruction) return null;
-
-    const [row] = await tx
+    // The `status = 'confirmed'` guard is the concurrency control: a row that another writer
+    // closed since the read is not returned, and so it is not reported as retired.
+    const retired = await tx
       .update(userFacts)
       .set({
         status: "rejected",
         validUntil: sql`${at}::timestamptz`,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
       })
-      .where(activeStandingInstructionWhere(args.userId, args.factId, at))
+      .where(
+        and(
+          inArray(
+            userFacts.id,
+            group.map((row) => row.factId),
+          ),
+          activeStandingInstructionsWhere(args.userId, at),
+        ),
+      )
       .returning({ id: userFacts.id });
 
-    if (!row) return null;
+    const retiredIds = new Set(retired.map((row) => row.id));
+    const retiredRows = group.filter((row) => retiredIds.has(row.factId));
 
+    if (retiredRows.length === 0) return null;
+
+    // The rejection signature keys on the stored value.
     await tx
       .insert(rejectedInferences)
-      .values({
-        userId: args.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        valueSignature: valueSignature(old.value),
-        proposedFactId: args.factId,
-        reason: args.reason ?? null,
-      })
+      .values(
+        retiredRows.map((row) => ({
+          userId: args.userId,
+          key: STANDING_INSTRUCTION_KEY,
+          valueSignature: valueSignature(row.stored),
+          proposedFactId: row.factId,
+          reason: args.reason ?? null,
+        })),
+      )
       .onConflictDoNothing();
 
-    await appendStandingInstructionObservation(
-      {
-        userId: args.userId,
-        operation: "forget",
-        factId: args.factId,
-        instruction,
-        reason: args.reason ?? null,
-        source: args.source,
-      },
-      tx,
-    );
+    for (const row of retiredRows) {
+      await appendStandingInstructionObservation(
+        {
+          userId: args.userId,
+          operation: "forget",
+          factId: row.factId,
+          instruction: row.value,
+          reason:
+            row.factId === args.factId
+              ? (args.reason ?? null)
+              : `same words as ${args.factId}${args.reason ? `: ${args.reason}` : ""}`,
+          source: args.source,
+        },
+        tx,
+      );
+    }
 
-    return instruction;
+    return { instruction: named.value, retiredFactIds: retiredRows.map((row) => row.factId) };
   });
 
   if (!forgotten) return { ok: false, status: "not_found" };
 
   emitReplicachePokes([args.userId]);
 
-  return { ok: true, status: "forgotten", factId: args.factId, instruction: forgotten };
+  return { ok: true, status: "forgotten", factId: args.factId, ...forgotten };
 }
 
-/** Reframe a directive or label by superseding the row. */
+/**
+ * A v1 value with the edit applied. `words` replaces the `phrasing`, which triage and the
+ * briefing read, and the `directive` of an address row. A class row derives its directive from
+ * its target and has no label.
+ */
+function editedV1Value(
+  value: StandingInstructionValue,
+  edit: { words: string | null; senderLabel: string | null | undefined },
+): StandingInstructionValue {
+  const target = value.target;
+  const oneMailbox = targetNamesOneMailbox(target);
+
+  return standingInstructionValueSchema.parse({
+    ...value,
+    phrasing: edit.words ?? value.phrasing,
+    directive: oneMailbox
+      ? (edit.words ?? value.directive)
+      : renderStandingInstructionDirective(target),
+    target:
+      oneMailbox && edit.senderLabel !== undefined
+        ? { ...target, label: normalizeOptionalLabel(edit.senderLabel) }
+        : target,
+  });
+}
+
+function v1Label(value: StandingInstructionValue): string | null {
+  return targetNamesOneMailbox(value.target) ? (value.target.label ?? null) : null;
+}
+
+function sameV1Words(a: StandingInstructionValue, b: StandingInstructionValue): boolean {
+  return a.phrasing === b.phrasing && a.directive === b.directive && v1Label(a) === v1Label(b);
+}
+
+/**
+ * Change the words or the label of a v1 instruction by superseding its rows. New words go to
+ * every active v1 row with the same words, so triage and the briefing read only the new words.
+ * A label goes to the named row only.
+ */
 export async function editStandingInstruction(
   args: EditStandingInstructionArgs,
 ): Promise<EditStandingInstructionResult> {
   const parsed = editStandingInstructionArgsSchema.parse(args);
-  const existing = await loadOwnedStandingInstruction(parsed.userId, parsed.factId);
+  const words = normalizeOptionalLabel(parsed.directive);
 
-  if (!existing) return { ok: false, status: "not_found" };
+  const outcome = await db().transaction(async (tx): Promise<EditStandingInstructionResult> => {
+    const at = await lockStandingInstructionCapture(tx, parsed.userId);
+    const rows = await readManagedStandingInstructions(tx, parsed.userId, at);
+    const named = rows.find((row) => row.factId === parsed.factId);
 
-  if (existing.kind === "v2") {
-    return {
-      ok: false,
-      status: "revise_with_remember",
-      instructionId: existing.instructionId,
-      message:
-        "This instruction is schemaVersion 2. Revise it with system.remember and this " +
-        "instructionId.",
-    };
-  }
+    if (!named) return { ok: false, status: "not_found" };
 
-  const target = existing.value.target;
+    if (named.v1 === null) {
+      return {
+        ok: false,
+        status: "revise_with_remember",
+        instructionId: named.value.instructionId,
+        message:
+          "This instruction is schemaVersion 2. Revise it with system.remember and this " +
+          "instructionId.",
+      };
+    }
 
-  // A class row derives its sentence from its target and has no label. So a `directive`
-  // edit reads `unchanged`, and a `senderLabel` edit is a no-op. Address rows take both.
-  const requestedDirective = normalizeOptionalLabel(parsed.directive);
+    const namedV1 = named.v1;
 
-  const nextDirective = targetNamesOneMailbox(target)
-    ? requestedDirective
-    : renderStandingInstructionDirective(target);
+    // Report the refused edit, else `edited` or `unchanged` reads as if it applied.
+    const droppedInputs: StandingInstructionDroppedInput[] =
+      !targetNamesOneMailbox(namedV1.target) && parsed.senderLabel !== undefined
+        ? ["senderLabel"]
+        : [];
 
-  // Report the refused edits, else `edited` or `unchanged` reads as if they applied.
-  const droppedInputs: StandingInstructionDroppedInput[] = [];
+    const group = words === null ? [named] : sameWordsRows(rows, named);
+    const sameWordsNotEdited = group.filter((row) => row.v1 === null).map((row) => row.factId);
 
-  if (!targetNamesOneMailbox(target)) {
-    if (requestedDirective !== null) droppedInputs.push("directive");
+    const planned = group.flatMap((row) => {
+      if (row.v1 === null) return [];
 
-    if (parsed.senderLabel !== undefined) droppedInputs.push("senderLabel");
-  }
+      const next = editedV1Value(row.v1, {
+        words,
+        senderLabel: row.factId === named.factId ? parsed.senderLabel : undefined,
+      });
 
-  // `phrasing` is the user's verbatim words; an edit never rewrites it.
-  const nextValue = standingInstructionValueSchema.parse({
-    ...existing.value,
-    directive: nextDirective ?? existing.value.directive,
-    target: targetNamesOneMailbox(target)
-      ? {
-          ...target,
-          label:
-            parsed.senderLabel === undefined
-              ? target.label
-              : normalizeOptionalLabel(parsed.senderLabel),
-        }
-      : target,
-  });
+      return sameV1Words(next, row.v1) ? [] : [{ factId: row.factId, previous: row.v1, next }];
+    });
 
-  const nextLabelValue = targetNamesOneMailbox(nextValue.target) ? nextValue.target.label : null;
+    if (planned.length === 0) {
+      return {
+        ok: true,
+        status: "unchanged",
+        factId: named.factId,
+        instruction: namedV1,
+        droppedInputs,
+        sameWordsNotEdited,
+      };
+    }
 
-  const existingLabelValue = targetNamesOneMailbox(target) ? target.label : null;
+    await lockStandingInstructionRows(
+      tx,
+      parsed.userId,
+      planned.map((row) => row.factId),
+    );
 
-  if (nextValue.directive === existing.value.directive && nextLabelValue === existingLabelValue) {
+    let namedSuccessor: { factId: string; instruction: StandingInstructionValue } | null = null;
+    let editedCount = 0;
+
+    for (const row of planned) {
+      const successorId = await supersedeStandingInstruction(tx, {
+        userId: parsed.userId,
+        factId: row.factId,
+        nextValue: row.next,
+        previousValue: row.previous,
+        source: parsed.source,
+        at,
+      });
+
+      if (successorId === null) continue;
+
+      editedCount += 1;
+
+      if (row.factId === named.factId) {
+        namedSuccessor = { factId: successorId, instruction: row.next };
+      }
+    }
+
+    if (editedCount === 0) return { ok: false, status: "not_found" };
+
     return {
       ok: true,
-      status: "unchanged",
-      factId: parsed.factId,
-      instruction: existing.value,
+      status: "edited",
+      factId: namedSuccessor?.factId ?? named.factId,
+      previousFactId: named.factId,
+      instruction: namedSuccessor?.instruction ?? namedV1,
+      editedCount,
       droppedInputs,
+      sameWordsNotEdited,
     };
-  }
-
-  const edited = await supersedeStandingInstruction({
-    userId: parsed.userId,
-    factId: parsed.factId,
-    nextValue,
-    previousValue: existing.value,
-    source: parsed.source,
   });
 
-  if (!edited) return { ok: false, status: "not_found" };
+  if (outcome.ok && outcome.status === "edited") emitReplicachePokes([parsed.userId]);
 
-  emitReplicachePokes([parsed.userId]);
-
-  return {
-    ok: true,
-    status: "edited",
-    factId: edited.id,
-    previousFactId: parsed.factId,
-    instruction: nextValue,
-    droppedInputs,
-  };
+  return outcome;
 }
 
-/** Close the active row, insert the successor, and append the observation in one transaction. */
-async function supersedeStandingInstruction(args: {
-  userId: string;
-  factId: string;
-  nextValue: StandingInstructionValue;
-  previousValue: StandingInstructionValue;
-  source?: MemorySource | undefined;
-}): Promise<{ id: string } | null> {
-  return db().transaction(async (tx) => {
-    // Same contract as `forgetStandingInstruction`: the loser reports `not_found`.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`standing_instruction:${args.userId}:${args.factId}`}, 0))`,
-    );
+/**
+ * Close one active row, insert its successor, and append the observation, in the caller's
+ * transaction at the capture clock. Null when another writer closed the row first.
+ */
+async function supersedeStandingInstruction(
+  tx: DbTransaction,
+  args: {
+    userId: string;
+    factId: string;
+    nextValue: StandingInstructionValue;
+    previousValue: StandingInstructionValue;
+    source?: MemorySource | undefined;
+    at: CaptureClock;
+  },
+): Promise<string | null> {
+  const [closed] = await tx
+    .update(userFacts)
+    .set({
+      status: "edited",
+      validUntil: sql`${args.at}::timestamptz`,
+      rowVersion: sql`${userFacts.rowVersion} + 1`,
+    })
+    .where(
+      and(eq(userFacts.id, args.factId), activeStandingInstructionsWhere(args.userId, args.at)),
+    )
+    .returning({ id: userFacts.id });
 
-    const [closed] = await tx
-      .update(userFacts)
-      .set({
-        status: "edited",
-        validUntil: sql`now()`,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(activeStandingInstructionWhere(args.userId, args.factId))
-      .returning({ id: userFacts.id });
+  if (!closed) return null;
 
-    if (!closed) return null;
+  const [inserted] = await tx
+    .insert(userFacts)
+    .values({
+      userId: args.userId,
+      key: STANDING_INSTRUCTION_KEY,
+      value: args.nextValue,
+      confidence: 1,
+      status: "confirmed",
+      source: args.source ?? { kind: "user" },
+      validFrom: sql`${args.at}::timestamptz`,
+      validUntil: null,
+      supersedesId: args.factId,
+    })
+    .returning({ id: userFacts.id });
 
-    const [inserted] = await tx
-      .insert(userFacts)
-      .values({
-        userId: args.userId,
-        key: STANDING_INSTRUCTION_KEY,
-        value: args.nextValue,
-        confidence: 1,
-        status: "confirmed",
-        source: args.source ?? { kind: "user" },
-        validFrom: sql`now()`,
-        validUntil: null,
-        supersedesId: args.factId,
-      })
-      .returning({ id: userFacts.id });
+  if (!inserted) throw new Error("[memory.standing-instructions] edit insert returned no row");
 
-    if (!inserted) return null;
+  await appendStandingInstructionObservation(
+    {
+      userId: args.userId,
+      operation: "edit",
+      factId: inserted.id,
+      previousFactId: args.factId,
+      instruction: args.nextValue,
+      previousInstruction: args.previousValue,
+      source: args.source,
+    },
+    tx,
+  );
 
-    await appendStandingInstructionObservation(
-      {
-        userId: args.userId,
-        operation: "edit",
-        factId: inserted.id,
-        previousFactId: args.factId,
-        instruction: args.nextValue,
-        previousInstruction: args.previousValue,
-        source: args.source,
-      },
-      tx,
-    );
-
-    return inserted;
-  });
-}
-
-function activeStandingInstructionWhere(userId: string, factId: string, at?: CaptureClock) {
-  return and(eq(userFacts.id, factId), activeStandingInstructionsWhere(userId, at));
+  return inserted.id;
 }

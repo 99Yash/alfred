@@ -2,9 +2,6 @@ import {
   normalizeEmailAddress,
   parseGmailDocumentMetadata,
   resolveTodoIdsSchema,
-  standingInstructionTargetSchema,
-  targetMatchesSender,
-  targetNamesOneMailbox,
   todoAttributionSchema,
   todoSourcesSchema,
   LIVE_TODO_STATUSES,
@@ -31,34 +28,14 @@ const resolveTodosForGmailSourceArgsSchema = z
     todoIds: z.array(z.string().min(1)).min(1).optional(),
     accountId: z.string().nullable().optional(),
     /**
-     * Sweep the live todos whose thread matches one of these standing-instruction targets
-     * ({@link targetMatchesSender}), in one write. Never with `senderEmail`, `accountId`,
-     * `todoIds`, or `statuses`: each target owns its account gate and status bound.
-     */
-    targets: z.array(standingInstructionTargetSchema).min(1).optional(),
-    /**
      * Statuses to retract; defaults to both. `close-loop-todos` passes `["suggested"]`:
      * it may drop an unpromoted proposal, never a todo the user promoted to `open`.
-     * Never with `target`.
      */
     statuses: z.array(liveTodoStatusSchema).min(1).optional(),
   })
   .refine((data) => data.todoIds === undefined || data.sourceThreadId != null, {
     message: "Pass todoIds only alongside sourceThreadId.",
-  })
-  .refine(
-    (data) =>
-      !(
-        data.targets &&
-        (data.senderEmail ||
-          data.accountId ||
-          data.todoIds !== undefined ||
-          data.statuses !== undefined)
-      ),
-    {
-      message: "Pass targets alone — never beside senderEmail, accountId, todoIds, or statuses.",
-    },
-  );
+  });
 
 export type ResolveTodosForGmailSourceArgs = z.infer<typeof resolveTodosForGmailSourceArgsSchema>;
 
@@ -93,19 +70,10 @@ interface GmailThreadMetadata {
   senderEmails: Set<string>;
 }
 
-export interface ResolveTodosForGmailSourceOptions {
-  /**
-   * The threads of the matched todos that the caller's own rule still admits. A todo is
-   * dismissed only through an admitted thread. A throw dismisses nothing.
-   */
-  admitThreads?: (sourceThreadIds: readonly string[]) => Promise<ReadonlySet<string>>;
-}
-
 /**
- * Dismiss live Gmail-sourced todos by source: by `sourceThreadId` (`close-loop-todos`),
- * by `senderEmail`/`accountId` (`system.resolve_todo`), by `targets` (`system.remember`),
- * or a thread plus one sender scope. `todoIds` can narrow a thread call further.
- * A class target can dismiss only a `suggested` todo. All dismissals are one write.
+ * Dismiss live Gmail-sourced todos by source: by `sourceThreadId` (`close-loop-todos`,
+ * payment match), by `senderEmail`/`accountId` (`system.resolve_todo`), or a thread plus one
+ * sender scope. `todoIds` can narrow a thread call further. All dismissals are one write.
  *
  * `attribution` is the ADR-0115 record of the dismissal. It has no default: each caller names
  * its actor, and the `todos` trigger fails a write without one.
@@ -113,22 +81,17 @@ export interface ResolveTodosForGmailSourceOptions {
 export async function resolveTodosForGmailSource(
   args: ResolveTodosForGmailSourceArgs,
   attribution: TodoAttribution,
-  options: ResolveTodosForGmailSourceOptions = {},
 ): Promise<ResolveTodosForGmailSourceResult> {
   const parsed = resolveTodosForGmailSourceArgsSchema.parse(args);
   const senderEmail = normalizeEmailAddress(parsed.senderEmail);
   const sourceThreadId = normalizeOptional(parsed.sourceThreadId);
   const requestedTodoIds = parsed.todoIds ? new Set(parsed.todoIds) : null;
   const accountId = normalizeOptional(parsed.accountId);
-  const targets = parsed.targets ?? null;
   const dismissal = dismissalWrite(attribution);
   const auditReason = dismissal.auditReason;
-
-  // Load both statuses for a target sweep. Each target bounds its own matches below.
-  // The schema refuses `statuses` with `targets`.
   const statuses = parsed.statuses ?? LIVE_TODO_STATUSES;
 
-  if (!senderEmail && !sourceThreadId && !targets) {
+  if (!senderEmail && !sourceThreadId) {
     return {
       ok: false,
       status: "needs_clarification",
@@ -150,60 +113,30 @@ export async function resolveTodosForGmailSource(
   const allThreadIds = [...new Set(relevant.flatMap((candidate) => candidate.threadIds))];
 
   const threadMetadata =
-    senderEmail || accountId || targets
+    senderEmail || accountId
       ? await loadThreadMetadata(parsed.userId, allThreadIds)
       : new Map<string, GmailThreadMetadata>();
 
-  const matches: Array<{ todoId: string; threadId: string }> = [];
+  const todoIds = new Set<string>();
+  const matchedThreadIds = new Set<string>();
 
   for (const candidate of relevant) {
     for (const threadId of candidate.threadIds) {
       if (sourceThreadId && threadId !== sourceThreadId) continue;
 
-      if (senderEmail || accountId || targets) {
+      if (senderEmail || accountId) {
         const meta = threadMetadata.get(threadId);
 
         if (!meta) continue;
 
-        if (targets) {
-          // Use the instruction's own match rule. Senders and accounts are matched as two
-          // separate sets, not as pairs, so a thread across two mailboxes can over-match.
-          // An unknown target kind matches nothing. A class target (such as a domain) widens
-          // the sender set, so it retracts only `suggested`, never a promoted `open` todo.
-          const covered = targets.some(
-            (target) =>
-              (candidate.status === "suggested" || targetNamesOneMailbox(target)) &&
-              [...meta.senderEmails].some((sender) =>
-                [...meta.accountIds].some((account) =>
-                  targetMatchesSender(target, sender, account),
-                ),
-              ),
-          );
+        if (accountId && !meta.accountIds.has(accountId)) continue;
 
-          if (!covered) continue;
-        } else {
-          if (accountId && !meta.accountIds.has(accountId)) continue;
-
-          if (senderEmail && !meta.senderEmails.has(senderEmail)) continue;
-        }
+        if (senderEmail && !meta.senderEmails.has(senderEmail)) continue;
       }
 
-      matches.push({ todoId: candidate.id, threadId });
+      todoIds.add(candidate.id);
+      matchedThreadIds.add(threadId);
     }
-  }
-
-  const admitted = options.admitThreads
-    ? await options.admitThreads([...new Set(matches.map((match) => match.threadId))])
-    : null;
-
-  const todoIds = new Set<string>();
-  const matchedThreadIds = new Set<string>();
-
-  for (const match of matches) {
-    if (admitted && !admitted.has(match.threadId)) continue;
-
-    todoIds.add(match.todoId);
-    matchedThreadIds.add(match.threadId);
   }
 
   // Each todo keeps the status it was matched in, so a todo promoted since the read stays.

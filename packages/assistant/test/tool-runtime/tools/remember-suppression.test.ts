@@ -11,7 +11,6 @@ import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 // The v1 writer is not in the `knowledge` barrel.
 import { rememberSenderSuppression } from "../../../src/knowledge/sender-suppression";
 import { closeRedis } from "@alfred/db/redis";
-import { rememberInstructionAndDismissTodos } from "../../../src/runtime/adapters/system-tool-product";
 import { dbBackedSkip } from "../../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
@@ -84,24 +83,6 @@ async function todoStatus(todoId: string): Promise<string | undefined> {
   return row?.status;
 }
 
-function rememberRequest(userId: string) {
-  return {
-    input: {
-      kind: "standing_instruction" as const,
-      phrasing: `Stop showing me ${SENDER}.`,
-      directive: `Do not surface reminders from ${SENDER}.`,
-      targets: [SENDER],
-      effects: ["block_todo_suggestion" as const],
-    },
-    context: {
-      userId,
-      runId: "run_remember_suppression",
-      stepId: "step_remember_suppression",
-      toolCallId: `tool_${randomUUID()}`,
-    },
-  };
-}
-
 describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, () => {
   before(async () => {
     await db()
@@ -127,46 +108,5 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     assert.equal(result.ok, true);
 
     assert.equal(await todoStatus(todoId), "open");
-  });
-
-  test("the coordinator dismisses the sender's todos on the `remembered` path", async () => {
-    const userId = await seedUser();
-    // A one-mailbox target sweeps both live statuses. Only a domain target narrows to `suggested`.
-    const { todoId } = await seedGmailTodoFromSender(userId, "open");
-
-    const result = await rememberInstructionAndDismissTodos(rememberRequest(userId));
-    assert.equal(result.ok, true);
-
-    assert.equal(result.status, "remembered");
-    const sweep = result.resolvedTodos;
-    assert.ok(sweep);
-    assert.equal(sweep.ok, true);
-
-    assert.equal(sweep.status, "dismissed");
-    assert.equal(sweep.dismissedCount, 1);
-    assert.equal(await todoStatus(todoId), "dismissed");
-  });
-
-  test("the coordinator still dismisses on the `already_exists` path", async () => {
-    const userId = await seedUser();
-    const first = await seedGmailTodoFromSender(userId, "open");
-
-    const remembered = await rememberInstructionAndDismissTodos(rememberRequest(userId));
-    assert.equal(remembered.ok, true);
-
-    assert.equal(remembered.status, "remembered");
-    assert.equal(await todoStatus(first.todoId), "dismissed");
-
-    const second = await seedGmailTodoFromSender(userId, "open");
-
-    // The `already_exists` branch must still dismiss.
-    const again = await rememberInstructionAndDismissTodos(rememberRequest(userId));
-    assert.equal(again.ok, true);
-
-    assert.equal(again.status, "already_exists");
-    const againSweep = again.resolvedTodos;
-    assert.ok(againSweep);
-    assert.equal(againSweep.status, "dismissed");
-    assert.equal(await todoStatus(second.todoId), "dismissed");
   });
 });

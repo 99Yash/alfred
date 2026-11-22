@@ -152,22 +152,23 @@ export {
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
-  standingInstructions,
-  standingInstructionsOf,
   // Chat capture uses `saveStandingInstruction` (ADR-0113). The v1 writer stays in the inner
   // module for its tests until the v1 rows migrate (plan PR 5).
   saveStandingInstruction,
   checkStandingInstructionCapture,
-  previewStandingInstructionValue,
   type SaveStandingInstructionInput,
-  type SaveStandingInstructionResult,
   type StandingInstructionCaptureRefusal,
-  type ReportedStandingInstructionSet,
   type ActiveStandingInstruction,
-  type MailStandingInstructions,
-  type LoadedMailStandingInstructions,
-  type StandingInstructionTargetHit,
 } from "./standing-instructions";
+
+// Triage and the briefing composer read the instructions in the user's words (triage slice 4a).
+export {
+  instructionsInWordsOf,
+  readInstructionsInWords,
+  renderInstructionsInWords,
+  type InstructionInWords,
+  type InstructionsInWordsRead,
+} from "./instructions-in-words";
 
 export { memoryWorker } from "./worker";
 

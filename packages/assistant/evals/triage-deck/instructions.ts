@@ -2,8 +2,9 @@
  * The 21 active standing-instruction rows in production on 2026-11-06, as stored (all v1).
  * Each value is `unknown`: the deck reads it with `readStoredStandingInstruction`, as prod does.
  * The broker's domains carry an invented name (`examplebroker`); no deck mail comes from them.
- * The stock instruction was saved as a list of sender targets, so a share registry such as
- * kfintech or cameo matches no row. Slice 4 replaces these rows with the instruction in words.
+ * The stock instruction was saved as a list of sender targets. Since slice 4a the deck reads
+ * them as prod does: grouped by their words (`instructionsInWordsOf`), they are the owner's two
+ * instructions, and a share registry such as kfintech, cameo, or cams gets them from the words.
  */
 export const PROD_INSTRUCTION_ROWS: readonly {
   factId: string;

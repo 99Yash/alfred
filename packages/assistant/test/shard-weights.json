@@ -58,7 +58,6 @@
   "test/briefing/preferences-precedence.test.ts": 1500,
   "test/briefing/preferences.test.ts": 600,
   "test/briefing/read-enrichment.test.ts": 5400,
-  "test/briefing/read-suppression.test.ts": 4800,
   "test/briefing/run-closure.test.ts": 4600,
   "test/briefing/suppression-gather.test.ts": 6200,
   "test/briefing/suppression.test.ts": 5000,

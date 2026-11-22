@@ -10,7 +10,7 @@ import {
   registerSystemToolKnowledgeAdapter,
   registerSystemToolTaskAdapter,
   registerSystemToolWebSearchAdapter,
-  rememberInstructionAndDismissTodos,
+  rememberStandingInstruction,
   resolveTodo,
   suggestTodo,
   webSearch,
@@ -90,7 +90,7 @@ describe("system-tool product seams without registered adapters", () => {
     });
 
     const instructionMessage = "No system-tool instruction adapter is registered";
-    assert.throws(() => rememberInstructionAndDismissTodos(requests.remember), {
+    assert.throws(() => rememberStandingInstruction(requests.remember), {
       message: instructionMessage,
     });
     assert.throws(() => listInstructions(requests.list), { message: instructionMessage });
@@ -156,7 +156,7 @@ describe("system-tool product seams with registered adapters", () => {
     };
 
     const instructions: SystemToolInstructionAdapter = {
-      rememberInstructionAndDismissTodos: (args) => {
+      rememberStandingInstruction: (args) => {
         calls.push({ name: "remember", args });
 
         return Promise.resolve(results.remember);
@@ -208,7 +208,7 @@ describe("system-tool product seams with registered adapters", () => {
     unregisterTasks = registerSystemToolTaskAdapter(tasks);
 
     assert.equal((await readUserContext(requests.read)).output, results.read);
-    assert.equal(await rememberInstructionAndDismissTodos(requests.remember), results.remember);
+    assert.equal(await rememberStandingInstruction(requests.remember), results.remember);
     assert.equal(await listInstructions(requests.list), results.list);
     assert.equal(await forgetInstruction(requests.forget), results.forget);
     assert.equal(await editInstruction(requests.edit), results.edit);

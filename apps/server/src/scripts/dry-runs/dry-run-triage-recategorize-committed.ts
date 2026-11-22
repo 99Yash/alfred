@@ -113,7 +113,6 @@ async function processUser(u: TargetUser): Promise<Set<string>> {
       documentId: row.documentId,
       sourceThreadId: row.threadId,
       document: ctxData.document,
-      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
       mailFacts,
     });

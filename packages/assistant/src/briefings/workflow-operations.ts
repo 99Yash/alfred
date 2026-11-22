@@ -1,11 +1,7 @@
-import {
-  BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND,
-  gatherBriefingWithSuppressionAudit,
-  instructionSuppressionLogPart,
-  type BriefingInstructionSuppression,
-} from "./gather";
+import { gatherBriefing } from "./gather";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
+import { readInstructionsInWords, type InstructionsInWordsRead } from "@alfred/assistant/knowledge";
 import { resolveBriefingPreferences } from "./preferences";
 import {
   fetchLatestWatermark,
@@ -35,6 +31,7 @@ import {
   type BrokenConnection,
 } from "@alfred/assistant/connections";
 import {
+  assertNever,
   briefingClosedLoopSchema,
   briefingConnectionNoticeSchema,
   briefingGatherSchema,
@@ -47,6 +44,7 @@ import {
   type BriefingConnectionNotice,
   type BriefingGather,
   type BriefingLoop,
+  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
@@ -54,7 +52,7 @@ import { serverEnv } from "@alfred/env/server";
 import { renderBriefingEmail, type BriefingBlockRow } from "@alfred/mailer";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { runBriefingAgent } from "./agent/agent";
+import { runBriefingAgent, type StandingInstructionsSent } from "./agent/agent";
 import { activityGapCountWithoutRow, blockingProvenance } from "./provenance";
 import {
   auditComposedBriefing,
@@ -261,14 +259,13 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   const activityWindow = await readBriefingActivityWindow({ userId: ctx.userId, end: until });
 
   let gather: BriefingGather;
-  let suppressedByInstruction: BriefingInstructionSuppression[] = [];
   let closedLoops: BriefingClosedLoop[] = [];
   let loops: BriefingLoop[] = [];
 
   try {
     // Cheap deterministic gather over the same window. Feeds suppression and the surface;
     // the agent still writes the prose.
-    const gathered = await gatherBriefingWithSuppressionAudit({
+    const gathered = await gatherBriefing({
       userId: ctx.userId,
       settings: userSettings,
       briefingDate,
@@ -280,12 +277,6 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     });
 
     gather = gathered.gather;
-    suppressedByInstruction = gathered.suppressedByInstruction;
-
-    if (suppressedByInstruction.length > 0) {
-      ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, { items: suppressedByInstruction });
-    }
-
     closedLoops = gathered.closedLoops;
     loops = gathered.loops;
     await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });
@@ -322,7 +313,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `activity_since=${activityWindow.start.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}`,
   );
 
   return {
@@ -411,6 +402,11 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   // ADR-0120 slice 2 gives the composer no loops and no provenance, not an undefined list.
   const { loops, provenance } = dailyBriefingStateSchema.parse(ctx.state);
 
+  // The user's standing instructions in words (triage slice 4a). A fault can be transient, so the
+  // step reads one more time. A second failure goes to the composer as a fact (ADR-0117), so the
+  // briefing does not send as if the user had no instructions.
+  const standingInstructions = await readStandingInstructionsForCompose(ctx);
+
   try {
     const compose = async (
       openAskViolations: readonly OpenAskViolation[],
@@ -434,6 +430,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         weather: ctx.state.weather,
         brokenConnections,
         provenance,
+        standingInstructions,
         openAskViolations,
         missingConnectionNotices,
       });
@@ -516,6 +513,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
 
   await ctx.log(
     `compose: steps=${result.steps} model=${result.modelId} ` +
+      `instructions=${describeInstructionsSent(result.standingInstructions)} ` +
       `in=${result.usage.inputTokens ?? 0} out=${result.usage.outputTokens ?? 0} ` +
       `subject="${body.subject}"`,
   );
@@ -535,6 +533,40 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
     },
     nextStep: "send",
   };
+}
+
+/** One read of the instructions, and one more after a failure. Each failure is a log line. */
+async function readStandingInstructionsForCompose<State extends DailyBriefingOperationState>(
+  ctx: StepContext<State>,
+): Promise<InstructionsInWordsRead> {
+  const first = await readInstructionsInWords(ctx.userId);
+
+  if (first.kind === "loaded") return first;
+
+  await ctx.log(
+    `compose: standing instruction read failed, reading again: ${toMessage(first.error)}`,
+  );
+
+  const second = await readInstructionsInWords(ctx.userId);
+
+  if (second.kind === "read_failed") {
+    await ctx.log(
+      `compose: standing instruction read failed again; the composer gets the failure as a fact: ${toMessage(second.error)}`,
+    );
+  }
+
+  return second;
+}
+
+function describeInstructionsSent(sent: StandingInstructionsSent): string {
+  switch (sent.kind) {
+    case "loaded":
+      return `sent:${sent.sent},omitted:${sent.omitted}`;
+    case "read_failed":
+      return "read_failed";
+    default:
+      return assertNever(sent, "standing instructions sent");
+  }
 }
 
 function describeViolations(violations: readonly OpenAskViolation[]): string {

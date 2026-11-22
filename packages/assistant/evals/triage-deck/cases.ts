@@ -75,6 +75,13 @@ export interface DeckCase {
    * one label for the group. A case that only groups related mail leaves it unset.
    */
   oneKind?: true;
+  /**
+   * The label of the case that this case is the control of. Set: the deck sends no standing
+   * instruction with these mails, as for a user who has none, and `accept` is the label the mail
+   * gets without the words. The named case shows that the words moved a label only while its
+   * control holds: when the control misses, the mail is quiet without the words too.
+   */
+  controlOf?: string;
   /** Why the theory gives this label. The judge-free scorers print it on a miss. */
   note: string;
   mails: readonly [DeckMail, ...DeckMail[]];
@@ -86,6 +93,32 @@ const QUIET = ["fyi", "done", "receipt", "news", "promo"] as const;
 const UPDATES = ["UNREAD", "CATEGORY_UPDATES", "INBOX"] as const;
 
 const PROMOTIONS = ["CATEGORY_PROMOTIONS", "UNREAD", "INBOX"] as const;
+
+/**
+ * Registrar mail that asks for a vote or a meeting with a date, for the slice 4a gate. Written
+ * for the deck, not prod captures, so `prodCategory` is a placeholder that no scorer reads. Two
+ * cases send the same mails: one with the owner's words, and its control without them.
+ */
+const REGISTRAR_MEETING_AND_VOTE_MAILS: readonly [DeckMail, ...DeckMail[]] = [
+  {
+    from: "KFintech e-Voting <evoting@kfintech.com>",
+    subject:
+      "Reminder: Remote e-voting closes TODAY at 5:00 PM IST - Vindhya Mutual Fund unitholders' resolution",
+    body: "Dear Unitholder, This is a reminder that the remote e-voting on the resolution for the merger of Vindhya Focused Equity Fund into Vindhya Flexi Cap Fund closes today, 20-Nov-2026, at 5:00 PM IST. Folio No: [redacted]. EVEN: 9182. User ID: [redacted]. Your vote has not been recorded yet. Cast your vote now at https://evoting.kfintech.com. After 5:00 PM the e-voting module will be disabled. KFin Technologies Limited, Registrar and Transfer Agent.",
+    authoredAt: "2026-11-20T03:30:00Z",
+    labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
+    prodCategory: "urgent",
+  },
+  {
+    from: "Vindhya Mutual Fund <vindhyamf@camsonline.com>",
+    subject:
+      "Notice of Meeting of Unitholders of Vindhya Small Cap Fund - 08-Dec-2026 at 11:00 AM IST",
+    body: "Dear Unitholder, Notice is hereby given that a Meeting of the Unitholders of Vindhya Small Cap Fund will be held on Tuesday, 08-Dec-2026 at 11:00 AM IST through Video Conferencing, to consider the change in the fundamental attributes of the scheme. Folio No: [redacted]. Join the meeting: https://vc.camsonline.com/[redacted]. Meeting ID: [redacted]. Please add the meeting to your calendar and join 15 minutes early to complete verification. Computer Age Management Services Limited, Registrar and Transfer Agent.",
+    authoredAt: "2026-11-18T05:00:00Z",
+    labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
+    prodCategory: "meeting",
+  },
+];
 
 export const DECK: readonly DeckCase[] = [
   // ── Same sender, same kind of mail: one label ─────────────────────────────
@@ -423,6 +456,67 @@ export const DECK: readonly DeckCase[] = [
         body: "NILGIRI PHARMA SCIENCE LIMITED. Date: October 30, 2026. Ref: Folio / DP Id & Client Id: [redacted]. Dear Shareholder(s), Sub: Unaudited Financial Results for the quarter and half year ended September 30, 2026. The Board of Directors, at its meeting held on Thursday, October 29, 2026, approved the Unaudited Financial Results (Consolidated and Standalone) of the Company.",
         authoredAt: "2026-10-30T08:00:00Z",
         labelIds: UPDATES,
+        prodCategory: "action",
+      },
+    ],
+  },
+  {
+    label: "cams-mutual-fund-statements",
+    accept: [...QUIET],
+    note: "A consolidated account statement and a dividend (IDCW) payout notice from CAMS, a mutual-fund registrar. Nothing to do. No stored rule names cams. This case guards that the words make no routine registrar mail loud; it is not proof that the words help, because the same mails are quiet with no instruction too (2026-11-22, three trials each: receipt, receipt). Both mails are written for the deck, not prod captures, so `prodCategory` is a placeholder that no scorer reads.",
+    mails: [
+      {
+        from: "CAMS <donotreply@camsonline.com>",
+        subject:
+          "Consolidated Account Statement - CAMS Mailback Request for 01-Oct-2026 to 31-Oct-2026",
+        body: "Dear Investor, Please find attached the Consolidated Account Statement (CAS) for the period 01-Oct-2026 to 31-Oct-2026 for the mutual fund folios registered with your PAN and email address. The attachment is password protected. The password is your PAN in upper case. Folio No: [redacted]. Scheme: Vindhya Flexi Cap Fund - Direct Plan - Growth. Closing unit balance: 412.318. NAV as on 31-Oct-2026: Rs. 58.2140. Market value: Rs. 24,002.68. This is a system generated mail. Please do not reply to this mail. Computer Age Management Services Limited, Registrar and Transfer Agent.",
+        authoredAt: "2026-11-02T04:30:00Z",
+        labelIds: UPDATES,
+        prodCategory: "fyi",
+      },
+      {
+        from: "Vindhya Mutual Fund <vindhyamf@camsonline.com>",
+        subject: "Vindhya Balanced Advantage Fund - IDCW Payout Intimation",
+        body: "Dear Unitholder, We are pleased to inform you that an Income Distribution cum Capital Withdrawal (IDCW) of Rs. 0.1250 per unit has been declared under Vindhya Balanced Advantage Fund - Direct Plan - IDCW Option, with record date 14-Nov-2026. Folio No: [redacted]. Units held on record date: 1,204.556. IDCW amount: Rs. 150.57. TDS: Rs. 0.00. Net amount: Rs. 150.57. The amount has been credited to your registered bank account ending [redacted] on 17-Nov-2026. No action is required from you. For any queries, write to us. Registrar: Computer Age Management Services Limited.",
+        authoredAt: "2026-11-17T06:15:00Z",
+        labelIds: UPDATES,
+        prodCategory: "fyi",
+      },
+    ],
+  },
+  {
+    label: "registrar-meeting-and-vote-mail-quiet-from-the-words",
+    accept: [...QUIET],
+    note: "An e-voting reminder that closes today and a unitholders' meeting with a join link, from a fund registrar (kfintech, cams). The owner, 2026-09-11: 'not to tag stock-related emails as urgent or treat any scheduled meetings as my concern. Apply this to all investment-related senders.' No stored rule names these senders: the mail is quiet from the words alone (slice 4a gate). The words are the proof only while the control `registrar-meeting-and-vote-mail-without-instructions` is loud.",
+    mails: REGISTRAR_MEETING_AND_VOTE_MAILS,
+  },
+  {
+    label: "registrar-meeting-and-vote-mail-without-instructions",
+    controlOf: "registrar-meeting-and-vote-mail-quiet-from-the-words",
+    accept: ["urgent", "action", "meeting"],
+    note: "The control: the same mails with no standing instruction. It scores 1 when the mail gets a label that the owner's words must move (urgent, action, or meeting). A miss here means the mail is quiet without the words, so the paired case proves nothing about them.",
+    mails: REGISTRAR_MEETING_AND_VOTE_MAILS,
+  },
+  {
+    label: "registrar-kyc-and-nomination-asks-stay-loud",
+    accept: ["urgent", "action"],
+    note: "A KYC hold that blocks the folio and a nomination deadline that freezes it, from fund registrars (cams, kfintech). Each is a real ask: if Yash ignores it, his own folios stop. The owner's words keep routine investment mail quiet and say nothing against a real ask, so it stays loud with the words present. Both mails are written for the deck, not prod captures, so `prodCategory` is a placeholder that no scorer reads.",
+    mails: [
+      {
+        from: "CAMS KRA <camskra@camsonline.com>",
+        subject:
+          "Action required: Your KYC status is 'On Hold' - transactions in your folios are blocked",
+        body: "Dear Investor, Your KYC record with CAMS KRA (PAN: [redacted]) is 'On Hold' because the email address and mobile number on record could not be validated. Until the KYC is validated, new purchases, SIP instalments, switches, and redemptions in your mutual fund folios will not be processed. Your SIP in Vindhya Flexi Cap Fund due on 05-Dec-2026 will be rejected. To validate, complete the email and mobile verification at https://camskra.com/kyc or submit a fresh KYC with your bank or fund house. Computer Age Management Services Limited, KYC Registration Agency.",
+        authoredAt: "2026-11-19T06:00:00Z",
+        labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
+        prodCategory: "action",
+      },
+      {
+        from: "Vindhya Mutual Fund <vindhyamf@kfintech.com>",
+        subject: "Submit nomination or opt out by 31-Dec-2026 to avoid freezing of your folio",
+        body: "Dear Unitholder, As per SEBI circular, all unitholders must either register a nominee or submit a declaration to opt out of nomination. Our records show that folio [redacted] has neither. If you do not submit your nomination or the opt-out declaration by 31-Dec-2026, the folio will be frozen for debits, and you will not be able to redeem or switch your units. Submit it online at https://mfs.kfintech.com/nomination using your PAN and OTP. KFin Technologies Limited, Registrar and Transfer Agent.",
+        authoredAt: "2026-11-21T04:45:00Z",
+        labelIds: ["UNREAD", "IMPORTANT", "CATEGORY_UPDATES", "INBOX"],
         prodCategory: "action",
       },
     ],

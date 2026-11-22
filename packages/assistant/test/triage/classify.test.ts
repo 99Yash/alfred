@@ -464,7 +464,6 @@ describe("classifyCallOptions", () => {
       prompt: "an email",
       signal,
       maxRetries: undefined,
-      withInstructionMatches: false,
     });
 
   test("forwards the hedge attempt's signal to the provider call", () => {
@@ -495,7 +494,6 @@ describe("classifyCallOptions", () => {
       prompt: "an email",
       signal: new AbortController().signal,
       maxRetries: 1,
-      withInstructionMatches: false,
     });
 
     assert.equal(evalOptions.maxRetries, 1);

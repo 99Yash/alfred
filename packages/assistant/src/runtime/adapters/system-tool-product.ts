@@ -11,10 +11,7 @@ import {
   runWebSearch,
   saveStandingInstruction,
 } from "@alfred/assistant/knowledge";
-import {
-  readGmailThreadClosure,
-  threadsWhereInstructionBlocksTodo,
-} from "@alfred/assistant/triage";
+import { readGmailThreadClosure } from "@alfred/assistant/triage";
 import {
   itemEvidence,
   readResult,
@@ -58,112 +55,25 @@ function chatToolAttribution(
   };
 }
 
-type SaveInstructionResult = Awaited<ReturnType<typeof saveStandingInstruction>>;
-
-type ResolveSenderTodosResult = Awaited<ReturnType<typeof resolveTodosForGmailSource>>;
-
-/**
- * The todo sweep after the write. `null`: the instruction blocks no todo, or names no sender.
- * `sweep_failed`: the instruction is stored, and no todo was dismissed.
- */
-type InstructionTodoSweepResult =
-  | ResolveSenderTodosResult
-  | { ok: false; status: "sweep_failed"; message: string }
-  | null;
-
-export type RememberAndDismissResult =
-  | (Extract<SaveInstructionResult, { ok: true }> & {
-      resolvedTodos: InstructionTodoSweepResult;
-    })
-  | Extract<SaveInstructionResult, { ok: false }>;
-
-interface InstructionCaptureDependencies {
-  save: typeof saveStandingInstruction;
-  dismissTodos: typeof resolveTodosForGmailSource;
-  admitThreads: typeof threadsWhereInstructionBlocksTodo;
-}
-
 type RememberRequest = SystemToolRequest<"system.remember">;
 
 /**
- * Save first, so no todo is dismissed for an instruction Alfred did not store. When the
- * instruction blocks todo suggestions, the live todos of the senders it names are dismissed in
- * one write, but only where the effective triage result blocks the todo now. So an exception
- * that cancels the block keeps its todo. A scope reaches no live todo here: it matches only in
- * triage. A failed sweep keeps the stored instruction and says so; the same call again
- * returns `already_exists` and sweeps again.
+ * Save the instruction (ADR-0113 capture). It changes no todo: no instruction blocks a todo in
+ * code since triage slice 4a. Slice 4b rewrites the save path to words.
  */
-export function createRememberInstructionCoordinator(
-  dependencies: InstructionCaptureDependencies,
-): (args: RememberRequest) => Promise<RememberAndDismissResult> {
-  return async ({ input, context }) => {
-    const { kind: _kind, ...fields } = input;
+function rememberStandingInstruction({ input, context }: RememberRequest) {
+  const { kind: _kind, ...fields } = input;
 
-    const result = await dependencies.save({
-      userId: context.userId,
-      input: fields,
-      source: {
-        kind: "tool_call",
-        id: context.toolCallId,
-        meta: { runId: context.runId, stepId: context.stepId },
-      },
-    });
-
-    if (!result.ok) return result;
-
-    const [firstTarget, ...otherTargets] = result.instruction.targets;
-
-    const blocksTodos = result.instruction.effects.some(
-      (effect) => effect.kind === "block_todo_suggestion",
-    );
-
-    if (!blocksTodos || firstTarget === undefined) return { ...result, resolvedTodos: null };
-
-    const resolvedTodos = await dependencies
-      .dismissTodos(
-        { userId: context.userId, targets: [firstTarget, ...otherTargets] },
-        // The instruction just stored permits the sweep, so it is the authority.
-        {
-          actor: "agent",
-          runId: context.runId,
-          toolCallId: context.toolCallId,
-          authority: "instruction",
-          authorityRef: { kind: "instruction", id: result.factId },
-          cause: "sender_suppressed",
-        },
-        {
-          admitThreads: (sourceThreadIds) =>
-            dependencies.admitThreads({
-              userId: context.userId,
-              instructionId: result.instruction.instructionId,
-              sourceThreadIds,
-            }),
-        },
-      )
-      .catch((err: unknown): InstructionTodoSweepResult => {
-        logger.warn(
-          { err },
-          `[standing-instructions] todo sweep failed instruction=${result.instruction.instructionId}`,
-        );
-
-        return {
-          ok: false,
-          status: "sweep_failed",
-          message:
-            "The instruction is stored, but no existing todo was dismissed. Call " +
-            "system.remember again with the same input to retry the sweep.",
-        };
-      });
-
-    return { ...result, resolvedTodos };
-  };
+  return saveStandingInstruction({
+    userId: context.userId,
+    input: fields,
+    source: {
+      kind: "tool_call",
+      id: context.toolCallId,
+      meta: { runId: context.runId, stepId: context.stepId },
+    },
+  });
 }
-
-export const rememberInstructionAndDismissTodos = createRememberInstructionCoordinator({
-  save: saveStandingInstruction,
-  dismissTodos: resolveTodosForGmailSource,
-  admitThreads: threadsWhereInstructionBlocksTodo,
-});
 
 const knowledgeAdapter: SystemToolKnowledgeAdapter = {
   async readUserContext({ input, context }) {
@@ -187,7 +97,7 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
 };
 
 const instructionAdapter: SystemToolInstructionAdapter = {
-  rememberInstructionAndDismissTodos,
+  rememberStandingInstruction,
   checkInstruction({ input, context }) {
     const { kind: _kind, ...fields } = input;
 

@@ -34,7 +34,6 @@ import {
 } from "@alfred/assistant/execution";
 import { memoryWorker } from "@alfred/assistant/knowledge";
 import { scheduledJobsEnabled } from "@alfred/env/server";
-import { triageRematchWorker } from "@alfred/assistant/triage";
 import {
   closeEventBridge,
   closeReplicachePokeBridge,
@@ -102,7 +101,7 @@ type BackgroundService = BackgroundWorker | ScheduledLoop;
  */
 const SHUTDOWN_ORDER = [
   ["documentAskReconciler", "mcpConnectionRecovery"],
-  ["agent", "subAgentJoinWake", "chatMemory", "conversationCompaction", "triageRematch"],
+  ["agent", "subAgentJoinWake", "chatMemory", "conversationCompaction"],
   ["approvalNotification"],
   ["approvalExpiry"],
   ["ingestion"],
@@ -127,9 +126,6 @@ function backgroundServices(config: RuntimeConfig) {
     subAgentJoinWake: subAgentJoinWakeWorker,
     ingestion: ingestionWorker,
     memory: memoryWorker,
-    // ADR-0113 re-match. It enqueues relabels on the ingestion queue, so it stops in the
-    // agent group, before that queue closes.
-    triageRematch: triageRematchWorker,
     chatMemory: chatMemoryWorker,
     conversationCompaction: conversationCompactionWorker,
     briefing: briefingWorker,
