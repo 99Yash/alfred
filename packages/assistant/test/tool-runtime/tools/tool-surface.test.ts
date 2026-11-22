@@ -55,9 +55,11 @@ describe("systemToolKernel", () => {
   });
 
   test("every system tool named by the composed chat prompt is eager or intentionally lazy", () => {
-    // The artifact schemas are the largest, so they stay lazy. Add any other exception here on
-    // purpose.
+    // The artifact schemas are the largest, so they stay lazy. Prod rarely spawns, and the runtime
+    // joins the child, so spawn stays lazy too (ADR-0130 decision 6). Add any other exception
+    // here on purpose.
     const intentionallyLazy = new Set<ToolName>([
+      "system.spawn_sub_agent",
       "system.create_artifact",
       "system.append_artifact_page",
       "system.append_artifact_section",
@@ -77,8 +79,8 @@ describe("systemToolKernel", () => {
       );
     }
 
-    assert.ok(namedSystemTools.has("system.await_sub_agent"));
-    assert.ok(kernel.has("system.await_sub_agent"));
+    assert.ok(namedSystemTools.has("system.spawn_sub_agent"));
+    assert.ok(!kernel.has("system.spawn_sub_agent"));
   });
 });
 
@@ -87,24 +89,24 @@ describe("buildSdkToolSet caller/interaction projection", () => {
   // lazy tool.
   const kernelNames = () => listKernelTools().map((t) => t.name);
 
-  test("live chat boss projects all ten kernel tools", () => {
+  test("live chat boss projects all eight kernel tools", () => {
     const chat = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "live_chat" }),
     );
 
-    assert.equal(chat.length, 10, `[${chat.toSorted().join(", ")}]`);
+    assert.equal(chat.length, 8, `[${chat.toSorted().join(", ")}]`);
   });
 
-  test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → eight", () => {
+  test("a background brief drops read_chat_history and ask_user (requiresLiveChat) → six", () => {
     const brief = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "boss", interaction: "background" }),
     );
 
-    assert.equal(brief.length, 8);
+    assert.equal(brief.length, 6);
     assert.ok(!brief.includes("system.read_chat_history"), `[${brief.toSorted().join(", ")}]`);
   });
 
-  test("a sub-agent also drops spawn_sub_agent (boss-only caller) → six", () => {
+  test("a sub-agent gets the same six, and spawn_sub_agent is not in the kernel", () => {
     const sub = Object.keys(
       buildSdkToolSet(kernelNames(), { caller: "sub_agent", interaction: "background" }),
     );

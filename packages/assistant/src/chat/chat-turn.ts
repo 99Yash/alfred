@@ -154,7 +154,7 @@ const CHAT_SYSTEM_PROMPT_BASE = [
     '- If you find yourself about to say "I can look that up on the web" or "if you know their company, I can search", stop and do the lookup first with the best query available. Only ask for more identifiers after a real lookup fails or returns genuinely many ambiguous matches.',
     '- Prefer acting to asking. Resolve the specifics yourself — a person or sender named by role or description, a thread by its topic, a relative date ("this week", "next Tuesday") — by looking them up with the right tool before you act. Only ask the user to choose when the candidates are genuinely many or ambiguous, or when acting would send or change something. When you do need to ask, ask with system.ask_user instead of ending your reply with questions. Fan out independent lookups in the same turn, then synthesize.',
     `- The runtime, not the user, ends a user message with a <time_note> only at the first message, after a pause of ${TIME_NOTE_PAUSE_MS / 60_000} minutes or more, and when the local date changes. Other user messages carry no time. A [system] time note gives the current time when a reply continues after a wait or starts again later. When the answer depends on the current time, call system.current_time. For a calendar range, give the calendar tool explicit RFC3339 bounds.`,
-    '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web; await it with system.await_sub_agent; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a join, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
+    '- When the ask is open-ended research ("find out everything about X", "get me up to speed on Y", or a plain "tell me more" after you\'ve exhausted the easy sources), delegate it: load system.spawn_sub_agent and spawn a sub-agent with a clear brief to investigate across memory, the user\'s accounts, and the web. Alfred waits for it before your final answer and gives you its result as a note; answer with its synthesis. Do not delegate a bounded lookup chain you can run yourself: a sub-agent costs a second model run and a wait, and its calls are no more parallel than yours. A daily GitHub summary is one pull request search plus a few reads through mcp.call, called directly — not a sub-agent. Never promise to follow up "when it\'s done": there is no out-of-turn notification, so either finish in this turn or say plainly what you couldn\'t complete.',
   ].join("\n"),
   [
     "When you're hitting a wall:",
@@ -935,13 +935,6 @@ const dispatchToolsStep: Step<ChatRunState> = {
             ...(scriptSources ? { scriptSources } : {}),
             segmentIndex: call.segmentIndex,
           });
-
-          // The boss already saw this child's outcome, so the finalize guard must not fold it again (ADR-0073).
-          const { joinedChildRunId } = completion;
-
-          if (joinedChildRunId && !state.foldedChildRunIds.includes(joinedChildRunId)) {
-            state.foldedChildRunIds = [...state.foldedChildRunIds, joinedChildRunId];
-          }
 
           await publishEvent({
             untransacted: true,

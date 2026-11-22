@@ -16,7 +16,7 @@ let runtimeSpanStarter: (input: RuntimeSpanInput) => RuntimeSpanCloser = startRu
 
 export interface ToolCallBatchSpan {
   end(
-    terminal: "committed" | "staged" | "parked",
+    terminal: "committed" | "staged",
     results: readonly (ToolCallDispatchResult | undefined)[],
   ): void;
   end(terminal: "error"): void;
@@ -38,7 +38,7 @@ export function startToolCallBatchSpan(run: ToolCallRun, callCount: number): Too
   let ended = false;
 
   const end = (
-    terminal: "committed" | "staged" | "parked" | "error",
+    terminal: "committed" | "staged" | "error",
     results?: readonly (ToolCallDispatchResult | undefined)[],
   ): void => {
     if (ended) return;
@@ -214,7 +214,6 @@ function summarize(
   const counts = new Map<string, number>([
     ["executed", 0],
     ["staged", 0],
-    ["parked", 0],
     ["rejected", 0],
     ["invalidInput", 0],
     ["unknownTool", 0],

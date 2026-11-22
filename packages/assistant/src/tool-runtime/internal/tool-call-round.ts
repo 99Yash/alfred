@@ -99,17 +99,6 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
       return { kind: "waiting", wake: staged.wake, activeNames };
     }
 
-    const parked = results.find(
-      (result): result is Extract<ToolCallDispatchResult, { kind: "parked" }> =>
-        result?.kind === "parked",
-    );
-
-    if (parked) {
-      span.end("parked", results);
-
-      return { kind: "waiting", wake: parked.wake, activeNames };
-    }
-
     let transcript = [...input.transcript];
     const calls = [];
     let reissue = false;
@@ -124,7 +113,7 @@ export async function runToolCallRound<Call extends ProposedToolCall>(
         );
       }
 
-      if (result.kind === "staged" || result.kind === "parked") continue;
+      if (result.kind === "staged") continue;
 
       if (result.kind === "inactive_tool") reissue = true;
 

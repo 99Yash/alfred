@@ -209,8 +209,6 @@ export interface CompletedToolCall<Call extends ProposedToolCall = ProposedToolC
    * so a card that names the operation reads this first.
    */
   executedInput?: unknown;
-  /** Set only by the join arm: the child run it resolved. */
-  joinedChildRunId?: string | undefined;
   /** The executed call's effects. Empty for a call that did not execute. */
   effects: ToolEffects;
 }
@@ -293,39 +291,6 @@ export type SpawnSubAgentRequest = Omit<SpawnSubAgentInput, "allowedIntegrations
   chat?: ChatTurnAddress | undefined;
 };
 
-export interface JoinChildRunRequest {
-  parentRunId: string;
-  userId: string;
-  childRunId: string;
-}
-
-declare const safeToParkWakeBrand: unique symbol;
-
-/**
- * A signal wake that carries a persisted deadline, which the join reconciler reads. Only
- * execution mints it, so no adapter can park a run without that backstop. The contract field is
- * optional (zod infers `?: string | undefined`), so the intersection, not `Required`, makes it a
- * plain `string` here.
- */
-export type SafeToParkWake = Extract<WakeCondition, { kind: "signal" }> & {
-  deadlineAt: string;
-} & {
-  readonly [safeToParkWakeBrand]: true;
-};
-
-export type AwaitSubAgentDispatchResult =
-  | {
-      kind: "executed";
-      stagingId: null;
-      toolResult: unknown;
-      effects: ToolEffects;
-      editedByUser: false;
-    }
-  | {
-      kind: "parked";
-      wake: SafeToParkWake;
-    };
-
 /** Mirrors `ScratchOperation` in `execution/scratchpad/index.ts` (ADR-0089). */
 export type SystemToolScratchOperation =
   | { verb: "read"; key: string }
@@ -352,30 +317,15 @@ export interface SpawnSubAgentResult {
   readonly subId: string;
 }
 
-/** Mirrors `ChildRunOutcome` in `execution/sub-agents.ts` (ADR-0089). */
-export interface ChildRunOutcomeResult {
-  readonly ok: boolean;
-  /** True once the child reached a terminal status. */
-  readonly done: boolean;
-  readonly status: string;
-  readonly output?: unknown;
-  readonly error?: unknown;
-  /** Feeds the await wait ceiling. */
-  readonly runningMs?: number | undefined;
-  readonly reason?: string;
-}
-
 /**
  * Surface:  chat.
- * Owns/hides: sub-agent spawn and join, and run scratch. Hides the agent runtime.
+ * Owns/hides: sub-agent spawn, and run scratch. Hides the agent runtime.
  * Why the seam: inverts tool-runtime -> execution.
  * Wiring: execution/system-tool-adapter.ts installs; internal/tools/system.ts reads.
  * See: ADR-0089, and docs/reference/tool-runtime-map.md.
  */
 export interface SystemToolAgentAdapter {
   spawnSubAgent(args: SpawnSubAgentRequest): Promise<SpawnSubAgentResult>;
-  readChildRunOutcome(args: JoinChildRunRequest): Promise<ChildRunOutcomeResult>;
-  resolveAwaitSubAgent(args: JoinChildRunRequest): Promise<AwaitSubAgentDispatchResult>;
   scratchpad(args: { runId: string; writer: ToolCallActor["caller"] }): SystemToolScratchpad;
 }
 
@@ -519,20 +469,6 @@ export function registerSystemToolChatHistoryAdapter(
 
 export function spawnSubAgent(args: SpawnSubAgentRequest): Promise<SpawnSubAgentResult> {
   return requireSystemToolAgentAdapter().spawnSubAgent(args);
-}
-
-export function readChildRunOutcome(args: {
-  parentRunId: string;
-  userId: string;
-  childRunId: string;
-}): Promise<ChildRunOutcomeResult> {
-  return requireSystemToolAgentAdapter().readChildRunOutcome(args);
-}
-
-export function resolveAwaitSubAgent(
-  args: JoinChildRunRequest,
-): Promise<AwaitSubAgentDispatchResult> {
-  return requireSystemToolAgentAdapter().resolveAwaitSubAgent(args);
 }
 
 /** The calling run's scratchpad, bound to the caller as its writer. */

@@ -82,8 +82,6 @@ export type ToolCallDispatchResult =
       sanitized?: boolean;
       /** Set only after an approval edit: the input that ran, not the model's proposal. */
       executedInput?: unknown;
-      /** Set only by the join arm: the child run it resolved. */
-      joinedChildRunId?: string;
     })
   | (CardOutcome & {
       kind: "failed";
@@ -109,7 +107,6 @@ export type ToolCallDispatchResult =
       stagingId: string;
       wake: Extract<WakeCondition, { kind: "hil" }>;
     }
-  | { kind: "parked"; wake: Extract<WakeCondition, { kind: "signal" }> }
   | {
       kind: "invalid_input";
       result: InvalidInputToolResult;

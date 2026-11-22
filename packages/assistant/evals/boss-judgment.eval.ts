@@ -13,7 +13,6 @@ import {
   parseIanaTimezone,
   readUserContextInput,
   webSearchInput,
-  awaitSubAgentInput,
   spawnSubAgentInput,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
@@ -44,8 +43,6 @@ const READ_CONTEXT_TOOL = "system.read_user_context";
 const WEB_SEARCH_TOOL = "system.web_search";
 
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
-
-const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent";
 
 const FETCH_URL_TOOL = "system.fetch_url";
 
@@ -251,7 +248,7 @@ const CONNECTED_SUMMARY = [
   "- system.read_user_context — Alfred's stored memory about the user",
   "- system.web_search — live public web search",
   "- system.fetch_url — read a known URL's page as text",
-  "- system.spawn_sub_agent, system.await_sub_agent — delegate and await a focused multi-step investigation",
+  "- system.spawn_sub_agent — delegate a focused multi-step investigation; Alfred gives you its result before your final answer",
 ].join("\n");
 
 const SYSTEM = buildChatSystemPrompt(
@@ -392,10 +389,6 @@ function toolSurface(): Record<string, Tool> {
       description:
         "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
       inputSchema: spawnSubAgentInput,
-    }),
-    [AWAIT_SUB_AGENT_TOOL]: tool({
-      description: "Wait for a spawned sub-agent to finish and read its real result.",
-      inputSchema: awaitSubAgentInput,
     }),
     [MCP_LIST_TOOLS_TOOL]: tool({
       description: MCP_LIST_TOOLS_DESCRIPTION,
@@ -588,15 +581,10 @@ async function runThinPersonResearchReplay(
         description:
           "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
         inputSchema: spawnSubAgentInput,
+        // The runtime joins the child before the final answer (ADR-0130 decision 6). The eval
+        // returns the joined result here, because it runs no finalize guard.
         execute: async () => ({
           childRunId: "child_eval_sakshi",
-          status: "running",
-        }),
-      }),
-      [AWAIT_SUB_AGENT_TOOL]: tool({
-        description: "Wait for a spawned sub-agent to finish and read its real result.",
-        inputSchema: awaitSubAgentInput,
-        execute: async () => ({
           status: "completed",
           output:
             "Memory and Gmail are thin; ClickUp likely has the task details, and no confident public result was found.",
@@ -759,12 +747,9 @@ async function runPersonResearchDepth(
         description:
           "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
         inputSchema: spawnSubAgentInput,
-        execute: async () => ({ childRunId: "child_eval_priya", status: "running" }),
-      }),
-      [AWAIT_SUB_AGENT_TOOL]: tool({
-        description: "Wait for a spawned sub-agent to finish and read its real result.",
-        inputSchema: awaitSubAgentInput,
+        // The joined result, as in the case above.
         execute: async () => ({
+          childRunId: "child_eval_priya",
           status: "completed",
           output:
             "Priya Nair is a Product Manager at Foobar in Bengaluru per her LinkedIn and a conference bio, corroborated across two sources.",

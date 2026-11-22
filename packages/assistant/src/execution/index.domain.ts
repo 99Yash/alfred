@@ -104,14 +104,12 @@ export {
   type ChatTurnRetries,
 } from "./workflows/turn-budgets";
 
-export { PREVIEW_CHARS } from "./workflows/tool-preview";
-
 export {
   registerWorkflowReadinessCheck,
   type WorkflowReadinessVerdict,
 } from "./workflows/readiness-port";
 
-export { joinChildOutcome, type ParkWake } from "./sub-agent-join";
+export { joinSpawnedChildren, type JoinSpawnedChildrenDeps } from "./sub-agent-join";
 
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 
@@ -131,6 +129,6 @@ export {
 
 export { approvalNotificationWorker } from "./approval-notification-worker";
 
-export { isTerminalChildStatus, listSpawnedChildRuns, type ChildRunOutcome } from "./sub-agents";
+export { listSpawnedChildRuns } from "./sub-agent-children";
 
 export type { AgentDbExecutor } from "./registry";

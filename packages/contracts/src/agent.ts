@@ -6,7 +6,7 @@ import {
   EVENT_SOURCES,
   rawEventKindSchema,
 } from "./event-triggers";
-import { canonicalJson, toolNameSchema } from "./tools";
+import { canonicalJson, toolNameSchema, withoutRetiredTools } from "./tools";
 import { isRecord } from "./guards";
 import { jsonObjectSchema } from "./user-model";
 
@@ -402,10 +402,10 @@ export const workflowRevisionDefinitionSchema = z.object({
   trigger: workflowTriggerSchema,
   /** Coarse backstop: the integrations a run may load. */
   allowedIntegrations: z.array(integrationSlugSchema).max(20),
-  /** The only tools a run may activate or dispatch. */
-  allowedTools: z.array(toolNameSchema).max(100),
-  /** Each tool here is also in `allowedTools`. */
-  requiredCapabilities: z.array(workflowRequiredCapabilitySchema).max(50),
+  /** The only tools a run may activate or dispatch. A removed tool is dropped. */
+  allowedTools: withoutRetiredTools(z.array(toolNameSchema).max(100)),
+  /** Each tool here is also in `allowedTools`. A removed tool is dropped. */
+  requiredCapabilities: withoutRetiredTools(z.array(workflowRequiredCapabilitySchema).max(50)),
 });
 
 export type WorkflowRevisionDefinition = z.infer<typeof workflowRevisionDefinitionSchema>;

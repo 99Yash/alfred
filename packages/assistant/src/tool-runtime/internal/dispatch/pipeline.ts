@@ -1,7 +1,7 @@
 /**
  * Every tool call goes through `dispatchToolCall`: validate, check for repeats,
  * apply policy, then write an `action_stagings` row and execute or park.
- * `join` and `fast_path` tools execute inline with no row (ADR-0034, ADR-0069).
+ * `fast_path` tools execute inline with no row (ADR-0034, ADR-0069).
  */
 
 import type { ApprovalCause } from "../../approval-rule";
@@ -28,7 +28,6 @@ import {
   isTerminalStatus,
   isToolName,
   getStringPath,
-  joinToolInput,
   jsonValueSchema,
   sanitizeErrorMessage,
   sanitizeToolResult,
@@ -94,11 +93,7 @@ import {
   resolveApprovalNotifyDelayMs,
   resolvePolicyDecision,
 } from "@alfred/assistant/action-policies";
-import {
-  resolveAwaitSubAgent,
-  scheduleApprovalExpiryJob,
-  scheduleApprovalNotificationJob,
-} from "../../index";
+import { scheduleApprovalExpiryJob, scheduleApprovalNotificationJob } from "../../index";
 import {
   countRunPassthroughCalls,
   PASSTHROUGH_PER_RUN_CEILING,
@@ -928,9 +923,8 @@ function hostReadOutcome(
     // The read is in `activeTools`, so this is a dispatch fault, not a model fault.
     case "inactive_tool":
       return { kind: "refused", refusal: "not_allowed", message: result.result.message, call };
-    // `deferIfGated` returns before a card, and no read parks or asks.
+    // `deferIfGated` returns before a card, and no read asks.
     case "staged":
-    case "parked":
     case "unanswered":
       throw new Error(`[dispatch] a host read returned '${result.kind}'`);
     default:
@@ -1082,11 +1076,8 @@ const validateInputStage: DispatchStage<ResolvedDispatch, ValidatedDispatch> = a
     };
   }
 
-  // `join` and `fast_path` skip only the approval gate; the checks above still ran.
+  // `fast_path` skips only the approval gate; the checks above still ran.
   switch (tool.staging) {
-    case "join":
-      // ADR-0073: park on the child instead of making the boss poll.
-      return await resolveAwaitSubAgentWithSpan(call, ctx);
     case "fast_path":
       return executeFastPath(call, ctx);
     case "question": {
@@ -1949,88 +1940,6 @@ async function executeToolWithSpan(
   } catch (err) {
     span.error(safeErrorDiagnostic(err));
     throw err;
-  }
-}
-
-async function resolveAwaitSubAgentWithSpan(
-  call: BoundToolCall,
-  ctx: ToolExecuteContext,
-): Promise<JoinedDispatchResult | ParkedDispatchResult> {
-  const { tool } = call;
-  // `registerTool` probes that a join tool's parsed input carries this contract. Parse before
-  // the span opens, so a bad input cannot leave a span open.
-  const { childRunId } = joinToolInput.parse(call.input);
-
-  const span = toolSpanStarter({
-    runId: ctx.runId,
-    toolName: tool.name,
-    toolCallId: ctx.toolCallId,
-    userId: ctx.userId,
-    caller: callerLabel(ctx.caller),
-    stepId: ctx.stepId,
-    input: call.redactedInput(),
-    startedAt: new Date(),
-  });
-
-  try {
-    const result = await resolveAwaitSubAgent({
-      parentRunId: ctx.runId,
-      userId: ctx.userId,
-      childRunId,
-    });
-
-    span.success(awaitSubAgentSpanOutput(result));
-
-    return result.kind === "executed" ? { ...result, joinedChildRunId: childRunId } : result;
-  } catch (err) {
-    span.error(safeErrorDiagnostic(err));
-    logger.error(
-      { err, event: "await_sub_agent_failed", toolName: tool.name, runId: ctx.runId },
-      "Awaiting the sub-agent failed",
-    );
-    throw err;
-  }
-}
-
-type ParkedDispatchResult = Extract<DispatchResult, { kind: "parked" }>;
-
-/**
- * The join arm's `executed` result. The field is required here (tier 1): the only
- * producer cannot return a bare `executed` result, so chat-turn never misses the fold.
- */
-type JoinedDispatchResult = Extract<DispatchResult, { kind: "executed" }> & {
-  joinedChildRunId: string;
-};
-
-type FailedDispatchResult = Extract<DispatchResult, { kind: "failed" }>;
-
-type SubAgentSpanOutput =
-  | { status: "executed"; toolResult: unknown }
-  | { status: "parked"; wake: ParkedDispatchResult["wake"] }
-  | { status: "failed"; error: FailedDispatchResult["error"] }
-  | { status: Exclude<DispatchResult["kind"], "executed" | "parked" | "failed"> };
-
-function awaitSubAgentSpanOutput(result: DispatchResult): SubAgentSpanOutput {
-  switch (result.kind) {
-    case "executed":
-      return { status: "executed", toolResult: result.toolResult };
-    case "parked":
-      return { status: "parked", wake: result.wake };
-    case "failed":
-      return { status: "failed", error: result.error };
-    case "blocked":
-    case "feature_disabled":
-    case "fenced":
-    case "inactive_tool":
-    case "invalid_input":
-    case "not_allowed":
-    case "rejected":
-    case "staged":
-    case "unanswered":
-    case "unknown_tool":
-      return { status: result.kind };
-    default:
-      return assertNever(result, "dispatch result kind");
   }
 }
 

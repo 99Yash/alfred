@@ -35,10 +35,10 @@ import {
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
   isToolRiskTier,
-  joinToolInput,
   readEvidenceSchema,
   scriptSourcesSchema,
   toolNameSchema,
+  withoutRetiredTools,
 } from "@alfred/contracts";
 import type { RedactedToolInput } from "@alfred/ai";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
@@ -98,14 +98,12 @@ interface ToolAvailabilityMetadata {
  * - `"staged"` (default): writes an `action_stagings` row and passes the approval gate.
  * - `"fast_path"`: a local read. Skips the staging row, approval gate, retry
  *   suppression, cancel guard, and audit row.
- * - `"join"` (ADR-0073): parks the parent run until the child named by
- *   {@link joinToolInput} finishes. `execute` is the non-blocking fallback.
  * - `"question"` (ADR-0099): parks the chat turn on a question approval.
  *   Only `ASK_USER_TOOL` may use it. `STAGING_ARM` holds the per-arm differences.
  * - `"confirm"` (ADR-0113): a staged write whose card always shows, also under chat full
  *   autonomy. The user's click is the authority for what the write stores.
  */
-export type ToolStagingPolicy = "staged" | "fast_path" | "join" | "question" | "confirm";
+export type ToolStagingPolicy = "staged" | "fast_path" | "question" | "confirm";
 
 /**
  * Whether dispatch may run a call again after a crash left it started and unfinished.
@@ -299,7 +297,11 @@ export const toolEffectsSchema = z.object({
     .discriminatedUnion("kind", [
       z.object({ kind: z.literal("load"), name: toolNameSchema }),
       // Ranked, available, non-`mcp.call` hits. The round applies `run.allowedTools`.
-      z.object({ kind: z.literal("search_fold"), names: z.array(toolNameSchema) }),
+      z.object({
+        kind: z.literal("search_fold"),
+        // A saved effect can name a removed tool (ADR-0130 decision 6).
+        names: withoutRetiredTools(z.array(toolNameSchema)),
+      }),
     ])
     .optional(),
   /** The artifact an `artifact_mutation` call wrote. */
@@ -700,13 +702,12 @@ function staticReadRoute(tool: RegisteredTool): ReadRoute | null {
 }
 
 /**
- * Whether any call of `tool` can meet an approval card. `fast_path` and `join` return before the
- * gate. The `high` tier, a dynamic tier, and a dynamic rule can always gate. Otherwise a `system`
+ * Whether any call of `tool` can meet an approval card. `fast_path` returns before the gate. The `high` tier, a dynamic tier, and a dynamic rule can always gate. Otherwise a `system`
  * tool resolves to autonomy, and an `ordinary` declared read runs with no card under `gated` too
  * (ADR-0130 decision 1). Every other tool has a policy rule that the user can set to Gated.
  */
 export function toolCanWaitForApproval(tool: RegisteredTool): boolean {
-  if (tool.staging === "fast_path" || tool.staging === "join") return false;
+  if (tool.staging === "fast_path") return false;
 
   if (tool.riskTier === "high" || tool.resolvesRiskTier || tool.resolvesPolicyTarget) {
     return true;
@@ -975,7 +976,7 @@ export function liveTool<
   }
 
   // Only a gated call writes a staging row, so on any other policy the check would never run.
-  if (refuseProposal && (args.staging === "fast_path" || args.staging === "join")) {
+  if (refuseProposal && args.staging === "fast_path") {
     throw new Error(
       `[tools] '${name}' declares refuseProposal on staging='${args.staging}', which never stages`,
     );
@@ -1158,8 +1159,7 @@ export function registerTool(tool: RegisteredTool): void {
   // ADR-0124: a script runs a host read with no card, so the read must have no effect to repeat
   // and must not be an arm that parks or forces a card.
   if (tool.codeModeRead) {
-    const parks =
-      tool.staging === "join" || tool.staging === "question" || tool.staging === "confirm";
+    const parks = tool.staging === "question" || tool.staging === "confirm";
 
     if (tool.replay !== "safe" || tool.riskTier === "high" || parks || tool.executionLane) {
       throw new Error(
@@ -1200,32 +1200,6 @@ export function registerTool(tool: RegisteredTool): void {
       `[tools] '${tool.name}' sets policyGateWaiver but does not declare staging='fast_path' — ` +
         "nothing waives its approval gate, so the waiver is misleading",
     );
-  }
-
-  // The join arm reads `childRunId` off the call, so the schema must accept it.
-  if (tool.staging === "join") {
-    const probe = tool.inputSchema.safeParse({
-      childRunId: "00000000-0000-0000-0000-000000000000",
-    });
-
-    if (!probe.success || !joinToolInput.safeParse(probe.data).success) {
-      throw new Error(
-        `[tools] '${tool.name}' declares staging='join' but its inputSchema does not accept ` +
-          "`{ childRunId: string }` — the dispatcher's join arm resolves the child run from that field",
-      );
-    }
-
-    const existingJoin = [...REGISTRY.values()].find(
-      (other) => other.staging === "join" && other.name !== tool.name,
-    );
-
-    if (existingJoin) {
-      throw new Error(
-        `[tools] '${tool.name}' declares staging='join' but '${existingJoin.name}' already does — ` +
-          "the join arm has one implementation (ADR-0073 sub-agent join), so a second declarer " +
-          "would silently route into it",
-      );
-    }
   }
 
   // ADR-0113. The card is the confirmation, so a person on a live thread must see it.

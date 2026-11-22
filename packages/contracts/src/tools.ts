@@ -61,8 +61,6 @@ export type CancellationEnvelope = z.infer<typeof cancellationEnvelopeSchema>;
 /** Many surfaces compare against these names. `satisfies` makes a rename fail here. */
 export const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent" satisfies ToolName;
 
-export const AWAIT_SUB_AGENT_TOOL = "system.await_sub_agent" satisfies ToolName;
-
 /** The one read tool of a `code_run` run (ADR-0124). */
 export const CODE_RUN_TOOL = "system.code_run" satisfies ToolName;
 
@@ -404,6 +402,31 @@ export const TOOL_NAMES: readonly ToolName[] = INTEGRATION_SLUGS.flatMap((integr
 /** `z.custom`, not `.refine`: only `z.custom` keeps the narrowed type in `z.infer`. */
 export const toolNameSchema = z.custom<ToolName>((value) => isToolName(value), "Invalid tool name");
 
+/**
+ * Names of removed tools that a saved row can still hold, for example a workflow revision that
+ * lists `system.await_sub_agent` (ADR-0130 decision 6).
+ */
+const RETIRED_TOOL_NAMES = ["system.await_sub_agent"] as const;
+
+/** A removed tool's name, or a capability whose `tool` is one. */
+const retiredToolEntrySchema = z.union([
+  z.enum(RETIRED_TOOL_NAMES),
+  z.object({ tool: z.enum(RETIRED_TOOL_NAMES) }),
+]);
+
+/**
+ * A saved list of tool names or capabilities. It drops each removed tool, then parses the rest
+ * with `list`, so the row still parses. A name that was never a tool still fails.
+ */
+export function withoutRetiredTools<T extends z.ZodType<unknown, unknown[]>>(list: T) {
+  return z
+    .array(z.unknown())
+    .transform((entries) =>
+      entries.filter((entry) => !retiredToolEntrySchema.safeParse(entry).success),
+    )
+    .pipe(list);
+}
+
 export function hashToolInput(toolName: ToolName, input: unknown): string {
   return `fnv1a64:${fnv1a64(`${toolName}:${canonicalJson(input)}`)}`;
 }
@@ -537,11 +560,6 @@ export const TOOL_LABELS = {
     running: "Delegating a sub-task",
     done: "Delegated a sub-task",
     title: "delegate a sub-task",
-  },
-  "system.await_sub_agent": {
-    running: "Waiting on a sub-task",
-    done: "Sub-task finished",
-    title: "wait for a sub-task",
   },
   "system.read_user_context": {
     running: "Reading user context",
@@ -723,7 +741,6 @@ export const TOOL_CATEGORIES = {
   "system.recover_workflow": "action",
   "system.activate_workflow": "action",
   "system.spawn_sub_agent": "system",
-  "system.await_sub_agent": "system",
   "system.read_user_context": "system",
   "system.read_chat_history": "source",
   "system.read_scratch": "system",

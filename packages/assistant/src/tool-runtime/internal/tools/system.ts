@@ -27,7 +27,6 @@ import {
   updateArtifactInput,
   webSearchInput,
   writeScratchInput,
-  awaitSubAgentInput,
   spawnSubAgentInput,
 } from "@alfred/contracts";
 import type { AskUserResult, IanaTimezone, ScratchEntry } from "@alfred/contracts";
@@ -58,7 +57,6 @@ import {
   listInstructions,
   listTodos,
   readChatHistory,
-  readChildRunOutcome,
   readUserContext,
   recoverWorkflow,
   rememberStandingInstruction,
@@ -362,9 +360,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run and a join, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation.",
-    // Kernel: the boss prompt names it.
-    availability: { surface: "kernel", callers: ["boss"] },
+      "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation. " +
+      "You can keep working after the spawn. Before your final answer, Alfred waits for each sub-agent you spawned and gives you its result as a note; then you answer with it.",
+    // Lazy (ADR-0130 decision 6): prod used it rarely, and the runtime joins the child, so the
+    // model needs no await tool.
+    availability: { callers: ["boss"] },
     inputSchema: spawnSubAgentInput,
     execute: async (input, ctx) => {
       const workflowAllowed = ctx.allowedIntegrations ?? [];
@@ -391,26 +391,6 @@ export const systemTools: readonly RegisteredTool[] = [
         allowedIntegrations: requestedAllowed.length > 0 ? requestedAllowed : [...workflowAllowed],
         // Only a chat parent has one. The child streams its trail into that turn.
         chat: ctx.chat,
-      });
-    },
-  }),
-  liveTool({
-    integration: "system",
-    action: "await_sub_agent",
-    riskTier: "no_risk",
-    replay: "safe",
-    description:
-      "Wait for a spawned sub-agent to finish and read its real result. Call this after system.spawn_sub_agent; it returns the child's terminal status, output, and any error. Never tell the user you'll notify them when a sub-agent is done later — there is no out-of-turn notification; await it here so the turn completes with the real result, or report honestly that it could not finish.",
-    // Kernel: the prompt teaches spawn then await as one move.
-    availability: { surface: "kernel", callers: ["boss"] },
-    // ADR-0073: dispatch parks the parent on a running child. `execute` is the non-blocking fallback.
-    staging: "join",
-    inputSchema: awaitSubAgentInput,
-    execute: async (input, ctx) => {
-      return await readChildRunOutcome({
-        parentRunId: ctx.runId,
-        userId: ctx.userId,
-        childRunId: input.childRunId,
       });
     },
   }),

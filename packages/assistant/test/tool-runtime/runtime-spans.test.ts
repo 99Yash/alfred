@@ -109,7 +109,6 @@ describe("startToolCallBatchSpan", () => {
         metadata: {
           executed: 2,
           staged: 0,
-          parked: 0,
           rejected: 1,
           invalidInput: 0,
           unknownTool: 0,
@@ -140,20 +139,13 @@ describe("startToolCallBatchSpan", () => {
     assert.equal(ended[0].metadata.featureDisabled, 1);
   });
 
-  test("staged and parked terminals carry their own status with a folded summary", () => {
+  test("a staged terminal carries its own status with a folded summary", () => {
     const staged = capture(() =>
       startToolCallBatchSpan(bossRun, 1).end("staged", [result("staged")]),
     );
 
     assert.equal(staged.ended[0]?.status, "staged");
     assert.equal(staged.ended[0].metadata?.staged, 1);
-
-    const parked = capture(() =>
-      startToolCallBatchSpan(bossRun, 1).end("parked", [result("parked")]),
-    );
-
-    assert.equal(parked.ended[0]?.status, "parked");
-    assert.equal(parked.ended[0].metadata?.parked, 1);
   });
 
   test("an error terminal records level ERROR and no summary", () => {

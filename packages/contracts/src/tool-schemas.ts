@@ -1193,12 +1193,6 @@ export const spawnSubAgentInput = coerceJsonArrayFields(
 
 export type SpawnSubAgentInput = z.infer<typeof spawnSubAgentInput>;
 
-/** The join arm reads `childRunId` off a `staging: "join"` call, without the tool's `execute`. */
-export const joinToolInput = z.object({ childRunId: z.string().min(1) });
-
-/** Derived from `joinToolInput`, because the join arm reads the child id without `execute`. */
-export const awaitSubAgentInput = joinToolInput.strict();
-
 /** By `ToolName`, so the web can find a schema without server code. Every name has a row. */
 export const TOOL_INPUT_SCHEMAS = {
   "vercel.list_projects": vercelListProjectsInput,
@@ -1239,7 +1233,6 @@ export const TOOL_INPUT_SCHEMAS = {
   "system.update_artifact": updateArtifactInput,
   "system.ask_user": askUserInput,
   "system.spawn_sub_agent": spawnSubAgentInput,
-  "system.await_sub_agent": awaitSubAgentInput,
   "mcp.call": mcpCallInput,
   "mcp.list_tools": mcpToolSearchInputSchema,
   "mcp.inspect_tool": mcpToolInspectInputSchema,

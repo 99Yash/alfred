@@ -23,7 +23,7 @@ const briefing = "packages/contracts/src/briefing.ts";
 
 const localTime = "packages/assistant/src/time/local-time.ts";
 
-const toolRuntime = "packages/assistant/src/tool-runtime/index.ts";
+const subAgentJoin = "packages/assistant/src/execution/sub-agent-join.ts";
 
 tester.run("alfred/no-brand-mint-outside-owner", noBrandMintOutsideOwnerRule, {
   valid: [
@@ -69,8 +69,8 @@ tester.run("alfred/no-brand-mint-outside-owner", noBrandMintOutsideOwnerRule, {
     },
     {
       name: "a registered brand declaration in its owner",
-      filename: toolRuntime,
-      code: "declare const safeToParkWakeBrand: unique symbol; export type SafeToParkWake = { kind: 'signal' } & { deadlineAt: string } & { readonly [safeToParkWakeBrand]: true };",
+      filename: subAgentJoin,
+      code: "declare const parkWakeBrand: unique symbol; type ParkWake = { kind: 'signal' } & { deadlineAt: string } & { readonly [parkWakeBrand]: true };",
     },
     {
       // The rule keeps the consolidation gate's file scope (`isSkippedPath`).
@@ -142,8 +142,8 @@ tester.run("alfred/no-brand-mint-outside-owner", noBrandMintOutsideOwnerRule, {
     {
       name: "a same-file alias of the brand",
       filename: "probe.ts",
-      code: "import type { SafeToParkWake } from '../tool-runtime/index.ts'; export type ParkWake = SafeToParkWake; export function isParkWake(v: unknown): v is ParkWake { return v !== null; }",
-      errors: [mint("type guard", "SafeToParkWake", toolRuntime)],
+      code: "import type { ParkWake } from '../execution/sub-agent-join.ts'; export type JoinWake = ParkWake; export function isJoinWake(v: unknown): v is JoinWake { return v !== null; }",
+      errors: [mint("type guard", "ParkWake", subAgentJoin)],
     },
     {
       name: "a same-file shape with a brand field",

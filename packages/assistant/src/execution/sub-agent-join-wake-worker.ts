@@ -33,9 +33,9 @@ interface SubAgentJoinWakeResult {
  * row lock in `wakeRun`. `now` comes from the app clock, the same clock that wrote the
  * deadline. A signal wake with no deadline falls back to its park time plus the sub-agent
  * ceiling: the park write is the last writer of `lastCheckpointAt` on a `waiting` row. That is
- * every such wake, not only a legacy row: `StepResult.interrupt.wake` and
- * `ToolCallDispatchResult.parked.wake` accept a raw signal wake, so a producer that skips
- * `joinChildRun` and `joinChildOutcome` gets the sub-agent ceiling with no error. Item 29 removes the fallback.
+ * every such wake, not only a legacy row: `StepResult.interrupt.wake` accepts a raw signal wake,
+ * so a producer that skips `joinChildOutcome` gets the sub-agent ceiling with no error. Item 29
+ * removes the fallback.
  */
 async function wakeOverdueJoinsOnce(now: Date, signal: AbortSignal): Promise<number> {
   const parked = await db()
