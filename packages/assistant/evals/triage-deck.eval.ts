@@ -19,14 +19,21 @@ import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
 import { PROD_INSTRUCTION_ROWS } from "./triage-deck/instructions";
 import type { MailFacts } from "@alfred/assistant/knowledge/mail-facts";
 import { evalMailFacts } from "./lib/stored-mail";
-import { classifyWithRetry, isEmptyOutput, isTransientOverload } from "./lib/triage-classify-retry";
+import {
+  classifyFailureOf,
+  classifyWithRetry,
+  type ClassifyFailure,
+  type ClassifyFailureKind,
+} from "./lib/triage-classify-retry";
 
 /**
  * The ADR-0121 eval deck (`docs/plans/triage-theory-v1.md`, slice 0). It runs the real
  * `classifyEmail` on production mail with the input that prod gave it, and scores the label
  * against `docs/theory/triage.md`. Each later slice runs it before and after, and lands only
  * when no case gets worse. `Coverage` and `Provider failures` sit next to `Label`, so a
- * provider outage reads as weather, not as a model regression. Each case runs three times,
+ * provider outage reads as weather, not as a model regression. `Classify failures` counts the
+ * answers that the schema refused: a fault, never weather. A case with no verdict scores 0 on
+ * `Label`, because it proves nothing. Each case runs three times,
  * and the runner reports each trial on its own: a case regressed only when every trial
  * misses it. Run it alone:
  * `pnpm --filter @alfred/assistant exec evalite run triage-deck`.
@@ -79,6 +86,35 @@ function deckRun(filter: string | undefined): readonly DeckCase[] {
   return DECK.filter((c) => labels.has(c.label));
 }
 
+/** A control case names a case of the deck. A name that matches no case is a deck fault. */
+for (const c of DECK) {
+  if (c.controlOf !== undefined && !DECK.some((other) => other.label === c.controlOf)) {
+    throw new Error(`[triage-deck] ${c.label} is the control of no case: ${c.controlOf}`);
+  }
+}
+
+/** The read of a user who has no standing instruction. */
+const NO_INSTRUCTIONS: InstructionsInWordsRead = { kind: "loaded", instructions: [] };
+
+/**
+ * `DECK_INSTRUCTIONS=none` sends no standing instruction with any mail of the run, to see what
+ * the words change: run the same cases with it and without it. Unset sends the prod set.
+ */
+const DECK_INSTRUCTIONS = deckInstructions(process.env["DECK_INSTRUCTIONS"]); // drift-ok: an operator switch for a local eval run, not app config
+
+function deckInstructions(value: string | undefined): "prod" | "none" {
+  if (value === undefined || value === "") return "prod";
+
+  if (value === "none") return "none";
+
+  throw new Error(`[triage-deck] DECK_INSTRUCTIONS must be "none" or unset, not "${value}"`);
+}
+
+/** A control case and a run with `DECK_INSTRUCTIONS=none` get no instruction. */
+function instructionsFor(c: DeckCase): InstructionsInWordsRead {
+  return c.controlOf !== undefined || DECK_INSTRUCTIONS === "none" ? NO_INSTRUCTIONS : INSTRUCTIONS;
+}
+
 function deckMailId(c: DeckCase, index: number): string {
   return `deck_${c.label}_${index}`;
 }
@@ -118,7 +154,7 @@ function argsFor(
         snippet: message.snippet,
       })),
     },
-    standingInstructions: INSTRUCTIONS,
+    standingInstructions: instructionsFor(c),
     userContext: USER_CONTEXT,
     labelIds: mailFacts.labelIds,
     signalText: [mail.from, mail.subject, mail.body, ...mail.labelIds].join("\n"),
@@ -148,12 +184,14 @@ function argsFor(
 interface MailResult {
   subject: string;
   prodCategory: TriageCategory;
-  /** Null when the provider failed every attempt, or when triage skipped the mail. */
+  /** Null when every attempt failed (see `failure`), or when triage skipped the mail. */
   category: TriageCategory | null;
   /** The case's scope for the mail and the scope that `triageOutOfScope` gave. */
   scope: { expected: TriageOutOfScope | null; actual: TriageOutOfScope | null };
   model: string;
   rationale: string;
+  /** Why the mail got no label. Null when it got a verdict. */
+  failure: ClassifyFailure | null;
 }
 
 /** A mail with a verdict: the scope skipped it before a call, or the model gave a label. */
@@ -161,9 +199,18 @@ function hasVerdict(m: MailResult): boolean {
   return m.scope.actual !== null || m.category !== null;
 }
 
-/** The mail's result as the scorers print it: the skip, the label, or a provider failure. */
+/** The mail's result as the scorers print it: the skip, the label, or the failure kind. */
 function resultOf(m: MailResult): string {
-  return m.scope.actual ? `skip (${m.scope.actual})` : (m.category ?? "failed");
+  if (m.scope.actual) return `skip (${m.scope.actual})`;
+
+  return m.category ?? `failed (${m.failure?.kind ?? "error"})`;
+}
+
+/** Provider weather: the provider was out of capacity, or sent nothing back. */
+const WEATHER: readonly ClassifyFailureKind[] = ["capacity", "no_output"];
+
+function failedWith(output: TaskOutput, kinds: readonly ClassifyFailureKind[]): MailResult[] {
+  return output.mails.filter((m) => m.failure !== null && kinds.includes(m.failure.kind));
 }
 
 interface TaskOutput {
@@ -189,6 +236,7 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
           scope,
           model: "(skipped: out of scope)",
           rationale: "",
+          failure: null,
         });
         continue;
       }
@@ -205,15 +253,15 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
           scope,
           model,
           rationale: classification.rationale,
+          failure: null,
         });
       } catch (err) {
         // Never throw: a throw aborts the file and hangs the evalite reporter.
-        const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        const failure = classifyFailureOf(err);
 
-        const kind =
-          isTransientOverload(err) || isEmptyOutput(err) ? "provider overload" : "classify error";
-
-        console.warn(`[triage-deck] SKIP "${input.label}" #${index}: ${kind}: ${reason}`);
+        console.warn(
+          `[triage-deck] FAILED "${input.label}" #${index}: ${failure.kind}: ${failure.detail}`,
+        );
 
         mails.push({
           subject: mail.subject,
@@ -221,7 +269,8 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
           category: null,
           scope,
           model: "(not classified)",
-          rationale: `[skipped: ${kind}]`,
+          rationale: `[failed: ${failure.kind}]`,
+          failure,
         });
       }
     }
@@ -243,35 +292,53 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
       },
     },
     {
-      // The count of mails whose every attempt failed. The score is a count, not a
-      // share. These mails sit outside the Label score, so an outage cannot read as a
-      // model regression.
+      // The count of mails whose every attempt failed for provider weather: no capacity,
+      // or nothing came back. The score is a count, not a share. An outage reads here,
+      // not as a model regression.
       name: "Provider failures",
       scorer: ({ output }) => {
-        const failed = output.mails.filter((m) => !hasVerdict(m));
+        const failed = failedWith(output, WEATHER);
 
         return {
           score: failed.length,
           metadata:
             failed.length === 0
               ? "no provider failures"
-              : failed.map((m) => `failed: ${m.subject}`).join("\n"),
+              : failed.map((m) => `${resultOf(m)}: ${m.subject}`).join("\n"),
+        };
+      },
+    },
+    {
+      // The count of mails whose every attempt failed for a reason that is not weather:
+      // the schema refused the model's answer, or the call threw. The score is a count.
+      // This is a fault to fix, so it never reads as weather.
+      name: "Classify failures",
+      scorer: ({ output }) => {
+        const failed = failedWith(output, ["schema_rejection", "error"]);
+
+        return {
+          score: failed.length,
+          metadata:
+            failed.length === 0
+              ? "no classify failures"
+              : failed.map((m) => `${resultOf(m)}: ${m.subject}\n${m.failure?.detail}`).join("\n"),
         };
       },
     },
     {
       // The label accuracy over the mails that got a verdict only. A skip where the
-      // case expects one is correct (slice 2a). A provider failure is out of the
-      // score. Each trial scores on its own, so a case regressed only when every
-      // trial misses it; one miss in one trial is run-to-run variance.
+      // case expects one is correct (slice 2a). A failed mail is out of the score; a
+      // case with no verdict at all scores 0, because it proves nothing. Each trial
+      // scores on its own, so a case regressed only when every trial misses it; one
+      // miss in one trial is run-to-run variance.
       name: "Label",
       scorer: ({ output, expected }) => {
         const scored = output.mails.filter(hasVerdict);
 
         if (scored.length === 0) {
           return {
-            score: 1,
-            metadata: "no verdicts, so no mail got a label; read Coverage",
+            score: 0,
+            metadata: `no coverage: no mail got a verdict, so the case proves nothing (${output.mails.map(resultOf).join(", ")}); read Provider failures and Classify failures`,
           };
         }
 
@@ -316,7 +383,7 @@ evalite<DeckCase, TaskOutput, DeckCase>("Triage deck (ADR-0121)", {
         const verdicts = output.mails.filter(hasVerdict);
 
         if (verdicts.length === 0) {
-          return { score: 1, metadata: "no verdicts, so no group to check; read Coverage" };
+          return { score: 0, metadata: "no coverage: no verdict, so no group to check" };
         }
 
         const labels = new Set(verdicts.map(resultOf));

@@ -14,7 +14,10 @@ import {
   type ActivityWindow,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
-import { renderInstructionsInWords, type InstructionInWords } from "@alfred/assistant/knowledge";
+import {
+  renderInstructionsInWords,
+  type InstructionsInWordsRead,
+} from "@alfred/assistant/knowledge";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -79,10 +82,11 @@ export interface RunBriefingAgentArgs {
    */
   provenance?: readonly GatherProvenance[] | undefined;
   /**
-   * The user's standing instructions in words, oldest first (triage slice 4a). The composer
-   * weighs them; no code drops an item for one. Empty when the read failed or none exist.
+   * The read of the user's standing instructions in words, oldest first (triage slice 4a). The
+   * composer weighs them; no code drops an item for one. A failed read is a seed fact, so the
+   * composer does not take "no instructions" for "none read" (ADR-0117).
    */
-  standingInstructions: readonly InstructionInWords[];
+  standingInstructions: InstructionsInWordsRead;
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
   /** Only on a re-prompt: connection keys the earlier draft wrote no notice for. */
@@ -98,7 +102,14 @@ export interface RunBriefingAgentResult {
   };
   modelId: string;
   steps: number;
+  /** What the seed carried of the standing instructions, for the compose log line. */
+  standingInstructions: StandingInstructionsSent;
 }
+
+/** The instructions that the seed carried, or the failed read that it stated. */
+export type StandingInstructionsSent =
+  | { readonly kind: "loaded"; readonly sent: number; readonly omitted: number }
+  | { readonly kind: "read_failed" };
 
 const MAX_STEPS = 8;
 
@@ -113,21 +124,50 @@ const STANDING_INSTRUCTION_FACTS_MAX_CHARS = 12_000;
 
 /**
  * The user's standing instructions in words, with their dates in the user's zone. The same
- * renderer builds the triage section, so both read the same words.
+ * renderer builds the triage section, so both read the same words. The composer must know which
+ * inputs it lacks (ADR-0117): a failed read and the lines that the cap left out are facts too.
  */
+interface StandingInstructionFacts {
+  /** The seed text: the instruction lines, the cap note, or the failed read. Empty for none. */
+  readonly text: string;
+  readonly sent: StandingInstructionsSent;
+}
+
 function standingInstructionFacts(
-  instructions: readonly InstructionInWords[],
+  read: InstructionsInWordsRead,
   timezone: IanaTimezone,
-): string {
-  const { section } = renderInstructionsInWords({
-    instructions,
+): StandingInstructionFacts {
+  if (read.kind === "read_failed") {
+    return {
+      text:
+        `\n\nAlfred could not read the user's standing instructions for this briefing. ` +
+        `So this briefing may be missing what the user asked Alfred to leave out, to include, or to word in a certain way. ` +
+        `Acknowledge it in the body in one short clause. ` +
+        `For example: I couldn't read your saved preferences, so this may include things you asked me to skip.`,
+      sent: { kind: "read_failed" },
+    };
+  }
+
+  const { section, sent, omitted } = renderInstructionsInWords({
+    instructions: read.instructions,
     header:
       "The user's standing instructions, in the user's own words, oldest first. Weigh them as evidence when you choose and word items.",
     timezone,
     maxChars: STANDING_INSTRUCTION_FACTS_MAX_CHARS,
   });
 
-  return section === null ? "" : `\n\n${section}`;
+  const cut =
+    omitted === 0
+      ? null
+      : `${omitted} standing ${omitted === 1 ? "instruction is" : "instructions are"} not listed here, because the list is over its size cap. ` +
+        `So the instructions here are not all that the user asked. Do not say that you followed every instruction.`;
+
+  const lines = [section, cut].filter((line) => line !== null);
+
+  return {
+    text: lines.length === 0 ? "" : `\n\n${lines.join("\n")}`,
+    sent: { kind: "loaded", sent, omitted },
+  };
 }
 
 /**
@@ -344,6 +384,8 @@ export async function runBriefingAgent(
     weather: args.weather,
   });
 
+  const instructionFacts = standingInstructionFacts(args.standingInstructions, args.timezone);
+
   const seed: ModelMessage[] = [
     {
       role: "user",
@@ -357,7 +399,7 @@ export async function runBriefingAgent(
           timezone: args.timezone,
         }) +
         brokenConnectionFacts(args.brokenConnections) +
-        standingInstructionFacts(args.standingInstructions, args.timezone) +
+        instructionFacts.text +
         // No list is a gather from before this build. It states nothing, so it adds no fact.
         inputProvenanceFacts(args.provenance ?? []) +
         openAskCorrection(args.openAskViolations ?? []) +
@@ -408,6 +450,7 @@ export async function runBriefingAgent(
     // would name a leg that did not produce the stored prose.
     modelId: modelIdOfDumpStep(result.steps),
     steps: result.steps.length,
+    standingInstructions: instructionFacts.sent,
   };
 }
 

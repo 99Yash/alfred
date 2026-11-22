@@ -7,6 +7,12 @@
 > unchanged; it is the record of the gate-first foundation and the staged-send design it
 > replaced.
 
+> **Amended 2026-11-22 (triage slice 4a, ADR-0121 decision 7): the gate reads no standing
+> instruction.** Sub-decision 4 lists the standing-instruction state as a gate input and
+> "standing instruction" as a rubric step. Slice 4a removed both: a reply draft follows the
+> triage label only, and the model reads the instructions in the user's words. Sub-decision 4
+> stays as the record of the earlier gate.
+
 **Decision.** Alfred drafts a reply only after a pure worthiness gate says the message deserves one, and every run ends in ONE of five typed outcomes (`staged`, `no_draft`, `clarification`, `no_access`, `withheld`). The feature ships as a new `@alfred/assistant` module, `reply-drafting`, that depends on `triage` and that `triage` never imports. The seam between them is a domain event: the triage `classify` step publishes `email-triage.classified` for every thread whose canonical row it owns, and a `best-effort` trigger consumer owned by `reply-drafting` decides from that fact. The proactive path is bound by `feature.reply_drafting`, the first flag whose UNSET value is OFF.
 
 Sub-decisions:

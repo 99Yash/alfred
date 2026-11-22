@@ -134,7 +134,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       ingestedAt: new Date("2026-06-26T21:43:00.000Z"),
     });
 
-    const rows = await listEmailsSinceWatermark({
+    const { items: rows } = await listEmailsSinceWatermark({
       userId,
       sinceIngestedAt: null,
       untilIngestedAt: new Date("2026-06-26T23:00:00.000Z"),
@@ -164,7 +164,7 @@ describe("briefing feed receipt-time + seen-state enrichment (DB-backed)", { ski
       labelIds: ["INBOX", "UNREAD"],
     });
 
-    const rows = await listEmailsSinceWatermark({
+    const { items: rows } = await listEmailsSinceWatermark({
       userId,
       sinceIngestedAt: null,
       untilIngestedAt: new Date("2026-06-26T23:00:00.000Z"),

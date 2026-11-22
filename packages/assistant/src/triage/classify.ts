@@ -59,7 +59,12 @@ export const triageClassificationSchema = z.object({
    * Bare number because some providers reject numeric bounds; `defaultRunPass` clamps it.
    */
   confidence: confidenceSchema,
-  rationale: z.string().min(1).max(MAX_RATIONALE_LEN),
+  /**
+   * No `.max()`: an over-long rationale must not reject the label with it (the deck's
+   * `sign-in-by-another-person-is-loud`, 2026-11-22). `normalizeClassifierOutput` cuts it to
+   * `MAX_RATIONALE_LEN`.
+   */
+  rationale: z.string().min(1),
   documentAsk: documentAskProposalSchema.nullable().optional(),
   /**
    * Collaboration-tool activity kind (#218); null for non-tracker mail. Its reader left in
@@ -448,7 +453,8 @@ interface InstructionSection {
 
 /**
  * The date of each instruction is in the user's zone, which the mail facts carry with the
- * arrival time.
+ * arrival time. The read holds only the instructions for every mailbox and for the mailbox of
+ * this mail; a line for one mailbox names it.
  */
 function instructionSection(args: ClassifyEmailArgs): InstructionSection {
   const read = args.observations.standingInstructions;
@@ -611,6 +617,7 @@ export function normalizeClassifierOutput<O extends TriageClassification>(output
   return {
     ...object,
     confidence: clamp01(object.confidence),
+    rationale: truncateRationale(object.rationale),
     // The model may omit the key. Never throw: a first-pass throw buries the real answer as `fyi`.
     collabActivity: object.collabActivity ?? null,
     documentAsk: object.documentAsk ?? null,

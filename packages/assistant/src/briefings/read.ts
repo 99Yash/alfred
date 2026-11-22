@@ -16,7 +16,8 @@ import type {
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { briefings, documents, emailTriage, type Briefing } from "@alfred/db/schemas";
-import { and, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { describeCorrespondentHistory, loadMailFacts, type MailFacts } from "../knowledge";
 import { TRIAGE_OUT_OF_SCOPE_MEANING, triageOutOfScope } from "@alfred/assistant/triage";
 import { inZone } from "@alfred/assistant/time";
@@ -113,6 +114,23 @@ interface ListEmailsSinceArgs {
   /** Renders `receivedAtLocal`. Omit it and `receivedAtLocal` stays null. */
   timezone?: IanaTimezone;
   limit?: number;
+  /**
+   * The `before` of the previous page: the document id of its oldest row in the read order.
+   * Omit it to read the newest page. Check it with `emailCursorInWindow` first: a cursor that
+   * names no row of the window gives an empty page, which reads like the end of the list.
+   */
+  before?: string;
+}
+
+/**
+ * One page of the window, newest first by arrival. The composer pages with `before`, so newer
+ * noise cannot hide an older mail that asks for something: no code filters the window by an
+ * instruction since triage slice 4a.
+ */
+export interface EmailListPage {
+  items: EmailListItem[];
+  /** The cursor of the next older page, or null when this page holds the oldest mail of the window. */
+  before: string | null;
 }
 
 interface EmailListRow {
@@ -128,11 +146,10 @@ interface EmailListRow {
   triageRationale: string | null;
 }
 
-export async function listEmailsSinceWatermark(
-  args: ListEmailsSinceArgs,
-): Promise<EmailListItem[]> {
-  const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
-
+/** The Gmail documents of the briefing window: after `since`, up to and with `until`. */
+function emailWindowConditions(
+  args: Pick<ListEmailsSinceArgs, "userId" | "sinceIngestedAt" | "untilIngestedAt">,
+): SQL[] {
   const conditions = [
     eq(documents.userId, args.userId),
     eq(documents.source, "gmail"),
@@ -143,6 +160,45 @@ export async function listEmailsSinceWatermark(
     conditions.push(gt(documents.ingestedAt, args.sinceIngestedAt));
   }
 
+  return conditions;
+}
+
+/**
+ * The rows after the cursor row in the read order (`ingested_at` desc, then `id` desc). Postgres
+ * reads the time of the cursor row, so the compare keeps the microseconds that a `Date` loses.
+ */
+function olderThanEmail(userId: string, before: string): SQL {
+  const cursor = alias(documents, "email_cursor");
+
+  const cursorRow = db()
+    .select({ ingestedAt: cursor.ingestedAt, id: cursor.id })
+    .from(cursor)
+    .where(and(eq(cursor.id, before), eq(cursor.userId, userId)));
+
+  return sql`(${documents.ingestedAt}, ${documents.id}) < ${cursorRow}`;
+}
+
+/** True when `before` names a Gmail document of the window, so the page after it is real. */
+export async function emailCursorInWindow(
+  args: Pick<ListEmailsSinceArgs, "userId" | "sinceIngestedAt" | "untilIngestedAt"> & {
+    before: string;
+  },
+): Promise<boolean> {
+  const rows = await db()
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(...emailWindowConditions(args), eq(documents.id, args.before)))
+    .limit(1);
+
+  return rows.length > 0;
+}
+
+export async function listEmailsSinceWatermark(args: ListEmailsSinceArgs): Promise<EmailListPage> {
+  const limit = args.limit ?? EMAIL_LIST_DEFAULT_LIMIT;
+  const conditions = emailWindowConditions(args);
+
+  if (args.before !== undefined) conditions.push(olderThanEmail(args.userId, args.before));
+
   // Anchor on the frozen "until" so the signal does not depend on wall-clock time.
   const surfaced = await listRecentlySurfacedKeys({
     userId: args.userId,
@@ -150,8 +206,8 @@ export async function listEmailsSinceWatermark(
   });
 
   // The stored label of each mail. No code applies a standing instruction since triage slice 4a;
-  // the composer reads the instructions in words.
-  const rows: EmailListRow[] = await db()
+  // the composer reads the instructions in words. One extra row tells whether an older page exists.
+  const fetched: EmailListRow[] = await db()
     .select({
       documentId: documents.id,
       subject: documents.title,
@@ -176,7 +232,10 @@ export async function listEmailsSinceWatermark(
     )
     .where(and(...conditions))
     .orderBy(desc(documents.ingestedAt), desc(documents.id))
-    .limit(limit);
+    .limit(limit + 1);
+
+  const rows = fetched.slice(0, limit);
+  const before = fetched.length > limit ? (rows.at(-1)?.documentId ?? null) : null;
 
   const metas = rows.map((r) => parseGmailDocumentMetadata(r.metadata));
   const senders = metas.map((meta) => meta.from ?? null);
@@ -187,7 +246,8 @@ export async function listEmailsSinceWatermark(
     rows.map((r) => r.documentId),
   );
 
-  // Score the whole window together: recurrence is cross-row. Untriaged rows stay `normal`.
+  // Score the page together: recurrence is cross-row, so a repeat split across two pages
+  // counts only within each page. Untriaged rows stay `normal`.
   // No significance input: the band is recurrence only (ADR-0127).
   const attention = scoreAttentionForItems(
     rows.map((r, i) => ({
@@ -236,11 +296,15 @@ export async function listEmailsSinceWatermark(
     } satisfies EmailListItem;
   });
 
-  // The window picks by the received time; the list reads in sent order, newest first
-  // (stores.md § Time). A row with no sent time sorts by its received time.
-  return items.toSorted(
-    (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
-  );
+  // The window picks by the received time; the page reads in sent order, newest first
+  // (stores.md § Time). A row with no sent time sorts by its received time. The cursor stays the
+  // oldest row by arrival, so the next page starts where this one ended.
+  return {
+    items: items.toSorted(
+      (a, b) => (b.authoredAt ?? b.ingestedAt).getTime() - (a.authoredAt ?? a.ingestedAt).getTime(),
+    ),
+    before,
+  };
 }
 
 function outsideTriageOf(

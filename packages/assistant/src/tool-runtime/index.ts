@@ -643,8 +643,7 @@ export type RememberInstructionRefusal =
 
 /**
  * The `system.remember` result: `SaveStandingInstructionResult` from
- * `knowledge/standing-instructions.ts`. `resolvedTodos` is always null since triage slice 4a:
- * capture sweeps no todo. The key stays, so the result keeps its shape.
+ * `knowledge/standing-instructions.ts`. Capture changes no todo (triage slice 4a).
  */
 export type RememberInstructionResult =
   | {
@@ -655,7 +654,6 @@ export type RememberInstructionResult =
       /** Active instructions that name the same, a wider, a narrower, or an overlapping sender. Capped. */
       readonly related: readonly RelatedInstructionResult[];
       readonly relatedCount: number;
-      readonly resolvedTodos: null;
     }
   | RememberInstructionRefusal;
 
@@ -665,6 +663,8 @@ export interface StandingInstructionSummaryResult {
   readonly schemaVersion: 1 | 2;
   readonly instruction: StandingInstructionValueV2;
   readonly validFrom: Date;
+  /** Active rows with the same words as this one, this one included: one instruction to triage. */
+  readonly sameWordsCount: number;
 }
 
 /** Mirrors `StandingInstructionListResult` in `knowledge/standing-instructions.ts`. */
@@ -682,6 +682,7 @@ export type ForgetInstructionResult =
       readonly status: "forgotten";
       readonly factId: string;
       readonly instruction: StandingInstructionValueV2;
+      readonly retiredFactIds: readonly string[];
     }
   | { readonly ok: false; readonly status: "not_found" };
 
@@ -693,8 +694,10 @@ export type EditInstructionResult =
       readonly factId: string;
       readonly previousFactId: string;
       readonly instruction: StandingInstructionValue;
+      readonly editedCount: number;
       /** Edits a domain row cannot take. Empty on an address row. */
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
+      readonly sameWordsNotEdited: readonly string[];
     }
   | {
       readonly ok: true;
@@ -702,6 +705,7 @@ export type EditInstructionResult =
       readonly factId: string;
       readonly instruction: StandingInstructionValue;
       readonly droppedInputs: readonly StandingInstructionDroppedInput[];
+      readonly sameWordsNotEdited: readonly string[];
     }
   | { readonly ok: false; readonly status: "not_found" }
   | {
@@ -732,7 +736,7 @@ export interface SystemToolKnowledgeAdapter {
  * Wiring: runtime/adapters/system-tool-product.ts installs; internal/tools/system.ts reads.
  */
 export interface SystemToolInstructionAdapter {
-  rememberInstructionAndDismissTodos(
+  rememberStandingInstruction(
     args: SystemToolRequest<"system.remember">,
   ): Promise<RememberInstructionResult>;
   /** The refusal capture would return for this input now, before the card. Writes nothing. */
@@ -883,10 +887,10 @@ export function readUserContext(
   return systemToolKnowledgeAdapterPort.read().readUserContext(args);
 }
 
-export function rememberInstructionAndDismissTodos(
+export function rememberStandingInstruction(
   args: SystemToolRequest<"system.remember">,
 ): Promise<RememberInstructionResult> {
-  return systemToolInstructionAdapterPort.read().rememberInstructionAndDismissTodos(args);
+  return systemToolInstructionAdapterPort.read().rememberStandingInstruction(args);
 }
 
 export function checkInstruction(

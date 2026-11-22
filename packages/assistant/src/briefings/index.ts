@@ -10,7 +10,6 @@ export type { BriefingPreferences } from "./preferences";
 
 export {
   gatherBriefing,
-  gatherBriefingWithSuppressionAudit,
   gatherBriefingDigest,
   gatherCalendarContribution,
   gatherDayShape,
@@ -26,7 +25,7 @@ export type {
   GatherBriefingDigestArgs,
   GatherBriefingArgs,
   GatherCalendarArgs,
-  GatherBriefingWithSuppressionAuditResult,
+  GatherBriefingResult,
 } from "./gather";
 
 export {

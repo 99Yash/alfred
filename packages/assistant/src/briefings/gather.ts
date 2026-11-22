@@ -191,7 +191,7 @@ export interface GatherBriefingArgs {
   activityWindow?: BriefingActivityWindow;
 }
 
-export interface GatherBriefingWithSuppressionAuditResult {
+export interface GatherBriefingResult {
   gather: BriefingGather;
   /** Priority mails dropped because every thing that they point to is `closed` (ADR-0120). */
   closedLoops: BriefingClosedLoop[];
@@ -473,13 +473,7 @@ function dropClosedLoops(
   return closedLoops;
 }
 
-export async function gatherBriefing(args: GatherBriefingArgs): Promise<BriefingGather> {
-  return (await gatherBriefingWithSuppressionAudit(args)).gather;
-}
-
-export async function gatherBriefingWithSuppressionAudit(
-  args: GatherBriefingArgs,
-): Promise<GatherBriefingWithSuppressionAuditResult> {
+export async function gatherBriefing(args: GatherBriefingArgs): Promise<GatherBriefingResult> {
   const slot = args.slot ?? "morning";
   const windowEnd = args.windowEnd ?? localEndOfDay(args.briefingDate, args.timezone);
 

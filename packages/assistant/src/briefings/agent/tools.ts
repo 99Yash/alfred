@@ -1,10 +1,11 @@
 import { gatherCalendarContribution, gatherDayShape } from "../gather";
 import {
+  emailCursorInWindow,
   listEmailsSinceWatermark,
   listPriorBriefings,
   OUTSIDE_TRIAGE_VALUES,
   readEmailDocument,
-  type EmailListItem,
+  type EmailListPage,
   type EmailReadResult,
   type PriorBriefingSummary,
 } from "../read";
@@ -144,6 +145,52 @@ function weatherRead(weather: BriefingGather["weather"] | undefined): WeatherRea
   if (weather === null) return { status: "not_read" };
 
   return { status: "read", weather };
+}
+
+/** Most mails that one `list_emails_since` call returns, and the count when it names none. */
+const EMAIL_PAGE_MAX = 60;
+
+/**
+ * The `list_emails_since` result. One status for each state, so an unknown cursor cannot look
+ * like the end of the window.
+ *
+ * - `listed`: one page of the window, newest first. `before` gets the next older page, and is
+ *   null when the page holds the oldest mail of the window.
+ * - `unknown_cursor`: the `before` of the call names no mail of the window. Alfred read no page.
+ */
+type EmailList =
+  | ({ readonly status: "listed" } & EmailListPage)
+  | { readonly status: "unknown_cursor"; readonly message: string };
+
+async function listEmails(
+  args: Pick<BuildArgs, "userId" | "sinceIngestedAt" | "untilIngestedAt" | "timezone">,
+  page: { limit: number; before?: string | undefined },
+): Promise<EmailList> {
+  const window = {
+    userId: args.userId,
+    sinceIngestedAt: args.sinceIngestedAt,
+    untilIngestedAt: args.untilIngestedAt,
+  };
+
+  if (
+    page.before !== undefined &&
+    !(await emailCursorInWindow({ ...window, before: page.before }))
+  ) {
+    return {
+      status: "unknown_cursor",
+      message:
+        "The before value names no mail of this window. Send the before value of the previous result, or omit it to get the newest mail.",
+    };
+  }
+
+  const listed = await listEmailsSinceWatermark({
+    ...window,
+    timezone: args.timezone,
+    limit: page.limit,
+    ...(page.before === undefined ? {} : { before: page.before }),
+  });
+
+  return { status: "listed", ...listed };
 }
 
 /** Most activity lines that one `list_activity` call returns. */
@@ -355,25 +402,26 @@ export function buildBriefingTools(args: BuildArgs): BriefingToolBag {
       description:
         "List Gmail emails ingested since the last successful briefing of this slot, up to the frozen 'until' instant. Returns subjects, senders, snippets, triage labels, a previouslySurfaced flag (true = this item's loop — the thread OR the underlying task/PR it re-notifies about — already went out in a recent briefing; treat it as a continuation, not a fresh item), and an attentionBand (demanding | normal | muted) — never full bodies. Each item also carries receivedAtLocal (the receipt time as wall-clock in the user's timezone, e.g. 'Fri, Jun 26, 3:10 AM' — phrase overnight items by this, not as if they just arrived; null = no timestamp, don't assert a time) and unread (true = still unread, false = the user already opened it, null = unknown — never assume unseen; soften an already-read item away from a fresh 'you need to do X'). attentionBand adjusts the triage priority for repeat notifications. correspondentHistory gives the sender's prior mail counts and the stored window when available. " +
         `Each item also carries outsideTriage: null for inbox mail in the Primary and Updates tabs, which triage labels; else where a mail that triage did not judge sits: ${OUTSIDE_TRIAGE_VALUES}. ` +
-        "Call read_email if you need the body for a specific message.",
+        "Call read_email if you need the body for a specific message. " +
+        "Returns { status: 'listed', items, before }, or { status: 'unknown_cursor', message } when before names no mail of this window: then fix before, because Alfred read no page. items holds one page, the newest mail first. " +
+        "When before is not null, the window holds older mail that this page does not show, and a mail that asks something of the user can be among it: call again with that before value until before is null, or until you know that the older mail cannot change the briefing. Never say that you saw all the mail while before is not null.",
       inputSchema: z.object({
         limit: z
           .number()
           .int()
           .min(1)
-          .max(60)
-          .default(60)
-          .describe("Max rows to return. Defaults to 60."),
+          .max(EMAIL_PAGE_MAX)
+          .default(EMAIL_PAGE_MAX)
+          .describe(`Max mails to return. Defaults to ${EMAIL_PAGE_MAX}.`),
+        before: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "The before value of the previous result. Send it to get the next older mail. Omit it to get the newest mail.",
+          ),
       }),
-      execute: async ({ limit }): Promise<EmailListItem[]> => {
-        return listEmailsSinceWatermark({
-          userId: args.userId,
-          sinceIngestedAt: args.sinceIngestedAt,
-          untilIngestedAt: args.untilIngestedAt,
-          timezone: args.timezone,
-          limit,
-        });
-      },
+      execute: async (page): Promise<EmailList> => listEmails(args, page),
     }),
 
     read_email: tool({

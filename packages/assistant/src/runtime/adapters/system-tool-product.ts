@@ -55,26 +55,16 @@ function chatToolAttribution(
   };
 }
 
-type SaveInstructionResult = Awaited<ReturnType<typeof saveStandingInstruction>>;
-
-/**
- * `resolvedTodos` is always null since triage slice 4a: no instruction blocks a todo in code, so
- * capture sweeps no todo. The key stays, so the `system.remember` result keeps its shape.
- */
-type RememberAndDismissResult =
-  | (Extract<SaveInstructionResult, { ok: true }> & { resolvedTodos: null })
-  | Extract<SaveInstructionResult, { ok: false }>;
-
 type RememberRequest = SystemToolRequest<"system.remember">;
 
-/** Save the instruction (ADR-0113 capture). Slice 4b rewrites the save path to words. */
-async function rememberInstructionAndDismissTodos({
-  input,
-  context,
-}: RememberRequest): Promise<RememberAndDismissResult> {
+/**
+ * Save the instruction (ADR-0113 capture). It changes no todo: no instruction blocks a todo in
+ * code since triage slice 4a. Slice 4b rewrites the save path to words.
+ */
+function rememberStandingInstruction({ input, context }: RememberRequest) {
   const { kind: _kind, ...fields } = input;
 
-  const result = await saveStandingInstruction({
+  return saveStandingInstruction({
     userId: context.userId,
     input: fields,
     source: {
@@ -83,10 +73,6 @@ async function rememberInstructionAndDismissTodos({
       meta: { runId: context.runId, stepId: context.stepId },
     },
   });
-
-  if (!result.ok) return result;
-
-  return { ...result, resolvedTodos: null };
 }
 
 const knowledgeAdapter: SystemToolKnowledgeAdapter = {
@@ -111,7 +97,7 @@ const knowledgeAdapter: SystemToolKnowledgeAdapter = {
 };
 
 const instructionAdapter: SystemToolInstructionAdapter = {
-  rememberInstructionAndDismissTodos,
+  rememberStandingInstruction,
   checkInstruction({ input, context }) {
     const { kind: _kind, ...fields } = input;
 

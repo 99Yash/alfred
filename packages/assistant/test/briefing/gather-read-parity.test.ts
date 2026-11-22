@@ -8,7 +8,7 @@ import { documents, emailTriage, user } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
-import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
+import { gatherBriefing } from "@alfred/assistant/briefings/gather";
 import { settings } from "@alfred/assistant/settings";
 import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
 import { parseLocalDateKey } from "@alfred/assistant/time";
@@ -16,9 +16,9 @@ import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * How `gatherBriefingWithSuppressionAudit` and `listEmailsSinceWatermark` line up on one mailbox.
- * They differ on non-priority mail: `gather` keeps
- * only priority categories, so feeding it to the composer would hide fyi and untriaged mail.
+ * How `gatherBriefing` and `listEmailsSinceWatermark` line up on one mailbox.
+ * They differ on non-priority mail: `gather` keeps only priority categories, so feeding it to
+ * the composer would hide fyi and untriaged mail.
  */
 
 const SKIP = dbBackedSkip("database");
@@ -90,7 +90,7 @@ async function seedEmail(args: {
 }
 
 async function gatherFor(userId: string) {
-  return gatherBriefingWithSuppressionAudit({
+  return gatherBriefing({
     userId,
     settings: settings({ userId }),
     briefingDate: BRIEFING_DATE,
@@ -102,11 +102,13 @@ async function gatherFor(userId: string) {
 }
 
 async function readFor(userId: string) {
-  return listEmailsSinceWatermark({
+  const { items } = await listEmailsSinceWatermark({
     userId,
     sinceIngestedAt: READ_SINCE,
     untilIngestedAt: WINDOW_END,
   });
+
+  return items;
 }
 
 function gatheredDocIds(gather: Awaited<ReturnType<typeof gatherFor>>["gather"]): Set<string> {

@@ -611,7 +611,10 @@ export const rememberInput = coerceJsonArrayFields(
 /** No arguments. Returns a bounded newest-first page. */
 export const listInstructionsInput = z.object({}).strict();
 
-/** Targets one row by `factId`. Marks it `rejected`, so it can be undone. */
+/**
+ * Targets one row by `factId`, and every active row with the same words. Marks them
+ * `rejected`, so it can be undone.
+ */
 export const forgetInstructionInput = z
   .object({
     factId: z
@@ -629,8 +632,8 @@ export const forgetInstructionInput = z
   .strict();
 
 /**
- * Change the directive or label, not the target: supersedes the row. A domain row
- * takes neither edit and lists the ignored fields in `droppedInputs`.
+ * Change the words or the label, not the target: supersedes the rows. New words go to every
+ * v1 row with the same words. A domain row takes no label and lists it in `droppedInputs`.
  */
 export const editInstructionInput = z
   .object({
@@ -648,8 +651,9 @@ export const editInstructionInput = z
       })
       .optional()
       .describe(
-        "New resolved instruction sentence. Omit to leave unchanged. A domain-target row ignores " +
-          "it and reports it under `droppedInputs`.",
+        "The new words of the instruction, as the user stated them. Triage and the briefing " +
+          "read these words. They replace the phrasing of each row with the same words, and the " +
+          "directive of each address row. Omit to leave unchanged.",
       ),
     senderLabel: z
       .string()

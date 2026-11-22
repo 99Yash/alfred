@@ -61,7 +61,7 @@ import {
   readChildRunOutcome,
   readUserContext,
   recoverWorkflow,
-  rememberInstructionAndDismissTodos,
+  rememberStandingInstruction,
   checkInstruction,
   resolveTodo,
   scratchpad,
@@ -577,7 +577,7 @@ export const systemTools: readonly RegisteredTool[] = [
       return refusal === null ? null : JSON.stringify(refusal);
     },
     execute: async (input, ctx) => {
-      return await rememberInstructionAndDismissTodos({
+      return await rememberStandingInstruction({
         input,
         context: {
           userId: ctx.userId,
@@ -598,7 +598,10 @@ export const systemTools: readonly RegisteredTool[] = [
       "List the user's active standing instructions (each with its `factId`, `instructionId`, " +
       "`schemaVersion`, scope, targets, effects, and directive). Call this before forgetting, " +
       "editing, or revising one so you target the right id, and " +
-      "to check whether a new request duplicates or conflicts with an existing instruction. The result " +
+      "to check whether a new request duplicates or conflicts with an existing instruction. " +
+      "Triage and the briefing read an instruction as its words (`phrasing`, else `directive`). " +
+      "Rows with the same words are one instruction to them: `sameWordsCount` is the number of " +
+      "such rows. The result " +
       "is capped; if `truncated` is true and the target is unclear, ask the user to narrow it.",
     inputSchema: listInstructionsInput,
     execute: async (input, ctx): Promise<ListInstructionsResult> => {
@@ -621,7 +624,10 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     description:
       "Remove a standing instruction the user explicitly asked you to drop, by its `factId` (from " +
-      "list_instructions). Non-destructive — the instruction is retired, not erased. If you're not " +
+      "list_instructions). Non-destructive — the instruction is retired, not erased. It also " +
+      "retires every active row with the same words, because triage and the briefing read those " +
+      "rows as one instruction; `retiredFactIds` lists each retired row. Tell the user how many " +
+      "rows were retired when it is more than one. If you're not " +
       "sure which instruction the user means, list them and ask rather than guessing.",
     inputSchema: forgetInstructionInput,
     execute: async (input, ctx) => {
@@ -642,12 +648,15 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Reframe a schemaVersion 1 standing instruction's wording or display label, by its `factId` " +
+      "Change a schemaVersion 1 standing instruction's words or display label, by its `factId` " +
       "(from list_instructions), without changing what it targets. Revise a schemaVersion 2 " +
       "instruction with system.remember and its `instructionId` instead. To point an instruction at a different " +
-      "sender, forget the wrong one and remember the right one instead. A row that targets a DOMAIN " +
-      "takes neither edit — its sentence comes from the domain and it carries no display label — and " +
-      "returns what it ignored under `droppedInputs`. Tell the user.",
+      "sender, forget the wrong one and remember the right one instead. New words replace the " +
+      "words that triage and the briefing read, on every schemaVersion 1 row with the same words " +
+      "(`editedCount` rows). A schemaVersion 2 row with the same words is not changed and is " +
+      "listed under `sameWordsNotEdited`: its old words stay in force until you revise it with " +
+      "system.remember. A row that targets a DOMAIN carries no display label and returns the " +
+      "ignored label under `droppedInputs`. Tell the user what changed and what did not.",
     inputSchema: editInstructionInput,
     execute: async (input, ctx) => {
       return await editInstruction({
@@ -694,9 +703,11 @@ export const systemTools: readonly RegisteredTool[] = [
     riskTier: "no_risk",
     replay: "safe",
     description:
-      "Dismiss live todos. Kind `gmail_sender` dismisses the todos from the Gmail threads of a " +
-      "resolved sender or a thread: use it when the user names a sender or an email, and after " +
-      "storing a sender suppression so current matching todos disappear instead of lingering. " +
+      "Dismiss live todos, only when the user asks you to dismiss or clear them. A saved " +
+      "standing instruction is not such a request: do not call this after system.remember " +
+      "unless the user also asked to clear the todos. Kind `gmail_sender` dismisses the todos " +
+      "from the Gmail threads of a resolved sender or a thread: use it when the user names a " +
+      "sender or an email. " +
       "Kind `todo_ids` dismisses the exact todos in `todoIds`: use it when you chose the todos " +
       "by id, for example from list_todos. An id that is not a live todo of the user is not " +
       "changed and is returned under `skipped` with its reason.",

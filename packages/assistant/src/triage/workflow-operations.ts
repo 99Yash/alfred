@@ -1016,7 +1016,16 @@ export async function gatherObservations(args: {
   settings: UserSettings;
   documentId: string;
   sourceThreadId: string;
-  document: { title: string | null; content: string; metadata: GmailDocumentMetadata };
+  /**
+   * `accountId` is the mailbox of the mail. Only the instructions for it, or for every mailbox,
+   * go to the model.
+   */
+  document: {
+    accountId: string;
+    title: string | null;
+    content: string;
+    metadata: GmailDocumentMetadata;
+  };
   persona: AccountPersona | null;
   /** The sender parse and the labels come from here. */
   mailFacts: MailFacts;
@@ -1035,9 +1044,9 @@ export async function gatherObservations(args: {
       messageCount: 0,
       recentMessages: [],
     })),
-    // Every active instruction in the user's words (slice 4a). A blip reads as `read_failed`,
-    // so the trace can tell none from unknown.
-    readInstructionsInWords(args.userId),
+    // Every active instruction in the user's words (slice 4a), for every mailbox or for the
+    // mailbox of this mail. A blip reads as `read_failed`, so the trace can tell none from unknown.
+    readInstructionsInWords(args.userId, { forAccountId: args.document.accountId }),
     // Cold-start prior (ADR-0050 D1). One point read, never a memory search (#435).
     // A flag, because null alone cannot tell a failure from no chunk.
     readUserContextLine(args.userId)
