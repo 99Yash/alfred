@@ -94,7 +94,8 @@ export const chatRunStateSchema = z
     ...toolSurfaceStateFields,
     // Snapshotted on the first turn so the system prompt stays fixed (ADR-0053).
     connectedSummary: z.string().optional(),
-    // `selfIdentityGrounding`, snapshotted for the same reason. Empty on older pinned runs.
+    // `selfIdentityGrounding` and the evidence map, snapshotted for the same reason. Empty on older
+    // pinned runs.
     selfIdentity: z.string().optional(),
     // ADR-0124: how the run reads, from the user's flag on the first turn. The tool gate and the
     // prompt both follow it, so it is pinned with the prompt. Older runs read as `direct`.

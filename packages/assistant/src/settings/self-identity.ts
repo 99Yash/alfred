@@ -19,6 +19,8 @@ export interface SelfIdentity {
   sendAddress: string | null;
   /** `GITHUB_APP_SLUG`. */
   githubAppSlug: string | null;
+  /** `owner/name` from `ALFRED_DEPLOYED_REPO_OWNER` and `ALFRED_DEPLOYED_REPO_NAME`. */
+  sourceRepository: string | null;
 }
 
 function stripTrailingSlash(origin: string): string {
@@ -42,6 +44,8 @@ export function resolveSelfIdentity(): SelfIdentity {
   const webOrigin = stripTrailingSlash(envFieldValue("CORS_ORIGIN") ?? "");
   const rawApi = envFieldValue("BETTER_AUTH_URL");
   const apiOrigin = rawApi ? stripTrailingSlash(rawApi) : null;
+  const repoOwner = envFieldValue("ALFRED_DEPLOYED_REPO_OWNER");
+  const repoName = envFieldValue("ALFRED_DEPLOYED_REPO_NAME");
   _identity = {
     webOrigin,
     webHost: hostOf(webOrigin),
@@ -49,6 +53,7 @@ export function resolveSelfIdentity(): SelfIdentity {
     apiHost: apiOrigin ? hostOf(apiOrigin) : null,
     sendAddress: selfSenderEmail(),
     githubAppSlug: envFieldValue("GITHUB_APP_SLUG") ?? null,
+    sourceRepository: repoOwner && repoName ? `${repoOwner}/${repoName}` : null,
   };
 
   return _identity;
@@ -94,6 +99,13 @@ export function formatSelfIdentityGrounding(identity: SelfIdentity): string {
   lines.push(
     "- These names identify this Alfred deployment. A provider notice naming one of them may describe a connection to Alfred; the name alone does not prove that the user initiated or authorized the reported event. Describe access as expected only when the available context confirms user initiation. Preserve warnings about unrecognized sign-ins, unexpected access grants, or account compromise, even when they name Alfred. When the user confirms they connected Alfred, explain that the notice refers to that connection rather than an unknown app.",
   );
+
+  // evidence-map.md §5: Alfred's own stores. A lineage on the evidence map points here.
+  if (identity.sourceRepository) {
+    lines.push(
+      `- Your source code is the public GitHub repository ${identity.sourceRepository}. Each design decision is an ADR in \`docs/decisions/\`, indexed in \`decisions.md\`.`,
+    );
+  }
 
   return lines.join("\n");
 }
