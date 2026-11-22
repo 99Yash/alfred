@@ -51,7 +51,7 @@ Three things about it are load-bearing.
 
 - **Per-endpoint limits are Better Auth's own.** `/sign-in`, `/sign-up`, `/change-password` and `/change-email` are 3 requests per 10s; the password-reset and verification-email paths are 3 per 60s. A `customRules` entry for a path REPLACES that stricter rule, so the block declares none.
 - **A Redis outage degrades, it does not disable.** Each counter falls back to a per-process `Map` and logs one warning per request. That is the limiter Better Auth would run on its own — the limit never lifts, and an outage never locks the only user out of the sign-in path.
-- **`advanced.ipAddress.trustedProxies` decides the bucket.** Without it, Better Auth trusts a single-value `x-forwarded-for` only, and every request carrying its own header shares one bucket. The list holds the private ranges that Railway's edge uses, which is the same list the web service's `Caddyfile` trusts. It is correct only while the API is reachable through that edge alone.
+- **`advanced.ipAddress.trustedProxies` decides the bucket.** Without it, Better Auth trusts a single-value `x-forwarded-for` only, and every request carrying its own header shares one bucket. The list holds the private ranges that Railway's edge uses. It is correct only while the API is reachable through that edge alone.
 
 ## Multi-user ceiling
 

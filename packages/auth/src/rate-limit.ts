@@ -18,7 +18,7 @@ const AUTH_RATE_LIMIT_WINDOW_SECONDS = 10;
 /**
  * Proxy hops to skip in `x-forwarded-for`. With an empty list, a spoofed header puts
  * every caller in one bucket, so anyone could lock out the real user.
- * Safe only while the API is reachable only through Railway's proxy. Matches the `Caddyfile`.
+ * Safe only while the API is reachable only through Railway's proxy.
  * Both the auth and the public http limiter read it, only through {@link authIpAddress}.
  */
 const TRUSTED_PROXY_RANGES = [

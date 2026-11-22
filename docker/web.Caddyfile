@@ -1,8 +1,57 @@
 # Serves the built SPA on Railway's injected `PORT`, with SPA fallback so
 # TanStack Router's deep links resolve.
+#
+# This is the one web Caddyfile: `docker/web.Dockerfile` copies it into the
+# image, and it owns the browser security headers for `alfred.beauty` (#295,
+# docs/reference/security-headers.md).
 :{$PORT}
 
 root * /srv
+
+# Security headers, applied to every response (#295).
+#
+# The CSP is scoped to what alfred.beauty loads at runtime, derived from a live
+# capture of the authed app. Deployment-varying origins use Caddy env
+# placeholders with production defaults, so preview or staging can follow
+# VITE_API_URL, VITE_POSTHOG_HOST, and VITE_SENTRY_DSN without a source edit.
+# Railway gives service variables to the container at runtime, and Caddy reads
+# them when it parses this file. Only script-src and connect-src are locked to
+# explicit origins; style/img/font are widened to https: so rendered artifacts
+# and email HTML (sandboxed srcdoc iframes inherit this CSP) keep their
+# external styling and images. The sandboxed iframes carry no allow-scripts,
+# so no inline-script allowance is needed there.
+#
+# script-src pins the two first-party inline bootstraps in apps/web/index.html
+# by SHA-256 (anti-FOUC theme stamp + vite:preloadError chunk recovery) instead
+# of 'unsafe-inline'. If you EDIT either inline <script>, regenerate its hash or
+# the browser silently blocks it (theme flash, stale-chunk reload stops). The
+# command is in docs/reference/security-headers.md, and the
+# packages/http/test/security-headers.test.ts suite fails on a stale hash.
+header {
+	# Prevent some browsers from MIME-sniffing a response away from the declared Content-Type.
+	X-Content-Type-Options "nosniff"
+	# No one may frame alfred.beauty (frame-ancestors is the modern form;
+	# X-Frame-Options covers browsers that predate it). The app's own previews
+	# are srcdoc iframes, which this does not affect.
+	X-Frame-Options "DENY"
+	Referrer-Policy "strict-origin-when-cross-origin"
+	# geolocation=(self): the weather hero reads navigator.geolocation on this
+	# origin. Do NOT drop to () or it silently falls back to IP location.
+	Permissions-Policy "camera=(), microphone=(), geolocation=(self), browsing-topics=()"
+	# Railway terminates TLS at the edge, so HSTS is always safe here.
+	Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+	Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; script-src 'self' 'sha256-i082Sz2M8uEvihxRvSiOEljQmUYkyY0jvJpe3LAQZnw=' 'sha256-wDPEyhz9ait0i5PrDghV0h4JogRyc6sbtMSmknQNv5o=' {$WEB_CSP_POSTHOG_ASSET_ORIGIN:https://us-assets.i.posthog.com}; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'self' blob: data:; connect-src 'self' {$WEB_CSP_API_ORIGIN:https://api.alfred.beauty} {$WEB_CSP_POSTHOG_CONNECT_SRC:https://us.i.posthog.com https://us-assets.i.posthog.com} {$WEB_CSP_SENTRY_CONNECT_SRC:https://*.ingest.de.sentry.io} https://api.bigdatacloud.net https://api.open-meteo.com https://get.geojs.io https://*.r2.cloudflarestorage.com"
+	-Server
+}
+
+# Shared threads (`/c/<slug>`, ADR-0102) must never be indexed. The slug is the
+# whole read capability at 80 bits, so an index entry removes the need to guess
+# it. `robots.txt` disallows the same path; this header is the half a crawler
+# cannot choose to ignore, and it reaches a bot that runs the SPA. The `header`
+# directive runs before `try_files`, so it matches the request path, not the
+# rewritten `/index.html`.
+@sharedThread path /c/*
+header @sharedThread X-Robots-Tag "noindex, nofollow"
 
 encode zstd gzip
 

@@ -20,6 +20,9 @@ const EXPECTED = {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
+/** The Caddyfile that `docker/web.Dockerfile` copies into the web image. */
+const WEB_CADDYFILE = "docker/web.Caddyfile";
+
 function assertBaseHeaders(res: Response): void {
   for (const [name, value] of Object.entries(EXPECTED)) {
     assert.equal(res.headers.get(name), value, `header ${name}`);
@@ -78,7 +81,7 @@ describe("securityHeaders", () => {
 
   test("web Caddyfile pins the current inline index.html scripts by hash", () => {
     const html = readFileSync(resolve(REPO_ROOT, "apps/web/index.html"), "utf8");
-    const caddyfile = readFileSync(resolve(REPO_ROOT, "Caddyfile"), "utf8");
+    const caddyfile = readFileSync(resolve(REPO_ROOT, WEB_CADDYFILE), "utf8");
 
     const scripts = Array.from(
       html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g),
@@ -98,7 +101,7 @@ describe("securityHeaders", () => {
   });
 
   test("web Caddyfile exposes env-backed CSP origins for non-production deploys", () => {
-    const caddyfile = readFileSync(resolve(REPO_ROOT, "Caddyfile"), "utf8");
+    const caddyfile = readFileSync(resolve(REPO_ROOT, WEB_CADDYFILE), "utf8");
 
     for (const name of [
       "WEB_CSP_API_ORIGIN",
