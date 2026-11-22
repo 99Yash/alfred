@@ -139,7 +139,7 @@ Until the UI exists, a script prints the weekly report and the review sample.
 | -------------------------------------- | ------- | --------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Claim row with evidence, author, producer | Settled | Not built | `user_facts.source` holds one pointer, and its default is `{"kind":"agent"}` (`packages/db/src/schema/memory.ts`). `valid_from` defaults to the write time. |
 | Name links                             | Settled | Not built | No name kind exists. Object state reads exact ids only.                                                                 |
-| Alfred itself as a thing               | Settled | Partly    | `selfIdentityGrounding` gives the hosts and the GitHub App. It does not give the repository.                           |
+| Alfred itself as a thing               | Settled | Partly    | `selfIdentityGrounding` gives the hosts, the GitHub App, and the source repository (evidence-map.md §5). No name link resolves "Alfred" to the repository yet. |
 | Turn-start name lookup                 | Settled | Not built | No lookup runs. Chat pulls memory by tool.                                                                              |
 | Chat capture                           | Settled | Partly    | The extractor runs when its flag is on, and it discards its output (`TODO(#399)` in `chat/chat-memory-capture.ts`). The flag is off in prod. |
 | Author label with a quote check        | Settled | Not built | Prod has 6 confirmed rows with source `user`, all standing instructions.                                                |

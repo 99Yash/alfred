@@ -9,6 +9,8 @@
  */
 export { requireEntityIdNamespace } from "./namespace";
 
+export { EVIDENCE_MAP_GROUNDING } from "./evidence-map";
+
 export {
   appendObservationFamilyMember,
   readObservationFamilyHeads,

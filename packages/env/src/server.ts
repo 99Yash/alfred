@@ -153,6 +153,13 @@ const serverEnvSchema = z
     RAILWAY_GIT_COMMIT_SHA: z.string().optional(),
     ALFRED_DEPLOYED_COMMIT_SHA: z.string().optional(),
     /**
+     * The source repository of this deployment, e.g. `99Yash` and `alfred`. The infra program writes
+     * both at `alchemy deploy` time (ADR-0128). The self-identity prompt block names the repository
+     * from them (evidence-map.md §5).
+     */
+    ALFRED_DEPLOYED_REPO_OWNER: z.string().min(1).optional(),
+    ALFRED_DEPLOYED_REPO_NAME: z.string().min(1).optional(),
+    /**
      * Sentry trace sample rate. Unset is `0` in production (tracing costs egress
      * and quota) and `1` elsewhere. Errors are reported at any rate.
      */

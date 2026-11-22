@@ -106,10 +106,10 @@ The parked self-awareness item of [memory.md §9](./memory.md#9-not-settled) res
 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
-| The map in the prompt and in the types | Settled (owner, 2026-11-14) | Not built | Waits on Code Mode (#535) |
+| The map in the prompt and in the types | Settled (owner, 2026-11-14) | Partly | Chat pins the compact map (`packages/assistant/src/knowledge/evidence-map.ts`). The compiler keeps each entry on a real table and off the observability tables. The Code Mode declarations for each store wait on #535 |
 | One map shared by every gather | Settled | Partly | Each gather hand-picks its slice today (the composer's tools) |
 | The user-scoped read surface (observability off the map) | Settled as direction (owner, 2026-11-16) | Not built | Waits on Code Mode (#535); the ADR-0124 plan carries the declarations |
-| Alfred's own stores on the map | Settled (resolves the parked item) | Not built | Self-identity grounding gives hosts, not the repository |
+| Alfred's own stores on the map | Settled (resolves the parked item) | Partly | Self-identity grounding names the repository, the ADRs, and the index (`ALFRED_DEPLOYED_REPO_OWNER` and `ALFRED_DEPLOYED_REPO_NAME`). The run records are a system slice, not built |
 | Pattern cache in the durable profile | Open | Not built | Section 9 |
 
 ## 8. Order of work

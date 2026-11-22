@@ -18,6 +18,7 @@ import { logger } from "@alfred/logging";
 import { buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import { readIntegrationAvailability } from "@alfred/assistant/connections";
 import { selfIdentityGrounding, settings } from "@alfred/assistant/settings";
+import { EVIDENCE_MAP_GROUNDING } from "@alfred/assistant/knowledge";
 import {
   artifactStreamMode,
   toolExecutionLane,
@@ -384,7 +385,11 @@ const chatTurnStep: Step<ChatRunState> = {
 
       if (state.selfIdentity === undefined) {
         // An older checkpoint already pinned a prompt without this block; adding it fails the hash.
-        state.selfIdentity = state.systemPromptHash === undefined ? selfIdentityGrounding() : "";
+        // The evidence map is pinned with the identity, so a redeploy that changes it keeps the pin.
+        state.selfIdentity =
+          state.systemPromptHash === undefined
+            ? `${selfIdentityGrounding()}\n\n${EVIDENCE_MAP_GROUNDING}`
+            : "";
       }
 
       // Only the medium is read here. The facts and the body are saved with the user message.
