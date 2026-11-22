@@ -1,8 +1,12 @@
 import { auth } from "@alfred/auth";
+import {
+  authSessionResponseSchema,
+  type AuthSessionResponse,
+} from "@alfred/contracts/auth-session";
 import { db } from "@alfred/db";
 import { createRedisConnection, type BoundedRedis } from "@alfred/db/redis";
 import { sql } from "drizzle-orm";
-import { Elysia } from "elysia";
+import { type Context, Elysia } from "elysia";
 import { agent } from "./agent";
 import { approvalsRoutes } from "./approvals";
 import { chatRoutes } from "./chat";
@@ -87,6 +91,24 @@ function readyRedis(): BoundedRedis {
   return readyRedisConn;
 }
 
+/** The session for the SPA, without the cookie token (see `authSessionResponseSchema`). */
+async function readSessionResponse({
+  request,
+  set,
+}: Pick<Context, "request" | "set">): Promise<AuthSessionResponse | null> {
+  set.headers["Cache-Control"] = "private, no-store";
+  let session: Awaited<ReturnType<typeof getSessionCached>>;
+
+  try {
+    session = await getSessionCached(request);
+  } catch {
+    return null;
+  }
+
+  // Outside the `try`: a shape drift is a loud 500, not a silent sign-out.
+  return session ? authSessionResponseSchema.parse(session) : null;
+}
+
 // `normalize: 'typebox'`: Elysia 1.4's `exact-mirror` cleaner logs a Union error for every
 // `t.Optional` field. TypeBox `Value.Clean` is slower but works.
 export const app = new Elysia({ name: "api", normalize: "typebox" })
@@ -139,18 +161,9 @@ export const app = new Elysia({ name: "api", normalize: "typebox" })
 
     return { ok: allOk, checks };
   })
-  .get("/api/auth/get-session", async ({ request, set }) => {
-    try {
-      const session = await getSessionCached(request);
-      set.headers["Cache-Control"] = "private, no-store";
-
-      return session;
-    } catch {
-      set.headers["Cache-Control"] = "private, no-store";
-
-      return null;
-    }
-  })
+  .get("/api/auth/get-session", readSessionResponse)
+  // Better Auth also serves the POST form. Without this override, the mount returns the raw session.
+  .post("/api/auth/get-session", readSessionResponse)
   .onRequest(({ request }) => {
     const url = new URL(request.url);
 

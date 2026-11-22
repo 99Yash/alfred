@@ -81,6 +81,7 @@ const ROUTE_SURFACE = [
   "GET /health",
   "GET /ready",
   "GET /api/auth/get-session",
+  "POST /api/auth/get-session",
   "ALL /*",
 ] as const satisfies readonly string[];
 
