@@ -126,9 +126,9 @@ apply.
   question, and that is the intent. After a switch back to Review, the worst case is a second
   confirm.
 
-**What full autonomy does not waive.** These are execution guards, not approvals: the Gmail
-recipient check in the amendment above, the unknown-effect barrier, prior-rejection
-suppression, and the cancellation fence.
+**What full autonomy does not waive.** These are execution guards, not approvals: the
+unknown-effect barrier, prior-rejection suppression, and the cancellation fence. The Gmail
+recipient check in the amendment below was deleted on 2026-11-15 (ADR-0126 amendment, PR #1760).
 
 **Audit.** The staging row is still written, with `requires_approval = false`. The dispatcher
 logs `[dispatch] full autonomy waived the approval card` with the run, tool, tier, and thread.
