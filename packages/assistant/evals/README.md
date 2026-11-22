@@ -9,7 +9,7 @@ pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
 A bare `evalite run` globs **all eight** suites in this directory, `boss-judgment`
-and `triage-classify` included. Every suite calls a real model, so a bare run
+and `code-mode-paired` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
 
@@ -17,14 +17,14 @@ Env (loaded from `apps/server/.env`): the three Cloudflare AI Gateway vars
 (`CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`).
 Every model call goes through the gateway, so there are no provider keys to set.
 
-- `route("cheap")` (Gemini Flash-Lite) is the cheap classifier under test, and the
-  DEFAULT LLM judge. It covers `triage-classify` end to end. Only two suites call
-  `llmJudgeScorer` at all: `triage-classify` and `voice-ai-tells`. Both take the
-  cheap default. The other suites score deterministically and need no judge.
-- `route("standard")` (Haiku 5.5) — eight suites GENERATE on that route, because
+- `route("cheap")` (Gemini Flash-Lite) is the triage classifier under test in
+  `triage-deck`, and the DEFAULT LLM judge. Only `voice-ai-tells` calls
+  `llmJudgeScorer`, and it takes the cheap default. The other suites score
+  deterministically and need no judge.
+- `route("standard")` (Haiku 5.5) — seven suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
-  `code-mode-paired`, `code-mode-read`, `date-grounding`, `sender-suppression-grounding`,
-  `time-awareness`, `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
+  `code-mode-paired`, `code-mode-read`, `date-grounding`, `time-awareness`,
+  `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
 
@@ -49,15 +49,9 @@ it.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.
-- `sender-suppression-grounding.eval.ts` — chat agent searches Gmail through the
-  Gmail MCP server before sender-suppression writes, and only persists a resolved
-  sender when search hits clearly identify one address.
-- `voice-ai-tells.eval.ts` — a small, non-gating nightly sample that checks
+- `voice-ai-tells.eval.ts` — a small, non-gating sample that checks
   Alfred's default chat voice for high-confidence AI-writing tells and grades
   usefulness with a cheap cross-provider judge.
-- `triage-classify.eval.ts` — the email-triage classifier: category match, a collab-activity
-  partition check, and an LLM-judge pass on rationale soundness. The rail-todo mint scorer
-  left with the todo rubric (slice 3).
 - `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
   `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
   no case gets worse. Deterministic only.
@@ -84,7 +78,7 @@ it.
 - `lib/grounding.ts` — the `GroundingTaskOutput` shape the grounding suites share.
 - `lib/time-answer.ts` — the scores of an answer that depends on the current time.
 - `lib/llm-judge.ts` — reusable LLM-as-a-judge scorer factory.
-- `lib/triage-classify-retry.ts` — the provider-weather guards the two triage suites share.
+- `lib/triage-classify-retry.ts` — the provider-weather guards of the triage deck.
 
 ## Scorers
 
@@ -98,12 +92,9 @@ Two kinds, both used:
   the way a human would jot it?). The judge returns a LETTER grade (A/B/C/D)
   against an explicit rubric, mapped to a number in code — LLMs grade letters far
   more consistently than they grade 0–100 — and must explain itself; the
-  explanation surfaces in the evalite per-case panel. The judge model is a
-  per-suite choice, not one rule: a stronger, different-family judge is the
-  textbook defence against self-preference, and a suite whose judge is the only
-  thing grading the claim pays for it. `triage-classify` does the opposite on purpose — it judges on `route("cheap")`, the classifier's own
-  route, because its three deterministic scorers carry the proof and the judge is
-  a readability signal. See `lib/llm-judge.ts` for the trade.
+  explanation surfaces in the evalite per-case panel. The judge runs on a
+  stronger, different model than the system under test (ADR-0055, ADR-0133
+  decision 3): a judge on the same model is a fault. See `lib/llm-judge.ts`.
 
 ## Dataset tiers
 
@@ -115,13 +106,13 @@ The eval-tier model (dev / CI / regression) we're working toward:
 | **CI**         | medium | every commit       | recent dev cases + golden cases; < ~15 min           |
 | **Regression** | large  | scheduled          | everything, tracked over time                        |
 
-Today everything is the **dev** tier: small, hand-authored, weighted toward the
-hardest cases. The triage dataset is seeded from golden positives + the
-**documented real misses** the classifier prompt's own exemplars were written
-against (the Sakshi-ownership bug, the ClickUp bot-"Done" burying a live
-assignment, the LinkedIn senior-IC nicety, pre-merge PR advisory, the freemium
-upsell). Coverage is deliberately adversarial, not uniform — the point is the
-boundaries, not the easy middle.
+Today everything is the **dev** tier: small, owner-labelled, weighted toward the
+hardest cases. The triage deck is mined from production mail and redacted
+(`triage-deck/cases.ts`). Coverage is deliberately adversarial, not uniform — the
+point is the boundaries, not the easy middle.
+
+No CI workflow runs an eval (ADR-0133 decision 5). The gate is the owner running
+the deck before and after each slice.
 
 ## Seeding from real corrections (deferred)
 
