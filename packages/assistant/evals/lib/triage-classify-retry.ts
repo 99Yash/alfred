@@ -7,7 +7,7 @@ import {
 import { classifyEmail, type ClassifyEmailArgs } from "@alfred/assistant/triage/classify";
 
 /**
- * The provider-weather guards that the triage suites share. A suite never throws on these:
+ * The provider-weather guards of the triage deck. The deck never throws on these:
  * it records a skip, because a throw aborts the file and hangs the evalite reporter.
  */
 
@@ -69,7 +69,7 @@ export function classifyFailureOf(err: unknown): ClassifyFailure {
 }
 
 /** A provider capacity error (overloaded, 429, 503). Retrying would only blow the CI time budget. */
-export function isTransientOverload(err: unknown): boolean {
+function isTransientOverload(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 
   return /high demand|overloaded|rate.?limit|too many requests|\b429\b|\b503\b|temporarily unavailable|AI_RetryError/i.test(
@@ -81,7 +81,7 @@ export function isTransientOverload(err: unknown): boolean {
  * A 200 with no parseable object. The SDK throws above the layer `withFallback` wraps,
  * so the fallback never engages. A fresh attempt almost always parses.
  */
-export function isEmptyOutput(err: unknown): boolean {
+function isEmptyOutput(err: unknown): boolean {
   const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 
   return /AI_NoOutputGeneratedError|AI_NoObjectGeneratedError|No output generated|No object generated/i.test(
