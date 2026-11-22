@@ -3,6 +3,7 @@ import { summarizeBody } from "@alfred/contracts";
 import type { ClientMutators } from "@alfred/sync";
 import { clientMutators } from "@alfred/sync";
 import { API_URL } from "~/lib/eden";
+import { subscribeToBackForwardCache } from "~/lib/page-lifecycle";
 
 /** A server that accepts TCP but never answers would wedge sync. A timeout becomes a normal retry. */
 const SYNC_FETCH_TIMEOUT_MS = 30_000;
@@ -107,23 +108,48 @@ export function createReplicache(
     },
   });
 
-  // Pull at once when the server pokes.
-  const source = new EventSource(`${API_URL}/api/replicache/events`, {
-    withCredentials: true,
-  });
+  let source: EventSource | null = null;
 
-  source.addEventListener("poke", () => {
-    void rep.pull();
-  });
-  source.onerror = () => {
-    // A transient drop stays CONNECTING and retries. CLOSED means a 401.
-    if (source.readyState === EventSource.CLOSED) options.onAuthError?.();
+  // Pull at once when the server pokes.
+  const openPokes = () => {
+    const next = new EventSource(`${API_URL}/api/replicache/events`, {
+      withCredentials: true,
+    });
+
+    next.addEventListener("poke", () => {
+      void rep.pull();
+    });
+    next.onerror = () => {
+      // A transient drop stays CONNECTING and retries. CLOSED means a 401.
+      if (next.readyState === EventSource.CLOSED) options.onAuthError?.();
+    };
+
+    source = next;
   };
+
+  const closePokes = () => {
+    source?.close();
+    source = null;
+  };
+
+  openPokes();
+
+  // A page in the back/forward cache must not hold a connection (see `subscribeToBackForwardCache`).
+  // On restore, pull once: a poke sent while the page was cached is lost.
+  const stopPageLifecycle = subscribeToBackForwardCache({
+    onEnter: closePokes,
+    onRestore: () => {
+      if (source) return;
+      openPokes();
+      void rep.pull();
+    },
+  });
 
   return {
     rep,
     close: () => {
-      source.close();
+      stopPageLifecycle();
+      closePokes();
       void rep.close();
     },
   };
