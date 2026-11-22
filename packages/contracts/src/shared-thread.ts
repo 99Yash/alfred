@@ -34,9 +34,10 @@ export const sharedThreadNarrationSchema = z.object({
 export type SharedThreadNarration = z.infer<typeof sharedThreadNarrationSchema>;
 
 /**
- * Drops from `syncedChatMessageSchema`: ids (they link shares to one account),
- * `usage` (billing data), `errorKind` (internal), and sync bookkeeping.
- * Keeps `reasoning`, and the share dialog says so: it can quote private context.
+ * Drops from `syncedChatMessageSchema`: `userId`, `threadId`, and `runId` (they link shares to
+ * one account), `usage` (billing data), `errorKind` (internal), and sync bookkeeping.
+ * Keeps the message `id`, a per-message key. Keeps `reasoning`, and the share dialog says so:
+ * it can quote private context.
  */
 export const sharedThreadMessageSchema = z.object({
   id: z.string(),

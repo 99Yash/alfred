@@ -1,3 +1,9 @@
+import {
+  OAUTH_CALLBACK_ERROR_PARAMS,
+  type OAuthCallbackErrorCode,
+  parseOAuthCallbackErrorCode,
+} from "@alfred/contracts/oauth-callback-error";
+
 /**
  * Authorization opens in a new tab; the original tab refreshes on focus.
  * A tab opened after `await` trips the popup blocker, so async callers reserve
@@ -60,11 +66,20 @@ export function isAuthorizationReturnTab(): boolean {
   return false;
 }
 
-/** A provider callback that fails sends `?<provider>_error=<code>`, for example `github_error`. */
-const CALLBACK_ERROR_PARAM_SUFFIX = "_error";
-
-/** RFC 6749 §4.1.2.1: the user refused the consent screen. */
-const OAUTH_ACCESS_DENIED = "access_denied";
+/**
+ * The sentence for each callback error code. The page never shows the raw query value, so a
+ * crafted link cannot put its own text in this message.
+ */
+const OAUTH_CALLBACK_ERROR_COPY = {
+  access_denied: "You declined access. Nothing changed.",
+  invalid_request: "The provider rejected the request. Nothing changed.",
+  unauthorized_client: "The provider does not allow this app. Nothing changed.",
+  unsupported_response_type: "The provider rejected the request. Nothing changed.",
+  invalid_scope: "The provider rejected the requested access. Nothing changed.",
+  server_error: "The provider had an error. Try again. Nothing changed.",
+  temporarily_unavailable: "The provider is busy. Try again later. Nothing changed.",
+  unknown: "The provider did not finish the authorization. Nothing changed.",
+} as const satisfies Record<OAuthCallbackErrorCode, string>;
 
 /**
  * The GitHub App connected, but its grant did not open chat reads. Not a refusal: GitHub is
@@ -87,18 +102,15 @@ export function readAuthorizationError(search: string): AuthorizationError | nul
   const params = new URLSearchParams(search);
   const grantCode = params.get(GITHUB_MCP_ERROR_PARAM);
 
-  for (const [key, code] of params) {
-    if (key === GITHUB_MCP_ERROR_PARAM || !key.endsWith(CALLBACK_ERROR_PARAM_SUFFIX) || !code) {
-      continue;
-    }
+  for (const key of OAUTH_CALLBACK_ERROR_PARAMS) {
+    const value = params.get(key);
+
+    if (!value) continue;
 
     return {
       kind: "refused",
       title: "Not connected",
-      description:
-        code === OAUTH_ACCESS_DENIED
-          ? "You declined access. Nothing changed."
-          : `The provider sent back "${code}". Nothing changed.`,
+      description: OAUTH_CALLBACK_ERROR_COPY[parseOAuthCallbackErrorCode(value)],
     };
   }
 

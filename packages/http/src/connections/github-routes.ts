@@ -5,6 +5,7 @@ import {
   integrationRoutePrefix,
   type CredentialProvider,
 } from "@alfred/contracts";
+import { parseOAuthCallbackErrorCode } from "@alfred/contracts/oauth-callback-error";
 import { serverEnv } from "@alfred/env/server";
 import { logger } from "@alfred/logging";
 import {
@@ -226,7 +227,7 @@ export const githubIntegrationRoutes = new Elysia({
 
       // The user refused the authorization (`access_denied`). The web app shows the error.
       if (query.error) {
-        const errorParam = `github_error=${encodeURIComponent(query.error)}`;
+        const errorParam = `github_error=${parseOAuthCallbackErrorCode(query.error)}`;
         const userRow = await readOnboarding(userId);
 
         set.status = 302;

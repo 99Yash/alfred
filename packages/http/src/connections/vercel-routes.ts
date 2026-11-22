@@ -1,4 +1,5 @@
 import { Errors, integrationRoutePrefix, type CredentialProvider } from "@alfred/contracts";
+import { parseOAuthCallbackErrorCode } from "@alfred/contracts/oauth-callback-error";
 import { serverEnv } from "@alfred/env/server";
 import {
   buildVercelInstallUrl,
@@ -60,7 +61,7 @@ export const vercelIntegrationRoutes = new Elysia({
       if (query.error) {
         set.status = 302;
         set.headers["Location"] =
-          `${origin}/integrations?vercel_error=${encodeURIComponent(query.error)}`;
+          `${origin}/integrations?vercel_error=${parseOAuthCallbackErrorCode(query.error)}`;
 
         return null;
       }

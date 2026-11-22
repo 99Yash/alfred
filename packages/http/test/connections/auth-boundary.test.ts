@@ -46,7 +46,7 @@ describe("connections auth boundary", () => {
     assert.equal(response.status, 302);
     assert.equal(
       response.headers.get("location"),
-      "http://localhost:3000/integrations?vercel_error=cancelled",
+      "http://localhost:3000/integrations?vercel_error=unknown",
     );
   });
 

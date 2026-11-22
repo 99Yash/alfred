@@ -39,7 +39,8 @@ import {
   type OwnedCurrentCatalogSliceRow,
 } from "./persistence";
 
-const MAX_SUMMARY_DESCRIPTION_CHARS = 240;
+/** The bound on each server-written summary string (`title`, `description`) the model can read. */
+const MAX_SUMMARY_TEXT_CHARS = 240;
 
 const cursorPositionSchema = z
   .object({
@@ -141,10 +142,10 @@ function toSummary(
   stored: OwnedCurrentCatalogSliceRow["summaries"][number] | undefined,
 ): Summary | undefined {
   if (!stored) return undefined;
-  const { title } = stored;
+  const title = stored.title ? summarizeBody(stored.title, MAX_SUMMARY_TEXT_CHARS) : undefined;
 
   const description = stored.description
-    ? summarizeBody(stored.description, MAX_SUMMARY_DESCRIPTION_CHARS)
+    ? summarizeBody(stored.description, MAX_SUMMARY_TEXT_CHARS)
     : undefined;
 
   return {
