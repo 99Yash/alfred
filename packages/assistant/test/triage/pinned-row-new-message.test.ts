@@ -112,7 +112,6 @@ function classifyArgs(
     runId: null,
     todoSuggestion: NEW_VERDICT.todoSuggestion,
     modelVerdict: NEW_VERDICT,
-    instructionEvaluation: null,
     authoredAt,
   };
 }

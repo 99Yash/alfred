@@ -75,15 +75,12 @@ flowchart LR
 | `tags.ts` (187) | The one Gmail label writer. One-label-per-thread invariant, 404 repoint, sibling strip. |
 | `thread-state.ts` (186) | Thread snippets the classifier re-reads per message (≤6 × 220 chars). |
 | `floors/index.ts` (183) | `FLOOR_SEQUENCE` + positional driver — order is compiler-checked. |
-| `todo-decision.ts` (150) | The todo mint gate. Fail-closed on instruction read, fail-open on closure read. |
+| `todo-decision.ts` | The todo mint gate. It mints nothing until slice 7 rebuilds the todo lane. |
 | `sender-relationship.ts` (53) | The legacy sender verdict used by the automatic draft gate. |
 | `hedge.ts` (134) | Hedged twin calls. Not shared: the policy fits one call site. |
 | `index.ts` (129) | Public exports. |
 | `floors/override.ts` (111) | The only escalating floor (exposed secret → `urgent` @ 0.85). |
 | `sender-kind.ts` (98) | The remaining projection read for automatic draft eligibility. |
-| `rematch-queue.ts`, `rematch-worker.ts` | ADR-0113: the `triageRematchQueue` contract (the per-user dedup rule is on the `triage.rematch.user` kind) and the `triageRematchWorker` consumer with its sweep schedule. |
-| `floors/standing.ts` | ADR-0113: applies the effects of matched instructions to the model verdict after the system floors; exceptions, later write wins, full cover to lower, security veto on lowering category effects. |
-| `standing-scope.ts` | ADR-0113: the scoped-instruction prompt section under the allowance, the E3 counter, and the parse of `instructionMatches`. |
 | `floors/meeting.ts` (82) | False-`meeting` demotion. |
 | `gmail-sender-adapter.ts` (80) | Boot-port adapter (import-cycle break between ingestion and triage). |
 | `email-html.ts` (75) | DOMPurify sanitization for the rail's sandboxed iframe. |

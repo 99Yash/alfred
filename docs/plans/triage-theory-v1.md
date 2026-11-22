@@ -146,6 +146,51 @@ Unheld (2026-11-17): slices 2 and 3 landed on this branch (the nine labels, the 
 **Removes:** the scope, target, and effect matching (`standing-scope.ts`, `floors/standing.ts`, the effect derivation in `effective.ts`), and most of the matching in `knowledge/standing-instructions.ts`.
 *Gate:* new eval cases for each instruction. A registry that has no rule today (kfintech, cameo, cams) gets the quiet label from the words alone.
 
+### Owner decisions (2026-11-22)
+
+- Slice 4 splits into four parts:
+  - **4a.** Each active instruction goes to the model in Yash's words. The matching and the typed effects are deleted. This part changes only the read side.
+  - **4b.** An instruction that names one person. Alfred resolves the person at save time, asks Yash to confirm with `system.ask_user` before it saves, and code applies the instruction. The save path changes to words in this part.
+  - **4c.** Triage the last 30 days again, with a dry run from chat first. The owner deferred this part. It is not built now.
+  - **4d.** The triage profile. It waits for a grill on three questions: who writes it, how often, and how a user edit survives a rewrite. Memory is not built yet.
+- No production write. The read groups the 21 stored rows by their words. This gives the owner's two instructions word for word: the investment sentence of 2026-09-11 and the smallcase and polylane sentence of 2026-09-26. A chat action can remove the duplicate rows later, when the owner asks for it.
+- Reply drafts and todos follow the label. No instruction blocks them in code.
+- The briefing composer reads the instructions in words. No instruction drops a briefing item in code.
+- Open (owner, 2026-11-22): sending every active instruction on every call does not scale when the list grows. The theory of how to bound the list is open.
+
+### 4a built (2026-11-22)
+
+Built:
+
+- `knowledge/instructions-in-words.ts`: `instructionsInWordsOf` groups the active rows by their words (the phrasing, else the directive; whitespace and case ignored), keeps the date of the earliest row, and sorts oldest first. `readInstructionsInWords` reads them and returns `read_failed` on a failed read, so the trace can tell a failure from "none". `renderInstructionsInWords` renders one line for each instruction, `- YYYY-MM-DD: <words>`, with the date in Yash's zone. Over the character cap it keeps the newest lines that fit.
+- `triage/classify.ts`: one prompt section, "Yash's standing instructions (his own words, oldest first)", capped by `TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS`. The effective result is the output of `applyFloors`; the security floor stays. The audit and the `triage.classification` trace carry three fields: the count sent, the count omitted, and whether the read failed. New rows store a null `instruction_evaluation`.
+- The system prompt line on instructions keeps only "Weigh them as evidence". No code applies a named-person instruction until 4b.
+- `briefings/agent/agent.ts`: the composer seed carries the same list, through the same renderer. The compose step reads it one time.
+- The eval deck reads the 21 prod rows through `instructionsInWordsOf` and gives every mail the same list. A new case, `cams-mutual-fund-statements`, expects a quiet label from the words alone: no rule names cams.
+
+Removed:
+
+- `triage/standing-scope.ts`, `triage/floors/standing.ts`, `triage/effective.ts`, and the `instructionMatches` output with its rerun on a failed match list, its constants, and the `+match_failed` and `+standingfloor` model tags.
+- The re-match job: `triage/rematch.ts`, `triage/rematch-queue.ts`, `triage/rematch-worker.ts`, its worker in `runtime/runtime.ts`, the enqueue after a stale write, `updateTriageEvaluation`, and the `TRIAGE_REMATCH_*` constants. The column `standing_instruction_set_revisions.rematched_revision` stays; no code writes it.
+- `triage/instruction-todo-sweep.ts`. `system.remember` saves the instruction and sweeps no todo; `resolvedTodos` is always null.
+- The instruction reads of the todo lane (`todo-decision.ts`), the reply-draft gate (`reply-drafting/worthiness.ts`, `post-triage.ts`, `workflow.ts`), and the briefing (`briefings/gather.ts`, `briefings/read.ts`, with its `briefing.instruction_suppressions` trace).
+- In `knowledge/standing-instructions.ts`: `standingInstructions`, `standingInstructionsOf`, `forMail` and its types, and `previewStandingInstructionValue`. In `@alfred/contracts`: the effect helpers that lost every caller.
+- The save path (`saveStandingInstruction`, `checkStandingInstructionCapture`, the targets, scope, and effects of `rememberInput`) is unchanged. Slice 4b rewrites it. No migration: the stored rows and the history columns stay.
+
+*Gate:* the deck case for each instruction. The investment sentence: `evoting-and-agm-notices`, `tds-and-results-notices`, `cams-mutual-fund-statements`, and the two balance-statement cases. The smallcase and polylane sentence: `smallcase-reminders`.
+
+Deck run (2026-11-22, the full deck, three trials, `main` against this build; the `main` run still had the code-side demotes):
+
+- Better: `pricing-change-notice-is-not-a-receipt` 0 → 1, `own-ci-and-deploy-failures` 0.6 → 0.8.
+- The new `cams-mutual-fund-statements` case is 1. The kfintech, cameo, e-voting, and TDS cases hold 1.
+- Worse: `smallcase-reminders` 1 → 0.5, the same in all three trials. The "Investment Reminder" mail (a monthly investment is pending) gets `action`. The model reads the words as they are: the 2026-09-11 sentence says "not urgent", not "not action", and the 2026-09-26 sentence names rebalance updates. The code demote hid this before. The rebalance mail stays `fyi`.
+- Worse: `bse-balance-statement-keeps-one-label`, one-kind 1 → 0. Two same-kind balance mails get `receipt` and `fyi`. Both are quiet labels, but the same kind must keep one label.
+- The other cases hold. The two known misses (`deepinfra-scoped-keys-newsletter-is-quiet`, `a-person-answered-his-question`) stay 0, as on `main`.
+
+The owner accepted the two misses for 4a. The expected label of `smallcase-reminders` does not change until the open question below is settled.
+
+Open (owner, 2026-11-22): the 2026-09-26 words "remove action items from this and polylane" were about todos (action items), not the triage label. An instruction can be for any workflow: triage, the briefing, todos, reply drafts, and later the workflows that Yash writes. The open question is one shared structure that gives each workflow the standing instructions that apply to it, for the default workflows and the workflows that Yash writes ([workflows.md](../theory/workflows.md)). `renderInstructionsInWords` is the first shared piece: triage and the briefing composer use it. Settle this with the owner before the todo follow-up (slice 7) and before 4b changes the save path.
+
 ## Slice 5 — A correction in Gmail teaches
 
 - The Gmail history read also asks for `labelsAdded` and `labelsRemoved`. An Alfred label that Yash changes becomes a correction row, with the same effect as a rail override (`source='user'`).

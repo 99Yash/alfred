@@ -4,9 +4,7 @@ import {
   agentRuns,
   documents,
   emailTriage,
-  emailTriageChanges,
   integrationCredentials,
-  standingInstructionSetRevisions,
   type EmailTriage,
 } from "@alfred/db/schemas";
 import {
@@ -26,11 +24,10 @@ import type {
   TriageTodoDecision,
   TriageTodoSuggestion,
 } from "@alfred/contracts";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { normalizeDecisionTraceKey } from "@alfred/assistant/execution";
 import { userIdentity } from "@alfred/assistant/settings";
-import type { StandingFloorAudit } from "./floors";
 import type { SenderExtractionEvent } from "./sender-extraction-event";
 
 /** DB access for `email_triage`: one row per (user, thread). User overrides stay pinned. */
@@ -107,10 +104,8 @@ export interface UpsertTriageArgs {
   /** So a same-run retry can re-mint the todo (#157). */
   todoSuggestion?: TriageTodoSuggestion | null;
   todoDecision?: TriageTodoDecision | null;
-  /** The verdict before any instruction effect (ADR-0113). Null on the fallback path. */
+  /** The verdict after the floors (ADR-0113). Null on the fallback path. */
   modelVerdict: TriageModelVerdict | null;
-  /** The scoped match results for `documentId`. Null means every scoped instruction is unknown. */
-  instructionEvaluation: TriageInstructionEvaluation | null;
   /** For the rail's in-category demotion (ADR-0064). */
   /** So the reuse path can re-apply the cold-sender gate (#517). */
   senderRelationshipIsCold?: boolean | null;
@@ -132,17 +127,7 @@ export interface UpsertTriageArgs {
 }
 
 /** `written` is false when a newer stored row or a pinned re-run won. Gate side effects on it. */
-export type UpsertTriageResult =
-  | { row: TriageRow; written: false }
-  | {
-      row: TriageRow;
-      written: true;
-      /**
-       * The instruction set changed after the classify call read it, so this row can miss a
-       * new instruction. The caller enqueues a re-match (ADR-0113, "Writes are conditional").
-       */
-      instructionSetMoved: boolean;
-    };
+export type UpsertTriageResult = { row: TriageRow; written: boolean };
 
 /**
  * Upsert under the thread lock. An older message, or a re-run of the message a user override
@@ -211,7 +196,8 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
       todoSuggestion: args.todoSuggestion ?? null,
       todoDecision: args.todoDecision ?? null,
       modelVerdict: args.modelVerdict,
-      instructionEvaluation: args.instructionEvaluation,
+      // No scope match runs since slice 4a. Null clears an evaluation of an earlier message.
+      instructionEvaluation: null,
       senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
       rowVersion: sql`${emailTriage.rowVersion} + 1`,
       updatedAt: now,
@@ -241,7 +227,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
             todoSuggestion: args.todoSuggestion ?? null,
             todoDecision: args.todoDecision ?? null,
             modelVerdict: args.modelVerdict,
-            instructionEvaluation: args.instructionEvaluation,
+            instructionEvaluation: null,
             senderRelationshipIsCold: args.senderRelationshipIsCold ?? null,
             source: "auto",
             overriddenAt: null,
@@ -321,103 +307,7 @@ export async function upsertTriage(args: UpsertTriageArgs): Promise<UpsertTriage
         .onConflictDoNothing();
     }
 
-    const [set] = await tx
-      .select({ revision: standingInstructionSetRevisions.revision })
-      .from(standingInstructionSetRevisions)
-      .where(eq(standingInstructionSetRevisions.userId, args.userId));
-
-    const instructionSetMoved =
-      (set?.revision ?? 0) > (args.instructionEvaluation?.setRevision ?? 0);
-
-    return { row: rowToTriage(row), written: true, instructionSetMoved };
-  });
-}
-
-/** A new instruction evaluation and the cached effective result derived with it. */
-export type TriageEvaluationUpdate = Pick<
-  TriageRow,
-  "instructionEvaluation" | "category" | "documentAsk" | "todoSuggestion" | "todoDecision"
->;
-
-/** One re-match change and the evidence for it, which goes to `email_triage_changes`. */
-export interface TriageEvaluationChange {
-  update: TriageEvaluationUpdate;
-  /** The instruction-set revision that the job read. */
-  setRevision: number;
-  /** The instruction floor's audit, or null when the row has no model verdict. */
-  floor: StandingFloorAudit | null;
-}
-
-/**
- * The conditional write of the re-match job (ADR-0113, "Writes are conditional"). Under the
- * thread lock and a row lock, `next` reads the row again and returns the change, or null for
- * no change. A missing row, a user-pinned row, or a row that moved to another document is not
- * written. The row lock matters: the user override does not take the thread lock, so without
- * it an override that commits during the read is overwritten (invariant 5 of
- * `docs/rfc-triage-tags.md`). The UPDATE repeats the guards for the same reason.
- * A changed category clears `appliedLabelId`, so the label reads as behind the category.
- * The change and its evidence go to `email_triage_changes` in the same transaction.
- */
-export async function updateTriageEvaluation(args: {
-  userId: string;
-  sourceThreadId: string;
-  documentId: string;
-  next: (row: TriageRow) => TriageEvaluationChange | null;
-}): Promise<{ previous: TriageRow; update: TriageEvaluationUpdate } | null> {
-  return withTriageThreadLock(args.userId, args.sourceThreadId, async (tx) => {
-    const rowIs = and(
-      eq(emailTriage.userId, args.userId),
-      eq(emailTriage.sourceThreadId, args.sourceThreadId),
-    );
-
-    const [stored] = await tx.select().from(emailTriage).where(rowIs).limit(1).for("update");
-
-    if (!stored || stored.source === "user" || stored.documentId !== args.documentId) return null;
-
-    const previous = rowToTriage(stored);
-    const change = args.next(previous);
-
-    if (change === null) return null;
-
-    const { update } = change;
-
-    const written = await tx
-      .update(emailTriage)
-      .set({
-        ...update,
-        ...(update.category !== previous.category ? { appliedLabelId: null } : {}),
-        rowVersion: sql`${emailTriage.rowVersion} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(rowIs, ne(emailTriage.source, "user"), eq(emailTriage.documentId, args.documentId)),
-      )
-      .returning({ sourceThreadId: emailTriage.sourceThreadId });
-
-    if (written.length === 0) return null;
-
-    await tx.insert(emailTriageChanges).values({
-      userId: args.userId,
-      sourceThreadId: args.sourceThreadId,
-      documentId: args.documentId,
-      setRevision: change.setRevision,
-      previous: {
-        category: previous.category,
-        documentAsk: previous.documentAsk,
-        todoSuggestion: previous.todoSuggestion,
-        todoDecision: previous.todoDecision,
-      },
-      next: {
-        category: update.category,
-        documentAsk: update.documentAsk,
-        todoSuggestion: update.todoSuggestion,
-        todoDecision: update.todoDecision,
-      },
-      scopes: update.instructionEvaluation?.scopes ?? [],
-      floor: change.floor,
-    });
-
-    return { previous, update };
+    return { row: rowToTriage(row), written: true };
   });
 }
 

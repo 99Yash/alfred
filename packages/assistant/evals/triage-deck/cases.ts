@@ -428,6 +428,30 @@ export const DECK: readonly DeckCase[] = [
     ],
   },
   {
+    label: "cams-mutual-fund-statements",
+    accept: [...QUIET],
+    note: "A consolidated account statement and a dividend (IDCW) payout notice from CAMS, a mutual-fund registrar. Nothing to do. No stored rule names cams: the mail must be quiet from the owner's words alone (slice 4a gate). Both mails are written for the deck, not prod captures, so `prodCategory` is a placeholder that no scorer reads.",
+    mails: [
+      {
+        from: "CAMS <donotreply@camsonline.com>",
+        subject:
+          "Consolidated Account Statement - CAMS Mailback Request for 01-Oct-2026 to 31-Oct-2026",
+        body: "Dear Investor, Please find attached the Consolidated Account Statement (CAS) for the period 01-Oct-2026 to 31-Oct-2026 for the mutual fund folios registered with your PAN and email address. The attachment is password protected. The password is your PAN in upper case. Folio No: [redacted]. Scheme: Vindhya Flexi Cap Fund - Direct Plan - Growth. Closing unit balance: 412.318. NAV as on 31-Oct-2026: Rs. 58.2140. Market value: Rs. 24,002.68. This is a system generated mail. Please do not reply to this mail. Computer Age Management Services Limited, Registrar and Transfer Agent.",
+        authoredAt: "2026-11-02T04:30:00Z",
+        labelIds: UPDATES,
+        prodCategory: "fyi",
+      },
+      {
+        from: "Vindhya Mutual Fund <vindhyamf@camsonline.com>",
+        subject: "Vindhya Balanced Advantage Fund - IDCW Payout Intimation",
+        body: "Dear Unitholder, We are pleased to inform you that an Income Distribution cum Capital Withdrawal (IDCW) of Rs. 0.1250 per unit has been declared under Vindhya Balanced Advantage Fund - Direct Plan - IDCW Option, with record date 14-Nov-2026. Folio No: [redacted]. Units held on record date: 1,204.556. IDCW amount: Rs. 150.57. TDS: Rs. 0.00. Net amount: Rs. 150.57. The amount has been credited to your registered bank account ending [redacted] on 17-Nov-2026. No action is required from you. For any queries, write to us. Registrar: Computer Age Management Services Limited.",
+        authoredAt: "2026-11-17T06:15:00Z",
+        labelIds: UPDATES,
+        prodCategory: "fyi",
+      },
+    ],
+  },
+  {
     label: "bse-balance-statement-keeps-one-label",
     oneKind: true,
     accept: [...QUIET],

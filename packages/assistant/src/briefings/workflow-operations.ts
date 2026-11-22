@@ -1,11 +1,7 @@
-import {
-  BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND,
-  gatherBriefingWithSuppressionAudit,
-  instructionSuppressionLogPart,
-  type BriefingInstructionSuppression,
-} from "./gather";
+import { gatherBriefingWithSuppressionAudit } from "./gather";
 import { inZone, parseLocalDateKey } from "@alfred/assistant/time";
 import { settings } from "@alfred/assistant/settings";
+import { readInstructionsInWords } from "@alfred/assistant/knowledge";
 import { resolveBriefingPreferences } from "./preferences";
 import {
   fetchLatestWatermark,
@@ -47,6 +43,7 @@ import {
   type BriefingConnectionNotice,
   type BriefingGather,
   type BriefingLoop,
+  toMessage,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { user } from "@alfred/db/schemas";
@@ -261,7 +258,6 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
   const activityWindow = await readBriefingActivityWindow({ userId: ctx.userId, end: until });
 
   let gather: BriefingGather;
-  let suppressedByInstruction: BriefingInstructionSuppression[] = [];
   let closedLoops: BriefingClosedLoop[] = [];
   let loops: BriefingLoop[] = [];
 
@@ -280,12 +276,6 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
     });
 
     gather = gathered.gather;
-    suppressedByInstruction = gathered.suppressedByInstruction;
-
-    if (suppressedByInstruction.length > 0) {
-      ctx.trace(BRIEFING_INSTRUCTION_SUPPRESSION_TRACE_KIND, { items: suppressedByInstruction });
-    }
-
     closedLoops = gathered.closedLoops;
     loops = gathered.loops;
     await markBriefingGathering({ briefingId: begun.row.id, gather, closedLoops });
@@ -322,7 +312,7 @@ export async function runDailyBriefingGather<State extends DailyBriefingOperatio
       `since=${since ? since.toISOString() : "(first run)"} until=${until.toISOString()} ` +
       `activity_since=${activityWindow.start.toISOString()} ` +
       `email=${counts.email} demanding=${demandingEmailCount ?? "n/a"} topBand=${gather.day_shape?.topEmailBand ?? "n/a"} ` +
-      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}${instructionSuppressionLogPart(suppressedByInstruction)}`,
+      `activity=${counts.activity} meetings=${counts.meetings} official_warnings=${counts.officialWarnings} sendable_official_warnings=${sendableOfficialWarnings} broken=${brokenConnectionCount} activity_gaps=${activityGapCount} quiet=${quietDay}`,
   );
 
   return {
@@ -411,6 +401,18 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
   // ADR-0120 slice 2 gives the composer no loops and no provenance, not an undefined list.
   const { loops, provenance } = dailyBriefingStateSchema.parse(ctx.state);
 
+  // The user's standing instructions in words (triage slice 4a). A failed read composes with none.
+  const instructionsRead = await readInstructionsInWords(ctx.userId);
+
+  if (instructionsRead.kind === "read_failed") {
+    await ctx.log(
+      `compose: standing instruction read failed: ${toMessage(instructionsRead.error)}`,
+    );
+  }
+
+  const standingInstructions =
+    instructionsRead.kind === "loaded" ? instructionsRead.instructions : [];
+
   try {
     const compose = async (
       openAskViolations: readonly OpenAskViolation[],
@@ -434,6 +436,7 @@ export async function runDailyBriefingCompose<State extends DailyBriefingOperati
         weather: ctx.state.weather,
         brokenConnections,
         provenance,
+        standingInstructions,
         openAskViolations,
         missingConnectionNotices,
       });

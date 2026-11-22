@@ -2,13 +2,7 @@
 
 export { classifyEmail, triageClassificationSchema, DEFAULT_TRIAGE_CATEGORY } from "./classify";
 
-export { applyFloors, standingInstructionEvidence } from "./floors";
-
-export { deriveEffectiveTriage, standingBlockWaitsOn } from "./effective";
-
-export type { EffectiveTriage, EffectiveTriageRow, StandingBlockEffectKind } from "./effective";
-
-export type { StandingEffectVerdict, StandingInstructionMatch } from "./floors";
+export { applyFloors } from "./floors";
 
 export type {
   TriageClassification,
@@ -82,20 +76,9 @@ export type {
   AssembleObservationsArgs,
 } from "./observations";
 
-export { decideTriageTodo, triageTodoStanding } from "./todo-decision";
+export { decideTriageTodo } from "./todo-decision";
 
-export { threadsWhereInstructionBlocksTodo } from "./instruction-todo-sweep";
-
-export { triageRematchWorker } from "./rematch-worker";
-
-// The ADR-0113 migration review previews a proposed scope over stored mail with it.
-export {
-  previewStandingScopeMatches,
-  type StandingScopePreview,
-  type StandingScopePreviewState,
-} from "./rematch";
-
-export type { TodoTriageResult, TriageTodoDecision } from "./todo-decision";
+export type { TriageTodoDecision } from "./todo-decision";
 
 export {
   gatherObservations,

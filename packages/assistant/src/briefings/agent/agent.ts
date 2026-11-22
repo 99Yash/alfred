@@ -14,6 +14,7 @@ import {
   type ActivityWindow,
   type BrokenConnection,
 } from "@alfred/assistant/connections";
+import { renderInstructionsInWords, type InstructionInWords } from "@alfred/assistant/knowledge";
 import { inZone, type LocalDateKey } from "@alfred/assistant/time";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 import { buildSystemPrompt } from "./prompt";
@@ -77,6 +78,11 @@ export interface RunBriefingAgentArgs {
    * Absent on a run from before provenance.
    */
   provenance?: readonly GatherProvenance[] | undefined;
+  /**
+   * The user's standing instructions in words, oldest first (triage slice 4a). The composer
+   * weighs them; no code drops an item for one. Empty when the read failed or none exist.
+   */
+  standingInstructions: readonly InstructionInWords[];
   /** Only on a re-prompt: earlier violations, named back verbatim so the rewrite is aimed (#1082). */
   openAskViolations?: readonly OpenAskViolation[];
   /** Only on a re-prompt: connection keys the earlier draft wrote no notice for. */
@@ -101,6 +107,28 @@ const MAX_STEPS = 8;
  * wrappers, so the deadline does not change. The workflow step has no signal to combine.
  */
 const AGENT_TIMEOUT_MS = 600_000;
+
+/** The most characters of instruction lines in the seed. Over it, the newest that fit go in. */
+const STANDING_INSTRUCTION_FACTS_MAX_CHARS = 12_000;
+
+/**
+ * The user's standing instructions in words, with their dates in the user's zone. The same
+ * renderer builds the triage section, so both read the same words.
+ */
+function standingInstructionFacts(
+  instructions: readonly InstructionInWords[],
+  timezone: IanaTimezone,
+): string {
+  const { section } = renderInstructionsInWords({
+    instructions,
+    header:
+      "The user's standing instructions, in the user's own words, oldest first. Weigh them as evidence when you choose and word items.",
+    timezone,
+    maxChars: STANDING_INSTRUCTION_FACTS_MAX_CHARS,
+  });
+
+  return section === null ? "" : `\n\n${section}`;
+}
 
 /**
  * The broken connections as facts (ADR-0100 amendment 2026-10-28, revised). The code supplies
@@ -329,6 +357,7 @@ export async function runBriefingAgent(
           timezone: args.timezone,
         }) +
         brokenConnectionFacts(args.brokenConnections) +
+        standingInstructionFacts(args.standingInstructions, args.timezone) +
         // No list is a gather from before this build. It states nothing, so it adds no fact.
         inputProvenanceFacts(args.provenance ?? []) +
         openAskCorrection(args.openAskViolations ?? []) +

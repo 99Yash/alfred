@@ -10,11 +10,7 @@ export type { ReplyDraftingWorkflowInput } from "./workflow-input";
 
 export { decideReplyWorthiness, noDraftResult } from "./worthiness";
 
-export type {
-  ReplyStandingRead,
-  ReplyWorthinessDecision,
-  ReplyWorthinessInput,
-} from "./worthiness";
+export type { ReplyWorthinessDecision, ReplyWorthinessInput } from "./worthiness";
 
 export { prepareReplyStaging, verifyReplyCandidate } from "./verifier";
 

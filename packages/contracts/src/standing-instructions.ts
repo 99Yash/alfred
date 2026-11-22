@@ -12,7 +12,6 @@ import {
   triageCategorySchema,
   triageTodoDecisionSchema,
   triageTodoSuggestionSchema,
-  type TriageCategory,
 } from "./triage";
 import { assertNever } from "./errors";
 
@@ -445,72 +444,9 @@ export type StandingInstructionEffect = z.infer<typeof standingInstructionEffect
  */
 export const STANDING_INSTRUCTION_COVERAGES = ["all", "part"] as const;
 
-export type StandingInstructionCoverage = (typeof STANDING_INSTRUCTION_COVERAGES)[number];
-
 export const standingInstructionCoverageSchema = z
   .enum(STANDING_INSTRUCTION_COVERAGES)
   .catch("part");
-
-/** The demand order of E2: `urgent`, then `action`, then every other category. */
-const DEMAND_RANK = {
-  urgent: 2,
-  action: 1,
-  reply: 0,
-  meeting: 0,
-  receipt: 0,
-  done: 0,
-  news: 0,
-  promo: 0,
-  fyi: 0,
-} satisfies Record<TriageCategory, number>;
-
-function demandRank(category: TriageCategory): number {
-  return DEMAND_RANK[category];
-}
-
-/** `urgent` or `action`: the demand lanes that a lowering effect can leave. */
-export function isDemandCategory(category: TriageCategory): boolean {
-  return demandRank(category) > 0;
-}
-
-/**
- * Does this effect raise the item, or lower, hide, or block it (ADR-0113 E2)? A
- * `force_category` raises only when its category is above the model verdict. A move between
- * two categories outside the demand lanes counts as a lowering.
- */
-export function standingInstructionEffectRaises(
-  effect: StandingInstructionEffect,
-  modelCategory: TriageCategory,
-): boolean {
-  switch (effect.kind) {
-    case "include_briefing_priority":
-      return true;
-    case "force_category":
-      return demandRank(effect.category) > demandRank(modelCategory);
-    case "demote_urgent":
-    case "demote_demand":
-    case "demote_meeting":
-    case "block_todo_suggestion":
-    case "exclude_briefing_priority":
-    case "block_reply_draft":
-      return false;
-    default:
-      return assertNever(effect, "standing-instruction effect kind");
-  }
-}
-
-/**
- * Raise on any part, lower only on full cover (ADR-0113 E2). A target or a full cue match
- * passes `all`; a scope match passes the model's `covers`.
- */
-export function standingInstructionEffectApplies(
-  effect: StandingInstructionEffect,
-  context: { coverage: StandingInstructionCoverage; modelCategory: TriageCategory },
-): boolean {
-  return (
-    context.coverage === "all" || standingInstructionEffectRaises(effect, context.modelCategory)
-  );
-}
 
 export const STANDING_INSTRUCTION_SCHEMA_VERSION_V2 = 2 as const;
 
@@ -596,14 +532,6 @@ export function readStoredStandingInstruction(
   return v1.success ? liftStandingInstructionV1(v1.data, factId) : null;
 }
 
-/** Does the instruction store this effect? Readers branch on the v2 list. */
-export function standingInstructionHasEffect(
-  value: StandingInstructionValueV2,
-  kind: StandingInstructionEffectKind,
-): boolean {
-  return value.effects.some((effect) => effect.kind === kind);
-}
-
 // ─── The stored triage evaluation (ADR-0113, "Lifetime of a stored match") ──────
 
 /**
@@ -641,8 +569,6 @@ export const standingInstructionScopeResultSchema = z.discriminatedUnion("state"
   }),
 ]);
 
-export type StandingInstructionScopeResult = z.infer<typeof standingInstructionScopeResultSchema>;
-
 /** How one instruction reached a mail. A target hit covers the whole mail (E2). */
 export const standingInstructionMatchViaSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("target"), targetKind: standingInstructionTargetKindSchema }),
@@ -654,8 +580,6 @@ export const standingInstructionMatchViaSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export type StandingInstructionMatchVia = z.infer<typeof standingInstructionMatchViaSchema>;
-
 /**
  * The audit evidence of one applied instruction effect (ADR-0113, "Precedence, safety, and
  * audit"): the instruction id, its revision, and the match kind with its scope reason.
@@ -666,8 +590,6 @@ export const standingInstructionEvidenceSchema = z.object({
   factId: z.string().min(1),
   match: standingInstructionMatchViaSchema,
 });
-
-export type StandingInstructionEvidence = z.infer<typeof standingInstructionEvidenceSchema>;
 
 /** An `unknown` instruction: a scoped one with no current stored result for this document. */
 export const standingInstructionUnknownSchema = standingInstructionEvidenceSchema.omit({

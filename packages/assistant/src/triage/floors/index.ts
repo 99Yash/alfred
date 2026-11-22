@@ -8,26 +8,9 @@ import { applyOverrideFloor } from "./override";
  *   - override — an exposed secret escalates to `urgent`.
  * The sender-kind and meeting demotions of ADR-0051 left in slice 3: their cases are evidence
  * lines in the prompt now (theory, "The evidence"). The user's standing instructions are not
- * a floor here. `applyStandingInstructionEffects` runs after this sequence, on its output
- * (ADR-0113).
+ * a floor: the model reads them in words (slice 4a).
  */
 export { matchesExposedCredentialClaim, matchesExposedSecret } from "./override";
-
-export {
-  applyStandingConsumerEffects,
-  applyStandingInstructionEffects,
-  standingInstructionEvidence,
-  type StandingBriefingPriority,
-  type StandingConsumerEffects,
-  type StandingEffectAudit,
-  type StandingEffectResult,
-  type StandingEffectVerdict,
-  type StandingFloorAudit,
-  type StandingFloorOutcome,
-  type StandingFloorResult,
-  type StandingInstructionMatch,
-  type StandingInstructionMatchVia,
-} from "./standing";
 
 /** Everything the floor sequence reads about one email. Assembled by `classifyEmail`. */
 export interface FloorContext {
@@ -65,8 +48,7 @@ function floor<N extends string, R extends FloorResult>(
 
 /**
  * Order is the policy. The override floor runs alone, so a leaked secret escapes every
- * demotion. The output is the stored model verdict. The instruction floor applies the user's
- * effects to it after this sequence, so a consumer can derive the same result later.
+ * demotion. The output is the stored model verdict and the effective result.
  * A new floor also needs an entry in `FLOOR_TRACE_PROJECTIONS` and a step in
  * `applyFloors`; the compiler asks for both.
  */

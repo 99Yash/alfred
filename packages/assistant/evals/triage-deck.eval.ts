@@ -9,9 +9,10 @@ import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
 import type { ClassifyEmailArgs } from "@alfred/assistant/triage/classify";
 import {
-  standingInstructionsOf,
-  type ActiveStandingInstruction,
-} from "@alfred/assistant/knowledge/standing-instructions";
+  instructionsInWordsOf,
+  type InstructionsInWordsRead,
+} from "@alfred/assistant/knowledge/instructions-in-words";
+import type { ActiveStandingInstruction } from "@alfred/assistant/knowledge/standing-instructions";
 import { assembleObservations } from "@alfred/assistant/triage/observations";
 import { triageOutOfScope, type TriageOutOfScope } from "@alfred/assistant/triage/scope";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
@@ -44,16 +45,22 @@ const USER_CONTEXT = {
   recordedAt: new Date("2026-09-01T00:00:00Z"),
 };
 
-/** The prod instruction set. A row that does not parse is a deck fault, so it throws at load. */
-const INSTRUCTIONS = standingInstructionsOf(
-  PROD_INSTRUCTION_ROWS.map((row): ActiveStandingInstruction => {
-    const value = readStoredStandingInstruction(row.value, row.factId);
+/**
+ * The prod instruction set in words, as prod reads it (slice 4a): every mail gets the same list.
+ * A row that does not parse is a deck fault, so it throws at load.
+ */
+const INSTRUCTIONS: InstructionsInWordsRead = {
+  kind: "loaded",
+  instructions: instructionsInWordsOf(
+    PROD_INSTRUCTION_ROWS.map((row): ActiveStandingInstruction => {
+      const value = readStoredStandingInstruction(row.value, row.factId);
 
-    if (!value) throw new Error(`[triage-deck] instruction ${row.factId} does not parse`);
+      if (!value) throw new Error(`[triage-deck] instruction ${row.factId} does not parse`);
 
-    return { factId: row.factId, value, validFrom: new Date(row.validFrom) };
-  }),
-);
+      return { factId: row.factId, value, validFrom: new Date(row.validFrom) };
+    }),
+  ),
+};
 
 /**
  * `DECK_CASES=label1,label2` runs only those cases, to test a change narrowly. Unset runs the
@@ -111,7 +118,7 @@ function argsFor(
         snippet: message.snippet,
       })),
     },
-    standingInstructions: INSTRUCTIONS.forMail({ sender: mail.from, accountId: null }),
+    standingInstructions: INSTRUCTIONS,
     userContext: USER_CONTEXT,
     labelIds: mailFacts.labelIds,
     signalText: [mail.from, mail.subject, mail.body, ...mail.labelIds].join("\n"),

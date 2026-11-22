@@ -15,19 +15,17 @@ import {
   standingInstructionValueV2Schema,
   type rememberInput,
   type StandingInstructionEffect,
-  targetMatchesSender,
   targetNamesOneMailbox,
   type StandingInstructionValueV2,
   type MemorySource,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionTarget,
-  type StandingInstructionTargetKind,
   type StandingInstructionValue,
 } from "@alfred/contracts";
 import { db, type DbTransaction } from "@alfred/db";
 import { createId, type DbRunner } from "@alfred/db/helpers";
-import { rejectedInferences, standingInstructionSetRevisions, userFacts } from "@alfred/db/schemas";
+import { rejectedInferences, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
@@ -56,167 +54,6 @@ export interface ActiveStandingInstruction {
  */
 interface StoredStandingInstruction extends ActiveStandingInstruction {
   storedVersion: 1 | 2;
-}
-
-/** One message's sender, as the consumer holds it. */
-interface SenderLookup {
-  /** A bare address or a raw `From` header. An unparseable value matches nothing. */
-  sender: string | null | undefined;
-  /** The mailbox the message reached. A per-account instruction matches only its own mailbox. */
-  accountId: string | null;
-}
-
-/** An instruction whose sender-wide target hits one mail. A target hit covers the whole mail. */
-export type StandingInstructionTargetHit = ActiveStandingInstruction & {
-  matchedVia: StandingInstructionTargetKind;
-};
-
-/**
- * The instructions that can apply to one mail (ADR-0113). `targetHits` are decided in code.
- * `scoped` go to the triage model for the scope match: each has a `scope`, and its
- * `senderFilter` is absent or hits the sender. A filter alone never matches.
- */
-export type MailStandingInstructions =
-  | {
-      kind: "loaded";
-      /** The per-user set revision, read before the instructions. */
-      setRevision: number;
-      targetHits: StandingInstructionTargetHit[];
-      scoped: ActiveStandingInstruction[];
-    }
-  | { kind: "read_failed"; error: unknown };
-
-export type LoadedMailStandingInstructions = Extract<MailStandingInstructions, { kind: "loaded" }>;
-
-/** A user's active standing instructions, read once. The match methods are pure, so one read serves a loop. */
-interface StandingInstructionSet<Mail extends MailStandingInstructions> {
-  /** No active instruction. A failed read is never empty, so `forMail` still reports it. */
-  readonly isEmpty: boolean;
-  /**
-   * Every target hit and every scoped candidate for one mail. Each consumer derives its
-   * result from these with `deriveEffectiveTriage` (ADR-0113).
-   */
-  forMail(sender: SenderLookup): Mail;
-}
-
-/** A set that loaded. `setRevision` is the per-user set revision, read before the instructions. */
-interface LoadedStandingInstructionSet extends StandingInstructionSet<LoadedMailStandingInstructions> {
-  readonly setRevision: number;
-}
-
-/**
- * A `"report"` load. The `onReadFailure: "report"` key rejects a `"throw"`
- * load and a value without the key where the todo lane needs fail-closed
- * reporting. A value that writes the key by hand still compiles. Review owns
- * that case.
- */
-export interface ReportedStandingInstructionSet extends StandingInstructionSet<MailStandingInstructions> {
-  readonly onReadFailure: "report";
-}
-
-/**
- * Each consumer owns its read-failure policy, so the caller must state it:
- * - `"throw"`: the returned promise rejects with the read error. No method reports `read_failed`.
- * - `"report"`: the promise always resolves. On a failed read, every method returns `read_failed`.
- */
-export function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "throw";
-}): Promise<LoadedStandingInstructionSet>;
-export function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "report";
-}): Promise<ReportedStandingInstructionSet>;
-export async function standingInstructions(args: {
-  userId: string;
-  onReadFailure: "throw" | "report";
-}): Promise<ReportedStandingInstructionSet | LoadedStandingInstructionSet> {
-  if (args.onReadFailure === "throw") return loadStandingInstructionSet(args.userId);
-
-  try {
-    return {
-      ...(await loadStandingInstructionSet(args.userId)),
-      onReadFailure: "report" as const,
-    };
-  } catch (error) {
-    return {
-      isEmpty: false,
-      onReadFailure: "report" as const,
-      forMail: () => ({ kind: "read_failed", error }),
-    };
-  }
-}
-
-/**
- * The set revision first, then the instructions. A write between the two reads leaves the
- * stored revision older than the instructions, so a later reader sees a change and reads
- * `unknown`. The other order could claim a newer revision for older instructions.
- */
-async function loadStandingInstructionSet(userId: string) {
-  const setRevision = await readStandingInstructionSetRevision(userId);
-
-  return standingInstructionsOf(await listActiveStandingInstructions(userId), setRevision);
-}
-
-/** Pure, for tests that build the instructions by hand. Consumers read with `standingInstructions`. */
-export function standingInstructionsOf(
-  instructions: readonly ActiveStandingInstruction[],
-  setRevision = 0,
-): LoadedStandingInstructionSet {
-  return {
-    isEmpty: instructions.length === 0,
-    setRevision,
-    forMail(sender) {
-      const email = normalizeEmailAddress(sender.sender);
-
-      const hits = (targets: readonly StandingInstructionTarget[] | undefined) =>
-        email === null
-          ? undefined
-          : targets?.find((target) => targetMatchesSender(target, email, sender.accountId));
-
-      const targetHits: StandingInstructionTargetHit[] = [];
-      const scoped: ActiveStandingInstruction[] = [];
-
-      for (const instruction of instructions) {
-        const hit = hits(instruction.value.targets);
-
-        // A target hit decides the match. The scope adds nothing for this mail.
-        if (hit) {
-          targetHits.push({ ...instruction, matchedVia: hit.kind });
-          continue;
-        }
-
-        if (instruction.value.scope === undefined) continue;
-
-        // A scope bound to one mailbox never matches mail of another.
-        if (
-          instruction.value.accountId !== undefined &&
-          instruction.value.accountId !== sender.accountId
-        ) {
-          continue;
-        }
-
-        const filter = instruction.value.senderFilter;
-
-        if (filter !== undefined && !hits(filter)) continue;
-
-        scoped.push(instruction);
-      }
-
-      return { kind: "loaded", setRevision, targetHits, scoped };
-    },
-  };
-}
-
-/** No row reads as 0. */
-async function readStandingInstructionSetRevision(userId: string): Promise<number> {
-  const [row] = await db()
-    .select({ revision: standingInstructionSetRevisions.revision })
-    .from(standingInstructionSetRevisions)
-    .where(eq(standingInstructionSetRevisions.userId, userId))
-    .limit(1);
-
-  return row?.revision ?? 0;
 }
 
 // ─── Capture (v2, ADR-0113) ─────────────────────────────────────────────────
@@ -357,7 +194,7 @@ function captureEffects(input: SaveStandingInstructionInput): StandingInstructio
   });
 }
 
-/** The stored value for one parsed input at one identity. Capture and its preview share it. */
+/** The stored value for one parsed input at one identity. */
 function captureValue(
   input: SaveStandingInstructionInput,
   parsed: Extract<ParsedCaptureInput, { ok: true }>,
@@ -379,24 +216,6 @@ function captureValue(
       ? {}
       : { accountId: parsed.accountId }),
   } satisfies z.input<typeof standingInstructionValueV2Schema>);
-}
-
-/**
- * The value that capture would store for this input as a new instruction, with no read and no
- * write. A review tool matches it over stored mail before the owner stores it. The caller
- * names the id, so an `exceptionOf` between two previews can point at a preview.
- */
-export function previewStandingInstructionValue(
-  input: SaveStandingInstructionInput,
-  instructionId: string,
-):
-  | { ok: true; value: StandingInstructionValueV2 }
-  | Extract<SaveStandingInstructionResult, { status: "invalid_sender" }> {
-  const parsed = parseCaptureInput(input);
-
-  if (!parsed.ok) return parsed;
-
-  return { ok: true, value: captureValue(input, parsed, { instructionId, revision: 0 }) };
 }
 
 /** The content of an instruction, without its identity, for the duplicate check. */
@@ -472,7 +291,7 @@ async function readCaptureState(
 /**
  * What capture does with one input over one read of the active set. The stored content and the
  * capture operation are separate: an input whose content an active row already holds can still
- * close the rows it replaces, and it still sweeps todos.
+ * close the rows it replaces.
  */
 type CapturePlan =
   | StandingInstructionCaptureRefusal
@@ -499,7 +318,7 @@ type CapturePlan =
  * `coexistsWith`.
  *
  * `replaces` states an end state, so an id that is already retired is accepted and closes
- * nothing. A repeat of a finished capture then plans `existing`, and its todo sweep runs again.
+ * nothing. A repeat of a finished capture then plans `existing`.
  */
 function planCapture(
   { active, retired }: CaptureState,
@@ -933,7 +752,9 @@ async function readStoredStandingInstructions(
 }
 
 /** Every active instruction of any stored version, as v2. */
-function listActiveStandingInstructions(userId: string): Promise<ActiveStandingInstruction[]> {
+export function listActiveStandingInstructions(
+  userId: string,
+): Promise<ActiveStandingInstruction[]> {
   return readStoredStandingInstructions(userId);
 }
 

@@ -19,46 +19,7 @@ export const TRIAGE_REQUEST_TIMEOUT_MS = 30_000;
 export const TRIAGE_TODO_ASSIST_MAX_CHARS = 40;
 
 /**
- * The instruction allowance (ADR-0113): characters of scoped standing instructions in one
- * classifier prompt, with {@link TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES} as the count limit.
- * Newest first. An instruction past either limit is `unknown`, and the trace counts it.
+ * The most characters of standing-instruction lines in one classifier prompt (slice 4a). Over
+ * it, the newest instructions that fit go in, and the trace counts the ones left out.
  */
 export const TRIAGE_INSTRUCTION_BLOCK_MAX_CHARS = 12_000;
-
-/**
- * The most scoped instructions in one classifier prompt. The output allowance below must hold a
- * match for each of them, so the count and the allowance change together.
- */
-export const TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES = 24;
-
-/**
- * The output budget for one `instructionMatches` entry: the id, a reason under 20 words, the
- * decision, and `covers`. Live calls used about 65 tokens; the rest is headroom for a long reason.
- */
-const TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS = 80;
-
-/**
- * Extra output budget when the prompt carries scoped instructions: the model writes one entry,
- * with a decision, for each sent instruction.
- */
-export const TRIAGE_INSTRUCTION_MATCH_OUTPUT_TOKENS =
-  TRIAGE_INSTRUCTION_MATCH_MAX_ENTRIES * TRIAGE_INSTRUCTION_MATCH_ENTRY_TOKENS;
-
-/** Maximum length of the model's reason for one instruction match. */
-export const TRIAGE_INSTRUCTION_MATCH_REASON_MAX_CHARS = 200;
-
-/**
- * The re-match window (ADR-0113, "Re-match after a change"): mail ingested this recently is
- * still read by a consumer. Briefing gather reads the last 24 hours on ingest time; the extra
- * day covers a missed briefing and a reply-draft run that waits.
- */
-export const TRIAGE_REMATCH_WINDOW_HOURS = 48;
-
-/** The most triage rows that one re-match job reads for one user, newest first. */
-export const TRIAGE_REMATCH_MAX_ROWS = 200;
-
-/** Match-only calls in flight at one time in one re-match job. */
-export const TRIAGE_REMATCH_CONCURRENCY = 4;
-
-/** The re-match sweep period, so the most that old mail lags an instruction write. */
-export const TRIAGE_REMATCH_SWEEP_EVERY_MS = 60_000;

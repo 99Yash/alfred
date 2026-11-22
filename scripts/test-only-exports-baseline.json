@@ -164,7 +164,6 @@
     "SINGLE_VALUED_KEYS",
     "authoredByUser"
   ],
-  "packages/assistant/src/knowledge/index.ts": ["SaveStandingInstructionResult"],
   "packages/assistant/src/knowledge/standing-instructions.ts": ["STANDING_INSTRUCTION_LIST_LIMIT"],
   "packages/assistant/src/tasks/resolve.ts": ["gmailThreadIdsFromTodoSources"],
   "packages/assistant/src/tasks/suggest.ts": ["todoSourcesOverlap"],
@@ -324,7 +323,6 @@
   "packages/contracts/src/integrations/slugs.ts": ["SUPPORTED_REST_PASSTHROUGH_SLUGS"],
   "packages/contracts/src/mcp.ts": ["mcpRecoveryDecisionSchema"],
   "packages/contracts/src/passthrough.ts": ["PASSTHROUGH_TOOL_ACTION", "passthroughPreferenceKey"],
-  "packages/contracts/src/standing-instructions.ts": ["liftStandingInstructionV1"],
   "packages/contracts/src/todos.ts": ["TODO_SOURCES_MAX"],
   "packages/contracts/src/user-model.ts": [
     "AccountBridgeInput",

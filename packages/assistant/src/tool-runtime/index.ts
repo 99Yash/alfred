@@ -643,8 +643,8 @@ export type RememberInstructionRefusal =
 
 /**
  * The `system.remember` result: `SaveStandingInstructionResult` from
- * `knowledge/standing-instructions.ts`, plus the todo sweep over the named senders when the
- * instruction blocks todo suggestions. `null`: no sweep ran.
+ * `knowledge/standing-instructions.ts`. `resolvedTodos` is always null since triage slice 4a:
+ * capture sweeps no todo. The key stays, so the result keeps its shape.
  */
 export type RememberInstructionResult =
   | {
@@ -655,10 +655,7 @@ export type RememberInstructionResult =
       /** Active instructions that name the same, a wider, a narrower, or an overlapping sender. Capped. */
       readonly related: readonly RelatedInstructionResult[];
       readonly relatedCount: number;
-      readonly resolvedTodos:
-        | ResolveTodoBySourceResult
-        | { readonly ok: false; readonly status: "sweep_failed"; readonly message: string }
-        | null;
+      readonly resolvedTodos: null;
     }
   | RememberInstructionRefusal;
 

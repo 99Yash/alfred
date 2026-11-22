@@ -23,7 +23,6 @@ export type {
   BriefingItem,
   PriorityCategory,
   SuppressedCategory,
-  BriefingInstructionSuppression,
   GatherBriefingDigestArgs,
   GatherBriefingArgs,
   GatherCalendarArgs,

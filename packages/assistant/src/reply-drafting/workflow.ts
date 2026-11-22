@@ -6,7 +6,6 @@ import {
   replyDraftStandingInstructionSchema,
   replyDraftStyleSelectionSchema,
   replyDraftTriageSnapshotSchema,
-  toMessage,
   type ReplyDraftMessage,
   type ReplyDraftProvenance,
   type ReplyDraftResult,
@@ -15,7 +14,6 @@ import {
 } from "@alfred/contracts";
 import { z } from "zod";
 import type { StepContext, StepResult, Workflow } from "@alfred/assistant/execution";
-import { standingInstructions } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
 import { gmailMailboxWritesEnabled } from "@alfred/env/server";
 import { integrations } from "@alfred/integrations";
@@ -33,7 +31,7 @@ import { prepareReplyStaging } from "./verifier";
 // Side-effect import: registers the `reply_drafting.decision` trace kind.
 import "./decision";
 import { replyDraftingWorkflowInputSchema } from "./workflow-input";
-import { decideReplyWorthiness, noDraftResult, replyStandingInstructionState } from "./worthiness";
+import { decideReplyWorthiness, noDraftResult } from "./worthiness";
 
 /**
  * `reply-drafting` workflow (ADR-0098, amended 2026-11-15): `gate`, `gather`, `compose`,
@@ -51,6 +49,7 @@ const stateSchema = z.object({
   invocation: replyDraftInvocationSchema,
   triage: replyDraftTriageSnapshotSchema.nullable(),
   featureFlagEnabled: z.boolean().optional(),
+  /** Only a run from before triage slice 4a carries this. A new run reads no instruction. */
   standingInstruction: replyDraftStandingInstructionSchema.optional(),
   sender: z.string().nullable().optional(),
   messageId: z.string().nullable().optional(),
@@ -170,31 +169,13 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     accountId: document.accountId,
   });
 
-  const suppressions = await standingInstructions({ userId: ctx.userId, onReadFailure: "report" });
-
-  const instructions = suppressions.forMail({
-    sender: senderContextResult.senderAddress,
-    accountId: document.accountId,
-  });
-
-  // The row is for this document (checked above), so its evaluation is current for it. The
-  // gate and the record use the effective result, never the cached row (ADR-0113 rule 3).
-  const { standing: standingInstruction, triage } = replyStandingInstructionState({
-    instructions,
-    triage: row,
-    documentId: ctx.state.documentId,
-    snapshot: row ? snapshotFromRow(row, ctx.state.documentId) : null,
-  });
-
-  if (instructions.kind === "read_failed") {
-    await ctx.log(`gate: standing instruction read failed: ${toMessage(instructions.error)}`);
-  }
+  // The row is for this document (checked above). The draft follows its label (slice 4a).
+  const triage = row ? snapshotFromRow(row, ctx.state.documentId) : null;
 
   const state: State = {
     ...ctx.state,
     triage,
     featureFlagEnabled: flags.replyDrafting,
-    standingInstruction,
     sender: senderContextResult.senderAddress,
     messageId: document.sourceId,
     mailbox: { accountId: document.accountId, address: null },
@@ -214,7 +195,6 @@ async function runGate(ctx: StepContext<State>): Promise<StepResult<State>> {
     },
     // The reply state comes from the thread timestamps above.
     triageReason: null,
-    standingInstruction,
   };
 
   if (state.invocation === "post_triage" && !triage) {

@@ -3,20 +3,12 @@ import type {
   CollabActivityKind,
   JsonObject,
   SenderContext,
-  StandingInstructionTargetKind,
-  StandingInstructionEvidence,
 } from "@alfred/contracts";
 import type { TriageCategory } from "@alfred/integrations/google";
 import type { ClassifyAudit, StandingClassifyAudit, TriageClassification } from "./classify";
-import {
-  standingInstructionEvidence,
-  type FloorAudits,
-  type StandingEffectAudit,
-  type StandingFloorOutcome,
-} from "./floors";
+import type { FloorAudits } from "./floors";
 import type { Observations } from "./observations";
 import type { SenderContextResult } from "../knowledge";
-import type { TriageTodoStandingRead } from "./todo-decision";
 
 /** One floor's audit as flat trace fields. `null` means no floor ran (the fallback path). */
 type FloorTraceProjection<K extends keyof FloorAudits> = (
@@ -60,53 +52,27 @@ function floorTraceFields(floors: FloorAudits | null): FloorTraceFields {
 }
 
 /**
- * The instruction floor's trace fields (ADR-0113). It is not a system floor, so it is not in
- * {@link FLOOR_TRACE_PROJECTIONS}. The two ADR-0110 keys keep their names and meaning, so old
- * queries still count the same thing.
+ * The standing instructions that the prompt carried in words (slice 4a). No code matches or
+ * applies an instruction, so the trace counts what the model got. The older `standing*` keys
+ * of ADR-0113 stay only on stored traces.
  */
 interface StandingTraceFields {
-  /** The model verdict was `urgent` or `action`, and the effective category is neither. */
-  standingDemotedCategory: boolean;
-  /**
-   * `demoted_demand_lane`, `held_secret_lane` (the exposed-secret signal held a lowering
-   * effect), or null. Count demotions with `= 'demoted_demand_lane'`; `IS NOT NULL`
-   * over-counts. Who held the lane: `floorForced = true` means the override floor escalated.
-   */
-  standingFloorOutcome: StandingFloorOutcome | null;
-  /** One entry for each effect of each matched instruction, with what it did. */
-  standingEffects: StandingEffectAudit[];
-  /** Instruction ids that a matched exception cancelled. */
-  standingCancelledInstructionIds: string[];
-  /** The E3 counter. Null on the fallback path, where no call ran. */
-  standingClassOnlyCount: number | null;
-  standingKeyedCount: number | null;
-  standingClassOnlyTokens: number | null;
-  /** Scoped candidates past the allowance. Their state is `unknown`. */
-  standingOverflowCount: number | null;
-  /**
-   * The stored pass's output failed with the match list, so it ran again without it, and every
-   * sent instruction is `unknown`. Null when it did not fail, or on the fallback path.
-   */
-  standingMatchFailure: string | null;
-  /**
-   * Sent scoped instructions left `unknown` after the call (ADR-0113 rule 4). Null on the
-   * fallback path.
-   */
-  standingUndecidedCount: number | null;
+  /** Instructions in the prompt. Null on the fallback path, where no call ran. */
+  standingInstructionsSent: number | null;
+  /** Instructions left out because the section was over its cap. Null on the fallback path. */
+  standingInstructionsOmitted: number | null;
+  /** The instruction read failed, so the prompt carried no instruction. */
+  standingInstructionsReadFailed: boolean;
 }
 
-function standingTraceFields(audit: StandingClassifyAudit | null): StandingTraceFields {
+function standingTraceFields(
+  audit: StandingClassifyAudit | null,
+  observations: Observations,
+): StandingTraceFields {
   return {
-    standingDemotedCategory: audit?.floor.outcome === "demoted_demand_lane",
-    standingFloorOutcome: audit?.floor.outcome ?? null,
-    standingEffects: audit?.floor.effects ?? [],
-    standingCancelledInstructionIds: audit?.floor.cancelled ?? [],
-    standingClassOnlyCount: audit?.counter.classOnly ?? null,
-    standingKeyedCount: audit?.counter.keyed ?? null,
-    standingClassOnlyTokens: audit?.counter.classOnlyTokens ?? null,
-    standingOverflowCount: audit?.counter.overflow ?? null,
-    standingMatchFailure: audit?.matchFailure?.message ?? null,
-    standingUndecidedCount: audit?.undecided ?? null,
+    standingInstructionsSent: audit?.sent ?? null,
+    standingInstructionsOmitted: audit?.omitted ?? null,
+    standingInstructionsReadFailed: observations.standingInstructions?.kind === "read_failed",
   };
 }
 
@@ -144,25 +110,6 @@ export interface SenderExtractionEvent extends FloorTraceFields, StandingTraceFi
   finalCollabActivity: CollabActivityKind | null;
   todoSuggested: boolean;
   /**
-   * The todo lane held the todo for a `block_todo_suggestion` instruction. Either the state
-   * is `unknown` (ADR-0113 rule 4), or a block matched a row with no model verdict. On a row
-   * with a verdict, a matched block already cleared the todo, and the floor audit shows it.
-   */
-  standingInstructionSuppressedTodo: boolean;
-  /** The blocking instruction's fact, else the first waiting instruction's fact. */
-  standingInstructionFactId: string | null;
-  standingInstructionEffect: string | null;
-  /** The target kind of a matched block. Null for a scope match and for an `unknown` instruction. */
-  standingInstructionMatchedVia: StandingInstructionTargetKind | null;
-  /** The full evidence of a matched block: id, revision, and match kind with its scope reason. */
-  standingInstructionTodoBlock: StandingInstructionEvidence | null;
-  standingInstructionReadFailed: boolean;
-  /**
-   * The read for the instruction floor failed, so no effect applied. The fields above report
-   * the later todo read; the `standing*` fields explain `finalCategory`.
-   */
-  standingInstructionCategoryReadFailed: boolean;
-  /**
    * Mirrors the `if (obs.userContext)` render branch in `classify.ts`. Change both together.
    * With `userContextReadFailed`: present (T, F), absent (F, F), failed (F, T).
    */
@@ -179,17 +126,10 @@ export function senderExtractionEvent(args: {
   audit: ClassifyAudit | null;
   classification: TriageClassification;
   todoSuggested: boolean;
-  /** The `block_todo_suggestion` state. Flattened below into the stored trace fields. */
-  standingSuppression: TriageTodoStandingRead;
 }): SenderExtractionEvent {
   const { context } = args.senderContextResult;
   const obs = args.observations;
   const audit = args.audit;
-
-  const standing = args.standingSuppression;
-  const waitingOn = standing.kind === "waiting" ? standing.instructions : [];
-  const blockedBy = standing.kind === "blocked" ? standing.match : null;
-  const holdsTodo = blockedBy !== null || waitingOn.length > 0;
 
   return {
     // sender
@@ -205,7 +145,7 @@ export function senderExtractionEvent(args: {
     persona: obs.persona,
     // floors
     ...floorTraceFields(audit?.floors ?? null),
-    ...standingTraceFields(audit?.standing ?? null),
+    ...standingTraceFields(audit?.standing ?? null, obs),
     threadMessages: obs.thread.messageCount,
     threadNewest: obs.thread.newestDirection,
     gmailImportant: obs.gmail.important,
@@ -225,14 +165,6 @@ export function senderExtractionEvent(args: {
     finalConfidence: args.classification.confidence,
     finalCollabActivity: args.classification.collabActivity ?? null,
     todoSuggested: args.todoSuggested,
-    standingInstructionSuppressedTodo: holdsTodo,
-    standingInstructionFactId: blockedBy?.factId ?? waitingOn[0]?.factId ?? null,
-    standingInstructionEffect: holdsTodo ? "block_todo_suggestion" : null,
-    standingInstructionMatchedVia:
-      blockedBy?.via.kind === "target" ? blockedBy.via.targetKind : null,
-    standingInstructionTodoBlock: blockedBy ? standingInstructionEvidence(blockedBy) : null,
-    standingInstructionReadFailed: standing.kind === "read_failed",
-    standingInstructionCategoryReadFailed: obs.standingInstructions?.kind === "read_failed",
     userContextPresent: obs.userContext !== null,
     userContextReadFailed: obs.userContextReadFailed,
     todoOutcome: args.classification.todoDecision?.outcome ?? null,

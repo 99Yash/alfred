@@ -72,14 +72,13 @@ The target model is [`triage.md`](./triage.md) (ADR-0121, proposed). This sectio
 
 **Thread re-tag.** Each new inbound message classifies the whole thread again and overwrites the row. The model sees the new message body (6,000 chars) and at most 6 earlier snippets of 220 chars (`triage/thread-state.ts:73`). An open ask older than that is invisible. No thread state machine exists. "Immutable category" (ADR-0048, ADR-0064) only means that briefings and integrations do not rewrite the tag.
 
-**Standing instructions.** The only stored shape is `action: "suppress"` with a `sender_email` or `sender_domain` target (`contracts/src/standing-instructions.ts`). Every row reads as a v2 instruction (ADR-0113). Triage applies the stored effects after the system floors (`triage/floors/standing.ts`): for a v1 row, no todo for that sender, and a demotion of `urgent` / `action_needed` to `fyi`. The model does not get the phrasing of a sender instruction. It gets only the scoped instructions, and it reports which ones match.
+**Standing instructions.** The only stored shape is `action: "suppress"` with a `sender_email` or `sender_domain` target (`contracts/src/standing-instructions.ts`). Every row reads as a v2 instruction (ADR-0113). Since triage slice 4a no code applies the stored effects. The model gets every active instruction in the user's words, with its date, oldest first (`knowledge/instructions-in-words.ts`), and weighs it as evidence. The briefing composer gets the same list.
 
 **Gaps (standing instructions).**
 
-- `awaiting_reply`, `follow_up`, `meeting`, and `payment` are not demoted.
-- Only an exact address or exact domain matches. A subdomain, an ESP relay, or a person named in the body does not match.
-- No "promote", topic, or keyword shape exists.
-- A new instruction does not re-tag existing threads.
+- Every active instruction goes to the model on every call. How to bound the list as it grows is open (owner, 2026-11-22).
+- An instruction that names one person is not resolved to an address, and no code applies it (slice 4b).
+- A new instruction does not re-tag existing threads (slice 4c).
 
 **Prompt size.** The static system prompt is about 42,400 chars (about 10.6K tokens). Rule 16 (the todo rubric) is about 9,600 chars of it. The dynamic part is typically 2-9K chars. Thus about 80% of each request is the fixed rubric. To / Cc and Subject are not bounded.
 

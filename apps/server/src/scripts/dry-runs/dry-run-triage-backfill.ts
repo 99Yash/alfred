@@ -18,7 +18,6 @@ import {
   decideTriageTodo,
   gatherObservations,
   loadTriageContext,
-  triageTodoStanding,
   type TriageTodoDecision,
 } from "@alfred/assistant/triage";
 import { notSentGmailDocumentWhere } from "@alfred/assistant/triage/sent-mail";
@@ -118,13 +117,12 @@ async function main() {
 
     const senderContext = mailFacts.sender.parse.context;
 
-    const { observations, suppressions } = await gatherObservations({
+    const { observations } = await gatherObservations({
       userId: t.userId,
       settings: userSettings,
       documentId: docRow.id,
       sourceThreadId: src.id,
       document: ctxData.document,
-      accountId: ctxData.document.accountId,
       persona: ctxData.persona,
       mailFacts,
     });
@@ -169,20 +167,6 @@ async function main() {
       classification,
       document: ctxData.document,
       actionItemsEnabled: flags.actionItems,
-      standing: triageTodoStanding({
-        suppressions,
-        sender: mailFacts.sender.address ?? ctxData.document.metadata.from ?? null,
-        accountId: ctxData.document.accountId,
-        triage: {
-          documentId: ctxData.document.id,
-          category: classification.category,
-          documentAsk: classification.documentAsk ?? null,
-          todoSuggestion: classification.todoSuggestion ?? null,
-          todoDecision: classification.todoDecision ?? null,
-          modelVerdict: classified.modelVerdict,
-          instructionEvaluation: classified.instructionEvaluation,
-        },
-      }),
     });
 
     const closureNote =
@@ -217,19 +201,6 @@ function killReason(
   const { suppression } = outcome;
 
   switch (suppression.kind) {
-    case "standing_instruction_matched":
-      return (
-        `suppressed: standing_instruction_matched effect=block_todo_suggestion ` +
-        `instruction=${suppression.match.value.instructionId} r${suppression.match.value.revision} ` +
-        `match=${suppression.match.via.kind}`
-      );
-    case "standing_instruction_unknown":
-      return (
-        `suppressed: standing_instruction_unknown effect=block_todo_suggestion ` +
-        `instructions=${suppression.instructions.map((instruction) => instruction.value.instructionId).join(",")}`
-      );
-    case "standing_instruction_read_failed":
-      return `suppressed: standing_instruction_read_failed: ${toMessage(suppression.error)}`;
     case "gate":
       return `suppressed: ${suppression.reason}`;
     case "action_items_off":

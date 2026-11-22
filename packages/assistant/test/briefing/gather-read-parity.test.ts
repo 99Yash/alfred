@@ -11,15 +11,13 @@ import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 import { gatherBriefingWithSuppressionAudit } from "@alfred/assistant/briefings/gather";
 import { settings } from "@alfred/assistant/settings";
 import { listEmailsSinceWatermark } from "@alfred/assistant/briefings/read";
-// The v1 writer is not in the `knowledge` barrel.
-import { rememberSenderSuppression } from "../../src/knowledge/sender-suppression";
 import { parseLocalDateKey } from "@alfred/assistant/time";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
  * How `gatherBriefingWithSuppressionAudit` and `listEmailsSinceWatermark` line up on one mailbox.
- * Both drop the same suppressed sender. They differ on non-priority mail: `gather` keeps
+ * They differ on non-priority mail: `gather` keeps
  * only priority categories, so feeding it to the composer would hide fyi and untriaged mail.
  */
 
@@ -138,55 +136,6 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     await closeConnections();
   });
 
-  test("both reads drop the same instruction-suppressed sender", async () => {
-    const userId = await seedUser();
-
-    const suppressedDocId = await seedEmail({
-      userId,
-      from: "Acme Coaching <no-reply@shapeshifter.so>",
-      subject: 'Your milestone "Professional Networking" is due tomorrow',
-      category: "action",
-    });
-
-    const keptDocId = await seedEmail({
-      userId,
-      from: "Sakshi <sakshi@example.com>",
-      subject: "Can you look at the import issue?",
-      category: "action",
-    });
-
-    // Before the instruction: both paths see both emails.
-    assert.deepEqual(
-      gatheredDocIds((await gatherFor(userId)).gather),
-      new Set([suppressedDocId, keptDocId]),
-    );
-    assert.equal((await readFor(userId)).length, 2);
-
-    const remembered = await rememberSenderSuppression({
-      userId,
-      senderEmail: "no-reply@shapeshifter.so",
-      senderLabel: "Acme Coaching",
-    });
-
-    assert.equal(remembered.ok, true);
-
-    // After: the same document disappears from both, and only that one.
-    const { gather, suppressedByInstruction } = await gatherFor(userId);
-    const readIds = new Set((await readFor(userId)).map((e) => e.documentId));
-
-    assert.deepEqual(gatheredDocIds(gather), new Set([keptDocId]));
-    assert.deepEqual(readIds, new Set([keptDocId]));
-
-    // The gather side reports the drop with a fact id.
-    assert.equal(suppressedByInstruction.length, 1);
-    const audit = suppressedByInstruction[0];
-    assert.equal(audit?.documentId, suppressedDocId);
-    assert.equal(audit.category, "action");
-    assert.equal(audit.sender, "Acme Coaching <no-reply@shapeshifter.so>");
-    assert.equal(audit.effect, "exclude_briefing_priority");
-    assert.ok(audit.factId, "the audit entry names the standing-instruction fact");
-  });
-
   test("the two paths disagree by design on non-priority mail", async () => {
     const userId = await seedUser();
 
@@ -269,7 +218,7 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
     );
   });
 
-  test("suppression is a no-op audit when no instruction matches", async () => {
+  test("a priority mail stays in the gather when no loop closes it", async () => {
     const userId = await seedUser();
 
     const docId = await seedEmail({
@@ -279,9 +228,8 @@ describe("briefing gather ↔ agent-read parity (DB-backed)", { skip: SKIP }, ()
       category: "action",
     });
 
-    const { gather, suppressedByInstruction, closedLoops } = await gatherFor(userId);
+    const { gather, closedLoops } = await gatherFor(userId);
     assert.deepEqual(gatheredDocIds(gather), new Set([docId]));
-    assert.deepEqual(suppressedByInstruction, []);
     assert.deepEqual(closedLoops, []);
   });
 });

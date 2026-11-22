@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import type { TriageClassification } from "@alfred/assistant/triage/classify";
-import {
-  applyFloors,
-  applyStandingInstructionEffects,
-  type FloorContext,
-  type StandingInstructionMatch,
-} from "@alfred/assistant/triage/floors";
+import { applyFloors, type FloorContext } from "@alfred/assistant/triage/floors";
 import { FLOOR_TRACE_PROJECTIONS } from "@alfred/assistant/triage/sender-extraction-event";
 
 // ---------------------------------------------------------------------------
@@ -23,33 +18,6 @@ function context(over: Partial<FloorContext> = {}): FloorContext {
 }
 
 const SECRET_TEXT = "an api key was leaked in the public repo";
-
-/** A v1 row as the reader lifts it: one sender target, `demote_demand`, and the todo block. */
-function v1TargetMatch(): StandingInstructionMatch {
-  return {
-    factId: "fact_ricktyy6c1gc",
-    validFrom: new Date("2026-09-01T00:00:00Z"),
-    value: {
-      schemaVersion: 2,
-      instructionId: "fact_ricktyy6c1gc",
-      revision: 0,
-      phrasing: "stop reminding me about connecting stuff to polylane",
-      directive: "Treat routine notices as FYI, not urgent.",
-      targets: [{ kind: "sender_domain", domain: "polylane.dev", accountId: null }],
-      effects: [{ kind: "demote_demand" }, { kind: "block_todo_suggestion" }],
-    },
-    via: { kind: "target", targetKind: "sender_domain" },
-  };
-}
-
-function verdictOf(c: TriageClassification) {
-  return {
-    category: c.category,
-    documentAsk: c.documentAsk ?? null,
-    todoSuggestion: c.todoSuggestion ?? null,
-    todoDecision: c.todoDecision ?? null,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // The sequence. The override floor is the only system floor left (slice 3): the
@@ -95,47 +63,6 @@ describe("applyFloors — sequence order", () => {
 
     assert.equal(outcome.audits.override.verdict.kind, "keep");
     assert.equal(outcome.classification.category, "action");
-  });
-
-  test("the instruction floor demotes the model's demand lane on a v1 target hit", () => {
-    // Exactly the Polylane shape: the model chose action for a connect
-    // upsell, the user's own words for this sender say otherwise (ADR-0110, ADR-0113).
-    const { result, audit, reason } = applyStandingInstructionEffects(
-      verdictOf(
-        classification({
-          category: "action",
-          todoSuggestion: { name: "Connect Supabase to Polylane" },
-          todoDecision: { outcome: "proposed" },
-        }),
-      ),
-      { exposedSecret: false, matches: [v1TargetMatch()] },
-    );
-
-    assert.equal(result.category, "fyi");
-    assert.equal(audit.outcome, "demoted_demand_lane");
-    // A demoted lane no longer proposes anything.
-    assert.equal(result.todoSuggestion, null);
-    assert.equal(result.todoDecision?.outcome, "no_obligation");
-    assert.match(result.todoDecision.note ?? "", /^standing_floor: .*fact_ricktyy6c1gc/);
-    assert.match(reason ?? "", /fact_ricktyy6c1gc/);
-  });
-
-  test("the instruction floor holds the lane behind the exposed-secret signal", () => {
-    // ADR-0106's bar, kept: the protective security floor outranks a down-rank,
-    // so a leaked secret on a suppressed sender stays urgent.
-    const outcome = applyFloors(
-      classification({ category: "action" }),
-      context({ signalText: SECRET_TEXT }),
-    );
-
-    const { result, audit } = applyStandingInstructionEffects(verdictOf(outcome.classification), {
-      exposedSecret: true,
-      matches: [v1TargetMatch()],
-    });
-
-    assert.equal(outcome.audits.override.verdict.kind, "escalate");
-    assert.equal(result.category, "urgent");
-    assert.equal(audit.outcome, "held_secret_lane");
   });
 
   test("is pure — the input classification is never mutated", () => {
