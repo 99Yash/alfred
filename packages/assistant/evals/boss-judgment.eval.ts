@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { type ChatModelTier, route } from "@alfred/ai";
+import { type ChatModelTier, route, toModelMessages, type TranscriptMessage } from "@alfred/ai";
 import {
   fetchUrlInput,
   getStringPath,
   isRecord,
   type JsonValue,
+  loadToolInput,
+  searchToolsInput,
   type McpCallModelInput,
   mcpCallModelInput,
   mcpToolInspectInputSchema,
@@ -16,7 +18,7 @@ import {
   spawnSubAgentInput,
 } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { type Tool, generateText, isStepCount, tool } from "ai";
+import { type Tool, generateText, isStepCount, tool, type ToolSet } from "ai";
 import { Ajv } from "ajv";
 import { config as loadEnv } from "dotenv";
 import { evalite } from "evalite";
@@ -24,6 +26,10 @@ import { z } from "zod";
 import { formatDateGrounding } from "@alfred/assistant/execution/grounding";
 import { buildChatSystemPrompt } from "@alfred/assistant/chat/chat-turn";
 import { buildSubAgentSystemPrompt } from "@alfred/assistant/execution/workflows/user-authored-brief";
+import {
+  appendChildResultNotes,
+  joinSpawnedChildren,
+} from "@alfred/assistant/execution/sub-agent-join";
 import { selfIdentityGrounding } from "@alfred/assistant/settings";
 
 // ADR-0077: guards the boss charter. In one prod thread the user asked for "more" three times
@@ -43,6 +49,24 @@ const READ_CONTEXT_TOOL = "system.read_user_context";
 const WEB_SEARCH_TOOL = "system.web_search";
 
 const SPAWN_SUB_AGENT_TOOL = "system.spawn_sub_agent";
+
+const LOAD_TOOL_TOOL = "system.load_tool";
+
+const SEARCH_TOOLS_TOOL = "system.search_tools";
+
+// The production descriptions (`tool-runtime/internal/tools/system.ts`). Keep them in step.
+const LOAD_TOOL_DESCRIPTION =
+  "Load one exact available tool by the qualified name returned from system.search_tools. Prefer search_tools, which already loads its best registered hit; use this for a different name, including mcp.call for a connected-catalog ref. Its schema is available on the next model turn.";
+
+const SEARCH_TOOLS_DESCRIPTION =
+  "Search registered tools and connected MCP catalogs by capability. The result field loaded names the registered hit that is already loaded: call it directly on your next turn.";
+
+/** Words that make the eval search rank the spawn tool first, as the registry discovery does. */
+const DELEGATION_QUERY = /sub-?agent|delegat|spawn|investigat|research/i;
+
+const SPAWN_SUB_AGENT_DESCRIPTION =
+  "Spawn one focused sub-agent run with an isolated brief. Reserve it for a subtask that needs its own multi-step investigation across several sources (memory + the user's accounts + the web, or a long open-ended research question). It costs a second model run, and its tool calls are no more parallel than yours. Do NOT spawn one for a bounded lookup chain you can run directly — one search plus a batch or a few fetches from a single integration (a daily GitHub summary, today's calendar, one person's recent mail) is a direct call, not a delegation. " +
+  "You can keep working after the spawn. Before your final answer, Alfred waits for each sub-agent you spawned and gives you its result as a note; then you answer with it.";
 
 const FETCH_URL_TOOL = "system.fetch_url";
 
@@ -248,7 +272,6 @@ const CONNECTED_SUMMARY = [
   "- system.read_user_context — Alfred's stored memory about the user",
   "- system.web_search — live public web search",
   "- system.fetch_url — read a known URL's page as text",
-  "- system.spawn_sub_agent — delegate a focused multi-step investigation; Alfred gives you its result before your final answer",
 ].join("\n");
 
 const SYSTEM = buildChatSystemPrompt(
@@ -271,6 +294,21 @@ interface TaskOutput {
   calls: ToolCall[];
   first: string | null;
   text: string;
+  /** The delegation path, for the cases that can delegate. Absent where no case delegates. */
+  delegation?: DelegationTrace;
+}
+
+/** What a delegation cost and whether it took the production path (ADR-0130 amendment (i)). */
+interface DelegationTrace {
+  /** The model loaded the lazy spawn tool before it spawned. */
+  loadedBeforeSpawn: boolean;
+  /** The runtime join gave the model the child result, and the model answered again. */
+  joined: boolean;
+  modelSteps: number;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  elapsedMs: number;
 }
 
 // Avoids threading the SDK's TOOLS/OUTPUT generics through a shared helper.
@@ -384,11 +422,6 @@ function toolSurface(): Record<string, Tool> {
     [WEB_SEARCH_TOOL]: tool({
       description: WEB_SEARCH_DESCRIPTION,
       inputSchema: webSearchInput,
-    }),
-    [SPAWN_SUB_AGENT_TOOL]: tool({
-      description:
-        "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-      inputSchema: spawnSubAgentInput,
     }),
     [MCP_LIST_TOOLS_TOOL]: tool({
       description: MCP_LIST_TOOLS_DESCRIPTION,
@@ -512,15 +545,198 @@ function thinGmailMcpResult(remoteName: string) {
   return { error: `Unknown tool ${remoteName} in the catalog.` };
 }
 
+/** The child of a delegating case: its id and the summary its run ends with. */
+interface EvalChild {
+  childRunId: string;
+  subId: string;
+  summary: string;
+}
+
+const EVAL_PARENT_RUN_ID = "run_eval_boss";
+
+/**
+ * Run the chat boss on the production delegation path (ADR-0130 amendment (i)). Spawn is lazy:
+ * the model sees it only after `system.load_tool`. A spawn returns a running child, as in
+ * production. When the boss answers after a spawn, the runtime join drops that answer, adds the
+ * finished child's note through the production `joinSpawnedChildren` and
+ * `appendChildResultNotes`, and calls the model again. The eval child is finished at the join,
+ * so this is the fold path, with no park.
+ */
+async function runBossWithRuntimeJoin(args: {
+  tier: ChatModelTier;
+  messages: TranscriptMessage[];
+  tools: ToolSet;
+  maxSteps: number;
+  child: EvalChild;
+}): Promise<TaskOutput> {
+  const modelRoute = route(args.tier);
+  const startedMs = Date.now();
+  let spawnLoaded = false;
+  let loadedBeforeSpawn = false;
+
+  const tools: ToolSet = {
+    ...args.tools,
+    // Production loads the best registered hit of a search, so a hit for spawn loads it.
+    [SEARCH_TOOLS_TOOL]: tool({
+      description: SEARCH_TOOLS_DESCRIPTION,
+      inputSchema: searchToolsInput,
+      execute: async ({ query }) => {
+        if (!DELEGATION_QUERY.test(query)) return { ok: true, query, hits: [] };
+
+        spawnLoaded = true;
+
+        return {
+          ok: true,
+          query,
+          loaded: SPAWN_SUB_AGENT_TOOL,
+          hits: [{ name: SPAWN_SUB_AGENT_TOOL, title: "Spawn sub-agent", route: "direct" }],
+        };
+      },
+    }),
+    [LOAD_TOOL_TOOL]: tool({
+      description: LOAD_TOOL_DESCRIPTION,
+      inputSchema: loadToolInput,
+      execute: async ({ name }) => {
+        // As production: a tool that is already active loads nothing new.
+        if (name in args.tools) {
+          return {
+            ok: true,
+            name,
+            alreadyActive: true,
+            message: `${name} was already loaded, so this load changed nothing. Call ${name} directly; do not load it again.`,
+          };
+        }
+
+        if (name !== SPAWN_SUB_AGENT_TOOL) {
+          return { ok: false, status: "not_found", message: `${name} is not available here.` };
+        }
+
+        spawnLoaded = true;
+
+        return { ok: true, name, message: `${name} is loaded. Call it on your next turn.` };
+      },
+    }),
+    [SPAWN_SUB_AGENT_TOOL]: tool({
+      description: SPAWN_SUB_AGENT_DESCRIPTION,
+      inputSchema: spawnSubAgentInput,
+      execute: async () => {
+        loadedBeforeSpawn = spawnLoaded;
+
+        return { ok: true, childRunId: args.child.childRunId, status: "running" };
+      },
+    }),
+  };
+
+  const baseNames = Object.keys(args.tools);
+
+  const generate = (transcript: TranscriptMessage[]) =>
+    generateText({
+      model: modelRoute.model(),
+      instructions: SYSTEM,
+      messages: toModelMessages(transcript),
+      timeout: { totalMs: EVAL_TIMEOUT_MS },
+      stopWhen: isStepCount(args.maxSteps),
+      tools,
+      // The lazy surface: spawn joins the model's tools only after its load.
+      prepareStep: () => ({
+        activeTools: [
+          ...baseNames,
+          SEARCH_TOOLS_TOOL,
+          LOAD_TOOL_TOOL,
+          ...(spawnLoaded ? [SPAWN_SUB_AGENT_TOOL] : []),
+        ],
+      }),
+    });
+
+  const first = await generate(args.messages);
+  const firstOutput = collectOutput(first);
+  const spawned = firstOutput.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+  const answered = first.finishReason === "stop";
+
+  const trace = (joined: boolean, results: (typeof first)[]): DelegationTrace => ({
+    loadedBeforeSpawn,
+    joined,
+    modelSteps: results.reduce((n, r) => n + r.steps.length, 0),
+    inputTokens: results.reduce((n, r) => n + (r.usage.inputTokens ?? 0), 0),
+    cacheReadTokens: results.reduce(
+      (n, r) => n + (r.usage.inputTokenDetails.cacheReadTokens ?? 0),
+      0,
+    ),
+    cacheWriteTokens: results.reduce(
+      (n, r) => n + (r.usage.inputTokenDetails.cacheWriteTokens ?? 0),
+      0,
+    ),
+    elapsedMs: Date.now() - startedMs,
+  });
+
+  if (!spawned || !answered) return { ...firstOutput, delegation: trace(false, [first]) };
+
+  const join = await joinSpawnedChildren(
+    { parentRunId: EVAL_PARENT_RUN_ID, userId: "user_eval", foldedChildRunIds: [] },
+    {
+      listChildren: async () => [
+        {
+          id: args.child.childRunId,
+          parentRunId: EVAL_PARENT_RUN_ID,
+          outcome: {
+            kind: "ended",
+            status: "completed",
+            output: {
+              text: args.child.summary,
+              scratchKey: `scratch.${args.child.subId}.summary`,
+            },
+            error: null,
+          },
+        },
+      ],
+      scheduleWake: async () => {},
+    },
+  );
+
+  // Drop the answer that came before the child result, as the chat guard does.
+  const responses = first.responseMessages;
+  const kept = responses.at(-1)?.role === "assistant" ? responses.slice(0, -1) : responses;
+  const second = await generate(appendChildResultNotes([...args.messages, ...kept], join.notes));
+  const secondOutput = collectOutput(second);
+  const calls = [...firstOutput.calls, ...secondOutput.calls];
+
+  return {
+    toolNames: calls.map((c) => c.name),
+    calls,
+    first: firstOutput.first,
+    text: secondOutput.text,
+    delegation: trace(true, [first, second]),
+  };
+}
+
+/** A delegation must take the production path: load, spawn, then answer from the join. */
+const delegationPathScorer = {
+  name: "A delegation loads spawn and answers from the joined result",
+  scorer: ({ output }: { output: TaskOutput }) => {
+    const d = output.delegation;
+    const spawned = output.toolNames.includes(SPAWN_SUB_AGENT_TOOL);
+
+    const cost = d
+      ? `steps=${d.modelSteps}, input=${d.inputTokens}, cacheRead=${d.cacheReadTokens}, cacheWrite=${d.cacheWriteTokens}, ms=${d.elapsedMs}`
+      : "no trace";
+
+    if (!spawned) return { score: 1, metadata: `no delegation; ${cost}` };
+
+    const ok = d?.loadedBeforeSpawn === true && d.joined && output.text.trim().length > 0;
+
+    return {
+      score: ok ? 1 : 0,
+      metadata: `loadedBeforeSpawn=${d?.loadedBeforeSpawn}, joined=${d?.joined}; ${cost}; text=${output.text.slice(0, 200)}`,
+    };
+  },
+};
+
 async function runThinPersonResearchReplay(
   userMessage: string,
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
-  const modelRoute = route(tier);
-
-  const result = await generateText({
-    model: modelRoute.model(),
-    instructions: SYSTEM,
+  return await runBossWithRuntimeJoin({
+    tier,
     messages: [
       { role: "user", content: "what do i know about sakshi" },
       {
@@ -530,8 +746,14 @@ async function runThinPersonResearchReplay(
       },
       { role: "user", content: userMessage },
     ],
-    timeout: { totalMs: EVAL_TIMEOUT_MS },
-    stopWhen: isStepCount(5),
+    // One more step than before: the lazy spawn costs a load.
+    maxSteps: 6,
+    child: {
+      childRunId: "child_eval_sakshi",
+      subId: "sakshi",
+      summary:
+        "Memory and Gmail are thin; ClickUp likely has the task details, and no confident public result was found.",
+    },
     tools: {
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored mail history by address.",
@@ -577,23 +799,8 @@ async function runThinPersonResearchReplay(
           text: "This links back into the ClickUp app; the page requires signing in to ClickUp to see the task thread and project details.",
         }),
       }),
-      [SPAWN_SUB_AGENT_TOOL]: tool({
-        description:
-          "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-        inputSchema: spawnSubAgentInput,
-        // The runtime joins the child before the final answer (ADR-0130 decision 6). The eval
-        // returns the joined result here, because it runs no finalize guard.
-        execute: async () => ({
-          childRunId: "child_eval_sakshi",
-          status: "completed",
-          output:
-            "Memory and Gmail are thin; ClickUp likely has the task details, and no confident public result was found.",
-        }),
-      }),
     },
   });
-
-  return collectOutput(result);
 }
 
 interface ReplayCase {
@@ -624,6 +831,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — thin person research re
     }
   },
   scorers: [
+    delegationPathScorer,
     {
       name: "Reaches a new public/research source after thin internal results",
       scorer: ({ output }) => {
@@ -688,11 +896,8 @@ async function runPersonResearchDepth(
   userMessage: string,
   tier: ChatModelTier,
 ): Promise<TaskOutput> {
-  const modelRoute = route(tier);
-
-  const result = await generateText({
-    model: modelRoute.model(),
-    instructions: SYSTEM,
+  return await runBossWithRuntimeJoin({
+    tier,
     messages: [
       { role: "user", content: "what do we know about priya nair?" },
       {
@@ -702,8 +907,14 @@ async function runPersonResearchDepth(
       },
       { role: "user", content: userMessage },
     ],
-    timeout: { totalMs: EVAL_TIMEOUT_MS },
-    stopWhen: isStepCount(6),
+    // One more step than before: the lazy spawn costs a load.
+    maxSteps: 7,
+    child: {
+      childRunId: "child_eval_priya",
+      subId: "priya",
+      summary:
+        "Priya Nair is a Product Manager at Foobar in Bengaluru per her LinkedIn and a conference bio, corroborated across two sources.",
+    },
     tools: {
       [READ_CONTEXT_TOOL]: tool({
         description: "Read Alfred's stored mail history by address.",
@@ -743,22 +954,8 @@ async function runPersonResearchDepth(
           text: "Priya Nair — Product Manager at Foobar (Bengaluru, India). Leads customer onboarding; previously an analyst. Speaks at product meetups.",
         }),
       }),
-      [SPAWN_SUB_AGENT_TOOL]: tool({
-        description:
-          "Spawn one focused sub-agent run for a multi-step investigation across memory, connected services, and the web.",
-        inputSchema: spawnSubAgentInput,
-        // The joined result, as in the case above.
-        execute: async () => ({
-          childRunId: "child_eval_priya",
-          status: "completed",
-          output:
-            "Priya Nair is a Product Manager at Foobar in Bengaluru per her LinkedIn and a conference bio, corroborated across two sources.",
-        }),
-      }),
     },
   });
-
-  return collectOutput(result);
 }
 
 evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth", {
@@ -781,6 +978,7 @@ evalite<ReplayCase, TaskOutput, null>("Boss judgment — person research depth",
     }
   },
   scorers: [
+    delegationPathScorer,
     {
       name: "Investigates in depth (>=2 angles, a fetch_url drill, or delegation)",
       scorer: ({ output }) => {

@@ -14,6 +14,7 @@ import { db } from "@alfred/db";
 import { actionStagings } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  appendChildResultNotes,
   joinSpawnedChildren,
   listSpawnedChildRuns,
   appendSystemNote,
@@ -96,8 +97,10 @@ const defaultGuardSpawnedChildrenDeps: GuardSpawnedChildrenDeps = {
 
 /**
  * The parent never answers while a child it spawned still runs (ADR-0073). The model has no await
- * tool, so this guard is the join (ADR-0130 decision 6). Park on a running child; fold finished
- * ones and regenerate.
+ * tool, so this guard is the join (ADR-0130 amendment (i)). Any spawn call of the run, also one
+ * that failed after its insert, makes the guard read the durable child rows. A run with no spawn
+ * call has no child, so it makes no read. Park on a running child; fold finished ones and
+ * regenerate.
  */
 export async function guardSpawnedChildren(
   ctx: StepContext<ChatRunState>,
@@ -105,11 +108,7 @@ export async function guardSpawnedChildren(
   transcript: TranscriptMessage[],
   deps: GuardSpawnedChildrenDeps = defaultGuardSpawnedChildrenDeps,
 ): Promise<StepResult<ChatRunState> | null> {
-  const spawnedThisTurn = state.toolCallsLog.some(
-    (t) => t.toolName === SPAWN_SUB_AGENT_TOOL && t.status === "succeeded",
-  );
-
-  if (!spawnedThisTurn) return null;
+  if (!state.toolCallsLog.some((t) => t.toolName === SPAWN_SUB_AGENT_TOOL)) return null;
 
   const join = await joinSpawnedChildren(
     { parentRunId: ctx.runId, userId: ctx.userId, foldedChildRunIds: state.foldedChildRunIds },
@@ -119,7 +118,6 @@ export async function guardSpawnedChildren(
   if (join.notes.length === 0 && join.park === null) return null;
 
   state.foldedChildRunIds = join.foldedChildRunIds;
-  const foldNotes = join.notes;
 
   const closedPrematureAnswer = await closePrematureAnswerSegment(ctx, state, deps.publish);
 
@@ -130,10 +128,7 @@ export async function guardSpawnedChildren(
       ? transcript.slice(0, -1)
       : transcript;
 
-  const nextTranscript = foldNotes.reduce<TranscriptMessage[]>(
-    (acc, note) => appendSystemNote(acc, note),
-    [...baseTranscript],
-  );
+  const nextTranscript = appendChildResultNotes(baseTranscript, join.notes);
 
   if (join.park) {
     return interruptChatRun(state, nextTranscript, join.park);

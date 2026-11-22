@@ -104,8 +104,16 @@ export const chatRunStateSchema = z
     // can call. Pinned with the prompt, because a new tool description breaks the prompt cache.
     // Absent on a direct run and on an older pinned run: those keep the full index.
     codeRunIndex: z.array(z.string().min(1)).optional(),
-    // Pins the system prompt for the whole run. Never cleared once set.
+    // Pins the system prompt for the whole run. Never cleared. Only a new build re-pins it: see
+    // `assertStableChatSystem`.
     systemPromptHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+    // The hash of the code part of the pinned prompt: the prompt with no saved per-run values. It
+    // includes the `readPath` choice. A change of it tells a new build from a drift in one build.
+    // Absent on a run that an older build pinned.
+    systemPromptCodeHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
@@ -177,23 +185,48 @@ export const chatRunStateSchema = z
 
 export type ChatRunState = z.infer<typeof chatRunStateSchema>;
 
+/** What {@link assertStableChatSystem} did with the pin. */
+export type ChatSystemPin = "pinned" | "stable" | "repinned_on_build_change";
+
 /**
- * Throw if the system prompt changed within the run.
+ * Pin the system prompt for the run, and throw if it changed within one build.
  * `AlfredAgent` lives for one model step here, so its own check cannot see this.
+ *
+ * `codePrompt` is the same prompt with no saved per-run values, for the run's `readPath`.
+ * - No pin yet: pin both hashes.
+ * - The full hash is the same: stable. A run that an older build pinned gets its code hash here.
+ * - The full hash and the code hash both changed, or the code hash is absent: a new build. Re-pin
+ *   both hashes. This costs one cache miss. The caller logs it.
+ * - Only the full hash changed: a drift within one build. Throw.
  */
 export function assertStableChatSystem(
-  state: Pick<ChatRunState, "systemPromptHash">,
+  state: Pick<ChatRunState, "systemPromptHash" | "systemPromptCodeHash">,
   systemPrompt: string,
-): void {
+  codePrompt: string,
+): ChatSystemPin {
   const hash = sha256Hex(systemPrompt);
+  const codeHash = sha256Hex(codePrompt);
 
   if (state.systemPromptHash === undefined) {
     state.systemPromptHash = hash;
+    state.systemPromptCodeHash = codeHash;
 
-    return;
+    return "pinned";
   }
 
-  if (state.systemPromptHash === hash) return;
+  if (state.systemPromptHash === hash) {
+    state.systemPromptCodeHash ??= codeHash;
+
+    return "stable";
+  }
+
+  if (state.systemPromptCodeHash !== codeHash) {
+    state.systemPromptHash = hash;
+    state.systemPromptCodeHash = codeHash;
+
+    return "repinned_on_build_change";
+  }
+
   throw new Error(
     "[chat] system prompt changed within a cache-stable chat run. " +
       "Keep changing context in the transcript; the system prompt must stay fixed for the whole run.",

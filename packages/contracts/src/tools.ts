@@ -404,27 +404,55 @@ export const toolNameSchema = z.custom<ToolName>((value) => isToolName(value), "
 
 /**
  * Names of removed tools that a saved row can still hold, for example a workflow revision that
- * lists `system.await_sub_agent` (ADR-0130 decision 6).
+ * lists `system.await_sub_agent` (ADR-0130 amendment (i)). Only a parse of a saved row accepts
+ * them. New input stays strict.
  */
 const RETIRED_TOOL_NAMES = ["system.await_sub_agent"] as const;
 
-/** A removed tool's name, or a capability whose `tool` is one. */
-const retiredToolEntrySchema = z.union([
-  z.enum(RETIRED_TOOL_NAMES),
-  z.object({ tool: z.enum(RETIRED_TOOL_NAMES) }),
-]);
+const retiredToolNameSchema = z.enum(RETIRED_TOOL_NAMES);
+
+export type RetiredToolName = z.infer<typeof retiredToolNameSchema>;
+
+export function isRetiredToolName(value: unknown): value is RetiredToolName {
+  return retiredToolNameSchema.safeParse(value).success;
+}
+
+/** Marks a dropped entry inside a saved-list parse. It never leaves the parse. */
+const RETIRED_ENTRY: symbol = Symbol("retired tool entry");
+
+function retiredEntry(): symbol {
+  return RETIRED_ENTRY;
+}
+
+function isKeptEntry<T>(entry: T): entry is Exclude<T, symbol> {
+  return entry !== RETIRED_ENTRY;
+}
 
 /**
- * A saved list of tool names or capabilities. It drops each removed tool, then parses the rest
- * with `list`, so the row still parses. A name that was never a tool still fails.
+ * A saved list of tool names. Each entry must be a tool name or a retired name, and the list keeps
+ * the max of its saved schema, so an object or a list over the max still fails. Then each retired
+ * name drops.
  */
-export function withoutRetiredTools<T extends z.ZodType<unknown, unknown[]>>(list: T) {
+export function savedToolNameList(max: number) {
   return z
-    .array(z.unknown())
-    .transform((entries) =>
-      entries.filter((entry) => !retiredToolEntrySchema.safeParse(entry).success),
-    )
-    .pipe(list);
+    .array(z.union([retiredToolNameSchema.transform(retiredEntry), toolNameSchema]))
+    .max(max)
+    .transform((names) => names.filter(isKeptEntry));
+}
+
+/**
+ * A saved list of entries that name a tool in `tool`, for example the capabilities of a workflow.
+ * Each entry must be an object with a retired name in `tool`, or match `entry`. The list keeps the
+ * max of its saved schema. Then each entry with a retired name drops.
+ */
+export function savedToolEntryList<Entry extends z.ZodType<{ tool: string }>>(
+  entry: Entry,
+  max: number,
+) {
+  return z
+    .array(z.union([z.looseObject({ tool: retiredToolNameSchema }).transform(retiredEntry), entry]))
+    .max(max)
+    .transform((entries) => entries.filter(isKeptEntry));
 }
 
 export function hashToolInput(toolName: ToolName, input: unknown): string {

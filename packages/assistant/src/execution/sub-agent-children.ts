@@ -3,71 +3,56 @@
  * so the join can read children without importing the run service, which imports the workflows.
  */
 
+import { isTerminalStatus, type RunStatus, type TerminalRunStatus } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { agentRuns, type AgentRun } from "@alfred/db/schemas";
 import { and, eq } from "drizzle-orm";
 import { AWAIT_SUB_AGENT_CEILING_MS } from "./sub-agent-join-wake-queue";
 import { readSubAgentMetadata, subAgentParentRunIdMatches } from "./sub-agent-metadata";
 
-export interface ChildRunOutcome {
-  ok: boolean;
-  /** The child is terminal. */
-  done: boolean;
-  status: string;
-  output?: unknown;
-  error?: unknown;
-  /** Checked against the join wait ceiling. */
-  runningMs?: number | undefined;
-  reason?: string;
-}
-
-const TERMINAL_CHILD_STATUSES = new Set(["completed", "failed", "cancelled"]);
-
-export function isTerminalChildStatus(status: string): boolean {
-  return TERMINAL_CHILD_STATUSES.has(status);
-}
-
 /**
- * Do not park when the child is terminal, unreadable, or past the wait ceiling; a re-park there
- * could loop forever.
+ * One child as the join reads it. The status is the run's own `RunStatus`, and `isTerminalStatus`
+ * alone decides `ended` against `live`, so this reader keeps no status table of its own.
+ *
+ * - `foreign`: the row does not name this parent. The join reports it and does not park on it.
+ * - `ended`: the child is terminal (`completed`, `failed`, `cancelled`, or `blocked`).
+ * - `live`: the child still runs. `deadlineAt` is the one wait deadline of this child: its spawn
+ *   time plus the wait ceiling. It comes from the durable row, so each park and each wake of the
+ *   parent uses the same deadline, also for a child that never got its first lease.
  */
-export function shouldResolveWithoutParking(outcome: ChildRunOutcome): boolean {
-  return (
-    outcome.done ||
-    !outcome.ok ||
-    (outcome.runningMs !== undefined && outcome.runningMs > AWAIT_SUB_AGENT_CEILING_MS)
-  );
-}
+export type ChildRunOutcome =
+  | { kind: "foreign"; status: RunStatus }
+  | { kind: "ended"; status: TerminalRunStatus; output: unknown; error: unknown }
+  | { kind: "live"; status: Exclude<RunStatus, TerminalRunStatus>; deadlineAt: Date };
 
-/** The columns a child's outcome is built from. Both child reads select these. */
+/** The columns a child's outcome is built from. */
 const childOutcomeColumns = {
   status: agentRuns.status,
   output: agentRuns.output,
   error: agentRuns.error,
   metadata: agentRuns.metadata,
-  startedAt: agentRuns.startedAt,
+  createdAt: agentRuns.createdAt,
 } as const;
 
 type ChildOutcomeRow = Pick<AgentRun, keyof typeof childOutcomeColumns>;
 
+/** The wait deadline of a child: its spawn time plus the wait ceiling (ADR-0073). */
+export function childJoinDeadline(spawnedAt: Date): Date {
+  return new Date(spawnedAt.getTime() + AWAIT_SUB_AGENT_CEILING_MS);
+}
+
 function toChildRunOutcome(child: ChildOutcomeRow, parentRunId: string): ChildRunOutcome {
   const sub = readSubAgentMetadata(child.metadata);
 
-  if (!sub || sub.parentRunId !== parentRunId) {
-    return { ok: false, done: false, status: child.status, reason: "not_your_sub_agent" };
+  if (!sub || sub.parentRunId !== parentRunId) return { kind: "foreign", status: child.status };
+
+  const status = child.status;
+
+  if (isTerminalStatus(status)) {
+    return { kind: "ended", status, output: child.output ?? null, error: child.error ?? null };
   }
 
-  const done = TERMINAL_CHILD_STATUSES.has(child.status);
-  const startedMs = child.startedAt ? child.startedAt.getTime() : null;
-
-  return {
-    ok: true,
-    done,
-    status: child.status,
-    output: done ? (child.output ?? null) : undefined,
-    error: done ? (child.error ?? null) : undefined,
-    runningMs: !done && startedMs !== null ? Date.now() - startedMs : undefined,
-  };
+  return { kind: "live", status, deadlineAt: childJoinDeadline(child.createdAt) };
 }
 
 export interface SpawnedChildRun {
@@ -77,7 +62,7 @@ export interface SpawnedChildRun {
 }
 
 /**
- * Every child the run spawned, terminal or not, so a chat turn cannot end with children still
+ * Every child the run spawned, terminal or not, so a turn cannot end with children still
  * running. One read gives each child's outcome, so the caller does not read the child again.
  */
 export async function listSpawnedChildRuns(args: {

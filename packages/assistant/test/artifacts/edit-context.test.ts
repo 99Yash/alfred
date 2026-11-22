@@ -202,14 +202,14 @@ test("chat's prod system prompt states no date — saved time notes carry 'now' 
 });
 
 test("chat persists system stability across short-lived AlfredAgent instances", () => {
-  const state: Pick<ChatRunState, "systemPromptHash"> = {};
-  assertStableChatSystem(state, "stable prompt");
+  const state: Pick<ChatRunState, "systemPromptHash" | "systemPromptCodeHash"> = {};
+  assertStableChatSystem(state, "stable prompt", "code prompt");
   const pinned = state.systemPromptHash;
   assert.ok(pinned);
-  assertStableChatSystem(state, "stable prompt");
+  assertStableChatSystem(state, "stable prompt", "code prompt");
   assert.equal(state.systemPromptHash, pinned);
   assert.throws(
-    () => assertStableChatSystem(state, "prompt with a drifting timestamp"),
+    () => assertStableChatSystem(state, "prompt with a drifting timestamp", "code prompt"),
     /system prompt changed within a cache-stable chat run/,
   );
 

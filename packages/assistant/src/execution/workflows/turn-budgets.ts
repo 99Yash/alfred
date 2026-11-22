@@ -50,6 +50,15 @@ export const CHAT_TURN_CAP_LANDING_NOTE =
 export const BRIEF_TURN_CAP_MAX = 30;
 
 /**
+ * Tells a brief boss why it has no tools on the one synthesis turn past the cap. The runtime gives
+ * this turn only when it dropped an answer to give the boss its sub-agent results.
+ */
+export const BRIEF_SYNTHESIS_LANDING_NOTE =
+  "You have used every tool step of this run, so no tools are offered on this turn. " +
+  "Give your final answer now from what is already in this conversation, including the sub-agent results. " +
+  "Say plainly what is still incomplete. Do not claim anything you did not finish.";
+
+/**
  * A provider fallback sometimes returns an empty completion; a retry usually clears it.
  * Kept small so a provider stuck on empties fails fast.
  */

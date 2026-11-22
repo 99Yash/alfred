@@ -10,7 +10,13 @@ import type { ChildRunOutcome } from "@alfred/assistant/execution/sub-agent-chil
 
 const args = { parentRunId: "run_parent", userId: "user_1", foldedChildRunIds: [] };
 
-const running = { ok: true, done: false, status: "running", runningMs: 1_000 };
+const NOW = new Date("2026-11-22T00:00:00.000Z");
+
+const running = {
+  kind: "live",
+  status: "running",
+  deadlineAt: new Date(NOW.getTime() + AWAIT_SUB_AGENT_CEILING_MS),
+} satisfies ChildRunOutcome;
 
 function dependencies(outcome: ChildRunOutcome, calls: string[]): JoinSpawnedChildrenDeps {
   return {
@@ -20,6 +26,7 @@ function dependencies(outcome: ChildRunOutcome, calls: string[]): JoinSpawnedChi
 
       return Promise.resolve();
     },
+    now: () => NOW,
   };
 }
 
@@ -37,17 +44,17 @@ describe("sub-agent join park safety", () => {
     const calls: string[] = [];
 
     const outcome = {
-      ok: true,
-      done: true,
+      kind: "ended",
       status: "completed",
       output: { answer: 42 },
+      error: null,
     } satisfies ChildRunOutcome;
 
     const join = await joinSpawnedChildren(args, dependencies(outcome, calls));
 
     assert.equal(join.park, null);
     assert.deepEqual(join.foldedChildRunIds, ["run_child"]);
-    assert.match(join.notes[0] ?? "", /finished — it completed/);
+    assert.match(join.notes[0]?.instruction ?? "", /finished — it completed/);
     assert.deepEqual(calls, []);
   });
 });

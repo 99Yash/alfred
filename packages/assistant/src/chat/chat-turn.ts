@@ -476,7 +476,22 @@ const chatTurnStep: Step<ChatRunState> = {
         state.readPath,
       );
 
-      assertStableChatSystem(state, systemPrompt);
+      // The same composer with no saved per-run values: the part that only a new build changes.
+      const codePrompt = buildChatSystemPrompt("", "", "", state.readPath);
+      const previousPromptHash = state.systemPromptHash;
+
+      if (assertStableChatSystem(state, systemPrompt, codePrompt) === "repinned_on_build_change") {
+        logger.warn(
+          {
+            event: "chat_system_prompt_repinned_on_build_change",
+            runId: ctx.runId,
+            threadId: state.threadId,
+            previousPromptHash,
+            promptHash: state.systemPromptHash,
+          },
+          "Chat run re-pinned its system prompt after a new build; one prompt cache miss",
+        );
+      }
 
       const sdkTools = landing ? {} : tools.forModel(state.activeTools, state.codeRunIndex);
       const chatRoute = route(state.tier);

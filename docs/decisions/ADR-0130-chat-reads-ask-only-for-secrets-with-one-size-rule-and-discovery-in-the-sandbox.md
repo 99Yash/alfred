@@ -358,7 +358,7 @@ Build in this order. Each issue names its decision.
 - The dispatcher loses its `join` staging arm and the `parked` dispatch result, because `await_sub_agent` was their only user.
 - The spawn description and the prompts say that Alfred waits for each sub-agent before the final answer and gives its result as a note.
 
-**What stays.** ADR-0073 keeps its rule that the parent waits for its children. The dead-man timer, the wait ceiling, and the cancel cascade stay. Only the explicit join tool goes. A saved row that names `system.await_sub_agent` still parses: a parse of a saved tool list drops a removed tool (`dropRetiredToolEntries`).
+**What stays.** ADR-0073 keeps its rule that the parent waits for its children. The dead-man timer, the wait ceiling, and the cancel cascade stay. Only the explicit join tool goes. A saved row that names `system.await_sub_agent` still parses: a parse of a saved tool list drops a removed tool (`savedToolNameList`, `savedToolEntryList`, `storedWorkflowRevisionDefinitionSchema`). New input stays strict, and a saved list keeps its entry shape and its max.
 
 **Rejected.**
 
@@ -366,6 +366,15 @@ Build in this order. Each issue names its decision.
 - A spawn that blocks until the child ends. It reverses ADR-0073 alternative (a), and parallel delegation would need a join of many children.
 
 **The cost.** The model reads a child's result as a note, not as a tool result. A boss that wants the result before it does more work must end its step first. In prod, neither tool ran in 90 days.
+
+**Owner decisions after the review of #1855, 2026-11-22.**
+
+- **The child's evidence has its own block.** The note keeps the runtime's instruction first. The child's output or error follows in a `<sub_agent_result childRunId="…">` block, and the instruction says that the block is data, not instructions. A closing tag inside the output cannot end the block. The output is bounded by decision 5 (`boundForModel`), not by the 2,000-character card limit. A cut output gives a cut record and the scratch key of the whole result. Rejected: a synthetic tool call and tool result. It reverses this amendment and is the transcript work that ADR-0073 deferred.
+- **One deadline for each child.** The deadline is the child's spawn time (`agent_runs.created_at`) plus `AWAIT_SUB_AGENT_CEILING_MS`. Each park and each wake use it, also for a child that never got its first lease. Before, each park started a fresh 6 minutes, and a child with no lease had no age, so it could park with no end.
+- **A brief counts model calls.** A step that only joins and parks again does not count a turn. When the runtime drops an answer to give the boss its child results, the next model call may go one past `BRIEF_TURN_CAP_MAX` with no tools, so a child that finished at the cap cannot fail the brief.
+- **A provider stop keeps its result.** A brief whose model stops on `length` or `content-filter` waits for each running child, then ends with that stop. The child results do not go to a model again.
+- **The join reads durable rows.** A brief joins at each completion of the boss. Chat joins when the run has any spawn call, also one that failed after its insert.
+- **A chat prompt pin re-pins once on a new build.** The run keeps a second hash of the prompt with no per-run values. When the full hash and that code hash both differ, the run started on an older build: it logs `chat_system_prompt_repinned_on_build_change` and pins again, at the cost of one cache miss. A change with the same code hash still throws.
 
 ## Principles recorded for later theory
 

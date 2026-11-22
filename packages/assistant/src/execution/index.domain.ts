@@ -109,7 +109,11 @@ export {
   type WorkflowReadinessVerdict,
 } from "./workflows/readiness-port";
 
-export { joinSpawnedChildren, type JoinSpawnedChildrenDeps } from "./sub-agent-join";
+export {
+  appendChildResultNotes,
+  joinSpawnedChildren,
+  type JoinSpawnedChildrenDeps,
+} from "./sub-agent-join";
 
 export { scheduleSubAgentJoinWakeJob } from "./sub-agent-join-wake-queue";
 

@@ -101,7 +101,7 @@ Invariants:
   - Lock order is the run row, then child rows. One known exception: the commit updates `agent_steps` before the guard locks the run. A deadlock then aborts one side (see SM-29).
 - Assumed only:
   - A waiting run wakes only through a hil or signal wake. The timer wake kind exists in the schema, but nothing produces it or wakes it. A step that returned a timer wake would park for ever.
-  - Sub-agent children never end blocked. `TERMINAL_CHILD_STATUSES` in `packages/assistant/src/execution/sub-agents.ts` omits blocked. This holds only because sub-agents pin no revision.
+  - Sub-agent children never end blocked, because sub-agents pin no revision. The join no longer depends on it: `packages/assistant/src/execution/sub-agent-children.ts` reads a child's status with `isTerminalStatus`, so a blocked child folds as ended and the parent does not park on it.
 
 ### `agent_steps.status`
 

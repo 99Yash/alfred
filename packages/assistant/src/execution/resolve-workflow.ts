@@ -1,3 +1,4 @@
+import { storedWorkflowRevisionToolsSchema } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import {
   workflowRevisions,
@@ -127,6 +128,15 @@ export async function resolveWorkflowForRun(args: {
     );
   }
 
+  // A saved revision can list a removed tool. It drops here, so the run does not get it. If the
+  // lists do not parse, they stay as read, and the workflow's metadata parse reports them.
+  const tools = storedWorkflowRevisionToolsSchema.safeParse(row);
+  const allowedTools = tools.success ? tools.data.allowedTools : row.allowedTools;
+
+  const requiredCapabilities = tools.success
+    ? tools.data.requiredCapabilities
+    : row.requiredCapabilities;
+
   return {
     workflow: userAuthoredBriefWorkflow,
     workflowSlug: args.workflowSlug,
@@ -136,8 +146,8 @@ export async function resolveWorkflowForRun(args: {
       isBuiltin: row.isBuiltin,
       workflowId: row.workflowId,
       revisionId,
-      allowedTools: row.allowedTools,
-      requiredCapabilities: row.requiredCapabilities,
+      allowedTools,
+      requiredCapabilities,
       approvedAt: row.approvedAt,
     },
   };

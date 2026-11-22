@@ -13,7 +13,7 @@ import {
   type WorkflowReadinessContext,
   type WorkflowReadinessProblem,
 } from "./readiness";
-import { reconcileWorkflowReadiness } from "./revisions";
+import { reconcileWorkflowReadiness, withStoredRevisionTools } from "./revisions";
 
 export type RuntimeReadinessResult =
   | { kind: "ready" }
@@ -68,14 +68,17 @@ export async function checkWorkflowRunReadiness(args: {
     return { kind: "deferred", reason: toMessage(error) };
   }
 
+  // A pinned revision can list a removed tool. It drops, so it does not block the run.
+  const revision = withStoredRevisionTools(row.revision);
+
   const definition: WorkflowRevisionDefinition = {
-    name: row.revision.name,
-    description: row.revision.description,
-    brief: row.revision.brief,
-    trigger: row.revision.trigger,
-    allowedIntegrations: row.revision.allowedIntegrations,
-    allowedTools: row.revision.allowedTools,
-    requiredCapabilities: row.revision.requiredCapabilities,
+    name: revision.name,
+    description: revision.description,
+    brief: revision.brief,
+    trigger: revision.trigger,
+    allowedIntegrations: revision.allowedIntegrations,
+    allowedTools: revision.allowedTools,
+    requiredCapabilities: revision.requiredCapabilities,
   };
 
   const problems = resolveWorkflowReadiness({

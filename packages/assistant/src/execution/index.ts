@@ -46,6 +46,7 @@ export {
   CAPACITY_RETRY_JITTER_MS,
   type ChatTurnRetries,
   registerWorkflowReadinessCheck,
+  appendChildResultNotes,
   joinSpawnedChildren,
   scheduleSubAgentJoinWakeJob,
   stagedAction,

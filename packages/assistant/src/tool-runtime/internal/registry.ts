@@ -34,11 +34,13 @@ import {
   integrationFromToolName,
   isLoadableIntegrationSlug,
   isSupportedPassthroughSlug,
+  isRetiredToolName,
   isToolRiskTier,
   readEvidenceSchema,
+  savedToolNameList,
   scriptSourcesSchema,
   toolNameSchema,
-  withoutRetiredTools,
+  type RetiredToolName,
 } from "@alfred/contracts";
 import type { RedactedToolInput } from "@alfred/ai";
 // Type-only: the values pull `@alfred/db` into every tool declaration. `../context` binds them.
@@ -286,22 +288,34 @@ export type ToolExecuteContextFields = Omit<ToolExecuteContext, "integrations" |
 /** The context that a `requiresLiveChat: true` tool's `execute` receives. */
 export type LiveChatToolExecuteContext = ToolExecuteContext & { chat: ChatTurnAddress };
 
+/** `system.search_tools` returns at most this many candidates, so a fold names at most this many. */
+const SEARCH_FOLD_NAMES_MAX = 10;
+
 /**
  * The typed side data a call hands back beside its model-facing output. Dispatch persists it with
  * the result in one write, so a replay returns what the live call did. Nothing reads an effect
  * from the output.
+ *
+ * Only the read of a persisted effect parses this schema. A live call returns a typed value. So
+ * the schema accepts a removed tool in an activation and drops it (ADR-0130 amendment (i)), and a
+ * replay keeps the other effects.
  */
 export const toolEffectsSchema = z.object({
   /** A tool the round folds into the next turn's surface. */
   activation: z
-    .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("load"), name: toolNameSchema }),
-      // Ranked, available, non-`mcp.call` hits. The round applies `run.allowedTools`.
-      z.object({
-        kind: z.literal("search_fold"),
-        // A saved effect can name a removed tool (ADR-0130 decision 6).
-        names: withoutRetiredTools(z.array(toolNameSchema)),
-      }),
+    .union([
+      z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("load"), name: toolNameSchema }),
+        // Ranked, available, non-`mcp.call` hits. The round applies `run.allowedTools`.
+        z.object({
+          kind: z.literal("search_fold"),
+          names: savedToolNameList(SEARCH_FOLD_NAMES_MAX),
+        }),
+      ]),
+      // A load of a removed tool reads as no activation.
+      z
+        .object({ kind: z.literal("load"), name: z.custom<RetiredToolName>(isRetiredToolName) })
+        .transform(() => undefined),
     ])
     .optional(),
   /** The artifact an `artifact_mutation` call wrote. */

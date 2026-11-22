@@ -12,6 +12,8 @@ import {
   toolCategoryOf,
   toolLabel,
   workflowBlockedGeneration,
+  storedWorkflowAuthoringProposalSchema,
+  storedWorkflowRevisionToolsSchema,
   workflowRevisionDefinitionSchema,
   workflowAuthoringProposalSchema,
   type ActivateWorkflowInput,
@@ -317,9 +319,26 @@ function parseWithProblems<T>(
   };
 }
 
-/** One stored-proposal read. An invalid or missing value reads as `null`. */
+/**
+ * One stored-proposal read. An invalid or missing value reads as `null`. A requested capability
+ * with a removed tool drops.
+ */
 function parseStoredProposal(value: unknown): WorkflowAuthoringProposal | null {
-  return workflowAuthoringProposalSchema.safeParse(value).data ?? null;
+  return storedWorkflowAuthoringProposalSchema.safeParse(value).data ?? null;
+}
+
+/**
+ * The tool lists of a saved revision row, without a removed tool (ADR-0130 amendment (i)). Each
+ * revision read in `automation` comes through here, so a revision from before the removal still
+ * activates and runs. `resolveWorkflowForRun` uses the same schema. If the lists do not parse,
+ * they stay as read, and the definition parse of the caller reports the problem.
+ */
+export function withStoredRevisionTools<
+  Row extends Pick<WorkflowRevision, "allowedTools" | "requiredCapabilities">,
+>(row: Row): Row {
+  const tools = storedWorkflowRevisionToolsSchema.safeParse(row);
+
+  return tools.success ? { ...row, ...tools.data } : row;
 }
 
 /** `loadRevision` reads an invalid stored proposal as `null`, so one shape covers both. */
@@ -496,9 +515,10 @@ export async function reviseWorkflow(
 
     const contentHash = workflowRevisionContentHash(definition);
 
+    // `loadRevision` already parsed the saved proposal. The new proposal gets the strict parse.
     const proposalUnchanged =
-      canonicalJson(parseStoredProposal(current?.authoringProposal ?? null)) ===
-      canonicalJson(parseStoredProposal(args.authoringProposal ?? null));
+      canonicalJson(current?.authoringProposal ?? null) ===
+      canonicalJson(workflowAuthoringProposalSchema.safeParse(args.authoringProposal).data ?? null);
 
     if (current && current.contentHash === contentHash && proposalUnchanged) {
       return { ok: true, workflow: existing, revision: current, created: false };
@@ -1478,7 +1498,7 @@ async function loadRevision(
   // as `null`. `insertRevision(...).returning()` rows keep the written value and are not
   // re-parsed here.
   return {
-    ...row,
+    ...withStoredRevisionTools(row),
     authoringProposal: parseStoredProposal(row.authoringProposal),
   };
 }
