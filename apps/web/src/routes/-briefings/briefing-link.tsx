@@ -1,4 +1,4 @@
-import { isBriefingReferenceKind } from "@alfred/contracts";
+import { isBriefingReferenceKind, isDomainOrSubdomain } from "@alfred/contracts";
 import type { Components } from "react-markdown";
 import { type IntegrationBrand, IntegrationGlyph } from "~/lib/integrations/integration-icons";
 import { cn } from "~/lib/utils";
@@ -20,7 +20,7 @@ function linkBrand(href: string): IntegrationBrand | null {
 
   if (host === "_relative_") return null;
 
-  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (isDomainOrSubdomain(host, "github.com")) return "github";
 
   if (host === "mail.google.com") return "gmail";
 
@@ -38,7 +38,7 @@ function linkBrand(href: string): IntegrationBrand | null {
 
   if (host === "linear.app") return "linear";
 
-  if (host.endsWith("slack.com")) return "slack";
+  if (isDomainOrSubdomain(host, "slack.com")) return "slack";
 
   return "web";
 }
