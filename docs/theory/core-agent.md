@@ -48,7 +48,7 @@ Owner direction, 2026-11-14: **push is a function Alfred calls to mail the user 
 
 What the push does **not** carry, owner decision 2026-11-14: journal remarks. They stay on briefs and the next chat, and the journal's "no net runs within minutes of an item" rule survives as a choice ([journal.md §9](./journal.md#9-not-settled)). The push carries what needs the user's side — an ask, a result, a confirmation — and nothing else.
 
-**`ask_user` with no person present.** With the push, a background run that needs the user can park the question and ask through the push instead of denying it (Junior denies). This is open (section 9), but it is now mechanically possible, which it was not before the push kinds exist.
+**`ask_user` with no person present.** Settled for an action (owner, 2026-11-22, [ADR-0132](../decisions/ADR-0132-a-follow-up-is-a-proposal-that-carries-its-action.md)): a background run does not ask. It proposes the action with `system.propose_followup`, with its reason and its sources, and the run ends. The proposal is an approval row; the push, the briefing, and the next chat point to it. An open question with a free answer and no person present is still open (section 9).
 
 ## 5. The voice
 
@@ -103,5 +103,5 @@ Owner direction, 2026-11-14: **not now.** The theory is recorded so that it is s
 
 - **Budgets.** Step caps of 40 and 60 exist (`turn-budgets.ts`). Whether cost caps, tool-call caps, or a wrap-up step fit better is not decidable from the armchair — the owner expects research or trial and error. Open until then.
 - **Silence as an act.** Does a run end with an explicit "no reply", as Junior's `noReply` does? It fits "the default verdict is silence" ([journal.md §9](./journal.md#9-not-settled)), but a turn that just ends is what the user knows today. Open.
-- **`ask_user` with no person present.** Deny (today), or park and ask through the push. Mechanically possible once the push kinds exist; a wording question as much as a mechanism one. Open.
+- **`ask_user` with no person present.** A yes or no on one action is settled: a proposal ([ADR-0132](../decisions/ADR-0132-a-follow-up-is-a-proposal-that-carries-its-action.md)). Open: a question with a free answer, for example a claim of the memory check job that has no clear action.
 - **Thread binding for a second surface.** Parked with the surfaces. When a second surface arrives, the question returns: a column on `chat_threads` (`packages/db/src/schema/chat.ts` has none today) or a binding table.

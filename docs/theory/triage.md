@@ -179,7 +179,7 @@ These are **follow-up workflows**. Each one reads the triage result. None of the
 
 - **Todos.** Only for loud labels. Their own prompt. Behind the settings flag.
 - **Memory write-back** from mail.
-- **Loop closing.** Asks are part of loop closing. Asks are always on, at most 5 each day, and they get context to close a loop.
+- **Loop closing.** Asks are part of loop closing. Asks are always on, at most 5 each day, and they get context to close a loop. An ask that needs the user's yes is a proposal that carries its action, its reason, and its sources ([ADR-0132](../decisions/ADR-0132-a-follow-up-is-a-proposal-that-carries-its-action.md)).
 - **Reply drafts.**
 
 ## Change of labels
