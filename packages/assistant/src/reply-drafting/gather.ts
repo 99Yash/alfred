@@ -4,6 +4,8 @@ import {
   parseGmailDocumentMetadata,
   replyDraftGatheredObjectSchema,
   replyDraftStyleSelectionSchema,
+  UNCONFIRMED_CLAIM_LABEL,
+  type ReplyDraftGatheredObject,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents } from "@alfred/db/schemas";
@@ -16,6 +18,24 @@ import { getThreadState } from "@alfred/assistant/triage";
 
 // Bound context. The composer treats every source as an excerpt.
 const SOURCE_MAX_CHARS = 20_000;
+
+/**
+ * Take whole records in priority order while they fit in `budget` characters. A record is never
+ * cut: a cut can keep a value and drop the label that says it is unconfirmed (#1897 review).
+ */
+function takeWholeRecords(records: readonly string[], budget: number) {
+  const taken: string[] = [];
+  let used = 0;
+
+  for (const record of records) {
+    if (used + record.length > budget) continue;
+
+    taken.push(record);
+    used += record.length;
+  }
+
+  return { taken, used };
+}
 
 export const replyGatherSchema = z.object({
   subject: z.string(),
@@ -82,14 +102,43 @@ export async function gatherReplyContext(args: {
   ]);
 
   const now = new Date();
-  const { people, ...ownerContext } = userContext;
+  const { people, facts: claims, recentMemory, ...ownerRest } = userContext;
 
   const history = people.map(
     (person) =>
       `Mail history for ${person.address}: ${describeCorrespondentHistory(person, timezone)}`,
   );
 
-  const roomForOwnerContext = SOURCE_MAX_CHARS - history.join("\n").length;
+  // Each record is one complete fact string, and its status stays with its source: a confirmed
+  // claim or the profile can support a statement; an unconfirmed claim or a model-written summary
+  // cannot by itself (memory.md §9 Q6). Confirmed records take the budget first.
+  const ownerRecords = [
+    ...history,
+    JSON.stringify({ profile: ownerRest.profile }),
+    ...claims.filter((claim) => claim.label === undefined).map((claim) => JSON.stringify(claim)),
+    ...ownerRest.preferences.map((preference) => JSON.stringify({ preference })),
+    JSON.stringify({ activeIntegrations: ownerRest.activeIntegrations }),
+  ];
+
+  const weakRecords = [
+    ...claims.filter((claim) => claim.label !== undefined).map((claim) => JSON.stringify(claim)),
+    ...recentMemory.map((memory) => JSON.stringify({ ...memory, label: UNCONFIRMED_CLAIM_LABEL })),
+  ];
+
+  const owner = takeWholeRecords(ownerRecords, SOURCE_MAX_CHARS);
+  const weak = takeWholeRecords(weakRecords, SOURCE_MAX_CHARS - owner.used);
+
+  const unconfirmedSources: ReplyDraftGatheredObject[] =
+    weak.taken.length > 0
+      ? [
+          {
+            kind: "unconfirmed_claims",
+            ref: `unconfirmed-claims:${args.userId}`,
+            status: "resolved",
+            facts: weak.taken,
+          },
+        ]
+      : [];
 
   const body = extractGmailDocumentBody(document.content, {
     from: document.metadata.from,
@@ -146,8 +195,9 @@ export async function gatherReplyContext(args: {
         kind: "user_context",
         ref: args.userId,
         status: "resolved",
-        facts: [...history, JSON.stringify(ownerContext).slice(0, roomForOwnerContext)],
+        facts: owner.taken,
       },
+      ...unconfirmedSources,
     ],
   } satisfies ReplyGather);
 }

@@ -162,6 +162,7 @@ describe("system-tool product seams with registered adapters", () => {
         return Promise.resolve(results.remember);
       },
       checkInstruction: () => Promise.resolve(null),
+      instructionWordsAreTheUsers: () => Promise.resolve(true),
       listInstructions: (args) => {
         calls.push({ name: "list", args });
 

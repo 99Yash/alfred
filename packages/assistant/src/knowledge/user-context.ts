@@ -78,6 +78,8 @@ export interface UserContext {
   recentMemory: Array<{
     kind: string;
     preview: string;
+    /** On the cold-start summary: a model's synthesis of web pages that the user never confirmed. */
+    label?: typeof UNCONFIRMED_CLAIM_LABEL;
   }>;
 }
 
@@ -388,12 +390,15 @@ export async function readUserContextItems(
 
   const preferences = prefRows.map((row) => ({ key: row.key, value: row.value }));
 
-  const recentMemory = memoryRows.map((row) => ({
+  // The cold-start summary is a model's synthesis of web pages, so it reads as an unconfirmed
+  // agent claim (ADR-0123, memory.md §9 Q6), like the claims that it holds.
+  const recentMemory = memoryRows.map((row): UserContext["recentMemory"][number] => ({
     kind: row.kind,
     preview:
       row.content.length > MEMORY_PREVIEW_CHARS
         ? `${row.content.slice(0, MEMORY_PREVIEW_CHARS - 3)}...`
         : row.content,
+    ...(row.kind === "cold_start_research" ? { label: UNCONFIRMED_CLAIM_LABEL } : {}),
   }));
 
   // Each delivered row by its id, with the same value the context gives.

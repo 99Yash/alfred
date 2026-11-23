@@ -54,6 +54,7 @@ import {
   callerLabel,
   editInstruction,
   forgetInstruction,
+  instructionWordsAreTheUsers,
   listInstructions,
   listTodos,
   readChatHistory,
@@ -86,6 +87,30 @@ import {
   resolveExactToolLoad,
   searchAvailableTools,
 } from "@alfred/assistant/tool-runtime/discovery";
+
+/**
+ * The context of an instruction write: the chat thread, the staging row, and the model, so the
+ * adapter can cite the user's words or the user's approval, and the producer (ADR-0123).
+ */
+function instructionCallContext(ctx: ToolExecuteContext) {
+  return {
+    userId: ctx.userId,
+    runId: ctx.runId,
+    stepId: ctx.stepId,
+    toolCallId: ctx.toolCallId,
+    threadId: ctx.chat?.threadId,
+    stagingId: ctx.stagingId,
+    modelId: ctx.modelId,
+  };
+}
+
+/**
+ * Why an instruction write may run with no card: code found its words in the user's own turn of
+ * this thread, so a mail or a page that the agent read cannot supply them (ADR-0115, ADR-0130
+ * decision 2 as amended 2026-11-23). Any other call keeps the `high` card.
+ */
+const INSTRUCTION_WORDS_DOWNGRADE =
+  "The words that readers read are the user's own words in a user turn of this thread.";
 
 /** The scratchpad this call reaches: the parent's for a sub-agent, written as the caller. */
 function callerScratchpad(ctx: ToolExecuteContext): SystemToolScratchpad {
@@ -517,14 +542,27 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "remember",
-    riskTier: "no_risk",
+    // ADR-0130 decision 2, amended 2026-11-23: no card only when code finds `phrasing` in the
+    // user's own turn of this thread and the words name each sender. Else the card asks.
+    riskTier: "high",
+    resolveRiskTier: async (input, ctx) =>
+      (await instructionWordsAreTheUsers({
+        userId: ctx.userId,
+        threadId: ctx.chat?.threadId,
+        words: input.phrasing,
+        names: [...(input.targets ?? []), ...(input.senderFilter ?? [])],
+      }))
+        ? "no_risk"
+        : "high",
+    riskTierDowngradeReason: INSTRUCTION_WORDS_DOWNGRADE,
     replay: "unsafe",
-    // ADR-0130 decision 2: no card. It saves at once, and the reply states what it saved.
     availability: { requiresLiveChat: true },
     description:
-      "Store a standing instruction the user stated in chat (ADR-0113). It is stored at once, " +
-      "with no card, so do not ask again in text. In the reply, state what was stored, so the " +
-      "user can remove a wrong one. Put the user's words in " +
+      "Store a standing instruction the user stated in chat (ADR-0113). When `phrasing` is the " +
+      "user's exact words from a message in this chat, and those words name each sender in " +
+      "`targets` and `senderFilter`, it is stored at once with no card, so do not ask again in " +
+      "text. Otherwise the user approves it on a card. In the reply, state what was stored, so " +
+      "the user can remove a wrong one. Put the user's words, verbatim, in " +
       "`phrasing`. When the words name a class of mail ('investment mail', 'Dependabot " +
       "alerts'), put that class in `scope`: triage matches it by meaning, so a new sender is " +
       "covered. Put a sender in `targets` only when the words name that sender; never expand " +
@@ -542,12 +580,7 @@ export const systemTools: readonly RegisteredTool[] = [
     refuseProposal: async (input, ctx) => {
       const refusal = await checkInstruction({
         input,
-        context: {
-          userId: ctx.userId,
-          runId: ctx.runId,
-          stepId: ctx.stepId,
-          toolCallId: ctx.toolCallId,
-        },
+        context: instructionCallContext(ctx),
       }).catch((err: unknown) => {
         logger.warn({ err }, "[remember-instruction] proposal check failed");
 
@@ -559,12 +592,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       return await rememberStandingInstruction({
         input,
-        context: {
-          userId: ctx.userId,
-          runId: ctx.runId,
-          stepId: ctx.stepId,
-          toolCallId: ctx.toolCallId,
-        },
+        context: instructionCallContext(ctx),
       });
     },
   }),
@@ -625,11 +653,24 @@ export const systemTools: readonly RegisteredTool[] = [
   liveTool({
     integration: "system",
     action: "edit_instruction",
-    riskTier: "no_risk",
+    // As `system.remember`: no card only when code finds the new words in the user's own turn.
+    riskTier: "high",
+    resolveRiskTier: async (input, ctx) =>
+      (await instructionWordsAreTheUsers({
+        userId: ctx.userId,
+        threadId: ctx.chat?.threadId,
+        words: input.directive,
+        names: [],
+      }))
+        ? "no_risk"
+        : "high",
+    riskTierDowngradeReason: INSTRUCTION_WORDS_DOWNGRADE,
     replay: "safe",
     description:
       "Change a schemaVersion 1 standing instruction's words or display label, by its `factId` " +
-      "(from list_instructions), without changing what it targets. Revise a schemaVersion 2 " +
+      "(from list_instructions), without changing what it targets. When `directive` is the " +
+      "user's exact words from a message in this chat, it changes at once; otherwise the user " +
+      "approves it on a card. Revise a schemaVersion 2 " +
       "instruction with system.remember and its `instructionId` instead. To point an instruction at a different " +
       "sender, forget the wrong one and remember the right one instead. New words replace the " +
       "words that triage and the briefing read, on every schemaVersion 1 row with the same words " +
@@ -641,12 +682,7 @@ export const systemTools: readonly RegisteredTool[] = [
     execute: async (input, ctx) => {
       return await editInstruction({
         input,
-        context: {
-          userId: ctx.userId,
-          runId: ctx.runId,
-          stepId: ctx.stepId,
-          toolCallId: ctx.toolCallId,
-        },
+        context: instructionCallContext(ctx),
       });
     },
   }),

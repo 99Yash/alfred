@@ -7,13 +7,18 @@ import type { FactConfirmArgs, FactCreateArgs, FactEditArgs, FactRejectArgs } fr
  * `@alfred/assistant/knowledge` runs on the savepoint `tx`; push pokes after commit.
  */
 
-/** Confirm a `proposed` row. A repeat is a no-op. */
+/** Confirm a `proposed` row at the version the user saw. A repeat or a changed row is a no-op. */
 export async function factConfirm(
   tx: DbTransaction,
   args: FactConfirmArgs,
   userId: string,
 ): Promise<void> {
-  await confirmFact({ factId: args.factId, userId, exec: tx });
+  await confirmFact({
+    factId: args.factId,
+    userId,
+    seenRowVersion: args.seenRowVersion,
+    exec: tx,
+  });
 }
 
 /** A user's own claim. Idempotent on the client id. The owner is the session user, never `args.userId`. */

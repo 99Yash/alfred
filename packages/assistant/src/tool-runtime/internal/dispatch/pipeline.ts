@@ -729,6 +729,7 @@ function dispatchContext(resolved: ResolvedDispatch): ToolExecuteContext {
     activeTools: args.activeTools,
     chat: args.chat,
     approvalThreadId: args.approvalThreadId,
+    modelId: args.modelId,
     allowedIntegrations: args.allowedIntegrations,
     accountRef: workflowCapabilities[0]?.accountRef,
     hostRead: hostReadDispatcher(args),

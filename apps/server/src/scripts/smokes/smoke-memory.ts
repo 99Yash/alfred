@@ -16,7 +16,6 @@ import {
   recallLatestByKey,
   recallMemory,
   rejectFact,
-  supersedeFact,
   writeMemoryChunk,
 } from "@alfred/assistant/knowledge";
 import { settings } from "@alfred/assistant/settings";
@@ -99,29 +98,21 @@ async function main() {
   console.log(`[smoke] 2. high-confidence agent claim stays proposed ${highConfidence.id}`);
 
   // 3. confirmFact transitions proposed → confirmed
-  const confirmed = await confirmFact({ factId: proposed.id, userId, exec: "own" });
+  const confirmed = await confirmFact({
+    factId: proposed.id,
+    userId,
+    seenRowVersion: proposed.rowVersion,
+    exec: "own",
+  });
+
   assert(confirmed, "confirmFact returned null for a proposed row");
   assert(confirmed.status === "confirmed", `expected confirmed, got ${confirmed.status}`);
   assert(confirmed.rowVersion > proposed.rowVersion, "confirmFact should bump rowVersion");
   console.log(`[smoke] 3. confirmed ${proposed.id}`);
 
-  // 4. supersedeFact creates new row + closes old
-  const superseded = await supersedeFact({
-    factId: confirmed.id,
-    userId,
-    newValue: { name: "Alice Doe", email: "alice.doe@example.com" },
-    confidence: 0.9,
-    ...agentClaim("obs_test_003"),
-  });
-
-  assert(superseded, "supersedeFact returned null");
-  assert(superseded.status === "proposed", `an agent replacement waits for the user`);
-  assert(superseded.supersedesId === confirmed.id, `supersedesId should link to old row`);
-  console.log(`[smoke] 4. superseded ${confirmed.id} → ${superseded.id}`);
-
-  // 5. editFact creates a third generation
+  // 4. editFact creates a second generation
   const edited = await editFact({
-    factId: superseded.id,
+    factId: confirmed.id,
     userId,
     newValue: { name: "Alice Q. Doe", email: "alice.doe@example.com" },
     exec: "own",
@@ -130,21 +121,21 @@ async function main() {
   assert(edited, "editFact returned null");
   assert(edited.status === "confirmed", `edited row should be confirmed`);
   assert(edited.confidence === 1, `user-edits land at full confidence`);
-  console.log(`[smoke] 5. edited ${superseded.id} → ${edited.id}`);
+  console.log(`[smoke] 4. edited ${confirmed.id} → ${edited.id}`);
 
   const chain = await getSupersessionChain(userId, edited.id);
   assert(chain.length === 3, `supersession chain should be 3 deep, got ${chain.length}`);
   console.log(`[smoke]    chain: ${chain.map((c) => `${c.id}(${c.status})`).join(" → ")}`);
 
-  // 6. recall returns the latest active row
+  // 5. recall returns the latest active row
   const latest = await recallLatestByKey(userId, managerKey);
   assert(latest, "recallLatestByKey returned null");
   assert(latest.id === edited.id, `expected latest=${edited.id}, got ${latest.id}`);
   const all = await recallActiveByKey(userId, managerKey);
   assert(all.length === 1, `only one row should be active for ${managerKey}, got ${all.length}`);
-  console.log(`[smoke] 6. recall returned latest ${latest.id}`);
+  console.log(`[smoke] 5. recall returned latest ${latest.id}`);
 
-  // 7. reject a fresh proposal → rejected_inferences write
+  // 6. reject a fresh proposal → rejected_inferences write
   const toReject = await proposeFact({
     userId,
     key: rejectedKey,
@@ -166,9 +157,9 @@ async function main() {
   assert(rejected.status === "rejected", `expected rejected, got ${rejected.status}`);
   const isBlocked = await isRejected(userId, rejectedKey, "Wrong Company");
   assert(isBlocked, "rejected_inferences should block a re-propose");
-  console.log(`[smoke] 7. rejected ${toReject.id} and recorded signature`);
+  console.log(`[smoke] 6. rejected ${toReject.id} and recorded signature`);
 
-  // 8. re-proposing the same (key, value) is blocked
+  // 7. re-proposing the same (key, value) is blocked
   const reprop = await proposeFact({
     userId,
     key: rejectedKey,
@@ -178,9 +169,9 @@ async function main() {
   });
 
   assert(reprop === null, `extraction guard should return null, got ${JSON.stringify(reprop)}`);
-  console.log(`[smoke] 8. re-extraction guard blocked the duplicate proposal`);
+  console.log(`[smoke] 7. re-extraction guard blocked the duplicate proposal`);
 
-  // 9. preferences round-trip
+  // 8. preferences round-trip
   const prefKey = `smoke:tone:${runTag}`;
   // One bind: the reads after the writes prove a write drops the bind's loaded view.
   const userSettings = settings({ userId });
@@ -196,10 +187,10 @@ async function main() {
     `settings.all should include our key`,
   );
   console.log(
-    `[smoke] 9. preferences round-trip ok (rowVersion ${set1.rowVersion} → ${set2.rowVersion})`,
+    `[smoke] 8. preferences round-trip ok (rowVersion ${set1.rowVersion} → ${set2.rowVersion})`,
   );
 
-  // 10. memory_chunks write, without embeddings
+  // 9. memory_chunks write, without embeddings
   const chunk = await writeMemoryChunk({
     userId,
     kind: "manual",
@@ -219,18 +210,18 @@ async function main() {
   });
 
   assert(chunk2.id === chunk.id, `same content should dedup to same row`);
-  console.log(`[smoke] 10. memory_chunk write idempotent ok (id=${chunk.id})`);
+  console.log(`[smoke] 9. memory_chunk write idempotent ok (id=${chunk.id})`);
 
-  // 11. listFactsByStatus surfaces what the memory page would show
+  // 10. listFactsByStatus surfaces what the memory page would show
   const proposedList = await listFactsByStatus(userId, "proposed");
   const confirmedList = await listFactsByStatus(userId, "confirmed");
   console.log(
-    `[smoke] 11. status counts: proposed=${proposedList.length} confirmed=${confirmedList.length}`,
+    `[smoke] 10. status counts: proposed=${proposedList.length} confirmed=${confirmedList.length}`,
   );
 
-  // 12. embed sweep + recall, inline like the `memory.embed_sweep` job. Needs VOYAGE_API_KEY.
+  // 11. embed sweep + recall, inline like the `memory.embed_sweep` job. Needs VOYAGE_API_KEY.
   if (!process.env.VOYAGE_API_KEY) {
-    console.log("[smoke] 12. skipped — VOYAGE_API_KEY unset");
+    console.log("[smoke] 11. skipped — VOYAGE_API_KEY unset");
   } else {
     const pending = await findPendingEmbedChunks(50);
     const ours = pending.find((p) => p.id === chunk.id);
@@ -264,7 +255,7 @@ async function main() {
       `expected meaningful similarity, got ${ourHit.similarity.toFixed(3)}`,
     );
     console.log(
-      `[smoke] 12. embed+recall ok (similarity=${ourHit.similarity.toFixed(3)}, hits=${hits.length})`,
+      `[smoke] 11. embed+recall ok (similarity=${ourHit.similarity.toFixed(3)}, hits=${hits.length})`,
     );
   }
 

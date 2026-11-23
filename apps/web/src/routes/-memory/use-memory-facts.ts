@@ -10,7 +10,7 @@ interface MemoryFactsState {
   error: string | null;
   initialPullPending: boolean;
   retry: () => void;
-  confirmFact: (id: string) => Promise<void>;
+  confirmFact: (fact: SyncedFact) => Promise<void>;
   rejectFact: (id: string) => Promise<void>;
 }
 
@@ -28,10 +28,11 @@ export function useMemoryFacts(): MemoryFactsState {
     newestFirst,
   );
 
+  // The confirm carries the version of the row that the user saw, so it binds to that claim.
   const confirmFact = useCallback(
-    async (id: string): Promise<void> => {
+    async (fact: SyncedFact): Promise<void> => {
       if (!rep) return;
-      await rep.mutate.factConfirm({ factId: id });
+      await rep.mutate.factConfirm({ factId: fact.id, seenRowVersion: fact.rowVersion });
     },
     [rep],
   );

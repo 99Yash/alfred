@@ -82,7 +82,7 @@ export function MemoryPage() {
                     <li key={fact.id}>
                       <ProposedFactCard
                         fact={fact}
-                        onConfirm={() => void confirmFact(fact.id)}
+                        onConfirm={() => void confirmFact(fact)}
                         onReject={() => void rejectFact(fact.id)}
                       />
                     </li>
@@ -111,7 +111,8 @@ export function MemoryPage() {
                   </span>
                   <p className="text-sm font-medium text-app-fg-4">No confirmed facts yet</p>
                   <p className="max-w-[28rem] text-xs leading-5 text-app-fg-3">
-                    As Alfred works with you, high-confidence facts will land here automatically.
+                    What you tell Alfred lands here. So does what Alfred learns, once you confirm
+                    it.
                   </p>
                 </AppCard>
               ) : (

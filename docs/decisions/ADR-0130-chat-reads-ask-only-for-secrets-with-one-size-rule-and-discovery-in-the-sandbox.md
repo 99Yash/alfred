@@ -396,3 +396,13 @@ Build in this order. Each issue names its decision.
 - **A false remember.** `system.remember` with no card can save a wrong instruction. The reply states what it saved, and the owner can remove it.
 - **Discovery steps.** Discovery in the sandbox can cost more steps if the model discovers one tool for each script. The 2b eval on Luna took 9 steps against a ceiling of 4. Condition C5 must catch this on Haiku 5.5.
 - **Handle storage.** The handle store keeps full results for a time. The time limit and the cleanup come from ADR-0087.
+
+## Amendment 2026-11-23 (ADR-0123, ADR-0115): an instruction saves at once only on the user's own words
+
+Owner decision, from the review of #1897. Decision 2 saved `system.remember` at once, with no card. But the model writes the tool input, and a valid user message in the run does not prove that the user asked for those words (ADR-0115, "Honest limit of rule 1"). A mail that the agent read could supply them.
+
+- `system.remember` and `system.edit_instruction` are `high`, so they always confirm (ADR-0069), unless code proves the words. Code proves them when the words that triage and the briefing read (`phrasing`; the new `directive` of an edit) are in a user turn of the chat thread, after whitespace, case, and quote marks are made the same. An earlier turn of the thread counts. Each sender in `targets` and `senderFilter` must also appear in those words, as the address, the domain, or the name of the domain.
+- Proved: the write runs with no card. The claim cites that user turn (`chat_message`).
+- Not proved: the card shows the call, and the user approves it. The claim cites the run's user turn and the approval (`tool_approval` with the staging id). Code checks that the user approved that staging row.
+- The run's user turn must be in the thread of the call (ADR-0115 rule 1).
+- Residual risk: the model still chooses `effects`, `scope`, and the directive of a new instruction. Code applies no effect except `block_reply_draft`, and readers read the words. A short phrase that the user said, with effects that the user did not ask for, still saves with no card.

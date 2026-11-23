@@ -66,7 +66,6 @@ export {
   proposeFact,
   createFact,
   confirmFact,
-  supersedeFact,
   rejectFact,
   editFact,
   type FactRow,
@@ -77,7 +76,7 @@ export {
   type FactStatus,
 } from "./facts";
 
-export { readUserTurnOfRun } from "./claim-evidence";
+export { findUserWordsInThread, readUserTurnOfRun, userApprovedStaging } from "./claim-evidence";
 
 // recall (chunks) + the cold-start write door.
 export {

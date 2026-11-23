@@ -58,7 +58,7 @@ A loop (ADR-0122) needs a thing with a source that owns it, for example a PR or 
 
 **The entry stores no exact keys.** The pass that reads it is a Code Mode program (section 5). It reads the linked sources, so it can search for an address, a domain, or a URL that the user's words name, and read the items that an item-opened entry cites. Code does not copy those words into separate fields.
 
-**A journal entry is a pointer to where to look. It is never evidence** (principle 5). A remark cites the sources of the entry, not the entry. A claim comes only from the user's own words.
+**A journal entry is a pointer to where to look. It is never evidence** (principle 5). A remark cites the sources of the entry, not the entry. A journal entry never becomes a claim. Claims come from capture with their own evidence: the user's words, or an agent conclusion from mail, activity, or a web page that the user confirms ([memory.md](./memory.md) §5).
 
 **The journal is internal.** The user does not see it and does not manage it, because the job is that Alfred does the work. The owner reviews it in the database (section 8). The user can still say "forget that" in chat.
 

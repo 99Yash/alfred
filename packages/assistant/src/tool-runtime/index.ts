@@ -132,6 +132,12 @@ export interface ProposedToolCall {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  /**
+   * The model that proposed the call, from the provider response (`response.modelId`). A claim
+   * that the call writes records it as its producer (ADR-0123). Absent when the caller did not
+   * know it (a workflow call, a call saved before the field).
+   */
+  modelId?: string | undefined;
 }
 
 interface ToolCallRunBase {
@@ -487,6 +493,12 @@ export type SystemToolRequest<Name extends keyof typeof TOOL_INPUT_SCHEMAS> = {
     runId: string;
     stepId: string;
     toolCallId: string;
+    /** The live chat thread of the call. Set only for a live chat turn. */
+    threadId?: string | undefined;
+    /** The staging row of the call. Set only on the staged path. */
+    stagingId?: string | undefined;
+    /** The model that proposed the call, when the caller knew it. */
+    modelId?: string | undefined;
   };
 };
 
@@ -519,7 +531,11 @@ export interface ReadUserContextResult {
   }[];
   readonly preferences: readonly { readonly key: string; readonly value: unknown }[];
   readonly people: readonly CorrespondentHistory[];
-  readonly recentMemory: readonly { readonly kind: string; readonly preview: string }[];
+  readonly recentMemory: readonly {
+    readonly kind: string;
+    readonly preview: string;
+    readonly label?: typeof UNCONFIRMED_CLAIM_LABEL;
+  }[];
 }
 
 /** Mirrors the source shape in `knowledge/web-search.ts`. */
@@ -702,6 +718,23 @@ export interface SystemToolInstructionAdapter {
   editInstruction(
     args: SystemToolRequest<"system.edit_instruction">,
   ): Promise<EditInstructionResult>;
+  /**
+   * Whether `words` are the user's own words in a user turn of `threadId`, and name each of
+   * `names`. Reads only. True lets an instruction write run with no card (ADR-0130 decision 2,
+   * amended 2026-11-23); false gives the card.
+   */
+  instructionWordsAreTheUsers(args: InstructionWordsCheck): Promise<boolean>;
+}
+
+/** The input of {@link SystemToolInstructionAdapter.instructionWordsAreTheUsers}. */
+export interface InstructionWordsCheck {
+  userId: string;
+  /** Absent outside a live chat turn: then the words are never the user's. */
+  threadId: string | undefined;
+  /** The words that triage and the briefing read. Absent when the call changes no words. */
+  words: string | undefined;
+  /** The senders that the instruction targets. */
+  names: readonly string[];
 }
 
 /**
@@ -865,6 +898,10 @@ export function editInstruction(
   args: SystemToolRequest<"system.edit_instruction">,
 ): Promise<EditInstructionResult> {
   return systemToolInstructionAdapterPort.read().editInstruction(args);
+}
+
+export function instructionWordsAreTheUsers(args: InstructionWordsCheck): Promise<boolean> {
+  return systemToolInstructionAdapterPort.read().instructionWordsAreTheUsers(args);
 }
 
 export function webSearch(

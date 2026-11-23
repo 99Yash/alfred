@@ -1,6 +1,11 @@
 import { db } from "@alfred/db";
 import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
-import { SYNC_MODEL, type IDBKeys, type SyncedEntity } from "@alfred/sync";
+import {
+  REPLICACHE_SCHEMA_VERSION,
+  SYNC_MODEL,
+  type IDBKeys,
+  type SyncedEntity,
+} from "@alfred/sync";
 import { asc, eq, sql } from "drizzle-orm";
 import { getCVRStore, type ClientViewMap, type CVRRow, type CVRSnapshot } from "./cvr";
 import { SYNC_ENTITIES } from "./read";
@@ -27,10 +32,27 @@ function narrowPullCookie(raw: unknown): ReplicacheModel.PullCookie | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * Replicache's answer for a client whose schema is not the server's. The client then runs
+ * `onUpdateNeeded`, which reloads the page by default, so an old tab gets the new code and a
+ * new IndexedDB. Its pending mutations still reach push: each mutator parses its own arguments,
+ * and a mutation in an old shape fails that parse and is skipped (the LMID still advances).
+ */
+export interface VersionNotSupportedResponse {
+  error: "VersionNotSupported";
+  versionType: "schema";
+}
+
 export async function handlePull(
   userId: string,
   body: ReplicacheModel.Pull,
-): Promise<PullResponse | { forbidden: true }> {
+): Promise<PullResponse | VersionNotSupportedResponse | { forbidden: true }> {
+  // An old tab must not apply rows in the new shape: its parser drops them (ADR-0123 changed facts).
+  // Replicache always sends `schemaVersion` (its default is ""); only a direct caller omits it.
+  if (body.schemaVersion !== undefined && body.schemaVersion !== REPLICACHE_SCHEMA_VERSION) {
+    return { error: "VersionNotSupported", versionType: "schema" };
+  }
+
   const cookie = narrowPullCookie(body.cookie);
   const cvrStore = getCVRStore();
 

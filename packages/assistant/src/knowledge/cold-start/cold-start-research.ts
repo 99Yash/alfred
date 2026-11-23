@@ -4,7 +4,7 @@ import type { Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
 import { claimProducer, proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";
-import { extractColdStartFacts } from "./extract";
+import { extractColdStartFacts, supportingPages } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";
 import { collectColdStartSignals, type ColdStartSignals } from "./signals";
 import { synthesizeColdStart, type ResearchResult } from "./synthesis";
@@ -67,6 +67,8 @@ const stateSchema = z.object({
         value: z.unknown(),
         confidence: z.number(),
         rationale: z.string(),
+        // A run saved before each claim named its pages has none: its claims write no row.
+        sourceUrls: z.array(z.string()).default([]),
       }),
     )
     .optional(),
@@ -239,33 +241,37 @@ export const coldStartResearchWorkflow: Workflow<
         let inserted = 0;
         let skipped = 0;
 
-        // Each claim cites the pages of the run: the research keeps no page for each claim, and no
-        // text snapshot (memory.md §10 step 5). With no page, a claim has no evidence and no row.
-        const [firstPage, ...otherPages] = [...new Set(ctx.state.research.citations)].map(
-          (url) => ({ kind: "web_page", url }) as const,
-        );
+        // Each claim cites the pages that state it (memory.md §5): the URLs that the model named,
+        // kept only when the run read them. No page, no evidence, no row. No text snapshot yet
+        // (memory.md §10 step 5).
+        for (const p of ctx.state.proposals) {
+          const [firstPage, ...otherPages] = supportingPages(
+            p.sourceUrls,
+            ctx.state.research.citations,
+          ).map((url) => ({ kind: "web_page", url }) as const);
 
-        if (firstPage) {
-          for (const p of ctx.state.proposals) {
-            const fact = await proposeFact({
-              userId: ctx.userId,
-              key: p.key,
-              value: p.value,
-              confidence: p.confidence,
-              author: "agent",
-              evidence: [firstPage, ...otherPages],
-              producer: claimProducer({
-                pipeline: "cold-start",
-                runId: ctx.runId,
-                model: ctx.state.extractModel,
-              }),
-            });
-
-            if (fact) inserted++;
-            else skipped++;
+          if (!firstPage) {
+            skipped++;
+            await ctx.log(`persist: no supporting page for key=${p.key}; no row`);
+            continue;
           }
-        } else {
-          skipped = ctx.state.proposals.length;
+
+          const fact = await proposeFact({
+            userId: ctx.userId,
+            key: p.key,
+            value: p.value,
+            confidence: p.confidence,
+            author: "agent",
+            evidence: [firstPage, ...otherPages],
+            producer: claimProducer({
+              pipeline: "cold-start",
+              runId: ctx.runId,
+              model: ctx.state.extractModel,
+            }),
+          });
+
+          if (fact) inserted++;
+          else skipped++;
         }
 
         const chunk = await writeMemoryChunk({

@@ -93,7 +93,13 @@ export const userFacts = pgTable(
     // An active user claim cites what only the user gives: a chat turn or the user's own edit.
     check(
       "user_facts_user_claim_cites_user",
-      sql`${t.author} <> 'user' OR ${t.status} NOT IN ('proposed', 'confirmed') OR ${t.evidence} @> '[{"kind":"chat_message"}]'::jsonb OR ${t.evidence} @> '[{"kind":"user_edit"}]'::jsonb`,
+      sql`${t.author} <> 'user' OR ${t.status} NOT IN ('proposed', 'confirmed') OR ${t.evidence} @> '[{"kind":"chat_message"}]'::jsonb OR ${t.evidence} @> '[{"kind":"user_edit"}]'::jsonb OR ${t.evidence} @> '[{"kind":"tool_approval"}]'::jsonb`,
+    ),
+    // Each link names its item: a known kind with its nonempty string reference. The writer parses
+    // the whole record (`claimProvenanceSchema`); this check stops a writer that skips the parse.
+    check(
+      "user_facts_evidence_items_shape",
+      sql`NOT jsonb_path_exists(${t.evidence}, '$[*] ? (!exists(@.kind) || @.kind.type() != "string" || !(@.kind == "chat_message" || @.kind == "document" || @.kind == "observation" || @.kind == "user_edit" || @.kind == "tool_approval" || @.kind == "web_page"))') AND NOT jsonb_path_exists(${t.evidence}, '$[*] ? ((@.kind == "chat_message" || @.kind == "document" || @.kind == "observation") && (!exists(@.id) || @.id.type() != "string" || @.id == ""))') AND NOT jsonb_path_exists(${t.evidence}, '$[*] ? ((@.kind == "user_edit") && (!exists(@.at) || @.at.type() != "string" || @.at == ""))') AND NOT jsonb_path_exists(${t.evidence}, '$[*] ? ((@.kind == "tool_approval") && (!exists(@.stagingId) || @.stagingId.type() != "string" || @.stagingId == ""))') AND NOT jsonb_path_exists(${t.evidence}, '$[*] ? ((@.kind == "web_page") && (!exists(@.url) || @.url.type() != "string" || @.url == ""))')`,
     ),
     // Only the user confirms: a confirmed row is the user's own claim, or carries the user's confirm.
     check(

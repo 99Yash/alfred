@@ -3,6 +3,7 @@ import {
   claimAuthorSchema,
   claimEvidenceListSchema,
   claimProducerSchema,
+  claimProvenanceSchema,
   clamp01,
   memoryPageEdit,
   toDisplayText,
@@ -80,20 +81,27 @@ export function claimProducer(args: {
 }
 
 /**
- * The `user_facts` claim columns of one write. Each writer inserts through it, so the evidence and
- * the producer are parsed at the write boundary, not only checked by the loose DB CHECKs.
+ * The `user_facts` claim columns of one write. Every writer inserts through it, so the author,
+ * the evidence, and the producer are parsed as one record at the write boundary
+ * (`claimProvenanceSchema`): a user claim must cite what only the user gives. The DB CHECKs are
+ * the second line. The writer itself resolves the cited source and its authority.
  */
 export function claimColumns(
   provenance: ClaimProvenance,
 ): Pick<NewUserFact, "author" | "evidence" | "producer"> {
-  return {
-    author: claimAuthorSchema.parse(provenance.author),
-    evidence: claimEvidenceListSchema.min(1).parse(provenance.evidence),
-    producer: claimProducerSchema.parse(provenance.producer),
-  };
+  const parsed = claimProvenanceSchema.parse(provenance);
+
+  return { author: parsed.author, evidence: parsed.evidence, producer: parsed.producer };
 }
 
-const MEMORY_PAGE_PRODUCER = { pipeline: "memory-page" } as const;
+/** The provenance of the user's own act on the memory page, at `at`. */
+function memoryPageProvenance(action: "create" | "edit", at: Date): ClaimProvenance {
+  return {
+    author: "user",
+    evidence: [memoryPageEdit(action, at.toISOString())],
+    producer: claimProducer({ pipeline: "memory-page" }),
+  };
+}
 
 // --- schemas ---
 
@@ -142,16 +150,6 @@ const editFactArgsSchema = z.object({
 });
 
 export type EditFactArgs = z.infer<typeof editFactArgsSchema>;
-
-const supersedeFactFieldsSchema = z.object({
-  factId: z.string().min(1),
-  userId: z.string().min(1),
-  newValue: z.unknown(),
-  /** Clamped like the confidence of `proposeFact`. */
-  confidence: z.number().transform(clamp01),
-});
-
-export type SupersedeFactArgs = z.input<typeof supersedeFactFieldsSchema> & ClaimProvenance;
 
 const rejectFactArgsSchema = z.object({
   factId: z.string().min(1),
@@ -257,6 +255,27 @@ function confirmedConflicts(
   );
 }
 
+/**
+ * The active rows of `(userId, key)` that already hold the value `sig`, for a new claim by `author`.
+ * `skip`: the write adds nothing. An agent claim skips any holder. A user claim skips only a
+ * confirmed holder: a matching proposal must not swallow the user's own assertion, so the user
+ * claim supersedes it (ADR-0123: the user's word wins at once).
+ */
+function sameValueHolders(
+  active: readonly UserFact[],
+  sig: string,
+  author: ClaimAuthor,
+): { kind: "skip" } | { kind: "write"; supersede: UserFact[] } {
+  const holders = active.filter((row) => valueSignature(row.value) === sig);
+
+  if (author === "agent")
+    return holders.length > 0 ? { kind: "skip" } : { kind: "write", supersede: [] };
+
+  if (holders.some((row) => row.status === "confirmed")) return { kind: "skip" };
+
+  return { kind: "write", supersede: holders };
+}
+
 async function supersedeFacts(
   tx: DbTransaction,
   userId: string,
@@ -357,12 +376,14 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
       )
       .limit(1);
 
-    if (rejectedHit) return null;
+    // A rejection stops the agent from proposing the value again. The user's own word still wins.
+    if (rejectedHit && !userDriven) return null;
 
-    // (3) Active duplicate.
+    // (3) Active duplicate. A user claim supersedes a matching proposal (`sameValueHolders`).
     const active = await activeFactsForKey(tx, parsed.userId, key);
+    const same = sameValueHolders(active, sig, author);
 
-    if (active.some((r) => valueSignature(r.value) === sig)) return null;
+    if (same.kind === "skip") return null;
 
     // (4) Single-valued conflict with a confirmed value: only a user claim retires it.
     const conflictRows = userDriven ? confirmedConflicts(active, key, sig) : [];
@@ -370,7 +391,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
     await supersedeFacts(
       tx,
       parsed.userId,
-      conflictRows.map((r) => r.id),
+      [...same.supersede, ...conflictRows].map((r) => r.id),
       parsed.validFrom ?? new Date(),
     );
 
@@ -385,7 +406,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         ...claimColumns(args),
         validFrom: parsed.validFrom ?? null,
         validUntil: parsed.validUntil ?? null,
-        supersedesId: conflictRows[0]?.id ?? null,
+        supersedesId: same.supersede[0]?.id ?? conflictRows[0]?.id ?? null,
       })
       .returning();
 
@@ -421,8 +442,9 @@ function previewValue(value: unknown): string {
 
 /**
  * A user's own claim from the memory page: `confirmed` at confidence 1. It supersedes the prior
- * confirmed value of a single-valued key. `null` when an active row already holds the value, or
- * `id` exists. The start of validity is unknown: the user says it now, not since when.
+ * confirmed value of a single-valued key, and a proposal of the same value (the user's assertion
+ * is not lost to an agent proposal). `null` when a confirmed row already holds the value, or `id`
+ * exists. The start of validity is unknown: the user says it now, not since when.
  */
 export async function createFact(args: CreateFactArgs & FactExec): Promise<FactRow | null> {
   const parsed = createFactArgsSchema.parse(args);
@@ -432,8 +454,9 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
   return inFactTransaction(args.exec, parsed.userId, async (tx) => {
     await lockFactKey(tx, parsed.userId, key);
     const active = await activeFactsForKey(tx, parsed.userId, key);
+    const same = sameValueHolders(active, sig, "user");
 
-    if (active.some((r) => valueSignature(r.value) === sig)) return null;
+    if (same.kind === "skip") return null;
 
     const now = new Date();
     const conflicts = confirmedConflicts(active, key, sig);
@@ -441,7 +464,7 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
     await supersedeFacts(
       tx,
       parsed.userId,
-      conflicts.map((r) => r.id),
+      [...same.supersede, ...conflicts].map((r) => r.id),
       now,
     );
 
@@ -454,12 +477,10 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
         value: parsed.value,
         confidence: 1,
         status: "confirmed",
-        author: "user",
-        evidence: [memoryPageEdit("create", now.toISOString())],
-        producer: claimProducer(MEMORY_PAGE_PRODUCER),
+        ...claimColumns(memoryPageProvenance("create", now)),
         validFrom: null,
         validUntil: null,
-        supersedesId: conflicts[0]?.id ?? null,
+        supersedesId: same.supersede[0]?.id ?? conflicts[0]?.id ?? null,
       })
       .onConflictDoNothing()
       .returning();
@@ -472,14 +493,17 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
 
 /**
  * The user confirms a `proposed` claim: it becomes `confirmed`, keeps its author, and cites the
- * user's confirm. A repeat is a no-op. An alias key moves to its canonical form, and the prior
- * confirmed value of a single-valued key is superseded.
+ * user's confirm. The confirm binds to the row that the user saw: `seenRowVersion` must equal the
+ * row's `rowVersion`, or nothing changes (the next pull shows the current row). A repeat is a
+ * no-op. An alias key moves to its canonical form, and the prior confirmed value of a
+ * single-valued key is superseded.
  */
 export async function confirmFact({
   factId,
   userId,
+  seenRowVersion,
   exec,
-}: { factId: string; userId: string } & FactExec): Promise<FactRow | null> {
+}: { factId: string; userId: string; seenRowVersion: number } & FactExec): Promise<FactRow | null> {
   return inFactTransaction(exec, userId, async (tx) => {
     const readProposed = async (): Promise<UserFact | undefined> => {
       const [row] = await tx
@@ -490,6 +514,7 @@ export async function confirmFact({
             eq(userFacts.id, factId),
             eq(userFacts.userId, userId),
             eq(userFacts.status, "proposed"),
+            eq(userFacts.rowVersion, seenRowVersion),
           ),
         )
         .limit(1);
@@ -542,6 +567,7 @@ export async function confirmFact({
           eq(userFacts.id, old.id),
           eq(userFacts.userId, userId),
           eq(userFacts.status, "proposed"),
+          eq(userFacts.rowVersion, seenRowVersion),
         ),
       )
       .returning();
@@ -646,9 +672,7 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
         value: parsed.newValue,
         confidence: 1,
         status: "confirmed",
-        author: "user",
-        evidence: [memoryPageEdit("edit", now.toISOString())],
-        producer: claimProducer(MEMORY_PAGE_PRODUCER),
+        ...claimColumns(memoryPageProvenance("edit", now)),
         validFrom: null,
         validUntil: null,
         supersedesId: conflicts[0]?.id ?? old.id,
@@ -658,55 +682,6 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
 
     return row ? rowToFact(row) : null;
   });
-}
-
-// --- supersede (system-driven) ---
-
-/** A replacement. The old row becomes `superseded`; the new status follows the author. */
-export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | null> {
-  const parsed = supersedeFactFieldsSchema.parse(args);
-  const now = new Date();
-  const status = statusAtWrite(args.author);
-
-  const fact = await db().transaction(async (tx) => {
-    const [old] = await tx
-      .select()
-      .from(userFacts)
-      .where(and(eq(userFacts.id, parsed.factId), eq(userFacts.userId, parsed.userId)))
-      .limit(1);
-
-    if (!old) return null;
-
-    await tx
-      .update(userFacts)
-      .set({
-        status: "superseded",
-        validUntil: now,
-        rowVersion: sql`${userFacts.rowVersion} + 1`,
-      })
-      .where(eq(userFacts.id, parsed.factId));
-
-    const [row] = await tx
-      .insert(userFacts)
-      .values({
-        userId: parsed.userId,
-        key: old.key,
-        value: parsed.newValue,
-        confidence: parsed.confidence,
-        status,
-        ...claimColumns(args),
-        validFrom: null,
-        validUntil: null,
-        supersedesId: old.id,
-      })
-      .returning();
-
-    return rowToFact(requireRow(row, "supersedeFact.insert"));
-  });
-
-  if (fact) emitReplicachePokes([parsed.userId]);
-
-  return fact;
 }
 
 // --- recall ---

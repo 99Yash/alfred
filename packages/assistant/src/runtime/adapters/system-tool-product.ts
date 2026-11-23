@@ -6,12 +6,14 @@ import {
   checkStandingInstructionCapture,
   claimProducer,
   editStandingInstruction,
+  findUserWordsInThread,
   forgetStandingInstruction,
   listStandingInstructions,
   readUserContextItems,
   readUserTurnOfRun,
   runWebSearch,
   saveStandingInstruction,
+  userApprovedStaging,
 } from "@alfred/assistant/knowledge";
 import { readGmailThreadClosure } from "@alfred/assistant/triage";
 import {
@@ -59,7 +61,7 @@ function chatToolAttribution(
 
 type RememberRequest = SystemToolRequest<"system.remember">;
 
-/** The refusal when no user chat turn started the run: an instruction is the user's own claim. */
+/** The refusal when no user chat turn of this thread started the run: an instruction is the user's claim. */
 const NOT_SAID_IN_CHAT = {
   ok: false,
   status: "not_said_in_chat",
@@ -67,23 +69,63 @@ const NOT_SAID_IN_CHAT = {
     "Only a chat message from the user can make or change an instruction. No user chat message started this run, so nothing changed.",
 } as const;
 
+/** What the instruction write changes: the words that readers read, and the senders it names. */
+interface InstructionChange {
+  words: string | undefined;
+  names: readonly string[];
+}
+
 /**
- * The provenance of an instruction write (ADR-0123): the user's chat turn that started the run.
- * Null when no user turn started it, for example a workflow run.
+ * The provenance of an instruction write (ADR-0123, ADR-0115 rule 1). The user's turn that
+ * started the run must be in the thread of the call. Then one of two proofs makes the write the
+ * user's own claim:
+ *  - the words are the user's own words in a user turn of the thread (no card ran), or
+ *  - the user approved the card of this exact call (`tool_approval`).
+ * Null when neither holds. The tool is `high` without the first proof, so the second one is the
+ * normal path then; null fails closed.
  */
 async function instructionProvenance(
   context: ToolCallContext,
   pipeline: string,
+  change: InstructionChange,
 ): Promise<UserClaimProvenance | null> {
-  const turnId = await readUserTurnOfRun(context.userId, context.runId);
+  if (context.threadId === undefined) return null;
+
+  const turnId = await readUserTurnOfRun(context.userId, context.runId, context.threadId);
 
   if (turnId === null) return null;
 
-  return {
-    author: "user",
-    evidence: [{ kind: "chat_message", id: turnId }],
-    producer: claimProducer({ pipeline, runId: context.runId }),
-  };
+  const producer = claimProducer({ pipeline, runId: context.runId, model: context.modelId });
+
+  const wordsTurnId =
+    change.words === undefined
+      ? null
+      : await findUserWordsInThread({
+          userId: context.userId,
+          threadId: context.threadId,
+          words: change.words,
+          names: change.names,
+        });
+
+  if (wordsTurnId !== null) {
+    return { author: "user", evidence: [{ kind: "chat_message", id: wordsTurnId }], producer };
+  }
+
+  if (
+    context.stagingId !== undefined &&
+    (await userApprovedStaging(context.userId, context.stagingId))
+  ) {
+    return {
+      author: "user",
+      evidence: [
+        { kind: "chat_message", id: turnId },
+        { kind: "tool_approval", stagingId: context.stagingId },
+      ],
+      producer,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -92,7 +134,11 @@ async function instructionProvenance(
  */
 async function rememberStandingInstruction({ input, context }: RememberRequest) {
   const { kind: _kind, ...fields } = input;
-  const provenance = await instructionProvenance(context, "system.remember");
+
+  const provenance = await instructionProvenance(context, "system.remember", {
+    words: input.phrasing,
+    names: [...(input.targets ?? []), ...(input.senderFilter ?? [])],
+  });
 
   if (provenance === null) return NOT_SAID_IN_CHAT;
 
@@ -151,8 +197,16 @@ const instructionAdapter: SystemToolInstructionAdapter = {
       },
     });
   },
+  instructionWordsAreTheUsers({ userId, threadId, words, names }) {
+    if (threadId === undefined || words === undefined) return Promise.resolve(false);
+
+    return findUserWordsInThread({ userId, threadId, words, names }).then((id) => id !== null);
+  },
   async editInstruction({ input, context }) {
-    const provenance = await instructionProvenance(context, "system.edit_instruction");
+    const provenance = await instructionProvenance(context, "system.edit_instruction", {
+      words: input.directive,
+      names: [],
+    });
 
     if (provenance === null) return NOT_SAID_IN_CHAT;
 

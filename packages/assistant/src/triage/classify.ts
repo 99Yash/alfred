@@ -6,6 +6,7 @@ import {
 } from "@alfred/ai";
 import {
   TODO_DECISION_OUTCOMES,
+  UNCONFIRMED_CLAIM_LABEL,
   clamp01,
   collabActivitySchema,
   confidenceSchema,
@@ -289,7 +290,8 @@ function renderObservations(obs: Observations): string {
   // `senderExtractionEvent` mirrors this null check as `userContextPresent`. Change both together.
   if (obs.userContext) {
     lines.push(
-      `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}): ${clipUserContextLine(obs.userContext.text)}`,
+      // A model's synthesis of web pages: an agent claim that the user never confirmed (ADR-0123).
+      `What Alfred researched about the user (recorded ${obs.userContext.recordedAt.toISOString()}; ${UNCONFIRMED_CLAIM_LABEL}): ${clipUserContextLine(obs.userContext.text)}`,
       `  ${USER_CONTEXT_HANDLING_RULE}`,
     );
   }

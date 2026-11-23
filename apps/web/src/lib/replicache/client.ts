@@ -1,18 +1,12 @@
 import { Replicache, type PullerResultV1 } from "replicache";
 import { summarizeBody } from "@alfred/contracts";
 import type { ClientMutators } from "@alfred/sync";
-import { clientMutators } from "@alfred/sync";
+import { clientMutators, REPLICACHE_SCHEMA_VERSION } from "@alfred/sync";
 import { API_URL } from "~/lib/eden";
 import { subscribeToBackForwardCache } from "~/lib/page-lifecycle";
 
 /** A server that accepts TCP but never answers would wedge sync. A timeout becomes a normal retry. */
 const SYNC_FETCH_TIMEOUT_MS = 30_000;
-
-/**
- * Bump to abandon every client's IndexedDB and cold-sync on next load.
- * Bump when a synced entity's shape changes, or to heal a wedged local store.
- */
-const REPLICACHE_SCHEMA_VERSION = "1";
 
 export interface CreateReplicacheOptions {
   /** A pull or push got a 401, or the poke `EventSource` closed for good. */

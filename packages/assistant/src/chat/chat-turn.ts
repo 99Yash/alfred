@@ -737,6 +737,7 @@ const chatTurnStep: Step<ChatRunState> = {
             toolName: call.toolName,
             input: call.input,
             segmentIndex: state.segmentIndex,
+            modelId: response.modelId,
           }),
         );
         closeLeadInNarration(state);

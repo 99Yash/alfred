@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDateTimeStringSchema } from "./iso-date-time";
 import { jsonObjectSchema } from "./user-model";
 
 /** The source of a `user_preferences` or `memory_chunks` row. A claim (`user_facts`) uses the claim fields below. */
@@ -37,7 +38,17 @@ const userEditEvidenceSchema = z.object({
   surface: z.literal("memory_page"),
   action: z.enum(USER_EDIT_ACTIONS),
   /** ISO time of the act. */
-  at: z.string().min(1),
+  at: isoDateTimeStringSchema,
+});
+
+/**
+ * The user's approval of the exact tool call that wrote the claim: the card showed its input, and
+ * the user approved it (ADR-0115 `user_direct`, ADR-0123). The staging row records the approval.
+ */
+const toolApprovalEvidenceSchema = z.object({
+  kind: z.literal("tool_approval"),
+  /** An `action_stagings.id` that the user approved. */
+  stagingId: z.string().min(1),
 });
 
 const documentEvidenceSchema = z.object({
@@ -62,6 +73,7 @@ const webPageEvidenceSchema = z.object({
 export const userClaimEvidenceSchema = z.discriminatedUnion("kind", [
   chatMessageEvidenceSchema,
   userEditEvidenceSchema,
+  toolApprovalEvidenceSchema,
 ]);
 
 export type UserClaimEvidence = z.infer<typeof userClaimEvidenceSchema>;
@@ -80,6 +92,7 @@ export function memoryPageEdit(action: UserEditAction, at: string) {
 export const claimEvidenceSchema = z.discriminatedUnion("kind", [
   chatMessageEvidenceSchema,
   userEditEvidenceSchema,
+  toolApprovalEvidenceSchema,
   documentEvidenceSchema,
   observationEvidenceSchema,
   webPageEvidenceSchema,
@@ -121,6 +134,37 @@ export type ClaimProvenance =
       readonly evidence: readonly [ClaimEvidence, ...ClaimEvidence[]];
       readonly producer: ClaimProducer;
     };
+
+/** The kinds of evidence that only the user gives. A user claim cites at least one. */
+export const USER_CLAIM_EVIDENCE_KINDS = [
+  "chat_message",
+  "user_edit",
+  "tool_approval",
+] as const satisfies readonly UserClaimEvidence["kind"][];
+
+function citesUser(evidence: readonly ClaimEvidence[]): boolean {
+  return evidence.some((link) => userClaimEvidenceSchema.safeParse(link).success);
+}
+
+/**
+ * The runtime contract of one claim write, as one record: the author, the evidence, and the
+ * producer together. A user claim must cite evidence that only the user gives. The writer still
+ * resolves the cited source and checks its authority (ADR-0115); this parse checks the shape.
+ */
+export const claimProvenanceSchema = z.discriminatedUnion("author", [
+  z.object({
+    author: z.literal("user"),
+    evidence: claimEvidenceListSchema.min(1).refine(citesUser, {
+      message: "a user claim cites a chat turn, a user edit, or a tool approval",
+    }),
+    producer: claimProducerSchema,
+  }),
+  z.object({
+    author: z.literal("agent"),
+    evidence: claimEvidenceListSchema.min(1),
+    producer: claimProducerSchema,
+  }),
+]);
 
 /** The provenance of a claim that the user made: a chat turn or the user's own edit. */
 export type UserClaimProvenance = Extract<ClaimProvenance, { author: "user" }>;

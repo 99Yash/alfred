@@ -16,6 +16,8 @@
 - `user_facts` becomes the claim table in theory. A code change can rename it. Its source becomes a list of evidence links, an author, and a producer. The default author `{"kind":"agent"}` goes. The write time stops being the default start of validity.
 - The 0.85 auto-confirm (`knowledge/facts.ts`) stops being the rule that confirms a claim. Only the user confirms an agent claim. A reader can use an unconfirmed claim as weak evidence with its author label (Q6 in the theory page, settled 2026-11-14).
 - The ADR-0111 reconciliation sweep, chat capture, mail capture, and cold start are capture paths that write claim rows. ADR-0080's rule "no grounding, no row" stays as "no evidence, no row".
+- Reply drafting keeps the status of each claim through the verifier. A source of unconfirmed claims or model summaries is `weak`, and the verifier blocks a statement whose only support is that source (owner decision, 2026-11-23).
+- A user claim cites what only the user gives: a chat turn, a memory-page edit, or the user's approval of the exact tool call (`tool_approval`). An instruction from chat cites the turn that holds its words, else the approval (ADR-0130 amendment of 2026-11-23). A user claim of a value that a proposal holds supersedes the proposal.
 - `CONTEXT.md` widens **Claim** to every memory statement. **Fact** keeps its meaning from ADR-0122: a statement from the source that owns a thing.
 
 ## Alternatives

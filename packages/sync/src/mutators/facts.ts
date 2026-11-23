@@ -9,6 +9,11 @@ import type { SyncedFact } from "../schemas";
 
 export const factConfirmArgsSchema = z.object({
   factId: z.string().min(1).max(100),
+  /**
+   * The `rowVersion` of the row that the user saw when they confirmed. The server confirms only
+   * that version, so a confirm never lands on a claim that changed after the user read it.
+   */
+  seenRowVersion: z.number().int().min(0),
 });
 
 export type FactConfirmArgs = z.infer<typeof factConfirmArgsSchema>;
@@ -81,7 +86,7 @@ export async function factConfirmClient(
 
   if (!fact) return;
 
-  if (fact.status !== "proposed") return;
+  if (fact.status !== "proposed" || fact.rowVersion !== args.seenRowVersion) return;
   await writeFact(tx, {
     ...fact,
     status: "confirmed",
