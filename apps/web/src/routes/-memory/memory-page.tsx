@@ -32,8 +32,8 @@ export function MemoryPage() {
             Memory
           </h1>
           <p className="mx-auto max-w-[44rem] text-sm text-app-fg-3">
-            Facts Alfred has learned about you. High-confidence facts auto-confirm; the rest wait
-            for your review.
+            What Alfred knows about you. What you tell Alfred is kept. What Alfred concludes waits
+            for you to confirm it.
           </p>
         </header>
 

@@ -7,6 +7,7 @@ import { user, userFacts } from "@alfred/db/schemas";
 import { inArray, like } from "drizzle-orm";
 
 import { getSupersessionChain } from "@alfred/assistant/knowledge";
+import { TEST_USER_CLAIM_COLUMNS } from "../support/claims";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
@@ -39,7 +40,7 @@ async function seedFact(userId: string, id: string, supersedesId: string | null)
       key: "manager",
       value: id,
       confidence: 1,
-      source: { kind: "user" },
+      ...TEST_USER_CLAIM_COLUMNS,
       supersedesId,
     });
 }

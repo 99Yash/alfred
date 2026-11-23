@@ -114,7 +114,7 @@ describe("system-tool product seams with registered adapters", () => {
       read: {
         profile: null,
         activeIntegrations: [],
-        confirmedFacts: [],
+        facts: [],
         preferences: [],
         people: [],
         recentMemory: [],

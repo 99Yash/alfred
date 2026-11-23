@@ -163,24 +163,21 @@ export type AuthorshipSource = "gmail" | "unknown";
 
 export type AuthorshipIdentity = { kind: "email"; value: string; accountId?: string };
 
-export type AuthorshipProof =
-  | {
-      source: "gmail";
-      method: "sent_flag";
-      accountId: string | null;
-      accountEmail: string | null;
-      fromEmail: string | null;
-    }
-  | {
-      source: "gmail";
-      method: "from_connected_account";
-      accountId: string | null;
-      accountEmail: string;
-      fromEmail: string;
-    };
+/**
+ * Only the mailbox's own SENT label proves that the user wrote a mail. A `From:` header that
+ * names the user proves nothing: anyone can spoof it (#1889).
+ */
+export type AuthorshipProof = {
+  source: "gmail";
+  method: "sent_flag";
+  accountId: string | null;
+  accountEmail: string | null;
+  fromEmail: string | null;
+};
 
 export type AuthorshipRejectReason =
   | "unsupported_source"
+  | "not_sent"
   | "missing_self_identity"
   | "missing_author_identity"
   | "identity_mismatch"
@@ -253,58 +250,13 @@ function authoredByGmail(
     return { authoredByUser: false, source: "gmail", reason: "missing_author_identity" };
   }
 
-  // A doc tied to a mailbox must match that mailbox, not any self email.
-  if (accountEmail) {
-    if (fromEmail === accountEmail) {
-      return {
-        authoredByUser: true,
-        source: "gmail",
-        proof: {
-          source: "gmail",
-          method: "from_connected_account",
-          accountId,
-          accountEmail,
-          fromEmail,
-        },
-      };
-    }
-
-    return {
-      authoredByUser: false,
-      source: "gmail",
-      reason: "identity_mismatch",
-      observed: { kind: "email", value: fromEmail },
-    };
-  }
-
-  // No `accountId` (legacy rows) or no active mailbox for it: fall back to every self email.
-  if (self.emails.size === 0) {
-    return {
-      authoredByUser: false,
-      source: "gmail",
-      reason: "missing_self_identity",
-      observed: { kind: "email", value: fromEmail },
-    };
-  }
-
-  if (self.emails.has(fromEmail)) {
-    return {
-      authoredByUser: true,
-      source: "gmail",
-      proof: {
-        source: "gmail",
-        method: "from_connected_account",
-        accountId,
-        accountEmail: fromEmail,
-        fromEmail,
-      },
-    };
-  }
+  // Not sent: a `From:` that names the user or this mailbox is still not proof (#1889).
+  const namesUser = fromEmail === accountEmail || self.emails.has(fromEmail);
 
   return {
     authoredByUser: false,
     source: "gmail",
-    reason: "identity_mismatch",
+    reason: namesUser ? "not_sent" : "identity_mismatch",
     observed: { kind: "email", value: fromEmail },
   };
 }

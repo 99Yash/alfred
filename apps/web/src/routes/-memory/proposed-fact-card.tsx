@@ -8,8 +8,20 @@ const CONFIRM_LEADING = <Check size={12} />;
 
 const REJECT_LEADING = <X size={12} />;
 
-function formatSource(fact: SyncedFact): string {
-  return fact.source.kind.replaceAll("_", " ");
+const EVIDENCE_KIND_LABEL = {
+  chat_message: "your chat message",
+  user_edit: "your edit",
+  document: "a document",
+  observation: "an observation",
+  web_page: "a web page",
+} as const satisfies Record<SyncedFact["evidence"][number]["kind"], string>;
+
+/** Who made the claim, and the kinds of evidence it cites (ADR-0123). */
+function formatProvenance(fact: SyncedFact): string {
+  const author = fact.author === "user" ? "You said it" : "Alfred concluded it";
+  const kinds = [...new Set(fact.evidence.map((link) => EVIDENCE_KIND_LABEL[link.kind]))];
+
+  return kinds.length > 0 ? `${author} from ${kinds.join(", ")}` : author;
 }
 
 export function ProposedFactCard({
@@ -31,7 +43,7 @@ export function ProposedFactCard({
         {toDisplayText(fact.value, 2)}
       </div>
       <div className="text-[11px] text-app-fg-3 tabular-nums">
-        {formatSource(fact)} · {new Date(fact.createdAt).toLocaleString()}
+        {formatProvenance(fact)} · {new Date(fact.createdAt).toLocaleString()}
       </div>
       <div className="flex flex-wrap gap-1.5 pt-0.5">
         <AppButton variant="primary" size="sm" onClick={onConfirm} leading={CONFIRM_LEADING}>

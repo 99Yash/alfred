@@ -3,10 +3,10 @@ import { integrationCredentials, memoryChunks, type UserFact, userFacts } from "
 import {
   assertNever,
   isNonBlankString,
-  memorySourceSchema,
+  UNCONFIRMED_CLAIM_LABEL,
+  type ClaimAuthor,
   type CorrespondentHistory,
   type IanaTimezone,
-  type MemorySource,
 } from "@alfred/contracts";
 import { and, asc, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import {
@@ -17,7 +17,7 @@ import {
 } from "@alfred/assistant/settings";
 import { USER_FACING_MEMORY_CHUNK_KINDS } from "./chunks";
 import { readCorrespondents } from "./correspondents";
-import { isUserStatedSource, readUserLocation, statedLocationLabel } from "./location";
+import { readUserLocation, statedLocationLabel } from "./location";
 import { logger } from "@alfred/logging";
 
 /** Sections `include` can select. */
@@ -59,10 +59,15 @@ export interface UserContext {
     provider: string;
     accountLabel: string | null;
   }>;
-  confirmedFacts: Array<{
+  /**
+   * Confirmed claims first, then claims that the user has not confirmed. An unconfirmed claim is
+   * weak evidence and carries `label` (docs/theory/memory.md §9 Q6).
+   */
+  facts: Array<{
     key: string;
     value: unknown;
     confidence: number;
+    label?: typeof UNCONFIRMED_CLAIM_LABEL;
   }>;
   preferences: Array<{
     key: string;
@@ -114,7 +119,7 @@ const MEMORY_PREVIEW_CHARS = 900;
 
 type FactContextRow = Pick<
   UserFact,
-  "id" | "key" | "value" | "confidence" | "source" | "updatedAt" | "createdAt"
+  "id" | "key" | "value" | "confidence" | "author" | "status" | "updatedAt" | "createdAt"
 >;
 
 type StringFactContextRow = FactContextRow & { value: string };
@@ -124,7 +129,8 @@ const FACT_COLUMNS = {
   key: userFacts.key,
   value: userFacts.value,
   confidence: userFacts.confidence,
-  source: userFacts.source,
+  author: userFacts.author,
+  status: userFacts.status,
   updatedAt: userFacts.updatedAt,
   createdAt: userFacts.createdAt,
 } as const;
@@ -144,36 +150,20 @@ function stringIdentityValue(rows: FactContextRow[], key: IdentityFactKey): stri
   return isNonBlankString(value) ? value : null;
 }
 
-function sourceRank(source: MemorySource): number {
-  switch (source.kind) {
+/** The user's own claim outranks a claim that the agent concluded and the user confirmed. */
+function authorRank(author: ClaimAuthor): number {
+  switch (author) {
     case "user":
       return 0;
-    case "cold_start":
-      return 1;
     case "agent":
-      return 2;
-    case "document":
-    case "chunk":
-    case "tool_call":
-      return 3;
+      return 1;
     default:
-      return assertNever(source.kind, "memory source kind");
+      return assertNever(author, "claim author");
   }
 }
 
 function timestampMs(value: Date | null): number {
   return value?.getTime() ?? Number.NEGATIVE_INFINITY;
-}
-
-function parseSource(row: Pick<FactContextRow, "id" | "source">): MemorySource {
-  const parsed = memorySourceSchema.safeParse(row.source);
-
-  if (parsed.success) return parsed.data;
-  logger.warn(
-    `[memory.user-context] ignoring invalid source for user_facts:${row.id}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
-  );
-
-  return { kind: "document" };
 }
 
 function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
@@ -185,22 +175,20 @@ function sortIdentityFacts<T extends FactContextRow>(rows: T[]): T[] {
   });
 }
 
+/** The rows are confirmed: each is the user's own claim or carries the user's confirm (ADR-0123). */
 function profileIdentityFacts(rows: FactContextRow[]): StringFactContextRow[] {
-  const candidates = rows.filter((row): row is StringFactContextRow => {
-    if (!profileIdentityFactKeys.has(row.key)) return false;
-
-    if (typeof row.value !== "string" || !row.value.trim()) return false;
-
-    return isUserStatedSource(parseSource(row));
-  });
+  const candidates = rows.filter(
+    (row): row is StringFactContextRow =>
+      profileIdentityFactKeys.has(row.key) && typeof row.value === "string" && !!row.value.trim(),
+  );
 
   return bestIdentityFacts(candidates);
 }
 
 function compareIdentityCandidates(a: FactContextRow, b: FactContextRow): number {
-  const sourceDiff = sourceRank(parseSource(a)) - sourceRank(parseSource(b));
+  const authorDiff = authorRank(a.author) - authorRank(b.author);
 
-  if (sourceDiff !== 0) return sourceDiff;
+  if (authorDiff !== 0) return authorDiff;
 
   if (a.confidence !== b.confidence) return b.confidence - a.confidence;
   const updatedDiff = timestampMs(b.updatedAt) - timestampMs(a.updatedAt);
@@ -295,16 +283,21 @@ export async function readUserContextItems(
           .where(
             and(
               eq(userFacts.userId, userId),
-              eq(userFacts.status, "confirmed"),
+              inArray(userFacts.status, ["confirmed", "proposed"]),
               or(isNull(userFacts.validUntil), gt(userFacts.validUntil, now)),
             ),
           )
-          // Confidence first: user identity facts (1.0) outrank per-email noise (~0.95) (#329).
-          .orderBy(desc(userFacts.confidence), desc(userFacts.updatedAt), desc(userFacts.createdAt))
+          // Confirmed first (`confirmed` sorts before `proposed`), then confidence (#329).
+          .orderBy(
+            asc(userFacts.status),
+            desc(userFacts.confidence),
+            desc(userFacts.updatedAt),
+            desc(userFacts.createdAt),
+          )
           .limit(FACT_LIMIT)
       : Promise.resolve([]),
     // Not gated on `facts`: `profile` must hold identity even when only profile is requested (#329).
-    // Selection is in code, so source can outrank recency.
+    // Selection is in code, so the author can outrank recency.
     db()
       .select(FACT_COLUMNS)
       .from(userFacts)
@@ -386,10 +379,11 @@ export async function readUserContextItems(
     accountLabel: row.accountLabel,
   }));
 
-  const confirmedFacts = mergedFacts.map((row) => ({
+  const facts = mergedFacts.map((row): UserContext["facts"][number] => ({
     key: row.key,
     value: row.value,
     confidence: row.confidence,
+    ...(row.status === "confirmed" ? {} : { label: UNCONFIRMED_CLAIM_LABEL }),
   }));
 
   const preferences = prefRows.map((row) => ({ key: row.key, value: row.value }));
@@ -430,7 +424,7 @@ export async function readUserContextItems(
         id: row.id,
         depth: "body",
         ...(row.updatedAt ? { version: row.updatedAt.toISOString() } : {}),
-        item: confirmedFacts[i],
+        item: facts[i],
       }),
     ),
     ...preferences.map(
@@ -458,7 +452,7 @@ export async function readUserContextItems(
     context: {
       profile,
       activeIntegrations,
-      confirmedFacts,
+      facts,
       preferences,
       people,
       recentMemory,

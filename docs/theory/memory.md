@@ -137,23 +137,25 @@ Until the UI exists, a script prints the weekly report and the review sample.
 
 | Part                                   | Theory  | Code      | The gap today                                                                                                           |
 | -------------------------------------- | ------- | --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Claim row with evidence, author, producer | Settled | Not built | `user_facts.source` holds one pointer, and its default is `{"kind":"agent"}` (`packages/db/src/schema/memory.ts`). `valid_from` defaults to the write time. |
+| Claim row with evidence, author, producer | Settled | Built     | `user_facts` has `author`, `evidence`, and `producer` (migration 0184). CHECKs: no evidence only on a `retired` row; a `confirmed` row is the user's claim or carries the user's confirm. `valid_from` is null when the start is unknown. |
 | Name links                             | Settled | Not built | No name kind exists. Object state reads exact ids only.                                                                 |
 | Alfred itself as a thing               | Settled | Partly    | `selfIdentityGrounding` gives the hosts, the GitHub App, and the source repository (evidence-map.md §5). No name link resolves "Alfred" to the repository yet. |
 | Turn-start name lookup                 | Settled | Not built | No lookup runs. Chat pulls memory by tool.                                                                              |
 | Chat capture                           | Settled | Partly    | The extractor runs when its flag is on, and it discards its output (`TODO(#399)` in `chat/chat-memory-capture.ts`). The flag is off in prod. |
-| Author label with a quote check        | Settled | Not built | Prod has 6 confirmed rows with source `user`, all standing instructions.                                                |
-| Web evidence with a page for each claim | Settled | Partly   | Cold start keeps the run id and all URLs of the run, not the page for each claim (`cold-start-research.ts`). Run cold start again under the new capture. |
+| Author label with a quote check        | Settled | Partly    | The author is on each row, and a user claim must cite a chat turn or a memory-page edit (`ClaimProvenance`). No check reads the turn for a quote yet (step 4). |
+| Web evidence with a page for each claim | Settled | Partly   | Cold start cites every URL of the run as a `web_page` link, with no text snapshot and no page for each claim (`cold-start-research.ts`). The 8 old cold-start rows are retired: their 81 links return 404. |
 | Check job                              | Settled | Not built | Its dependency, Code Mode (ADR-0124), is built; the job itself is not built (#535).                                                                          |
 | Observability rows                     | Settled | Not built | None of the rows exist.                                                                                                 |
 | Weekly review                          | Settled | Not built | No script exists.                                                                                                       |
 
 Prod on 2026-11-11: `user_facts` has 50 rows. Of the 33 confirmed rows, 21 are standing instructions, 8 come from cold start, and 4 come from mail. No row has the default `agent` source.
 
-**Old code that this theory replaces:**
+**Old code that step 1 replaced (2026-11-23):**
 
-- **The confidence gate.** `proposeFact` confirms a claim at a model confidence of 0.85 or more (`knowledge/facts.ts`, ADR-0019, ADR-0056). The model's own confidence is not evidence (principle 5). Q6 below settles what replaces the gate.
-- **The read rule.** `read_user_context` reads `confirmed` rows only (`knowledge/user-context.ts`).
+- **The confidence gate.** `proposeFact` confirmed a claim at a model confidence of 0.85 or more. Now an agent claim is `proposed` until the user confirms it (Q6). The migration moved the agent claims that the gate confirmed back to `proposed`.
+- **The read rule.** `read_user_context` read `confirmed` rows only. Now its `facts` section also gives unconfirmed claims, after the confirmed ones, each with the label "agent-concluded, not confirmed by you" (`knowledge/user-context.ts`). The profile reads confirmed claims only.
+- **Learn-skill proposals.** The skill distill no longer proposes claims: the skill prompt has no stored link that a claim can cite.
+- **Mail authorship.** Only the Gmail `SENT` label proves that the user wrote a mail (#1889). A mail from a connected address with no `SENT` label is not the user's.
 
 ## 9. Not settled
 

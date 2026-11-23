@@ -47,6 +47,8 @@ import {
   isoDateTimeStringSchema,
   runStatusSchema,
   workflowTriggerSchema,
+  claimAuthorSchema,
+  claimEvidenceListSchema,
 } from "@alfred/contracts";
 import { z } from "zod";
 
@@ -221,8 +223,12 @@ export const syncedFactSchema = z.object({
   value: z.unknown(),
   confidence: z.number(),
   status: z.enum(["proposed", "confirmed"]),
-  source: memorySourceSchema,
-  validFrom: isoDateTimeStringSchema,
+  /** The user said it, or the agent concluded it (ADR-0123). */
+  author: claimAuthorSchema,
+  /** The links to the raw record. */
+  evidence: claimEvidenceListSchema,
+  /** Null when the start is unknown. */
+  validFrom: isoDateTimeStringSchema.nullable(),
   validUntil: isoDateTimeStringSchema.nullable(),
   supersedesId: z.string().nullable(),
   rowVersion: z.number(),

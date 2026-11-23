@@ -4,8 +4,9 @@
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-memory.ts
  */
+import type { ClaimProvenance } from "@alfred/contracts";
 import {
-  AUTO_CONFIRM_THRESHOLD,
+  claimProducer,
   confirmFact,
   editFact,
   getSupersessionChain,
@@ -47,6 +48,15 @@ async function findOrCreateSmokeUser(): Promise<string> {
   return requireRow(inserted[0], "ensureUser").id;
 }
 
+/** An agent claim from an observation. The `smoke:*` keys are unknown, so mail evidence would drop them. */
+function agentClaim(observationId: string): ClaimProvenance {
+  return {
+    author: "agent",
+    evidence: [{ kind: "observation", id: observationId }],
+    producer: claimProducer({ pipeline: "smoke" }),
+  };
+}
+
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${msg}`);
 }
@@ -62,34 +72,31 @@ async function main() {
   const companyKey = `smoke:company:${runTag}`;
   const rejectedKey = `smoke:rejected:${runTag}`;
 
-  // 1. low-confidence proposal stays proposed
+  // 1. an agent claim is proposed
   const proposed = await proposeFact({
     userId,
     key: managerKey,
     value: { name: "Alice Doe", email: "alice@example.com" },
     confidence: 0.6,
-    source: { kind: "document", id: "doc_test_001" },
+    ...agentClaim("doc_test_001"),
   });
 
   assert(proposed, "proposeFact returned null on a fresh key");
   assert(proposed.status === "proposed", `expected proposed, got ${proposed.status}`);
-  console.log(`[smoke] 1. proposed low-confidence fact ${proposed.id} status=${proposed.status}`);
+  console.log(`[smoke] 1. proposed agent claim ${proposed.id} status=${proposed.status}`);
 
-  // 2. high-confidence proposal auto-confirms
-  const autoConfirmed = await proposeFact({
+  // 2. a high model confidence confirms nothing (ADR-0123)
+  const highConfidence = await proposeFact({
     userId,
     key: companyKey,
     value: "Acme Corp",
-    confidence: AUTO_CONFIRM_THRESHOLD + 0.05,
-    source: { kind: "document", id: "doc_test_002" },
+    confidence: 0.99,
+    ...agentClaim("doc_test_002"),
   });
 
-  assert(autoConfirmed, "proposeFact returned null");
-  assert(
-    autoConfirmed.status === "confirmed",
-    `expected auto-confirm, got ${autoConfirmed.status}`,
-  );
-  console.log(`[smoke] 2. auto-confirmed high-confidence fact ${autoConfirmed.id}`);
+  assert(highConfidence, "proposeFact returned null");
+  assert(highConfidence.status === "proposed", `expected proposed, got ${highConfidence.status}`);
+  console.log(`[smoke] 2. high-confidence agent claim stays proposed ${highConfidence.id}`);
 
   // 3. confirmFact transitions proposed → confirmed
   const confirmed = await confirmFact({ factId: proposed.id, userId, exec: "own" });
@@ -104,11 +111,11 @@ async function main() {
     userId,
     newValue: { name: "Alice Doe", email: "alice.doe@example.com" },
     confidence: 0.9,
-    source: { kind: "document", id: "doc_test_003" },
+    ...agentClaim("doc_test_003"),
   });
 
   assert(superseded, "supersedeFact returned null");
-  assert(superseded.status === "confirmed", `new row should auto-confirm`);
+  assert(superseded.status === "proposed", `an agent replacement waits for the user`);
   assert(superseded.supersedesId === confirmed.id, `supersedesId should link to old row`);
   console.log(`[smoke] 4. superseded ${confirmed.id} → ${superseded.id}`);
 
@@ -143,7 +150,7 @@ async function main() {
     key: rejectedKey,
     value: "Wrong Company",
     confidence: 0.7,
-    source: { kind: "document", id: "doc_test_004" },
+    ...agentClaim("doc_test_004"),
   });
 
   assert(toReject, "proposeFact returned null on fresh key");
@@ -167,7 +174,7 @@ async function main() {
     key: rejectedKey,
     value: "Wrong Company",
     confidence: 0.95,
-    source: { kind: "document", id: "doc_test_005" },
+    ...agentClaim("doc_test_005"),
   });
 
   assert(reprop === null, `extraction guard should return null, got ${JSON.stringify(reprop)}`);

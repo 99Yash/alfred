@@ -16,6 +16,7 @@ import {
   standingInstructionTargetKey,
   standingInstructionValueSchema,
   type MemorySource,
+  type UserClaimProvenance,
   type ObservationSource,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
@@ -59,10 +60,17 @@ export function activeStandingInstructionsWhere(userId: string, at?: CaptureCloc
     eq(userFacts.userId, userId),
     eq(userFacts.key, STANDING_INSTRUCTION_KEY),
     eq(userFacts.status, "confirmed"),
-    lte(userFacts.validFrom, clock),
+    or(isNull(userFacts.validFrom), lte(userFacts.validFrom, clock)),
     or(isNull(userFacts.validUntil), gt(userFacts.validUntil, clock)),
   );
 }
+
+/**
+ * When the user said the instruction. Each instruction writer sets `valid_from` to the time of the
+ * capture; a row with no start (ADR-0123 lets it be null) falls back to its write time.
+ */
+export const instructionSaidAt =
+  sql<Date>`coalesce(${userFacts.validFrom}, ${userFacts.createdAt})`.mapWith(userFacts.createdAt);
 
 export function selectActiveStandingInstructionFacts(
   userId: string,
@@ -70,10 +78,10 @@ export function selectActiveStandingInstructionFacts(
   at?: CaptureClock,
 ) {
   return runner
-    .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+    .select({ id: userFacts.id, value: userFacts.value, validFrom: instructionSaidAt })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId, at))
-    .orderBy(desc(userFacts.validFrom));
+    .orderBy(desc(instructionSaidAt));
 }
 
 type StandingInstructionObservationOperation = "remember" | "edit" | "forget";
@@ -287,7 +295,10 @@ const rememberSenderSuppressionArgsSchema = z.object({
   source: memorySourceSchema.optional(),
 });
 
-export type RememberSenderSuppressionArgs = z.infer<typeof rememberSenderSuppressionArgsSchema>;
+/** `provenance` is the claim's evidence: an instruction is the user's own claim (ADR-0123). */
+export type RememberSenderSuppressionArgs = z.infer<typeof rememberSenderSuppressionArgsSchema> & {
+  provenance: UserClaimProvenance;
+};
 
 export type RememberSenderSuppressionResult =
   | {
@@ -395,10 +406,10 @@ export async function rememberSenderSuppression(
 
     // Re-check inside the lock: the outer read raced with other inserters.
     const rivals = await tx
-      .select({ id: userFacts.id, value: userFacts.value, validFrom: userFacts.validFrom })
+      .select({ id: userFacts.id, value: userFacts.value, validFrom: instructionSaidAt })
       .from(userFacts)
       .where(activeStandingInstructionsWhere(parsed.userId))
-      .orderBy(desc(userFacts.validFrom));
+      .orderBy(desc(instructionSaidAt));
 
     const locked = rivals.map(instructionFromFact).filter(
       (candidate): candidate is ActiveStandingInstructionV1 =>
@@ -422,7 +433,10 @@ export async function rememberSenderSuppression(
         value: instruction,
         confidence: 1,
         status: "confirmed",
-        source,
+        author: args.provenance.author,
+        evidence: [...args.provenance.evidence],
+        producer: args.provenance.producer,
+        validFrom: new Date(),
         validUntil: null,
       })
       .returning({ id: userFacts.id });

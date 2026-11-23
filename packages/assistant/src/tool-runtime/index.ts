@@ -1,6 +1,7 @@
 import type { ApprovalCause } from "./approval-rule";
 import type { ToolSet, TranscriptMessage } from "@alfred/ai";
 import type {
+  UNCONFIRMED_CLAIM_LABEL,
   IntegrationSlug,
   activateWorkflowInput,
   authorWorkflowInput,
@@ -509,10 +510,12 @@ export interface ReadUserContextResult {
     readonly provider: string;
     readonly accountLabel: string | null;
   }[];
-  readonly confirmedFacts: readonly {
+  /** Confirmed claims first. An unconfirmed claim is weak evidence and carries `label`. */
+  readonly facts: readonly {
     readonly key: string;
     readonly value: unknown;
     readonly confidence: number;
+    readonly label?: typeof UNCONFIRMED_CLAIM_LABEL;
   }[];
   readonly preferences: readonly { readonly key: string; readonly value: unknown }[];
   readonly people: readonly CorrespondentHistory[];
@@ -578,6 +581,7 @@ export type RememberInstructionRefusal =
       readonly exceptionOf: string;
       readonly message: string;
     }
+  | { readonly ok: false; readonly status: "not_said_in_chat"; readonly message: string }
   | {
       readonly ok: false;
       readonly status: "conflict";
@@ -658,7 +662,8 @@ export type EditInstructionResult =
       readonly status: "revise_with_remember";
       readonly instructionId: string;
       readonly message: string;
-    };
+    }
+  | { readonly ok: false; readonly status: "not_said_in_chat"; readonly message: string };
 
 /**
  * Surface: chat.

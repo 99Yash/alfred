@@ -1015,13 +1015,13 @@ Status: open (not yet verified independently)
 
 Status: open (not yet verified independently)
 
-### SM-39 A rejected fact can come back auto-confirmed
+### SM-39 A rejected fact can come back as a proposal
 
 - Severity: low
 - Confidence: speculative
 - Machine: `user_facts.status`
-- Interleaving: `rejectFact` takes no key lock. `proposeFact` runs its rejected check and its duplicate check as two separate statements. A reject that commits between them lets the extractor insert the rejected value again, auto-confirmed at high confidence.
-- Impact: the user sees a toast for a fact they just rejected.
+- Interleaving: `rejectFact` takes no key lock. `proposeFact` runs its rejected check and its duplicate check as two separate statements. A reject that commits between them lets the extractor insert the rejected value again, as `proposed` (ADR-0123: only the user confirms an agent claim).
+- Impact: the user sees again a proposal they just rejected.
 
 Status: open (not yet verified independently)
 

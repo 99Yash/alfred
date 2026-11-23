@@ -250,7 +250,7 @@ describe("runtime adapter lifecycle", () => {
               {
                 profile: null,
                 activeIntegrations: [],
-                confirmedFacts: [],
+                facts: [],
                 preferences: [],
                 people: [],
                 recentMemory: [],

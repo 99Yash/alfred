@@ -2,7 +2,7 @@ import { COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import type { Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
-import { proposeFact } from "../facts";
+import { claimProducer, proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";
 import { extractColdStartFacts, type ColdStartProposal } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";
@@ -237,24 +237,29 @@ export const coldStartResearchWorkflow: Workflow<
         let inserted = 0;
         let skipped = 0;
 
-        for (const p of ctx.state.proposals) {
-          const fact = await proposeFact({
-            userId: ctx.userId,
-            key: p.key,
-            value: p.value,
-            confidence: p.confidence,
-            source: {
-              kind: "cold_start",
-              id: ctx.runId,
-              meta: {
-                rationale: p.rationale,
-                citations: ctx.state.research.citations,
-              },
-            },
-          });
+        // Each claim cites the pages of the run: the research keeps no page for each claim, and no
+        // text snapshot (memory.md §10 step 5). With no page, a claim has no evidence and no row.
+        const [firstPage, ...otherPages] = [...new Set(ctx.state.research.citations)].map(
+          (url) => ({ kind: "web_page", url }) as const,
+        );
 
-          if (fact) inserted++;
-          else skipped++;
+        if (firstPage) {
+          for (const p of ctx.state.proposals) {
+            const fact = await proposeFact({
+              userId: ctx.userId,
+              key: p.key,
+              value: p.value,
+              confidence: p.confidence,
+              author: "agent",
+              evidence: [firstPage, ...otherPages],
+              producer: claimProducer({ pipeline: "cold-start", runId: ctx.runId }),
+            });
+
+            if (fact) inserted++;
+            else skipped++;
+          }
+        } else {
+          skipped = ctx.state.proposals.length;
         }
 
         const chunk = await writeMemoryChunk({

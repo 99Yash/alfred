@@ -1,4 +1,14 @@
-import { memorySourceSchema, type MemorySource } from "@alfred/contracts";
+import {
+  CLAIM_AUTHORS,
+  claimAuthorSchema,
+  claimEvidenceListSchema,
+  claimProducerSchema,
+  memorySourceSchema,
+  type ClaimAuthor,
+  type ClaimEvidence,
+  type ClaimProducer,
+  type MemorySource,
+} from "@alfred/contracts";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
@@ -13,7 +23,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { createId, lifecycle_dates, vectorColumn } from "../helpers";
+import { createId, inList, lifecycle_dates, vectorColumn } from "../helpers";
 import { user } from "./auth";
 import { documents } from "./documents";
 
@@ -33,9 +43,13 @@ function memorySourceShapeCheck(source: AnyPgColumn) {
 // ---------------------------------------------------------------------------
 
 /**
- * Status (ADR-0019): proposed, confirmed, rejected, edited, superseded.
- * A user edit marks the old row `edited`; a system replacement marks it `superseded`.
- * The current value is the `confirmed` row whose `valid_until` is null or in the future.
+ * A claim (ADR-0123, docs/theory/memory.md §3): one statement in memory, about the user or a thing.
+ * The row is the authority for the statement and cites its evidence in the raw record.
+ *
+ * Status: proposed (not confirmed by the user), confirmed, rejected, edited, superseded, retired.
+ * A user edit marks the old row `edited`; a replacement marks it `superseded`. `retired` is a row
+ * with no evidence that a check can read again. The current value is the active row whose
+ * `valid_until` is null or in the future.
  */
 export const userFacts = pgTable(
   "user_facts",
@@ -49,15 +63,17 @@ export const userFacts = pgTable(
     /** For example `manager`, `relationship:alice@oliv.ai`, `pref:tone`. */
     key: text("key").notNull(),
     value: jsonb("value").notNull(),
-    /** 0 to 1. At 0.85 or more, the fact auto-confirms (ADR-0019). */
+    /** The producer's own confidence, 0 to 1. It is not evidence and confirms nothing (ADR-0123). */
     confidence: real("confidence").notNull(),
     status: text("status").notNull().default("proposed"),
-    source: jsonb("source")
-      .$type<MemorySource>()
-      .notNull()
-      .default(sql`'{"kind":"agent"}'::jsonb`),
-    /** When the fact became true (ADR-0012). A successor row sets `validUntil`. */
-    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+    /** The user said it, or the agent concluded it. */
+    author: text("author").$type<ClaimAuthor>().notNull(),
+    /** Links to the raw record. Empty only on a `retired` row. */
+    evidence: jsonb("evidence").$type<ClaimEvidence[]>().notNull(),
+    /** The pipeline, the run, the deployed commit, and the model that wrote the row. */
+    producer: jsonb("producer").$type<ClaimProducer>().notNull(),
+    /** When the claim became true. Null when the start is unknown; the write time is not the start. */
+    validFrom: timestamp("valid_from", { withTimezone: true }),
     validUntil: timestamp("valid_until", { withTimezone: true }),
     /** The row this one replaces. */
     supersedesId: text("supersedes_id"),
@@ -68,12 +84,27 @@ export const userFacts = pgTable(
     index("user_facts_key_idx").on(t.userId, t.key, t.status),
     index("user_facts_status_idx").on(t.userId, t.status, t.updatedAt),
     index("user_facts_supersedes_idx").on(t.supersedesId),
-    check("user_facts_source_shape", memorySourceShapeCheck(t.source)),
+    check("user_facts_author_valid", sql`${t.author} IN (${inList(CLAIM_AUTHORS)})`),
+    check(
+      "user_facts_evidence_shape",
+      sql`jsonb_typeof(${t.evidence}) = 'array' AND (${t.status} = 'retired' OR jsonb_array_length(${t.evidence}) > 0)`,
+    ),
+    // Only the user confirms: a confirmed row is the user's own claim, or carries the user's confirm.
+    check(
+      "user_facts_confirmed_by_user",
+      sql`${t.status} <> 'confirmed' OR ${t.author} = 'user' OR ${t.evidence} @> '[{"kind":"user_edit","action":"confirm"}]'::jsonb`,
+    ),
+    check(
+      "user_facts_producer_shape",
+      sql`jsonb_typeof(${t.producer}) = 'object' AND ${t.producer} ? 'pipeline'`,
+    ),
   ],
 );
 
 export const userFactInsertSchema = createInsertSchema(userFacts, {
-  source: memorySourceSchema.optional(),
+  author: claimAuthorSchema,
+  evidence: claimEvidenceListSchema,
+  producer: claimProducerSchema,
 });
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,15 @@
 import { isQuotaOrBillingError } from "@alfred/ai";
-import type { TodoAttribution, TodoSource } from "@alfred/contracts";
+import type { TodoAttribution, TodoSource, UserClaimProvenance } from "@alfred/contracts";
 import { AppError } from "@alfred/contracts/app-errors";
 import { logger } from "@alfred/logging";
 import {
   checkStandingInstructionCapture,
+  claimProducer,
   editStandingInstruction,
   forgetStandingInstruction,
   listStandingInstructions,
   readUserContextItems,
+  readUserTurnOfRun,
   runWebSearch,
   saveStandingInstruction,
 } from "@alfred/assistant/knowledge";
@@ -57,16 +59,47 @@ function chatToolAttribution(
 
 type RememberRequest = SystemToolRequest<"system.remember">;
 
+/** The refusal when no user chat turn started the run: an instruction is the user's own claim. */
+const NOT_SAID_IN_CHAT = {
+  ok: false,
+  status: "not_said_in_chat",
+  message:
+    "Only a chat message from the user can make or change an instruction. No user chat message started this run, so nothing changed.",
+} as const;
+
+/**
+ * The provenance of an instruction write (ADR-0123): the user's chat turn that started the run.
+ * Null when no user turn started it, for example a workflow run.
+ */
+async function instructionProvenance(
+  context: ToolCallContext,
+  pipeline: string,
+): Promise<UserClaimProvenance | null> {
+  const turnId = await readUserTurnOfRun(context.userId, context.runId);
+
+  if (turnId === null) return null;
+
+  return {
+    author: "user",
+    evidence: [{ kind: "chat_message", id: turnId }],
+    producer: claimProducer({ pipeline, runId: context.runId }),
+  };
+}
+
 /**
  * Save the instruction (ADR-0113 capture). It changes no todo: no instruction blocks a todo in
  * code since triage slice 4a. Slice 4b rewrites the save path to words.
  */
-function rememberStandingInstruction({ input, context }: RememberRequest) {
+async function rememberStandingInstruction({ input, context }: RememberRequest) {
   const { kind: _kind, ...fields } = input;
+  const provenance = await instructionProvenance(context, "system.remember");
+
+  if (provenance === null) return NOT_SAID_IN_CHAT;
 
   return saveStandingInstruction({
     userId: context.userId,
     input: fields,
+    provenance,
     source: {
       kind: "tool_call",
       id: context.toolCallId,
@@ -118,12 +151,17 @@ const instructionAdapter: SystemToolInstructionAdapter = {
       },
     });
   },
-  editInstruction({ input, context }) {
+  async editInstruction({ input, context }) {
+    const provenance = await instructionProvenance(context, "system.edit_instruction");
+
+    if (provenance === null) return NOT_SAID_IN_CHAT;
+
     return editStandingInstruction({
       userId: context.userId,
       factId: input.factId,
       directive: input.directive,
       senderLabel: input.senderLabel,
+      provenance,
       source: {
         kind: "tool_call",
         id: context.toolCallId,

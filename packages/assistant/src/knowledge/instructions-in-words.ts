@@ -1,9 +1,9 @@
 import {
+  claimProducerSchema,
   collapseWhitespace,
   isNonEmptyString,
   readStoredStandingInstruction,
   type IanaTimezone,
-  type MemorySource,
   type StandingInstructionValueV2,
 } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -11,7 +11,7 @@ import { userFacts } from "@alfred/db/schemas";
 import { desc } from "drizzle-orm";
 import { userIdentity } from "@alfred/assistant/settings";
 import { inZone } from "@alfred/assistant/time";
-import { activeStandingInstructionsWhere } from "./sender-suppression";
+import { activeStandingInstructionsWhere, instructionSaidAt } from "./sender-suppression";
 
 /**
  * The user's standing instructions in his own words (ADR-0121 decision 7, triage slice 4a).
@@ -40,12 +40,13 @@ export type InstructionsInWordsRead =
   | { kind: "loaded"; instructions: InstructionInWords[] }
   | { kind: "read_failed"; error: unknown };
 
-/** One active stored row, read as v2. `source` is the `user_facts.source` of the row. */
+/** One active stored row, read as v2. */
 export interface InstructionRow {
   value: StandingInstructionValueV2;
+  /** When the user said it (see {@link instructionSaidAt}). */
   validFrom: Date;
-  /** Absent or null: the capture is unknown, so the row is a copy (see {@link captureOf}). */
-  source?: MemorySource | null | undefined;
+  /** The run that wrote the row (`producer.runId`). Null: the capture is unknown, so the row is a copy. */
+  producerRunId: string | null;
 }
 
 /**
@@ -84,15 +85,13 @@ export function instructionKeyOf(value: StandingInstructionValueV2): string | nu
 }
 
 /**
- * The chat run that wrote the row, from `source.meta.runId`. Each chat save writes it, also the
+ * The chat run that wrote the row, from `producer.runId`. Each chat save writes it, also the
  * v1 saves of 2026-09. One run is one capture: one sentence that capture stored as many sender
  * rows. Null for a row with no run, for example the backfill of issue #1229 (2026-10-16), which
  * copied rows that already existed.
  */
-function captureOf(source: MemorySource | null | undefined): string | null {
-  const runId = source?.meta?.["runId"];
-
-  return isNonEmptyString(runId) ? runId : null;
+function captureOf(row: InstructionRow): string | null {
+  return isNonEmptyString(row.producerRunId) ? row.producerRunId : null;
 }
 
 /**
@@ -124,7 +123,7 @@ export function instructionsInWordsOf(
     if (key === null) continue;
 
     const accountId = mailboxBoundOf(row.value);
-    const capture = captureOf(row.source);
+    const capture = captureOf(row);
     const seen = byKey.get(key);
 
     if (!seen) {
@@ -156,7 +155,7 @@ export function instructionsInWordsOf(
 }
 
 /**
- * Every active row of any stored version, read as v2, with its source. A row of neither shape
+ * Every active row of any stored version, read as v2, with its producer run. A row of neither shape
  * is skipped.
  */
 async function readInstructionRows(userId: string): Promise<InstructionRow[]> {
@@ -164,17 +163,18 @@ async function readInstructionRows(userId: string): Promise<InstructionRow[]> {
     .select({
       id: userFacts.id,
       value: userFacts.value,
-      validFrom: userFacts.validFrom,
-      source: userFacts.source,
+      validFrom: instructionSaidAt,
+      producer: userFacts.producer,
     })
     .from(userFacts)
     .where(activeStandingInstructionsWhere(userId))
-    .orderBy(desc(userFacts.validFrom));
+    .orderBy(desc(instructionSaidAt));
 
   return facts.flatMap((fact): InstructionRow[] => {
     const value = readStoredStandingInstruction(fact.value, fact.id);
+    const producerRunId = claimProducerSchema.safeParse(fact.producer).data?.runId ?? null;
 
-    return value ? [{ value, validFrom: fact.validFrom, source: fact.source }] : [];
+    return value ? [{ value, validFrom: fact.validFrom, producerRunId }] : [];
   });
 }
 

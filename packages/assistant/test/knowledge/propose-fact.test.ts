@@ -2,21 +2,47 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 
-import { getPath } from "@alfred/contracts";
+import type { ClaimProvenance } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { user, userFacts } from "@alfred/db/schemas";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { confirmFact, proposeFact, recallActiveByKey } from "@alfred/assistant/knowledge";
+import {
+  claimProducer,
+  confirmFact,
+  proposeFact,
+  recallActiveByKey,
+} from "@alfred/assistant/knowledge";
 import { closeRedis } from "@alfred/db/redis";
 import { dbBackedSkip } from "../support/db-backed";
 
 /**
- * `proposeFact` capture rules. Needs a migrated `DATABASE_URL`. Every source canonicalizes alias keys.
+ * `proposeFact` capture rules. Needs a migrated `DATABASE_URL`. Every claim canonicalizes alias keys.
  * Only the document path rejects unknown or non-writable keys and bad values.
- * A single-valued conflict holds `proposed` when autonomous and supersedes when user-driven.
+ * An agent claim is `proposed`; a user claim is `confirmed` and supersedes a single-valued conflict.
  */
 const SKIP = dbBackedSkip("database");
+
+const PRODUCER = claimProducer({ pipeline: "test" });
+
+/** An agent claim from a mail: the document write policy applies. */
+function fromDocument(id: string): ClaimProvenance {
+  return { author: "agent", evidence: [{ kind: "document", id }], producer: PRODUCER };
+}
+
+/** An agent claim from an observation: no document policy. */
+const FROM_AGENT: ClaimProvenance = {
+  author: "agent",
+  evidence: [{ kind: "observation", id: "obs_1" }],
+  producer: PRODUCER,
+};
+
+/** The user's own claim. */
+const FROM_USER: ClaimProvenance = {
+  author: "user",
+  evidence: [{ kind: "chat_message", id: "msg_1" }],
+  producer: PRODUCER,
+};
 
 const ID_PREFIX = "test-pf-";
 
@@ -39,7 +65,7 @@ async function activeRows(userId: string, key: string) {
       key: userFacts.key,
       value: userFacts.value,
       status: userFacts.status,
-      source: userFacts.source,
+      author: userFacts.author,
     })
     .from(userFacts)
     .where(and(eq(userFacts.userId, userId), eq(userFacts.key, key)));
@@ -56,7 +82,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
     await closeConnections();
   });
 
-  test("canonicalizes an alias key (document) and records originalKey", async () => {
+  test("canonicalizes an alias key (document)", async () => {
     const userId = await seedUser();
 
     const fact = await proposeFact({
@@ -64,12 +90,11 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "current_company",
       value: "Oliv AI",
       confidence: 0.95,
-      source: { kind: "document", id: "doc_1" },
+      ...fromDocument("doc_1"),
     });
 
     assert.ok(fact, "alias key should persist under the canonical key");
     assert.equal(fact.key, "employer");
-    assert.equal(getPath(fact.source.meta, "originalKey"), "current_company");
     // Nothing stored under the alias spelling.
     assert.equal((await activeRows(userId, "current_company")).length, 0);
   });
@@ -82,7 +107,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "zoom_passcode",
         value: "1234",
         confidence: 0.99,
-        source: { kind: "document", id: "d" },
+        ...fromDocument("d"),
       }),
       null,
       "unknown document key rejected",
@@ -93,7 +118,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "pref:tone",
         value: "warm",
         confidence: 0.99,
-        source: { kind: "document", id: "d" },
+        ...fromDocument("d"),
       }),
       null,
       "pref:* is not document-writable",
@@ -104,7 +129,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "phone_number",
         value: "+15551234",
         confidence: 0.99,
-        source: { kind: "document", id: "d" },
+        ...fromDocument("d"),
       }),
       null,
       "phone_number is not document-writable",
@@ -115,7 +140,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "employer",
         value: 42,
         confidence: 0.99,
-        source: { kind: "document", id: "d" },
+        ...fromDocument("d"),
       }),
       null,
       "non-string identity value rejected",
@@ -132,7 +157,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "relationship:help@sentry.io",
         value: { role: "vendor" },
         confidence: 0.99,
-        source: { kind: "agent" },
+        ...FROM_AGENT,
       }),
       null,
       "service-sender relationship rejected for a non-document source",
@@ -145,7 +170,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
         key: "relationship:alice@oliv.ai",
         value: {},
         confidence: 0.99,
-        source: { kind: "agent" },
+        ...FROM_AGENT,
       }),
       null,
       "empty relationship value rejected for a non-document source",
@@ -157,7 +182,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "relationship:alice@oliv.ai",
       value: { role: "manager" },
       confidence: 0.99,
-      source: { kind: "agent" },
+      ...FROM_AGENT,
     });
 
     assert.ok(good, "a genuine relationship to a real person persists");
@@ -175,7 +200,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "custom_curated_key",
       value: "kept",
       confidence: 0.99,
-      source: { kind: "user" },
+      ...FROM_USER,
     });
 
     assert.ok(fact, "non-document unknown key should persist as-is");
@@ -190,7 +215,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "employer",
       value: "Oliv AI",
       confidence: 1,
-      source: { kind: "user" },
+      ...FROM_USER,
     });
 
     assert.equal(truth?.status, "confirmed");
@@ -199,11 +224,11 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       userId,
       key: "employer",
       value: "AirBills",
-      confidence: 0.99, // would normally auto-confirm
-      source: { kind: "document", id: "doc_leak" },
+      confidence: 0.99,
+      ...fromDocument("doc_leak"),
     });
 
-    assert.equal(conflict?.status, "proposed", "a leaked conflicting value must NOT auto-confirm");
+    assert.equal(conflict?.status, "proposed", "an agent claim is never confirmed at write");
 
     // The authoritative value is still the single active confirmed one.
     const confirmed = (await activeRows(userId, "employer")).filter(
@@ -221,7 +246,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "employer",
       value: "Oliv AI",
       confidence: 1,
-      source: { kind: "user" },
+      ...FROM_USER,
     });
 
     const moved = await proposeFact({
@@ -229,7 +254,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "employer",
       value: "NewCo",
       confidence: 1,
-      source: { kind: "user" },
+      ...FROM_USER,
     });
 
     assert.equal(moved?.status, "confirmed");
@@ -254,7 +279,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "employer",
       value: "Oliv AI",
       confidence: 1,
-      source: { kind: "user" },
+      ...FROM_USER,
     });
 
     assert.equal(truth?.status, "confirmed");
@@ -264,7 +289,7 @@ describe("proposeFact capture invariants (DB-backed, #330)", { skip: SKIP }, () 
       key: "employer",
       value: "NewCo",
       confidence: 0.99,
-      source: { kind: "document", id: "doc_claim" },
+      ...fromDocument("doc_claim"),
     });
 
     assert.equal(conflict?.status, "proposed");

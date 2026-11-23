@@ -1,5 +1,5 @@
 import { route, meteredGenerateObject } from "@alfred/ai";
-import { confidenceSchema, toDisplayText } from "@alfred/contracts";
+import { toDisplayText } from "@alfred/contracts";
 import { z } from "zod";
 import type { SkillLearnContext } from "./context";
 import { parseMentions, resolveMentions } from "./mentions";
@@ -12,45 +12,30 @@ const DISTILL_TIMEOUT_MS = 120_000;
 
 /**
  * Cheap-tier distill, phase 1 of Learn. One structured call turns the prompt and memory
- * into fact proposals, a v1 markdown body, a name, and resolved mentions.
- * One call, not three, so the body, facts, and name agree. Cheap tier, because this only
- * restructures; `skill-documentation` does the heavy work.
+ * into a v1 markdown body, a name, and resolved mentions. One call, so the body and the name
+ * agree. Cheap tier, because this only restructures; `skill-documentation` does the heavy work.
+ * It proposes no claims: a claim cites evidence in the raw record, and the skill prompt has no
+ * stored link (ADR-0123).
  */
-
-export const skillProposalSchema = z.object({
-  /** Snake_case. Open vocabulary here, unlike cold-start's fixed bio keys. */
-  key: z.string().min(1).max(120),
-  /** A single string: Gemini structured output handles unions badly (ADR-0011). */
-  value: z.string().min(1).max(2_000),
-  confidence: confidenceSchema,
-  rationale: z.string().min(1).max(500),
-});
-
-export type SkillProposal = z.infer<typeof skillProposalSchema>;
-
 export const distillResultSchema = z.object({
   /** The auto-generated title. */
   suggestedName: z.string().min(1).max(80),
   /** Mounted verbatim in the system prompt at run time, so write directives, not commentary. */
   body: z.string().min(1).max(8_000),
-  /** Same cap as cold-start. */
-  proposals: z.array(skillProposalSchema).max(20),
 });
 
 export type DistillResult = z.infer<typeof distillResultSchema>;
 
-const SYSTEM_PROMPT = `You convert a user's brief skill prompt into (1) a structured set of memory facts about the user, (2) a normalized skill body the agent can act on, and (3) a short title.
+const SYSTEM_PROMPT = `You convert a user's brief skill prompt into (1) a normalized skill body the agent can act on, and (2) a short title.
 
 Rules:
 
-1. STAY GROUNDED. Only emit facts the prompt + provided existing memory actually supports. Do not invent specifics (numbers, names, channels) not present.
+1. STAY GROUNDED. Use only what the prompt and the provided existing memory support. Do not invent specifics (numbers, names, channels) not present.
 2. The 'body' is what the agent reads to act. Write it as imperative directives, not narration. Bullet lists welcome. Inline @-mentions for integrations or other skills are preserved verbatim.
 3. The 'suggestedName' is a short, human-readable title (≤80 chars). Lowercase nouns, no trailing period. Examples: "remote engineering jobs", "weekly newsletter to investors", "expense receipts".
-4. PROPOSALS are user_facts the prompt newly asserts about the user — preferences, criteria, working patterns. NOT facts about the world. Keys are snake_case ("salary_floor_usd", "remote_only", "preferred_application_channels"). Values are single strings. Skip anything <0.7 confidence.
-5. Skip proposals for things already captured in the existing-memory section — the user has them.
-6. If the prompt is too vague to produce a meaningful body, emit a body that asks the user to be more specific (don't fabricate). Set proposals to [].
+4. If the prompt is too vague to produce a meaningful body, emit a body that asks the user to be more specific (don't fabricate).
 
-Output strictly the JSON shape: { "suggestedName": "...", "body": "...", "proposals": [{ "key": "...", "value": "...", "confidence": 0.0-1.0, "rationale": "..." }, ...] }`;
+Output strictly the JSON shape: { "suggestedName": "...", "body": "..." }`;
 
 function buildUserPrompt(args: { context: SkillLearnContext; prompt: string }): string {
   const lines: string[] = [];
@@ -76,7 +61,7 @@ function buildUserPrompt(args: { context: SkillLearnContext; prompt: string }): 
   }
 
   lines.push("");
-  lines.push(`# Existing memory (do NOT re-propose these)`);
+  lines.push(`# Existing memory`);
 
   if (args.context.facts.length === 0) {
     lines.push(`(empty)`);

@@ -73,9 +73,11 @@ export {
   type ProposeFactArgs,
   FACT_STATUSES,
   factStatusSchema,
-  AUTO_CONFIRM_THRESHOLD,
+  claimProducer,
   type FactStatus,
 } from "./facts";
+
+export { readUserTurnOfRun } from "./claim-evidence";
 
 // recall (chunks) + the cold-start write door.
 export {

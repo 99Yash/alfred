@@ -241,10 +241,10 @@ describe("authoredByUser (#330 — conservative, evidence-returning)", () => {
     assert.equal(r.proof.method, "sent_flag");
   });
 
-  test("gmail From == connected-account email is authorship", () => {
+  test("gmail From == connected-account email without SENT is not authorship (#1889)", () => {
     const r = authoredByUser(gmailDoc({ from: "Yash <yash@gmail.com>" }, "acc_personal"), self);
-    assert.equal(r.authoredByUser, true);
-    assert.equal(r.proof.method, "from_connected_account");
+    assert.equal(r.authoredByUser, false);
+    assert.equal(r.reason, "not_sent");
   });
 
   test("gmail accountId bounds the acceptable self email", () => {

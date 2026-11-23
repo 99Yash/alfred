@@ -86,8 +86,8 @@ async function fetchColdStartFacts(userId: string, runId: string) {
     .where(
       and(
         eq(userFacts.userId, userId),
-        sql`${userFacts.source}->>'kind' = 'cold_start'`,
-        sql`${userFacts.source}->>'id' = ${runId}`,
+        sql`${userFacts.producer}->>'pipeline' = 'cold-start'`,
+        sql`${userFacts.producer}->>'runId' = ${runId}`,
       ),
     )
     .orderBy(desc(userFacts.confidence));

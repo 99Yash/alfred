@@ -16,7 +16,7 @@ export async function factConfirm(
   await confirmFact({ factId: args.factId, userId, exec: tx });
 }
 
-/** A user's own fact. Idempotent on the client id. The owner is the session user, never `args.userId`. */
+/** A user's own claim. Idempotent on the client id. The owner is the session user, never `args.userId`. */
 export async function factCreate(
   tx: DbTransaction,
   args: FactCreateArgs,
@@ -27,7 +27,6 @@ export async function factCreate(
     userId,
     key: args.key,
     value: args.value,
-    source: args.source,
     exec: tx,
   });
 }
@@ -57,7 +56,6 @@ export async function factEdit(
     userId,
     newValue: args.newValue,
     newFactId: args.newFactId,
-    source: args.source,
     exec: tx,
   });
 }

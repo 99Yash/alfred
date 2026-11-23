@@ -11,6 +11,7 @@ import { closeReplicachePokeBridge } from "@alfred/assistant/realtime";
 // The v1 writer is not in the `knowledge` barrel.
 import { rememberSenderSuppression } from "../../../src/knowledge/sender-suppression";
 import { closeRedis } from "@alfred/db/redis";
+import { TEST_USER_CLAIM } from "../../support/claims";
 import { dbBackedSkip } from "../../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
@@ -104,7 +105,12 @@ describe("rememberSenderSuppression coordinator (DB-backed)", { skip: SKIP }, ()
     const userId = await seedUser();
     const { todoId } = await seedGmailTodoFromSender(userId);
 
-    const result = await rememberSenderSuppression({ userId, senderEmail: SENDER });
+    const result = await rememberSenderSuppression({
+      userId,
+      senderEmail: SENDER,
+      provenance: TEST_USER_CLAIM,
+    });
+
     assert.equal(result.ok, true);
 
     assert.equal(await todoStatus(todoId), "open");

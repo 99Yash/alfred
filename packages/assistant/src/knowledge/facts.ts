@@ -1,11 +1,16 @@
 import {
   canonicalizeFactKey,
+  claimAuthorSchema,
+  claimEvidenceListSchema,
+  claimProducerSchema,
   clamp01,
-  memorySourceSchema,
   toDisplayText,
-  type MemorySource,
+  type ClaimAuthor,
+  type ClaimEvidence,
+  type ClaimProducer,
+  type ClaimProvenance,
 } from "@alfred/contracts";
-import { parseMemorySourceOrDefault } from "@alfred/assistant/settings";
+import { serverEnv } from "@alfred/env/server";
 import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import {
   rejectedInferences,
@@ -39,25 +44,57 @@ import {
 import { valueSignature } from "./signature";
 import { logger } from "@alfred/logging";
 
-/** `user_facts.status` values (ADR-0019). The union derives from the tuple. */
-export const FACT_STATUSES = ["proposed", "confirmed", "rejected", "edited", "superseded"] as const;
+/**
+ * `user_facts.status` values (ADR-0019, ADR-0123). `proposed` is a claim that the user has not
+ * confirmed; `retired` is a claim with no evidence that a check can read again.
+ */
+export const FACT_STATUSES = [
+  "proposed",
+  "confirmed",
+  "rejected",
+  "edited",
+  "superseded",
+  "retired",
+] as const;
 
 export const factStatusSchema = z.enum(FACT_STATUSES);
 
 export type FactStatus = (typeof FACT_STATUSES)[number];
 
-/** At or above this, a proposal auto-confirms; below, it waits for the user (ADR-0019). */
-export const AUTO_CONFIRM_THRESHOLD = 0.85;
+/**
+ * The producer of a claim that this process writes: the pipeline, the run, the deployed commit
+ * (ADR-0128 chain), and the model. A local run has no deployed commit, so it records null.
+ */
+export function claimProducer(args: {
+  pipeline: string;
+  runId?: string | null | undefined;
+  model?: string | null | undefined;
+}): ClaimProducer {
+  const env = serverEnv();
+
+  return {
+    pipeline: args.pipeline,
+    runId: args.runId ?? null,
+    commit: env.RAILWAY_GIT_COMMIT_SHA || env.ALFRED_DEPLOYED_COMMIT_SHA || null,
+    model: args.model ?? null,
+  };
+}
+
+/** The user's own act on the memory page, now. */
+function memoryPageEdit(action: "create" | "edit" | "confirm", at: Date) {
+  return { kind: "user_edit", surface: "memory_page", action, at: at.toISOString() } as const;
+}
+
+const MEMORY_PAGE_PRODUCER = { pipeline: "memory-page" } as const;
 
 // --- schemas ---
 
-export const proposeFactArgsSchema = userFactInsertSchema
+const proposeFactFieldsSchema = userFactInsertSchema
   .pick({
     userId: true,
     key: true,
     value: true,
     confidence: true,
-    source: true,
     validFrom: true,
     validUntil: true,
   })
@@ -66,17 +103,17 @@ export const proposeFactArgsSchema = userFactInsertSchema
     key: z.string().min(1).max(200),
     // `proposeFact` runs the per-key policy check.
     value: z.unknown(),
-    /** Clamped to [0, 1]: model confidences have no enforced range, and 1.1 would crash the gate. */
+    /** Clamped to [0, 1]: model confidences have no enforced range. It is not evidence. */
     confidence: z.number().transform(clamp01),
-    source: memorySourceSchema,
   }) satisfies z.ZodType<
-  Pick<
-    NewUserFact,
-    "userId" | "key" | "value" | "confidence" | "source" | "validFrom" | "validUntil"
-  >
+  Pick<NewUserFact, "userId" | "key" | "value" | "confidence" | "validFrom" | "validUntil">
 >;
 
-export type ProposeFactArgs = z.infer<typeof proposeFactArgsSchema>;
+/**
+ * A claim write. `ClaimProvenance` is a union on the author: a user claim must cite evidence that
+ * only the user gives, so a mail or a page can never write one (#1889).
+ */
+export type ProposeFactArgs = z.input<typeof proposeFactFieldsSchema> & ClaimProvenance;
 
 const createFactArgsSchema = z.object({
   /** A Replicache client mints it, so the optimistic row and the server row share one key. */
@@ -84,8 +121,6 @@ const createFactArgsSchema = z.object({
   userId: z.string().min(1),
   key: z.string().min(1).max(200),
   value: z.unknown(),
-  /** Defaults to `{ kind: 'user' }`. */
-  source: memorySourceSchema.optional(),
 });
 
 type CreateFactArgs = z.infer<typeof createFactArgsSchema>;
@@ -96,22 +131,19 @@ const editFactArgsSchema = z.object({
   newValue: z.unknown(),
   /** The id of the replacement row. A Replicache client mints it; absent, the server does. */
   newFactId: z.string().min(1).optional(),
-  /** Defaults to `{ kind: 'user' }`. */
-  source: memorySourceSchema.optional(),
 });
 
 export type EditFactArgs = z.infer<typeof editFactArgsSchema>;
 
-const supersedeFactArgsSchema = z.object({
+const supersedeFactFieldsSchema = z.object({
   factId: z.string().min(1),
   userId: z.string().min(1),
   newValue: z.unknown(),
-  /** Clamped like `proposeFactArgsSchema.confidence`. */
+  /** Clamped like the confidence of `proposeFact`. */
   confidence: z.number().transform(clamp01),
-  source: memorySourceSchema,
 });
 
-export type SupersedeFactArgs = z.infer<typeof supersedeFactArgsSchema>;
+export type SupersedeFactArgs = z.input<typeof supersedeFactFieldsSchema> & ClaimProvenance;
 
 const rejectFactArgsSchema = z.object({
   factId: z.string().min(1),
@@ -123,10 +155,12 @@ export type RejectFactArgs = z.infer<typeof rejectFactArgsSchema>;
 
 // --- row shape ---
 
-/** `UserFact` with the zod-parsed `status` and `source` narrowed. */
-export type FactRow = Omit<UserFact, "status" | "source"> & {
+/** `UserFact` with the zod-parsed `status`, `author`, `evidence`, and `producer` narrowed. */
+export type FactRow = Omit<UserFact, "status" | "author" | "evidence" | "producer"> & {
   status: FactStatus;
-  source: MemorySource;
+  author: ClaimAuthor;
+  evidence: ClaimEvidence[];
+  producer: ClaimProducer;
 };
 
 /** INSERT…RETURNING gives `T | undefined`. */
@@ -136,12 +170,26 @@ function requireRow<T>(row: T | undefined, op: string): T {
   return row;
 }
 
-function rowToFact(r: UserFact): FactRow {
+/** A raw row: the chain query reads the claim columns as plain JSON and text. */
+type RawFactRow = Omit<UserFact, "author" | "evidence" | "producer"> & {
+  author: string;
+  evidence: unknown;
+  producer: unknown;
+};
+
+function rowToFact(r: RawFactRow): FactRow {
   return {
     ...r,
     status: factStatusSchema.parse(r.status),
-    source: parseMemorySourceOrDefault(r.source, { kind: "agent" }, `user_facts:${r.id}`),
+    author: claimAuthorSchema.parse(r.author),
+    evidence: claimEvidenceListSchema.parse(r.evidence),
+    producer: claimProducerSchema.parse(r.producer),
   };
+}
+
+/** The status of a new claim: the user's own claim is confirmed; an agent claim waits for the user. */
+function statusAtWrite(author: ClaimAuthor): FactStatus {
+  return author === "user" ? "confirmed" : "proposed";
 }
 
 // --- shared write steps ---
@@ -158,19 +206,11 @@ async function lockFactKey(tx: DbTransaction, userId: string, key: string): Prom
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${userId}:${key}`}, 0))`);
 }
 
-/** The canonical key. An alias moves into `source.meta.originalKey`; an unknown key stays as is. */
-function canonicalKeyAndSource(rawKey: string, source: MemorySource) {
+/** The canonical key. An unknown key stays as is. */
+function canonicalKeyOf(rawKey: string) {
   const canon = canonicalizeFactKey(rawKey);
 
-  if (!canon.ok) return { known: false, key: rawKey, source };
-
-  return {
-    known: true,
-    key: canon.key,
-    source: canon.wasAlias
-      ? { ...source, meta: { ...source.meta, originalKey: canon.originalKey } }
-      : source,
-  };
+  return canon.ok ? { known: true, key: canon.key } : { known: false, key: rawKey };
 }
 
 /** `proposed` and `confirmed` rows for `(userId, key)`, `confirmed` first, then newest first. No `validFrom` upper bound: under the fact-key lock the reader's `now()` is its transaction start, so a bound would hide a row committed by the previous lock holder. `confirmed` sorts first so the 50-row cap cannot drop the confirmed row of a single-valued key behind newer proposals. */
@@ -190,7 +230,7 @@ async function activeFactsForKey(
         or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
       ),
     )
-    .orderBy(asc(userFacts.status), desc(userFacts.validFrom))
+    .orderBy(asc(userFacts.status), desc(userFacts.createdAt))
     .limit(50);
 }
 
@@ -248,32 +288,34 @@ async function inFactTransaction<T>(
 // --- propose ---
 
 /**
- * Insert a fact: confirmed at or above `AUTO_CONFIRM_THRESHOLD`, else proposed.
+ * Insert a claim (ADR-0123). A user claim is confirmed; an agent claim is `proposed` until the
+ * user confirms it (memory.md §9 Q6). The model's confidence confirms nothing.
  * The unbypassable backstop of the capture gate (#330, ADR-0079), in order:
- *  0. Canonicalize the key. An unknown key is rejected only from documents;
- *     other sources keep it with a drift trace.
+ *  0. Canonicalize the key. An unknown key is rejected from a document; other
+ *     evidence keeps it with a drift trace.
  *  0a. Drop relationship junk from any source (#492).
  *  1. Documents: reject `not_writable` keys and bad values. Authorship is the
  *     workflow gate's job.
  *  2. Skip a value the user already rejected.
  *  3. Skip an active duplicate.
- *  4. Single-valued conflict: a user value supersedes; an autonomous value is held
- *     as `proposed` with no event. Code cannot tell "the user moved" from a leaked
- *     contact value, so surface it instead of overwriting.
+ *  4. Single-valued conflict: a user claim supersedes the confirmed value; an agent claim is
+ *     held as `proposed` beside it. Code cannot tell "the user moved" from a leaked contact
+ *     value, so surface it instead of overwriting.
  */
 export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null> {
-  const parsed = proposeFactArgsSchema.parse(args);
-  const isDocument = parsed.source.kind === "document";
+  const parsed = proposeFactFieldsSchema.parse(args);
+  const { author, evidence, producer } = args;
+  const fromDocument = author === "agent" && evidence.some((link) => link.kind === "document");
 
   // (0) Canonicalize before any dedup or conflict check.
-  const { known, key, source } = canonicalKeyAndSource(parsed.key, parsed.source);
+  const { known, key } = canonicalKeyOf(parsed.key);
 
   if (!known) {
-    // Unknown key: reject from documents; keep from trusted sources with a drift trace.
-    if (isDocument) return null;
+    // Unknown key: reject from documents; keep from other evidence with a drift trace.
+    if (fromDocument) return null;
     logger.warn(
       `[memory.facts] fact_key_unknown_non_document: persisting unknown key as-is ` +
-        `(source=${parsed.source.kind}, key=${JSON.stringify(parsed.key)})`,
+        `(pipeline=${producer.pipeline}, key=${JSON.stringify(parsed.key)})`,
     );
   }
 
@@ -281,18 +323,15 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
   if (known && isUninformativeRelationshipFact(key, parsed.value)) return null;
 
   // (1) Document write policy.
-  if (isDocument && known) {
+  if (fromDocument && known) {
     if (classifyDocumentFactKey(key) === "not_writable") return null;
 
     if (!validateFactValueForKey(key, parsed.value).ok) return null;
   }
 
   const sig = valueSignature(parsed.value);
-
-  const confidenceStatus: FactStatus =
-    parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
-
-  const userDriven = parsed.source.kind === "user";
+  const userDriven = author === "user";
+  const status = statusAtWrite(author);
 
   return inFactTransaction("own", parsed.userId, async (tx) => {
     await lockFactKey(tx, parsed.userId, key);
@@ -317,20 +356,15 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
 
     if (active.some((r) => valueSignature(r.value) === sig)) return null;
 
-    // (4) Single-valued conflict with a confirmed value.
-    const conflictRows = confirmedConflicts(active, key, sig);
-    const heldByConflict = conflictRows.length > 0 && !userDriven;
-    const status: FactStatus = heldByConflict ? "proposed" : confidenceStatus;
+    // (4) Single-valued conflict with a confirmed value: only a user claim retires it.
+    const conflictRows = userDriven ? confirmedConflicts(active, key, sig) : [];
 
-    // Retire the prior confirmed value and link the chain via `supersedes_id`.
-    if (userDriven) {
-      await supersedeFacts(
-        tx,
-        parsed.userId,
-        conflictRows.map((r) => r.id),
-        parsed.validFrom ?? new Date(),
-      );
-    }
+    await supersedeFacts(
+      tx,
+      parsed.userId,
+      conflictRows.map((r) => r.id),
+      parsed.validFrom ?? new Date(),
+    );
 
     const [row] = await tx
       .insert(userFacts)
@@ -340,16 +374,18 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         value: parsed.value,
         confidence: parsed.confidence,
         status,
-        source,
-        validFrom: parsed.validFrom,
+        author,
+        evidence: [...evidence],
+        producer,
+        validFrom: parsed.validFrom ?? null,
         validUntil: parsed.validUntil ?? null,
-        supersedesId: userDriven ? (conflictRows[0]?.id ?? null) : null,
+        supersedesId: conflictRows[0]?.id ?? null,
       })
       .returning();
 
     const inserted = rowToFact(requireRow(row, "proposeFact"));
 
-    // Same tx as the fact, so a rollback leaves no phantom toast. A held conflict emits nothing.
+    // Same tx as the fact, so a rollback leaves no phantom toast. An unconfirmed claim emits nothing.
     if (status === "confirmed") {
       await publishEvent({
         tx,
@@ -378,12 +414,13 @@ function previewValue(value: unknown): string {
 // --- create (user-driven) ---
 
 /**
- * A user's own fact: `confirmed` at confidence 1. It supersedes the prior confirmed value of a
- * single-valued key. `null` when an active row already holds the value, or `id` exists.
+ * A user's own claim from the memory page: `confirmed` at confidence 1. It supersedes the prior
+ * confirmed value of a single-valued key. `null` when an active row already holds the value, or
+ * `id` exists. The start of validity is unknown: the user says it now, not since when.
  */
 export async function createFact(args: CreateFactArgs & FactExec): Promise<FactRow | null> {
   const parsed = createFactArgsSchema.parse(args);
-  const { key, source } = canonicalKeyAndSource(parsed.key, parsed.source ?? { kind: "user" });
+  const { key } = canonicalKeyOf(parsed.key);
   const sig = valueSignature(parsed.value);
 
   return inFactTransaction(args.exec, parsed.userId, async (tx) => {
@@ -411,8 +448,10 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
         value: parsed.value,
         confidence: 1,
         status: "confirmed",
-        source,
-        validFrom: now,
+        author: "user",
+        evidence: [memoryPageEdit("create", now)],
+        producer: claimProducer(MEMORY_PAGE_PRODUCER),
+        validFrom: null,
         validUntil: null,
         supersedesId: conflicts[0]?.id ?? null,
       })
@@ -426,8 +465,9 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
 // --- confirm ---
 
 /**
- * Move a `proposed` row to `confirmed`. A repeat is a no-op. An alias key moves to its canonical
- * form, and the prior confirmed value of a single-valued key is superseded.
+ * The user confirms a `proposed` claim: it becomes `confirmed`, keeps its author, and cites the
+ * user's confirm. A repeat is a no-op. An alias key moves to its canonical form, and the prior
+ * confirmed value of a single-valued key is superseded.
  */
 export async function confirmFact({
   factId,
@@ -455,7 +495,7 @@ export async function confirmFact({
 
     if (!candidate) return null;
 
-    const { key, source } = canonicalKeyAndSource(candidate.key, candidate.source);
+    const { key } = canonicalKeyOf(candidate.key);
     await lockFactKey(tx, userId, key);
 
     // Read again under the lock: a committed concurrent confirm or reject may have moved the row.
@@ -470,18 +510,20 @@ export async function confirmFact({
       old.id,
     );
 
+    const now = new Date();
+
     await supersedeFacts(
       tx,
       userId,
       conflicts.map((r) => r.id),
-      new Date(),
+      now,
     );
 
     const [row] = await tx
       .update(userFacts)
       .set({
         key,
-        source,
+        evidence: [...claimEvidenceListSchema.parse(old.evidence), memoryPageEdit("confirm", now)],
         status: "confirmed",
         supersedesId: conflicts[0]?.id ?? old.supersedesId,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
@@ -544,8 +586,8 @@ export async function rejectFact(args: RejectFactArgs & FactExec): Promise<FactR
 // --- edit (user-driven supersession) ---
 
 /**
- * A user edit: the old row becomes `edited`; a new confirmed row at confidence 1.0 supersedes
- * it, and the prior confirmed value of a single-valued key. `null` when `newFactId` exists.
+ * A user edit: the old row becomes `edited`; a new confirmed user claim at confidence 1.0
+ * supersedes it, and the prior confirmed value of a single-valued key. `null` when `newFactId` exists.
  */
 export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow | null> {
   const parsed = editFactArgsSchema.parse(args);
@@ -559,7 +601,7 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
 
     if (!old) return null;
 
-    const { key, source } = canonicalKeyAndSource(old.key, parsed.source ?? { kind: "user" });
+    const { key } = canonicalKeyOf(old.key);
     await lockFactKey(tx, parsed.userId, key);
     const now = new Date();
 
@@ -595,8 +637,10 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
         value: parsed.newValue,
         confidence: 1,
         status: "confirmed",
-        source,
-        validFrom: now,
+        author: "user",
+        evidence: [memoryPageEdit("edit", now)],
+        producer: claimProducer(MEMORY_PAGE_PRODUCER),
+        validFrom: null,
         validUntil: null,
         supersedesId: conflicts[0]?.id ?? old.id,
       })
@@ -609,11 +653,11 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
 
 // --- supersede (system-driven) ---
 
-/** A system replacement. The old row becomes `superseded`; the new status follows `confidence`. */
+/** A replacement. The old row becomes `superseded`; the new status follows the author. */
 export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | null> {
-  const parsed = supersedeFactArgsSchema.parse(args);
+  const parsed = supersedeFactFieldsSchema.parse(args);
   const now = new Date();
-  const status: FactStatus = parsed.confidence >= AUTO_CONFIRM_THRESHOLD ? "confirmed" : "proposed";
+  const status = statusAtWrite(args.author);
 
   const fact = await db().transaction(async (tx) => {
     const [old] = await tx
@@ -641,8 +685,10 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
         value: parsed.newValue,
         confidence: parsed.confidence,
         status,
-        source: parsed.source,
-        validFrom: now,
+        author: args.author,
+        evidence: [...args.evidence],
+        producer: args.producer,
+        validFrom: null,
         validUntil: null,
         supersedesId: old.id,
       })
@@ -688,11 +734,11 @@ export async function recallActiveByKey(
         eq(userFacts.userId, userId),
         eq(userFacts.key, key),
         statuses,
-        lte(userFacts.validFrom, sql`now()`),
+        or(isNull(userFacts.validFrom), lte(userFacts.validFrom, sql`now()`)),
         or(isNull(userFacts.validUntil), gt(userFacts.validUntil, sql`now()`)),
       ),
     )
-    .orderBy(desc(userFacts.validFrom))
+    .orderBy(desc(userFacts.createdAt))
     .limit(limit);
 
   return rows.map(rowToFact);

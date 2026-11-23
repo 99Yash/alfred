@@ -205,7 +205,7 @@ const USER_CONTEXT = {
     identityFacts: [{ key: "github_username", value: OWNER, confidence: 1 }],
   },
   activeIntegrations: [{ provider: "github", accountLabel: OWNER }],
-  confirmedFacts: [],
+  facts: [],
   preferences: [],
   entities: [
     {
