@@ -9,6 +9,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { serverMutators } from "../../src/sync/write";
 import { dbBackedSkip } from "../support/db-backed";
 
+/** The producer of a seeded claim (ADR-0123). */
+const TEST_PRODUCER = { pipeline: "test", runId: null, commit: null, model: null };
+
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-rfact-";
@@ -61,7 +64,9 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
           value: "Oliv AI",
           confidence: 1,
           status: "confirmed",
-          source: { kind: "user" },
+          author: "user",
+          evidence: [{ kind: "chat_message", id: "msg_test" }],
+          producer: TEST_PRODUCER,
         },
         {
           id: proposedId,
@@ -70,12 +75,14 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
           value: "NewCo",
           confidence: 0.95,
           status: "proposed",
-          source: { kind: "document", id: "doc_1" },
+          author: "agent",
+          evidence: [{ kind: "document", id: "doc_1" }],
+          producer: TEST_PRODUCER,
         },
       ]);
 
     await db().transaction((tx) =>
-      serverMutators.factConfirm.run(tx, { factId: proposedId }, userId),
+      serverMutators.factConfirm.run(tx, { factId: proposedId, seenRowVersion: 0 }, userId),
     );
 
     const rows = await rowsForKey(userId, "employer");
@@ -99,7 +106,9 @@ describe("serverMutators fact invariants (DB-backed, #330)", { skip: SKIP }, () 
         value: "Oliv AI",
         confidence: 1,
         status: "confirmed",
-        source: { kind: "user" },
+        author: "user",
+        evidence: [{ kind: "chat_message", id: "msg_test" }],
+        producer: TEST_PRODUCER,
       });
 
     await db().transaction((tx) =>

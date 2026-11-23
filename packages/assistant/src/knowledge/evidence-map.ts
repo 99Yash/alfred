@@ -147,12 +147,12 @@ const EVIDENCE_MAP = defineEvidenceMap([
     store: "Memory facts",
     tables: [userFacts],
     reach: "from the first capture",
-    gaps: "a row cites no evidence, and a confidence score can confirm it without the user",
+    gaps: "no check that a user claim quotes the user; a web page link keeps no text snapshot",
     answers: ["names", "said", "usually"],
     lineage: {
       adr: "ADR-0123",
       change:
-        "becomes claims that cite their evidence and author; claims and name links are not built yet",
+        "each row is a claim that cites its evidence, author, and producer; name links are not built yet",
     },
   },
   {

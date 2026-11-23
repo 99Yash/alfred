@@ -7,6 +7,8 @@ import { holdsResearchPrior } from "./cold-start/no-profile";
  * A one-line prior from the cold-start research chunk (ADR-0050 D1, ADR-0051 §6).
  * Not `readUserContext`: it orders chunks by recency, so newer summaries evict
  * this one. Not a memory search: triage runs per email, so there is no query parameter.
+ * The chunk is a model's synthesis of web pages that the user never confirmed (ADR-0123), so the
+ * render site (`triage/classify.ts`) shows it with `UNCONFIRMED_CLAIM_LABEL`.
  */
 
 /** One indexed row, collapsed to a single line. */

@@ -70,7 +70,30 @@ interface SeedFact {
   confidence: number;
   /** Lower = older. Drives recency ordering within the same confidence. */
   ageMinutes: number;
-  source?: { kind: "document" | "user" | "cold_start" | "agent"; meta?: Record<string, unknown> };
+  /** Default `agent`: a claim from a mail that the user confirmed. */
+  author?: "user" | "agent";
+  /** Default `confirmed`. */
+  status?: "confirmed" | "proposed";
+}
+
+const TEST_PRODUCER = { pipeline: "test", runId: null, commit: null, model: null };
+
+/** The evidence of a seeded claim (ADR-0123): a confirmed agent claim carries the user's confirm. */
+function seedEvidence(author: "user" | "agent", status: "confirmed" | "proposed", at: Date) {
+  if (author === "user") {
+    return [{ kind: "chat_message" as const, id: "msg_test" }];
+  }
+
+  const mail = { kind: "document" as const, id: "doc_test" };
+
+  const confirm = {
+    kind: "user_edit" as const,
+    surface: "memory_page" as const,
+    action: "confirm" as const,
+    at: at.toISOString(),
+  };
+
+  return status === "confirmed" ? [mail, confirm] : [mail];
 }
 
 async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
@@ -80,14 +103,18 @@ async function seedFacts(userId: string, specs: SeedFact[]): Promise<void> {
     .values(
       specs.map((spec) => {
         const ts = new Date(base - spec.ageMinutes * 60_000);
+        const author = spec.author ?? "agent";
+        const status = spec.status ?? "confirmed";
 
         return {
           userId,
           key: spec.key,
           value: spec.value,
           confidence: spec.confidence,
-          status: "confirmed" as const,
-          source: spec.source ?? { kind: "document" as const },
+          status,
+          author,
+          evidence: seedEvidence(author, status, ts),
+          producer: TEST_PRODUCER,
           createdAt: ts,
           updatedAt: ts,
         };
@@ -192,10 +219,10 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     ]);
 
     const ctx = await readUserContext(userId);
-    const company = ctx.confirmedFacts.find((f) => f.key === "employer");
+    const company = ctx.facts.find((f) => f.key === "employer");
     assert.ok(company, "employer must survive the cap even when buried by recent noise");
     assert.equal(company.value, "Oliv AI");
-    assert.equal(ctx.confirmedFacts.length, 30, "merged fact slice stays bounded at FACT_LIMIT");
+    assert.equal(ctx.facts.length, 30, "merged fact slice stays bounded at FACT_LIMIT");
   });
 
   test("surfaces identity in profile even when facts are omitted (issue #329)", async () => {
@@ -206,27 +233,27 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
         value: "Oliv AI",
         confidence: 1.0,
         ageMinutes: 10,
-        source: { kind: "user" },
+        author: "user",
       },
       {
         key: "work_summary",
         value: "building Alfred",
         confidence: 1.0,
         ageMinutes: 9,
-        source: { kind: "user" },
+        author: "user",
       },
       {
         key: "bio_summary",
         value: "Yash works on Alfred at Oliv AI",
         confidence: 1.0,
         ageMinutes: 8,
-        source: { kind: "user" },
+        author: "user",
       },
     ]);
 
     const ctx = await readUserContext(userId, { include: ["profile", "integrations"] });
 
-    assert.equal(ctx.confirmedFacts.length, 0, "facts section stays omitted when not requested");
+    assert.equal(ctx.facts.length, 0, "facts section stays omitted when not requested");
     // Storage keys `employer`/`work_summary` map to DTO fields `currentCompany`/`currentWork`.
     assert.equal(ctx.profile.currentCompany, "Oliv AI");
     assert.equal(ctx.profile.currentWork, "building Alfred");
@@ -241,28 +268,28 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
         value: "AirBills",
         confidence: 1.0,
         ageMinutes: 1,
-        source: { kind: "document" },
+        author: "agent",
       },
       {
         key: "job_title",
         value: { title: "not a string" },
         confidence: 1.0,
         ageMinutes: 1,
-        source: { kind: "user" },
+        author: "user",
       },
       {
         key: "job_title",
         value: "Software Engineer",
         confidence: 0.95,
         ageMinutes: 20,
-        source: { kind: "user" },
+        author: "user",
       },
       {
         key: "employer",
         value: "Oliv AI",
         confidence: 1.0,
         ageMinutes: 10_000,
-        source: { kind: "user" },
+        author: "user",
       },
     ]);
 
@@ -275,12 +302,12 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
       ["employer", "job_title"],
     );
     assert.ok(
-      ctx.confirmedFacts.some((fact) => fact.key === "employer"),
+      ctx.facts.some((fact) => fact.key === "employer"),
       "per-key identity rescue must include employer despite newer document noise",
     );
   });
 
-  test("profile accepts document identity only when the workflow marked authorship", async () => {
+  test("the place reader skips a place claim that the user has not confirmed", async () => {
     const userId = await seedUser();
     await seedFacts(userId, [
       {
@@ -288,14 +315,15 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
         value: "Wrong City",
         confidence: 1.0,
         ageMinutes: 1,
-        source: { kind: "document" },
+        author: "agent",
+        status: "proposed",
       },
       {
         key: "location",
         value: "Bengaluru",
         confidence: 0.95,
         ageMinutes: 20,
-        source: { kind: "document", meta: { documentAuthoredByUser: true } },
+        author: "user",
       },
     ]);
 
@@ -313,7 +341,7 @@ describe("readUserContext (DB-backed)", { skip: SKIP }, () => {
     ]);
 
     const ctx = await readUserContext(userId);
-    const keys = ctx.confirmedFacts.map((f) => f.key);
+    const keys = ctx.facts.map((f) => f.key);
     assert.deepEqual(
       keys,
       ["settled", "rumor"],

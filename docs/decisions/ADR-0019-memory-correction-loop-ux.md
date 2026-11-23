@@ -36,3 +36,7 @@
 
 - Free-form reply parsing is brittle and ambiguity-prone.
 - The "review" use case is better served by structured emails with a "review in app" deep link → routes back to the in-app card surface.
+
+## Amendment 2026-11-23 (ADR-0123): only the user confirms
+
+The confidence-tiered auto-confirm above is removed. A model confidence of 0.85 or more no longer confirms a claim. An agent claim stays `proposed` until the user confirms it on the memory page, and the "alfred learned: X" toast fires only for a confirmed write. The user's own claims (memory-page create and edit, an instruction from chat) are confirmed at write. A confirm binds to the row version that the user saw. The status list also has `retired`: a claim with no evidence that a check can read again.

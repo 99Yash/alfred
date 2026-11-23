@@ -21,6 +21,17 @@ import {
 } from "./schemas";
 
 /**
+ * The Replicache schema version that the client and the server share. Bump it when a synced
+ * entity changes shape, or to heal a wedged local store. A client with another version abandons
+ * its IndexedDB and cold-syncs. The server answers a pull from an old version with
+ * `VersionNotSupported`, so an old tab reloads and gets the new code (see `handlePull`).
+ *
+ * 2 (2026-11-23, ADR-0123): a fact has `author` and `evidence` in place of `source`, `validFrom`
+ * can be null, and `factConfirm` carries `seenRowVersion`.
+ */
+export const REPLICACHE_SCHEMA_VERSION = "2";
+
+/**
  * One synced entity: its key prefix, its schema, and its key builders.
  * The schema is the allowlist of fields the browser sees. Do not make it strict:
  * a new database-only column would then make every row fail to parse.

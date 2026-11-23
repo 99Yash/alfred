@@ -2,7 +2,6 @@ import { assertNever, toMessage } from "@alfred/contracts";
 import { z } from "zod";
 import { isUniqueViolation } from "@alfred/db/pg-errors";
 import { startRun, type Workflow } from "@alfred/assistant/execution";
-import { proposeFact } from "@alfred/assistant/knowledge";
 import { SKILL_DOCUMENTATION_WORKFLOW_SLUG } from "./skill-documentation-workflow-input";
 import { commitSkillRevision, finalizeSkillRun, recordSkillRun } from "./revisions";
 import { collectSkillLearnContext, type SkillLearnContext } from "./context";
@@ -17,11 +16,10 @@ import {
 /**
  * `learn-skill`: sync phase 1 of Learn (ADR-0017).
  * Steps: gather context; one cheap-tier distill call; in one transaction, write a
- * `distilled` revision, activate the skill, rename it, and propose facts. Then enqueue
- * `skill-documentation`.
- * `concurrencyKey` blocks concurrent Learn clicks per skill. Retries are safe: facts and
- * revisions are idempotent. A crash re-bills one cheap call.
- * Review happens on the proposed `user_facts`, not here. The body commits on success.
+ * `distilled` revision, activate the skill, and rename it. Then enqueue `skill-documentation`.
+ * It proposes no claims: a claim cites evidence in the raw record (ADR-0123).
+ * `concurrencyKey` blocks concurrent Learn clicks per skill. Retries are safe: revisions are
+ * idempotent. A crash re-bills one cheap call. The body commits on success.
  */
 
 // Composed from the owner schemas, so the distill and mention limits apply to stored state.
@@ -60,7 +58,7 @@ export const learnSkillWorkflow: Workflow<
   slug: LEARN_SKILL_WORKFLOW_SLUG,
   name: "Learn skill",
   description:
-    "Sync phase of skill authoring — distill the user's prompt + memory into a v1 skill body and fact proposals (ADR-0017).",
+    "Sync phase of skill authoring — distill the user's prompt + memory into a v1 skill body (ADR-0017).",
   // From the skills API (create and `/:id/relearn`). No cron.
   trigger: { kind: "manual" },
   initialStep: "gather",
@@ -140,7 +138,7 @@ export const learnSkillWorkflow: Workflow<
         });
 
         await ctx.log(
-          `distill: name="${result.suggestedName}" body=${result.body.length}ch proposals=${result.proposals.length} mentions=${result.mentions.length}`,
+          `distill: name="${result.suggestedName}" body=${result.body.length}ch mentions=${result.mentions.length}`,
         );
 
         return {
@@ -174,30 +172,6 @@ export const learnSkillWorkflow: Workflow<
             reason: ctx.state.reason,
           },
         });
-
-        let inserted = 0;
-        let skipped = 0;
-
-        for (const p of distill.proposals) {
-          const fact = await proposeFact({
-            userId: ctx.userId,
-            key: p.key,
-            value: p.value,
-            confidence: p.confidence,
-            source: {
-              kind: "agent",
-              id: ctx.runId,
-              meta: {
-                rationale: p.rationale,
-                workflow: LEARN_SKILL_WORKFLOW_SLUG,
-                skillId: ctx.state.skillId,
-              },
-            },
-          });
-
-          if (fact) inserted++;
-          else skipped++;
-        }
 
         await finalizeSkillRun({
           agentRunId: ctx.runId,
@@ -251,7 +225,7 @@ export const learnSkillWorkflow: Workflow<
         }
 
         await ctx.log(
-          `persist: revisionId=${commit.revisionId} status=${commit.skillStatus} facts=${inserted}/${distill.proposals.length} (skipped=${skipped}) doc=${docEnqueueStatus}${docRunId ? `:${docRunId}` : ""}`,
+          `persist: revisionId=${commit.revisionId} status=${commit.skillStatus} doc=${docEnqueueStatus}${docRunId ? `:${docRunId}` : ""}`,
         );
 
         return {
@@ -261,8 +235,6 @@ export const learnSkillWorkflow: Workflow<
             skillId: ctx.state.skillId,
             revisionId: commit.revisionId,
             skillStatus: commit.skillStatus,
-            factsProposed: inserted,
-            factsSkipped: skipped,
             mentionCount: mentions.length,
             documentationRunId: docRunId,
             documentationEnqueueStatus: docEnqueueStatus,

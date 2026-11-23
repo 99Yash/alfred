@@ -191,7 +191,7 @@ describe(
         cookie: null,
       });
 
-      assert.ok(!("forbidden" in firstPull));
+      assert.ok("cookie" in firstPull);
       const workflowKey = SYNC_MODEL.workflow.storageKeyForId({ slug: RESUME_ONLY_SLUG });
       assert.ok(
         firstPull.patch.some((op) => op.op === "put" && op.key === workflowKey),
@@ -212,7 +212,7 @@ describe(
         cookie: firstPull.cookie,
       });
 
-      assert.ok(!("forbidden" in changedPull));
+      assert.ok("cookie" in changedPull);
 
       const changedOperations = changedPull.patch.filter(
         (op) => "key" in op && op.key === workflowKey,
@@ -233,7 +233,7 @@ describe(
         cookie: changedPull.cookie,
       });
 
-      assert.ok(!("forbidden" in deletedPull));
+      assert.ok("cookie" in deletedPull);
       assert.deepEqual(
         deletedPull.patch.filter((op) => "key" in op && op.key === workflowKey),
         [{ op: "del", key: workflowKey }],

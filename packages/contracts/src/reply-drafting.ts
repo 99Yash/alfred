@@ -230,7 +230,25 @@ export const REPLY_GATHERED_OBJECT_KINDS = [
   "thread_context",
   "user_context",
   "reply_context",
+  /** Claims that the user has not confirmed, and summaries that a model wrote (memory.md §9 Q6). */
+  "unconfirmed_claims",
 ] as const;
+
+export type ReplyGatheredObjectKind = (typeof REPLY_GATHERED_OBJECT_KINDS)[number];
+
+/**
+ * Whether a source of this kind can support a factual statement in a draft by itself. A `weak`
+ * source is agent-concluded and unconfirmed: it can inform the composer, but the verifier blocks a
+ * claim whose only support it is (#1897 review, owner decision 2026-11-23).
+ */
+export const REPLY_GATHERED_OBJECT_SUPPORT = {
+  github_pull_request: "strong",
+  inbound_document: "strong",
+  thread_context: "strong",
+  user_context: "strong",
+  reply_context: "strong",
+  unconfirmed_claims: "weak",
+} as const satisfies Record<ReplyGatheredObjectKind, "strong" | "weak">;
 
 export const replyDraftGatheredObjectSchema = z.object({
   kind: z.enum(REPLY_GATHERED_OBJECT_KINDS),

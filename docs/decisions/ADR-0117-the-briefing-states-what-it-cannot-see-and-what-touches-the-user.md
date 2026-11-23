@@ -158,3 +158,7 @@ The ADR-0048 content model, the composer's voice rules, and the weather row form
 2. The provenance type on the current contributions: email, calendar, weather, integration activity, the GitHub merged read, and loop relevance. The only visible change is the block rows and the removal of stale activity items.
 3. The warnings feed and the geometry match, after a probe of the candidate feeds.
 4. The location evidence proposal (rail geolocation, calendar, sign-in region) and its confirmation.
+
+## Amendment 2026-11-23 (ADR-0123): the user's confirm is enough for a city
+
+Owner decision. The place reader reads confirmed claims only. A confirmed claim is the user's own claim, or an agent claim that the user confirmed on the memory page. Both count as step 2 of decision 3 ("the confirmed `home_city` and `home_country` facts"), also when the agent concluded the city from a web page. The confirm is the user's own act on that exact value, and it binds to the row version that the user saw. Step 3 stays for a city that Alfred proposes from evidence that the user owns.

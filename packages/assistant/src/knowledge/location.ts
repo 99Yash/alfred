@@ -5,7 +5,6 @@ import {
   isRecord,
   weatherFallbackFor,
   type IanaTimezone,
-  type MemorySource,
   type Place,
   type PlaceArea,
 } from "@alfred/contracts";
@@ -127,26 +126,6 @@ export function statedLocationLabel(located: UserLocation): string | null {
   }
 }
 
-/**
- * The one rule for a confirmed identity fact that is the user's own word: the user, cold start,
- * the agent, or a document that the user wrote. The profile and the place reader share it.
- */
-export function isUserStatedSource(source: MemorySource): boolean {
-  switch (source.kind) {
-    case "user":
-    case "cold_start":
-    case "agent":
-      return true;
-    case "document":
-      return source.meta?.documentAuthoredByUser === true;
-    case "chunk":
-    case "tool_call":
-      return false;
-    default:
-      return assertNever(source.kind, "memory source kind");
-  }
-}
-
 /** A stored coordinate: a number, or a string `parseFloat` reads. `z.number()` rejects NaN and Infinity. */
 const storedCoordSchema = z
   .union([z.number(), z.string().transform((value) => Number.parseFloat(value))])
@@ -261,10 +240,12 @@ async function readPlaceFacts(userId: string): Promise<GeocodeQuery[]> {
   return queries;
 }
 
-/** The newest row that the user stated, as text inside `PLACE_TEXT_MAX`. */
+/**
+ * The newest confirmed row, as text inside `PLACE_TEXT_MAX`. A confirmed claim is the user's own
+ * word, or an agent claim that the user confirmed (ADR-0123).
+ */
 function statedFactText(userId: string, key: string, rows: readonly FactRow[]): string | null {
-  const row = rows.find((candidate) => isUserStatedSource(candidate.source));
-  const text = factTextSchema.safeParse(row?.value);
+  const text = factTextSchema.safeParse(rows[0]?.value);
 
   if (!text.success) return null;
 

@@ -1,6 +1,6 @@
 /**
  * Smoke test for the learn-skill workflow: a draft skill becomes `active` with a
- * new revision, a completed `skill_runs` row, and any fact proposals from the run.
+ * new revision and a completed `skill_runs` row. The run proposes no claims (ADR-0123).
  *
  *   $ pnpm --filter server tsx --env-file=.env src/scripts/smokes/smoke-learn-skill.ts
  *
@@ -21,9 +21,8 @@ import {
   skillRuns,
   skills,
   user as userTable,
-  userFacts,
 } from "@alfred/db/schemas";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { registerBuiltinWorkflows } from "~/builtins";
 import { closeScriptResources } from "../script-runtime";
 
@@ -78,8 +77,6 @@ const learnSkillOutputSchema = z.object({
   skillId: z.string(),
   revisionId: z.string(),
   skillStatus: z.string(),
-  factsProposed: z.number(),
-  factsSkipped: z.number(),
   mentionCount: z.number(),
 });
 
@@ -173,7 +170,7 @@ async function main() {
 
   console.log(
     `[smoke-learn-skill] output: revisionId=${out.revisionId} status=${out.skillStatus} ` +
-      `facts=${out.factsProposed}/${out.factsProposed + out.factsSkipped} mentions=${out.mentionCount}`,
+      `mentions=${out.mentionCount}`,
   );
   assert(out.revisionId, "expected output.revisionId");
   assert(out.skillId === skillId, "output.skillId mismatch");
@@ -208,36 +205,6 @@ async function main() {
     sr.producedRevisionId === out.revisionId,
     `skill_runs.produced_revision_id mismatch: ${sr.producedRevisionId} vs ${out.revisionId}`,
   );
-
-  const facts = await db()
-    .select({
-      key: userFacts.key,
-      value: userFacts.value,
-      confidence: userFacts.confidence,
-      status: userFacts.status,
-    })
-    .from(userFacts)
-    .where(
-      and(
-        eq(userFacts.userId, u.id),
-        sql`${userFacts.source}->'meta'->>'workflow' = ${LEARN_SKILL_WORKFLOW_SLUG}`,
-        sql`${userFacts.source}->>'id' = ${runId}`,
-      ),
-    )
-    .orderBy(desc(userFacts.confidence));
-
-  console.log(`[smoke-learn-skill] fact rows from this run: ${facts.length}`);
-  assert(
-    facts.length === out.factsProposed,
-    `fact rows (${facts.length}) does not match output.factsProposed (${out.factsProposed})`,
-  );
-
-  for (const f of facts.slice(0, 10)) {
-    console.log(
-      `  - ${f.key} = ${JSON.stringify(f.value)}  ` +
-        `(conf=${f.confidence.toFixed(2)} status=${f.status})`,
-    );
-  }
 
   console.log("\n[smoke-learn-skill] PASS");
 }

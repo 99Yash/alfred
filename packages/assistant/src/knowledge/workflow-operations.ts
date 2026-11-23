@@ -1,7 +1,7 @@
 import { writeMemoryChunk } from "./chunks";
 import { extractFactsFromDocument, type FactProposal } from "./extraction";
 import { gateDocumentFact } from "./fact-policy";
-import { listFactsByStatus, proposeFact } from "./facts";
+import { claimProducer, listFactsByStatus, proposeFact } from "./facts";
 import {
   describeMemoryExtractionOutcome,
   summarizeMemoryExtractionRun,
@@ -16,7 +16,7 @@ import {
 } from "./team-graph";
 import type { StepContext, StepResult } from "@alfred/assistant/execution";
 import { userIdentity } from "@alfred/assistant/settings";
-import { toMessage, type GmailSenderParser, type JsonObject } from "@alfred/contracts";
+import { toMessage, type GmailSenderParser } from "@alfred/contracts";
 import { db } from "@alfred/db";
 import { documents, memoryExtractionStatus, userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
@@ -138,19 +138,21 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     }
 
     let proposals: FactProposal[];
+    // Manual proposals come from no model.
+    let model: string | null = null;
 
     if (ctx.state.mode === "manual") {
       proposals = ctx.state.manualProposals?.[docId] ?? [];
     } else {
       try {
-        proposals = await extractFactsFromDocument({
+        ({ proposals, model } = await extractFactsFromDocument({
           userId: ctx.userId,
           document: doc,
           existingFacts: existingForPrompt,
           runId: ctx.runId,
           stepId: "process",
           idempotencyKey: `${ctx.idempotencyKey}:${docId}`,
-        });
+        }));
       } catch (err) {
         await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
         // Count it: a swallowed throw made a broken extractor look empty (#1109).
@@ -165,7 +167,6 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     for (const p of proposals) {
       let key = p.key;
       let value: unknown = p.value;
-      let sourceMeta: JsonObject = { rationale: p.rationale };
 
       // The authorship check `proposeFact` cannot do (#330). Manual mode skips it.
       if (identity) {
@@ -198,27 +199,18 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
 
         key = gate.key;
         value = gate.value;
-        sourceMeta = {
-          ...sourceMeta,
-          ...gate.meta,
-          ...(gate.authorship?.authoredByUser
-            ? {
-                documentAuthoredByUser: true,
-                authorship: {
-                  source: gate.authorship.source,
-                  method: gate.authorship.proof.method,
-                },
-              }
-            : {}),
-        };
       }
 
+      // An agent claim from mail is never confirmed at write, even from the user's own mail:
+      // only the user confirms (ADR-0123, memory.md §9 Q6; #1889).
       const result = await proposeFact({
         userId: ctx.userId,
         key,
         value,
         confidence: p.confidence,
-        source: { kind: "document", id: doc.id, meta: sourceMeta },
+        author: "agent",
+        evidence: [{ kind: "document", id: doc.id }],
+        producer: claimProducer({ pipeline: "memory-extraction", runId: ctx.runId, model }),
       });
 
       if (result) docProposed++;

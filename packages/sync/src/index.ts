@@ -1,4 +1,5 @@
 export {
+  REPLICACHE_SCHEMA_VERSION,
   SYNC_MODEL,
   type IDBKeys,
   type SyncModelFor,

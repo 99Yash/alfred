@@ -97,8 +97,13 @@ function userPrompt(args: ExtractDocumentArgs): string {
   return lines.join("\n");
 }
 
-/** Cheap-tier extraction over one document. A parse failure throws to the caller. */
-export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promise<FactProposal[]> {
+/**
+ * Cheap-tier extraction over one document, with the model that answered (the claim producer,
+ * ADR-0123). A parse failure throws to the caller.
+ */
+export async function extractFactsFromDocument(
+  args: ExtractDocumentArgs,
+): Promise<{ proposals: FactProposal[]; model: string }> {
   const result = await meteredGenerateObject<z.infer<typeof extractionResultSchema>>(
     {
       model: route("cheap").model(),
@@ -124,5 +129,5 @@ export async function extractFactsFromDocument(args: ExtractDocumentArgs): Promi
     },
   );
 
-  return result.output.proposals;
+  return { proposals: result.output.proposals, model: result.finalStep.response.modelId };
 }

@@ -2,9 +2,9 @@ import { COLD_START_WORKFLOW_SLUG } from "@alfred/contracts";
 import { z } from "zod";
 import type { Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
-import { proposeFact } from "../facts";
+import { claimProducer, proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";
-import { extractColdStartFacts, type ColdStartProposal } from "./extract";
+import { extractColdStartFacts, supportingPages } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";
 import { collectColdStartSignals, type ColdStartSignals } from "./signals";
 import { synthesizeColdStart, type ResearchResult } from "./synthesis";
@@ -67,9 +67,13 @@ const stateSchema = z.object({
         value: z.unknown(),
         confidence: z.number(),
         rationale: z.string(),
+        // A run saved before each claim named its pages has none: its claims write no row.
+        sourceUrls: z.array(z.string()).default([]),
       }),
     )
     .optional(),
+  /** The model that wrote the proposals. Absent on a run that started before ADR-0123. */
+  extractModel: z.string().optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
@@ -206,7 +210,7 @@ export const coldStartResearchWorkflow: Workflow<
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
 
-        const proposals: ColdStartProposal[] = await extractColdStartFacts({
+        const { proposals, model } = await extractColdStartFacts({
           signals: ctx.state.signals,
           research: {
             content: ctx.state.research.content,
@@ -221,7 +225,7 @@ export const coldStartResearchWorkflow: Workflow<
 
         return {
           kind: "next",
-          state: { ...ctx.state, proposals },
+          state: { ...ctx.state, proposals, extractModel: model },
           nextStep: "persist",
         };
       },
@@ -237,20 +241,33 @@ export const coldStartResearchWorkflow: Workflow<
         let inserted = 0;
         let skipped = 0;
 
+        // Each claim cites the pages that state it (memory.md §5): the URLs that the model named,
+        // kept only when the run read them. No page, no evidence, no row. No text snapshot yet
+        // (memory.md §10 step 5).
         for (const p of ctx.state.proposals) {
+          const [firstPage, ...otherPages] = supportingPages(
+            p.sourceUrls,
+            ctx.state.research.citations,
+          ).map((url) => ({ kind: "web_page", url }) as const);
+
+          if (!firstPage) {
+            skipped++;
+            await ctx.log(`persist: no supporting page for key=${p.key}; no row`);
+            continue;
+          }
+
           const fact = await proposeFact({
             userId: ctx.userId,
             key: p.key,
             value: p.value,
             confidence: p.confidence,
-            source: {
-              kind: "cold_start",
-              id: ctx.runId,
-              meta: {
-                rationale: p.rationale,
-                citations: ctx.state.research.citations,
-              },
-            },
+            author: "agent",
+            evidence: [firstPage, ...otherPages],
+            producer: claimProducer({
+              pipeline: "cold-start",
+              runId: ctx.runId,
+              model: ctx.state.extractModel,
+            }),
           });
 
           if (fact) inserted++;

@@ -1,13 +1,19 @@
+import { memoryPageEdit } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
-import { factValueSchema, memorySourceSchema } from "../schemas";
+import { factValueSchema } from "../schemas";
 import type { SyncedFact } from "../schemas";
 
 // Fact mutators (ADR-0019). A missing local row is a no-op; the next pull fixes it.
 
 export const factConfirmArgsSchema = z.object({
   factId: z.string().min(1).max(100),
+  /**
+   * The `rowVersion` of the row that the user saw when they confirmed. The server confirms only
+   * that version, so a confirm never lands on a claim that changed after the user read it.
+   */
+  seenRowVersion: z.number().int().min(0),
 });
 
 export type FactConfirmArgs = z.infer<typeof factConfirmArgsSchema>;
@@ -27,8 +33,6 @@ export const factCreateArgsSchema = z.object({
   /** Snake case, e.g. `bio_summary`. */
   key: z.string().min(1).max(100),
   value: factValueSchema,
-  /** Defaults to `{ kind: 'user' }`. */
-  source: memorySourceSchema.optional(),
 });
 
 export type FactCreateArgs = z.infer<typeof factCreateArgsSchema>;
@@ -38,8 +42,6 @@ export const factEditArgsSchema = z.object({
   /** Client-minted id of the replacement row. The server uses it too. */
   newFactId: z.string().min(1).max(100),
   newValue: factValueSchema,
-  /** Defaults to `{ kind: 'user' }`. */
-  source: memorySourceSchema.optional(),
 });
 
 export type FactEditArgs = z.infer<typeof factEditArgsSchema>;
@@ -52,7 +54,7 @@ async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> 
   await SYNC_MODEL.fact.put(tx, fact);
 }
 
-/** A fact the user states directly, so it is `confirmed` with confidence 1. Idempotent on id. */
+/** A claim the user states directly, so it is `confirmed` with confidence 1. Idempotent on id. */
 export async function factCreateClient(tx: WriteTransaction, args: FactCreateArgs): Promise<void> {
   const now = new Date().toISOString();
 
@@ -63,8 +65,9 @@ export async function factCreateClient(tx: WriteTransaction, args: FactCreateArg
     value: args.value,
     confidence: 1,
     status: "confirmed",
-    source: args.source ?? { kind: "user" },
-    validFrom: now,
+    author: "user",
+    evidence: [memoryPageEdit("create", now)],
+    validFrom: null,
     validUntil: null,
     supersedesId: null,
     rowVersion: 0,
@@ -83,8 +86,13 @@ export async function factConfirmClient(
 
   if (!fact) return;
 
-  if (fact.status !== "proposed") return;
-  await writeFact(tx, { ...fact, status: "confirmed", rowVersion: fact.rowVersion + 1 });
+  if (fact.status !== "proposed" || fact.rowVersion !== args.seenRowVersion) return;
+  await writeFact(tx, {
+    ...fact,
+    status: "confirmed",
+    evidence: [...fact.evidence, memoryPageEdit("confirm", new Date().toISOString())],
+    rowVersion: fact.rowVersion + 1,
+  });
 }
 
 /** Delete locally: `rejected` rows do not sync. */
@@ -108,8 +116,9 @@ export async function factEditClient(tx: WriteTransaction, args: FactEditArgs): 
     value: args.newValue,
     confidence: 1,
     status: "confirmed",
-    source: args.source ?? { kind: "user" },
-    validFrom: now,
+    author: "user",
+    evidence: [memoryPageEdit("edit", now)],
+    validFrom: null,
     validUntil: null,
     supersedesId: old.id,
     rowVersion: 0,

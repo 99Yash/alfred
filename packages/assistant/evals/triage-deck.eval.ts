@@ -10,9 +10,9 @@ import { evalite } from "evalite";
 import type { ClassifyEmailArgs } from "@alfred/assistant/triage/classify";
 import {
   instructionsInWordsOf,
+  type InstructionRow,
   type InstructionsInWordsRead,
 } from "@alfred/assistant/knowledge/instructions-in-words";
-import type { ActiveStandingInstruction } from "@alfred/assistant/knowledge/standing-instructions";
 import { assembleObservations } from "@alfred/assistant/triage/observations";
 import { triageOutOfScope, type TriageOutOfScope } from "@alfred/assistant/triage/scope";
 import { DECK, type DeckCase, type DeckMail } from "./triage-deck/cases";
@@ -59,12 +59,13 @@ const USER_CONTEXT = {
 const INSTRUCTIONS: InstructionsInWordsRead = {
   kind: "loaded",
   instructions: instructionsInWordsOf(
-    PROD_INSTRUCTION_ROWS.map((row): ActiveStandingInstruction => {
+    PROD_INSTRUCTION_ROWS.map((row): InstructionRow => {
       const value = readStoredStandingInstruction(row.value, row.factId);
 
       if (!value) throw new Error(`[triage-deck] instruction ${row.factId} does not parse`);
 
-      return { factId: row.factId, value, validFrom: new Date(row.validFrom) };
+      // The deck keeps no run id, so each row reads as a copy.
+      return { value, validFrom: new Date(row.validFrom), producerRunId: null };
     }),
   ),
 };

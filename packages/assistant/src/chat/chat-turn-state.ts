@@ -38,6 +38,8 @@ import {
 const pendingToolCallSchema = basePendingToolCallSchema.extend({
   /** Narration segment this call follows. */
   segmentIndex: z.number().int().nonnegative().default(0),
+  /** The model of the step that proposed the call. Absent on a state saved before the field. */
+  modelId: z.string().min(1).optional(),
 });
 
 export type PendingToolCall = z.infer<typeof pendingToolCallSchema>;

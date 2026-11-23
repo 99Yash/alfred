@@ -18,6 +18,7 @@ import {
   targetNamesOneMailbox,
   type StandingInstructionValueV2,
   type MemorySource,
+  type UserClaimProvenance,
   type StandingInstructionDroppedInput,
   type StandingInstructionOverlap,
   type StandingInstructionTarget,
@@ -38,6 +39,7 @@ import {
   type CaptureClock,
 } from "./sender-suppression";
 import { instructionKeyOf } from "./instructions-in-words";
+import { claimColumns } from "./facts";
 import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
@@ -105,6 +107,8 @@ export type SaveStandingInstructionResult =
     }
   | { ok: false; status: "invalid_exception"; exceptionOf: string; message: string }
   | { ok: false; status: "invalid_resolution"; instructionId: string; message: string }
+  /** No user chat turn started the run, so the words are not the user's (ADR-0123). Nothing was stored. */
+  | { ok: false; status: "not_said_in_chat"; message: string }
   | {
       ok: false;
       /**
@@ -496,6 +500,9 @@ export async function checkStandingInstructionCapture(args: {
 export async function saveStandingInstruction(args: {
   userId: string;
   input: SaveStandingInstructionInput;
+  /** An instruction is the user's own claim: it cites the user's chat turn (ADR-0123). */
+  provenance: UserClaimProvenance;
+  /** The source of the activity record (ADR-0118). */
   source?: MemorySource | undefined;
 }): Promise<SaveStandingInstructionResult> {
   const parsed = parseCaptureInput(args.input);
@@ -565,7 +572,7 @@ export async function saveStandingInstruction(args: {
             value: stored.value,
             confidence: 1,
             status: "confirmed",
-            source,
+            ...claimColumns(args.provenance),
             validFrom: sql`${at}::timestamptz`,
             validUntil: null,
             supersedesId: previous?.factId ?? null,
@@ -845,7 +852,9 @@ export type EditStandingInstructionResult =
       sameWordsNotEdited: string[];
     }
   | { ok: false; status: "not_found" }
-  | { ok: false; status: "revise_with_remember"; instructionId: string; message: string };
+  | { ok: false; status: "revise_with_remember"; instructionId: string; message: string }
+  /** No user chat turn started the run, so the edit is not the user's (ADR-0123). Nothing changed. */
+  | { ok: false; status: "not_said_in_chat"; message: string };
 
 export const editStandingInstructionArgsSchema = z.object({
   userId: z.string().min(1),
@@ -855,7 +864,10 @@ export const editStandingInstructionArgsSchema = z.object({
   source: memorySourceSchema.optional(),
 });
 
-export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema>;
+/** `provenance` is the claim's evidence: the user's chat turn (ADR-0123). */
+export type EditStandingInstructionArgs = z.infer<typeof editStandingInstructionArgsSchema> & {
+  provenance: UserClaimProvenance;
+};
 
 /** Active standing instructions of any stored version, newest first, capped. */
 export async function listStandingInstructions(
@@ -1152,6 +1164,7 @@ export async function editStandingInstruction(
         nextValue: row.next,
         previousValue: row.previous,
         source: parsed.source,
+        provenance: args.provenance,
         at,
       });
 
@@ -1195,6 +1208,7 @@ async function supersedeStandingInstruction(
     nextValue: StandingInstructionValue;
     previousValue: StandingInstructionValue;
     source?: MemorySource | undefined;
+    provenance: UserClaimProvenance;
     at: CaptureClock;
   },
 ): Promise<string | null> {
@@ -1220,7 +1234,7 @@ async function supersedeStandingInstruction(
       value: args.nextValue,
       confidence: 1,
       status: "confirmed",
-      source: args.source ?? { kind: "user" },
+      ...claimColumns(args.provenance),
       validFrom: sql`${args.at}::timestamptz`,
       validUntil: null,
       supersedesId: args.factId,

@@ -250,7 +250,7 @@ describe("runtime adapter lifecycle", () => {
               {
                 profile: null,
                 activeIntegrations: [],
-                confirmedFacts: [],
+                facts: [],
                 preferences: [],
                 people: [],
                 recentMemory: [],
@@ -269,6 +269,7 @@ describe("runtime adapter lifecycle", () => {
             message: "not the domain of one organization",
           } as const),
         checkInstruction: () => Promise.resolve(null),
+        instructionWordsAreTheUsers: () => Promise.resolve(true),
         listInstructions: () =>
           Promise.resolve({
             instructions: [],

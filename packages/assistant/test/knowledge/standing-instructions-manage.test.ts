@@ -9,7 +9,6 @@ import {
   SUPPRESSION_EFFECTS,
   standingInstructionValueSchema,
   getStringPath,
-  type MemorySource,
 } from "@alfred/contracts";
 import { closeConnections, db } from "@alfred/db";
 import { observations, user, userFacts } from "@alfred/db/schemas";
@@ -26,13 +25,12 @@ import { rememberSenderSuppression } from "../../src/knowledge/sender-suppressio
 // Internal constant, not in the `knowledge` barrel.
 import { STANDING_INSTRUCTION_LIST_LIMIT } from "@alfred/assistant/knowledge/standing-instructions";
 import { closeRedis } from "@alfred/db/redis";
+import { TEST_USER_CLAIM, TEST_USER_CLAIM_COLUMNS } from "../support/claims";
 import { dbBackedSkip } from "../support/db-backed";
 
 const SKIP = dbBackedSkip("database");
 
 const ID_PREFIX = "test-standing-manage-";
-
-const USER_MEMORY_SOURCE = { kind: "user" } satisfies MemorySource;
 
 const createdUserIds: string[] = [];
 
@@ -51,6 +49,7 @@ async function remember(userId: string, email: string, label: string): Promise<s
     userId,
     senderEmail: email,
     senderLabel: label,
+    provenance: TEST_USER_CLAIM,
   });
 
   assert.equal(result.ok, true);
@@ -126,7 +125,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
           value: instructionValue(`sender-${i}@example.com`, `Sender ${i}`),
           confidence: 1,
           status: "confirmed",
-          source: USER_MEMORY_SOURCE,
+          ...TEST_USER_CLAIM_COLUMNS,
           validFrom: new Date(Date.UTC(2026, 0, 1, 0, i)),
           validUntil: null,
         })),
@@ -207,6 +206,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const result = await editStandingInstruction({
       userId,
       factId,
+      provenance: TEST_USER_CLAIM,
       directive: "Quietly ignore the reframed sender.",
       senderLabel: "New Label",
     });
@@ -235,6 +235,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const edited = await editStandingInstruction({
       userId,
       factId,
+      provenance: TEST_USER_CLAIM,
       directive: "Use observed wording.",
     });
 
@@ -282,6 +283,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const first = await editStandingInstruction({
       userId,
       factId,
+      provenance: TEST_USER_CLAIM,
       directive: "Use this new wording.",
     });
 
@@ -293,6 +295,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
       await editStandingInstruction({
         userId,
         factId,
+        provenance: TEST_USER_CLAIM,
         directive: "This stale edit should not fork the chain.",
       }),
       { ok: false, status: "not_found" },
@@ -311,6 +314,7 @@ describe("standing instruction management (DB-backed)", { skip: SKIP }, () => {
     const result = await editStandingInstruction({
       userId,
       factId,
+      provenance: TEST_USER_CLAIM,
       directive: "   ",
       senderLabel: "Same Label",
     });

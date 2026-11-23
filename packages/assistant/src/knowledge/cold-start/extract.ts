@@ -23,6 +23,11 @@ export const coldStartProposalSchema = z.object({
   value: z.string().min(1).max(2_000),
   confidence: confidenceSchema,
   rationale: z.string().min(1).max(2_000),
+  /**
+   * The URLs from the run's citation list that state this claim, copied exactly. Code keeps only
+   * the URLs that are in that list (see {@link supportingPages}); a claim with none writes no row.
+   */
+  sourceUrls: z.array(z.string().min(1).max(2_000)).max(5),
 });
 
 export type ColdStartProposal = z.infer<typeof coldStartProposalSchema>;
@@ -44,6 +49,7 @@ const SYSTEM_PROMPT = `You convert free-form web research into structured facts 
 Rules:
 1. Be CONSERVATIVE. The research may have hedged ("tentative", "could not confirm") — respect those qualifiers and drop the proposal when the evidence is thin. False facts erode user trust.
 2. Cite evidence in 'rationale' — quote or paraphrase the specific clause from the research that grounds the fact.
+   In 'sourceUrls', copy exactly the URL(s) from the Citations list whose page states this fact. Use only URLs from that list. If no listed URL states the fact, do not emit the proposal.
 3. Use snake_case keys. Pick from this short canonical list when applicable; do not invent ad-hoc keys for things outside it:
    Identity:  'full_name', 'bio_summary' (one short paragraph, ≤500 chars)
    Work:      'employer', 'job_title', 'team', 'location',
@@ -64,7 +70,7 @@ Rules:
 6. 'value' must always be a single string. For paragraph-shaped keys ('bio_summary', 'family_summary', 'notable_relations'), keep it under 500 chars and self-contained — no inline citation markers, since the rationale carries those.
 7. If research couldn't confirm anyone matching the subject (or matched the wrong person), return an empty proposals array.
 
-Output a JSON object: { "proposals": [{ "key": "...", "value": "...", "confidence": 0.0–1.0, "rationale": "..." }, ...] }`;
+Output a JSON object: { "proposals": [{ "key": "...", "value": "...", "confidence": 0.0–1.0, "rationale": "...", "sourceUrls": ["..."] }, ...] }`;
 
 function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   const lines: string[] = [];
@@ -91,9 +97,25 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   return lines.join("\n");
 }
 
+/**
+ * The pages that support one claim (memory.md §5): each URL that the model named and that is in
+ * the run's citation list. The list is the run's own record of the pages it read, so a URL that the
+ * model wrote and the run never fetched is dropped. Citations are compared as stored (the merge
+ * dedupes exact strings), after a trim. Empty means no evidence, so the claim writes no row.
+ */
+export function supportingPages(
+  sourceUrls: readonly string[],
+  citations: readonly string[],
+): string[] {
+  const known = new Set(citations.map((url) => url.trim()));
+
+  return [...new Set(sourceUrls.map((url) => url.trim()))].filter((url) => known.has(url));
+}
+
+/** The proposals, with the model that answered (the claim producer, ADR-0123). */
 export async function extractColdStartFacts(
   args: ExtractColdStartFactsArgs,
-): Promise<ColdStartProposal[]> {
+): Promise<{ proposals: ColdStartProposal[]; model: string }> {
   const result = await meteredGenerateObject<z.infer<typeof extractColdStartResultSchema>>(
     {
       model: route("cheap").model(),
@@ -116,5 +138,5 @@ export async function extractColdStartFacts(
     },
   );
 
-  return result.output.proposals;
+  return { proposals: result.output.proposals, model: result.finalStep.response.modelId };
 }

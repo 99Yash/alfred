@@ -15,9 +15,9 @@ export { collectSkillLearnContext } from "./context";
 
 export type { SkillLearnContext } from "./context";
 
-export { distillResultSchema, distillSkill, skillProposalSchema } from "./distill";
+export { distillResultSchema, distillSkill } from "./distill";
 
-export type { DistillResult, DistillSkillArgs, DistillSkillResult, SkillProposal } from "./distill";
+export type { DistillResult, DistillSkillArgs, DistillSkillResult } from "./distill";
 
 export { learnSkillWorkflow } from "./learn-skill";
 

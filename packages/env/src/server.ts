@@ -292,6 +292,16 @@ export function nodeEnv(): ServerEnv["NODE_ENV"] {
   return result.success ? result.data : field.parse(undefined);
 }
 
+/**
+ * The deployed commit (ADR-0128): Railway's git-trigger commit, then the commit that the infra
+ * program wrote at deploy time. Null on a local run.
+ */
+export function deployedCommitSha(): string | null {
+  const env = serverEnv();
+
+  return env.RAILWAY_GIT_COMMIT_SHA || env.ALFRED_DEPLOYED_COMMIT_SHA || null;
+}
+
 /** Whether Alfred may change the Gmail mailbox. Unset means production only. */
 export function gmailMailboxWritesEnabled(): boolean {
   const env = serverEnv();

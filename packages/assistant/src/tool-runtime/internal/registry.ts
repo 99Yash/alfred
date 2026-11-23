@@ -134,6 +134,8 @@ export interface ToolExecuteContext {
   accountRef?: string | undefined;
   /** Set only on the staged path. The MCP broker keys its ledger row on it. */
   stagingId?: string;
+  /** The model that proposed the call (`ProposedToolCall.modelId`), when the caller knew it. */
+  modelId?: string | undefined;
   /**
    * Set only on the staged path. A `"safe"` tool whose provider has no idempotency key keeps the
    * handle of the object it made here, so a rerun of the same call finds that object.

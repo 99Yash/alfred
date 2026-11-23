@@ -476,13 +476,13 @@ Invariants: DB-enforced: one row per (credential, stream). Code-enforced: the cu
 
 | From                           | To                     | Trigger                             | Guard                                                             | Where                                                       |
 | ------------------------------ | ---------------------- | ----------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------- |
-| none                           | proposed, confirmed    | `proposeFact`                       | key lock; rejected-signature check; duplicate check               | `packages/assistant/src/knowledge/facts.ts`                 |
-| none                           | confirmed              | `createFact`                        | key lock                                                          | `packages/assistant/src/knowledge/facts.ts`                 |
-| proposed                       | confirmed              | `confirmFact`                       | key lock, re-read, CAS on proposed                                | `packages/assistant/src/knowledge/facts.ts`                 |
+| none                           | proposed, confirmed    | `proposeFact`                       | key lock; rejected-signature check (agent claim only); duplicate check | `packages/assistant/src/knowledge/facts.ts`            |
+| none                           | confirmed              | `createFact`                        | key lock; a confirmed row with the same value makes it a no-op     | `packages/assistant/src/knowledge/facts.ts`                 |
+| proposed                       | superseded             | a user claim of the same value (`createFact`, `proposeFact`) | key lock                                   | `packages/assistant/src/knowledge/facts.ts`                 |
+| proposed                       | confirmed              | `confirmFact`                       | key lock, re-read, CAS on proposed and on the `rowVersion` that the user saw | `packages/assistant/src/knowledge/facts.ts`      |
 | confirmed                      | superseded             | single-valued conflict              | key lock                                                          | `packages/assistant/src/knowledge/facts.ts`                 |
 | any                            | rejected               | `rejectFact`                        | none                                                              | `packages/assistant/src/knowledge/facts.ts`                 |
 | any                            | edited (new confirmed) | `editFact`                          | key lock; the old row is updated by id with no status guard       | `packages/assistant/src/knowledge/facts.ts`                 |
-| any                            | superseded             | `supersedeFact` (smoke script only) | none                                                              | `packages/assistant/src/knowledge/facts.ts`                 |
 | confirmed standing instruction | rejected, edited       | `forgetStandingInstruction`, edit   | capture lock, per-fact lock, CAS on confirmed, observation append | `packages/assistant/src/knowledge/standing-instructions.ts` |
 
 `projection_runs.status` (running, completed, failed) is well guarded. DB CHECKs pair status with the completion time and checksum, and (user, name, version) is unique. `startProjectionRun` reuses a running or failed run and refuses a completed one. The only production caller runs start, fold, and complete in one transaction, so a crash cannot leave a run stuck running.
@@ -1015,13 +1015,13 @@ Status: open (not yet verified independently)
 
 Status: open (not yet verified independently)
 
-### SM-39 A rejected fact can come back auto-confirmed
+### SM-39 A rejected fact can come back as a proposal
 
 - Severity: low
 - Confidence: speculative
 - Machine: `user_facts.status`
-- Interleaving: `rejectFact` takes no key lock. `proposeFact` runs its rejected check and its duplicate check as two separate statements. A reject that commits between them lets the extractor insert the rejected value again, auto-confirmed at high confidence.
-- Impact: the user sees a toast for a fact they just rejected.
+- Interleaving: `rejectFact` takes no key lock. `proposeFact` runs its rejected check and its duplicate check as two separate statements. A reject that commits between them lets the extractor insert the rejected value again, as `proposed` (ADR-0123: only the user confirms an agent claim).
+- Impact: the user sees again a proposal they just rejected.
 
 Status: open (not yet verified independently)
 

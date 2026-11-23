@@ -1,5 +1,6 @@
 import {
   parseEmailAddress,
+  REPLY_GATHERED_OBJECT_SUPPORT,
   replyDraftMessageSchema,
   type ReplyDraftGatheredObject,
   type ReplyDraftMessage,
@@ -115,8 +116,14 @@ export function verifyReplyCandidate(
     if (canonical && !participants.has(canonical)) return block("recipient_not_in_thread", raw);
   }
 
+  // An unconfirmed claim alone does not support a factual statement: a confirmed claim or a raw
+  // source must support it (memory.md §9 Q6).
   for (const claim of candidate.claims) {
-    if (!claim.source || claim.source.status !== "resolved") {
+    if (
+      !claim.source ||
+      claim.source.status !== "resolved" ||
+      REPLY_GATHERED_OBJECT_SUPPORT[claim.source.kind] !== "strong"
+    ) {
       return block("unsupported_claim", claim.text);
     }
   }

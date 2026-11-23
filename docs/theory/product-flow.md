@@ -17,7 +17,7 @@ Last verified: 2026-10-20 at `fd13e6427`. A section or a part that names a diffe
 - Sign-in does not start research. The Google _integration_ connect starts it (`http/src/connections/google-routes.ts:273-314`, then `publishGoogleCallbackCompleted`). This flow is separate from the Better Auth Google sign-in.
 - The research is web-only. The inputs are the user name, the email address and its domain, and the credential label. Alfred does not read the mailbox or the calendar for this step. The search engine is grounded Gemini web search (`assistant/src/knowledge/web-search.ts:102`).
 - Steps: gather-signals → seed → research-aspects → synthesis → extract-facts → persist (`assistant/src/knowledge/cold-start/cold-start-research.ts`).
-- Writes: `user_facts` proposals (`source.kind='cold_start'`, auto-confirmed at confidence ≥ 0.85) and one `memory_chunks` row (`kind='cold_start_research'`).
+- Writes: `user_facts` agent claims (`producer.pipeline='cold-start'`, `proposed` until the user confirms them, ADR-0123) that cite the pages of the run, and one `memory_chunks` row (`kind='cold_start_research'`).
 - The run occurs one time for each user. `dedupKey: () => 'cold-start'` and `agent_runs_dedup_key_idx` block a second run.
 
 **Where mail reaches memory instead.** The `memory-extraction` cron (03:00 daily, last 7 days, max 20 documents) and the 8-message `gmail.ingest_recent` triage that the Google connect also starts.

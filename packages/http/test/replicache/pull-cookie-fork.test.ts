@@ -89,7 +89,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: { order: STALE_ORDER, clientGroupID: oldGroup },
     });
 
-    assert.ok(!("forbidden" in result), "pull should be authorized for the owning user");
+    assert.ok("cookie" in result, "pull should be authorized for the owning user");
     assert.equal(result.cookie.clientGroupID, newGroup);
     assert.ok(
       result.cookie.order > STALE_ORDER,
@@ -119,7 +119,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: null,
     });
 
-    assert.ok(!("forbidden" in first));
+    assert.ok("cookie" in first);
 
     // Same cookie and no changes must return the same order, never a lower one.
     const second = await handlePull(userId, {
@@ -128,7 +128,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: first.cookie,
     });
 
-    assert.ok(!("forbidden" in second));
+    assert.ok("cookie" in second);
     assert.ok(second.cookie.order >= first.cookie.order);
   });
 
@@ -142,7 +142,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: { order: Number.MAX_SAFE_INTEGER, clientGroupID: group },
     });
 
-    assert.ok(!("forbidden" in result));
+    assert.ok("cookie" in result);
     assert.equal(result.patch[0]?.op, "clear");
     assert.equal(result.cookie.clientGroupID, group);
     assert.equal(result.cookie.order, 1);
@@ -175,7 +175,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: { order, clientGroupID: group },
     });
 
-    assert.ok(!("forbidden" in result));
+    assert.ok("cookie" in result);
     assert.equal(result.patch[0]?.op, "clear");
     assert.equal(result.cookie.order, order + 1);
   });
@@ -200,7 +200,7 @@ describe("handlePull cookie monotonicity across client-group forks (#337)", { sk
       cookie: { order, clientGroupID: group },
     });
 
-    assert.ok(!("forbidden" in result));
+    assert.ok("cookie" in result);
     assert.equal(
       result.patch.some((operation) => operation.op === "clear"),
       false,
