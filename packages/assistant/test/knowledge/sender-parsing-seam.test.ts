@@ -86,20 +86,23 @@ describe("[campaign-04 seam] authoredByGmail — SENT-flag authorship via isSent
 
 describe("[campaign-04 seam] authoredByGmail — From-header normalization via extractSenderContext", () => {
   test("normalizes an angle-bracketed, mixed-case From to lowercase local@domain", () => {
-    // "Yash Gouravkar <YASH@Gmail.com>" → "yash@gmail.com", matching acc_personal.
+    // "Yash Gouravkar <YASH@Gmail.com>" → "yash@gmail.com", the self address of acc_personal.
+    // A From that names the user is not authorship without SENT (#1889).
     const r = authoredByUser(
       gmailDoc({ from: "Yash Gouravkar <YASH@Gmail.com>" }, "acc_personal"),
       self,
     );
 
-    assert.equal(r.authoredByUser, true);
-    assert.equal(r.proof.fromEmail, "yash@gmail.com");
+    assert.equal(r.authoredByUser, false);
+    assert.equal(r.reason, "not_sent");
+    assert.equal(r.observed?.kind === "email" && r.observed.value, "yash@gmail.com");
   });
 
   test("normalizes a bare (no angle brackets), upper-case From the same way", () => {
     const r = authoredByUser(gmailDoc({ from: "YASH@GMAIL.COM" }, "acc_personal"), self);
-    assert.equal(r.authoredByUser, true);
-    assert.equal(r.proof.fromEmail, "yash@gmail.com");
+    assert.equal(r.authoredByUser, false);
+    assert.equal(r.reason, "not_sent");
+    assert.equal(r.observed?.kind === "email" && r.observed.value, "yash@gmail.com");
   });
 
   test("QUIRK: a Gmail +tag is NOT stripped — 'yash+work@gmail.com' ≠ self 'yash@gmail.com'", () => {
