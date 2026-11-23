@@ -34,19 +34,11 @@ UPDATE "user_facts" SET
 UPDATE "user_facts" f SET "evidence" = jsonb_build_array(jsonb_build_object('kind', 'document', 'id', d."id"))
 FROM "documents" d
 WHERE f."source"->>'kind' = 'document' AND d."id" = f."source"->>'id' AND d."user_id" = f."user_id";--> statement-breakpoint
--- A chat instruction: the user turn that started the run. User turns before 2026-11 carry no run id,
--- so the turn is the newest user message at or before the run start, at most 5 minutes before it.
+-- A chat instruction: the user turn that started the run. The chat-turn run names it in
+-- "metadata"->>'userMessageId' (the user row has no run id).
 UPDATE "user_facts" f SET "evidence" = jsonb_build_array(jsonb_build_object('kind', 'chat_message', 'id', m."id"))
 FROM "agent_runs" r
-JOIN LATERAL (
-  SELECT cm."id" FROM "chat_messages" cm
-  WHERE cm."user_id" = r."user_id"
-    AND cm."role" = 'user'
-    AND cm."created_at" <= r."created_at" + interval '1 second'
-    AND cm."created_at" >= r."created_at" - interval '5 minutes'
-  ORDER BY cm."created_at" DESC
-  LIMIT 1
-) m ON true
+JOIN "chat_messages" m ON m."id" = r."metadata"->>'userMessageId' AND m."user_id" = r."user_id" AND m."role" = 'user'
 WHERE f."source"->>'kind' = 'tool_call'
   AND f."key" = 'standing_instruction'
   AND r."id" = f."source"->'meta'->>'runId'
@@ -81,12 +73,13 @@ UPDATE "user_facts" f SET "valid_from" = (
 WHERE f."evidence"->0->>'kind' = 'chat_message';--> statement-breakpoint
 UPDATE "user_facts" SET "valid_from" = NULL
 WHERE NOT ("evidence"->0->>'kind' = 'chat_message') OR jsonb_array_length("evidence") = 0;--> statement-breakpoint
--- No evidence found: retire the row. Its value stays in the history.
+-- An active row with no evidence: retire it. Its value stays in the history. A row that is
+-- already out of the history (rejected, edited, superseded) keeps its status.
 UPDATE "user_facts" SET
   "status" = 'retired',
   "valid_until" = coalesce("valid_until", now()),
   "row_version" = "row_version" + 1
-WHERE jsonb_array_length("evidence") = 0;--> statement-breakpoint
+WHERE jsonb_array_length("evidence") = 0 AND "status" IN ('proposed', 'confirmed');--> statement-breakpoint
 -- The 0.85 auto-confirm is gone: an agent claim is confirmed only by the user (memory.md §9 Q6).
 UPDATE "user_facts" SET
   "status" = 'proposed',
@@ -96,6 +89,7 @@ ALTER TABLE "user_facts" ALTER COLUMN "author" SET NOT NULL;--> statement-breakp
 ALTER TABLE "user_facts" ALTER COLUMN "evidence" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "user_facts" ALTER COLUMN "producer" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_author_valid" CHECK ("user_facts"."author" IN ('agent', 'user'));--> statement-breakpoint
-ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_evidence_shape" CHECK (jsonb_typeof("user_facts"."evidence") = 'array' AND ("user_facts"."status" = 'retired' OR jsonb_array_length("user_facts"."evidence") > 0));--> statement-breakpoint
+ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_evidence_shape" CHECK (jsonb_typeof("user_facts"."evidence") = 'array' AND ("user_facts"."status" NOT IN ('proposed', 'confirmed') OR jsonb_array_length("user_facts"."evidence") > 0));--> statement-breakpoint
+ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_user_claim_cites_user" CHECK ("user_facts"."author" <> 'user' OR "user_facts"."status" NOT IN ('proposed', 'confirmed') OR "user_facts"."evidence" @> '[{"kind":"chat_message"}]'::jsonb OR "user_facts"."evidence" @> '[{"kind":"user_edit"}]'::jsonb);--> statement-breakpoint
 ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_confirmed_by_user" CHECK ("user_facts"."status" <> 'confirmed' OR "user_facts"."author" = 'user' OR "user_facts"."evidence" @> '[{"kind":"user_edit","action":"confirm"}]'::jsonb);--> statement-breakpoint
 ALTER TABLE "user_facts" ADD CONSTRAINT "user_facts_producer_shape" CHECK (jsonb_typeof("user_facts"."producer") = 'object' AND "user_facts"."producer" ? 'pipeline');

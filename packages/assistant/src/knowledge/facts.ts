@@ -4,13 +4,14 @@ import {
   claimEvidenceListSchema,
   claimProducerSchema,
   clamp01,
+  memoryPageEdit,
   toDisplayText,
   type ClaimAuthor,
   type ClaimEvidence,
   type ClaimProducer,
   type ClaimProvenance,
 } from "@alfred/contracts";
-import { serverEnv } from "@alfred/env/server";
+import { deployedCommitSha } from "@alfred/env/server";
 import { createExecuteRowSchema, db, rowsFromExecute, type DbTransaction } from "@alfred/db";
 import {
   rejectedInferences,
@@ -70,19 +71,26 @@ export function claimProducer(args: {
   runId?: string | null | undefined;
   model?: string | null | undefined;
 }): ClaimProducer {
-  const env = serverEnv();
-
   return {
     pipeline: args.pipeline,
     runId: args.runId ?? null,
-    commit: env.RAILWAY_GIT_COMMIT_SHA || env.ALFRED_DEPLOYED_COMMIT_SHA || null,
+    commit: deployedCommitSha(),
     model: args.model ?? null,
   };
 }
 
-/** The user's own act on the memory page, now. */
-function memoryPageEdit(action: "create" | "edit" | "confirm", at: Date) {
-  return { kind: "user_edit", surface: "memory_page", action, at: at.toISOString() } as const;
+/**
+ * The `user_facts` claim columns of one write. Each writer inserts through it, so the evidence and
+ * the producer are parsed at the write boundary, not only checked by the loose DB CHECKs.
+ */
+export function claimColumns(
+  provenance: ClaimProvenance,
+): Pick<NewUserFact, "author" | "evidence" | "producer"> {
+  return {
+    author: claimAuthorSchema.parse(provenance.author),
+    evidence: claimEvidenceListSchema.min(1).parse(provenance.evidence),
+    producer: claimProducerSchema.parse(provenance.producer),
+  };
 }
 
 const MEMORY_PAGE_PRODUCER = { pipeline: "memory-page" } as const;
@@ -374,9 +382,7 @@ export async function proposeFact(args: ProposeFactArgs): Promise<FactRow | null
         value: parsed.value,
         confidence: parsed.confidence,
         status,
-        author,
-        evidence: [...evidence],
-        producer,
+        ...claimColumns(args),
         validFrom: parsed.validFrom ?? null,
         validUntil: parsed.validUntil ?? null,
         supersedesId: conflictRows[0]?.id ?? null,
@@ -449,7 +455,7 @@ export async function createFact(args: CreateFactArgs & FactExec): Promise<FactR
         confidence: 1,
         status: "confirmed",
         author: "user",
-        evidence: [memoryPageEdit("create", now)],
+        evidence: [memoryPageEdit("create", now.toISOString())],
         producer: claimProducer(MEMORY_PAGE_PRODUCER),
         validFrom: null,
         validUntil: null,
@@ -523,7 +529,10 @@ export async function confirmFact({
       .update(userFacts)
       .set({
         key,
-        evidence: [...claimEvidenceListSchema.parse(old.evidence), memoryPageEdit("confirm", now)],
+        evidence: [
+          ...claimEvidenceListSchema.parse(old.evidence),
+          memoryPageEdit("confirm", now.toISOString()),
+        ],
         status: "confirmed",
         supersedesId: conflicts[0]?.id ?? old.supersedesId,
         rowVersion: sql`${userFacts.rowVersion} + 1`,
@@ -638,7 +647,7 @@ export async function editFact(args: EditFactArgs & FactExec): Promise<FactRow |
         confidence: 1,
         status: "confirmed",
         author: "user",
-        evidence: [memoryPageEdit("edit", now)],
+        evidence: [memoryPageEdit("edit", now.toISOString())],
         producer: claimProducer(MEMORY_PAGE_PRODUCER),
         validFrom: null,
         validUntil: null,
@@ -685,9 +694,7 @@ export async function supersedeFact(args: SupersedeFactArgs): Promise<FactRow | 
         value: parsed.newValue,
         confidence: parsed.confidence,
         status,
-        author: args.author,
-        evidence: [...args.evidence],
-        producer: args.producer,
+        ...claimColumns(args),
         validFrom: null,
         validUntil: null,
         supersedesId: old.id,

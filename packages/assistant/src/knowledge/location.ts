@@ -242,7 +242,7 @@ async function readPlaceFacts(userId: string): Promise<GeocodeQuery[]> {
 
 /**
  * The newest confirmed row, as text inside `PLACE_TEXT_MAX`. A confirmed claim is the user's own
- * word or carries the user's confirm (ADR-0123), so the place is one that the user stated.
+ * word, or an agent claim that the user confirmed (ADR-0123).
  */
 function statedFactText(userId: string, key: string, rows: readonly FactRow[]): string | null {
   const text = factTextSchema.safeParse(rows[0]?.value);

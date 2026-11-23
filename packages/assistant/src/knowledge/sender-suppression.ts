@@ -37,6 +37,7 @@ import { userFacts } from "@alfred/db/schemas";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
+import { claimColumns } from "./facts";
 import { insertObservation } from "./observations";
 
 /** A stored v1 row, for the v1 writer and `edit_instruction`. Both leave with plan PR 5. */
@@ -433,9 +434,7 @@ export async function rememberSenderSuppression(
         value: instruction,
         confidence: 1,
         status: "confirmed",
-        author: args.provenance.author,
-        evidence: [...args.provenance.evidence],
-        producer: args.provenance.producer,
+        ...claimColumns(args.provenance),
         validFrom: new Date(),
         validUntil: null,
       })

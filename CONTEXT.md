@@ -310,7 +310,7 @@ _Avoid_: deepen, second pass, escalation call
 
 **Knowledge kind.** The taxonomy spine memory is organized by (not by table): _identity_, _standing instructions_ (first-class), _people & relationships_ (the team graph), _episodic facts_, _style_, _episodic memory_. Each has its own capture source + lifecycle; **lifecycle is per-kind — there is no global TTL.** ADR-0056.
 
-**Criticality tier.** Drives notification, not gating. _Critical_ (identity change, key-relationship change, superseding a ≥0.85 fact, retracting a confirmed fact) → email on a **~5-min debounce, batched** (reuses the approval-debounce). _Subtle_ (new low-stakes/low-confidence facts, additive aliases) → **digest flushed on count-threshold OR weekly, whichever first**. In-app is real-time Replicache, **one-by-one** (`user_facts.row_version`). ADR-0056.
+**Criticality tier.** Drives notification, not gating. _Critical_ (identity change, key-relationship change, superseding a confirmed fact, retracting a confirmed fact) → email on a **~5-min debounce, batched** (reuses the approval-debounce). _Subtle_ (new low-stakes/low-confidence facts, additive aliases) → **digest flushed on count-threshold OR weekly, whichever first**. In-app is real-time Replicache, **one-by-one** (`user_facts.row_version`). ADR-0056.
 
 **Rejection cause (designed, not built).** New field on the rejection record: `cause ∈ {user, write_time_contradiction, decay, superseded_by_newer}` alongside the freeform `reason`. Separates _user corrections_ (high-value training signal) from _system self-corrections_. ADR-0056.
 

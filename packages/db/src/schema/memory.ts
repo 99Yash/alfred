@@ -47,8 +47,8 @@ function memorySourceShapeCheck(source: AnyPgColumn) {
  * The row is the authority for the statement and cites its evidence in the raw record.
  *
  * Status: proposed (not confirmed by the user), confirmed, rejected, edited, superseded, retired.
- * A user edit marks the old row `edited`; a replacement marks it `superseded`. `retired` is a row
- * with no evidence that a check can read again. The current value is the active row whose
+ * A user edit marks the old row `edited`; a replacement marks it `superseded`. `retired` is an
+ * active row that had no evidence that a check can read again. The current value is the active row whose
  * `valid_until` is null or in the future.
  */
 export const userFacts = pgTable(
@@ -85,9 +85,15 @@ export const userFacts = pgTable(
     index("user_facts_status_idx").on(t.userId, t.status, t.updatedAt),
     index("user_facts_supersedes_idx").on(t.supersedesId),
     check("user_facts_author_valid", sql`${t.author} IN (${inList(CLAIM_AUTHORS)})`),
+    // An active claim always cites evidence. A row out of the history may have none (ADR-0123).
     check(
       "user_facts_evidence_shape",
-      sql`jsonb_typeof(${t.evidence}) = 'array' AND (${t.status} = 'retired' OR jsonb_array_length(${t.evidence}) > 0)`,
+      sql`jsonb_typeof(${t.evidence}) = 'array' AND (${t.status} NOT IN ('proposed', 'confirmed') OR jsonb_array_length(${t.evidence}) > 0)`,
+    ),
+    // An active user claim cites what only the user gives: a chat turn or the user's own edit.
+    check(
+      "user_facts_user_claim_cites_user",
+      sql`${t.author} <> 'user' OR ${t.status} NOT IN ('proposed', 'confirmed') OR ${t.evidence} @> '[{"kind":"chat_message"}]'::jsonb OR ${t.evidence} @> '[{"kind":"user_edit"}]'::jsonb`,
     ),
     // Only the user confirms: a confirmed row is the user's own claim, or carries the user's confirm.
     check(

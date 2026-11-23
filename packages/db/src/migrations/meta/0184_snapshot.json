@@ -8458,7 +8458,11 @@
         },
         "user_facts_evidence_shape": {
           "name": "user_facts_evidence_shape",
-          "value": "jsonb_typeof(\"user_facts\".\"evidence\") = 'array' AND (\"user_facts\".\"status\" = 'retired' OR jsonb_array_length(\"user_facts\".\"evidence\") > 0)"
+          "value": "jsonb_typeof(\"user_facts\".\"evidence\") = 'array' AND (\"user_facts\".\"status\" NOT IN ('proposed', 'confirmed') OR jsonb_array_length(\"user_facts\".\"evidence\") > 0)"
+        },
+        "user_facts_user_claim_cites_user": {
+          "name": "user_facts_user_claim_cites_user",
+          "value": "\"user_facts\".\"author\" <> 'user' OR \"user_facts\".\"status\" NOT IN ('proposed', 'confirmed') OR \"user_facts\".\"evidence\" @> '[{\"kind\":\"chat_message\"}]'::jsonb OR \"user_facts\".\"evidence\" @> '[{\"kind\":\"user_edit\"}]'::jsonb"
         },
         "user_facts_confirmed_by_user": {
           "name": "user_facts_confirmed_by_user",

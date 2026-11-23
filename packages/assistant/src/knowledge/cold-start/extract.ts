@@ -91,9 +91,10 @@ function buildUserPrompt(args: ExtractColdStartFactsArgs): string {
   return lines.join("\n");
 }
 
+/** The proposals, with the model that answered (the claim producer, ADR-0123). */
 export async function extractColdStartFacts(
   args: ExtractColdStartFactsArgs,
-): Promise<ColdStartProposal[]> {
+): Promise<{ proposals: ColdStartProposal[]; model: string }> {
   const result = await meteredGenerateObject<z.infer<typeof extractColdStartResultSchema>>(
     {
       model: route("cheap").model(),
@@ -116,5 +117,5 @@ export async function extractColdStartFacts(
     },
   );
 
-  return result.output.proposals;
+  return { proposals: result.output.proposals, model: result.finalStep.response.modelId };
 }

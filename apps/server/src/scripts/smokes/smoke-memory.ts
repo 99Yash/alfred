@@ -78,7 +78,7 @@ async function main() {
     key: managerKey,
     value: { name: "Alice Doe", email: "alice@example.com" },
     confidence: 0.6,
-    ...agentClaim("doc_test_001"),
+    ...agentClaim("obs_test_001"),
   });
 
   assert(proposed, "proposeFact returned null on a fresh key");
@@ -91,7 +91,7 @@ async function main() {
     key: companyKey,
     value: "Acme Corp",
     confidence: 0.99,
-    ...agentClaim("doc_test_002"),
+    ...agentClaim("obs_test_002"),
   });
 
   assert(highConfidence, "proposeFact returned null");
@@ -111,7 +111,7 @@ async function main() {
     userId,
     newValue: { name: "Alice Doe", email: "alice.doe@example.com" },
     confidence: 0.9,
-    ...agentClaim("doc_test_003"),
+    ...agentClaim("obs_test_003"),
   });
 
   assert(superseded, "supersedeFact returned null");
@@ -150,7 +150,7 @@ async function main() {
     key: rejectedKey,
     value: "Wrong Company",
     confidence: 0.7,
-    ...agentClaim("doc_test_004"),
+    ...agentClaim("obs_test_004"),
   });
 
   assert(toReject, "proposeFact returned null on fresh key");
@@ -174,7 +174,7 @@ async function main() {
     key: rejectedKey,
     value: "Wrong Company",
     confidence: 0.95,
-    ...agentClaim("doc_test_005"),
+    ...agentClaim("obs_test_005"),
   });
 
   assert(reprop === null, `extraction guard should return null, got ${JSON.stringify(reprop)}`);

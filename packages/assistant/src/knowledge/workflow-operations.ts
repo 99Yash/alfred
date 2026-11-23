@@ -138,19 +138,21 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
     }
 
     let proposals: FactProposal[];
+    // Manual proposals come from no model.
+    let model: string | null = null;
 
     if (ctx.state.mode === "manual") {
       proposals = ctx.state.manualProposals?.[docId] ?? [];
     } else {
       try {
-        proposals = await extractFactsFromDocument({
+        ({ proposals, model } = await extractFactsFromDocument({
           userId: ctx.userId,
           document: doc,
           existingFacts: existingForPrompt,
           runId: ctx.runId,
           stepId: "process",
           idempotencyKey: `${ctx.idempotencyKey}:${docId}`,
-        });
+        }));
       } catch (err) {
         await ctx.log(`extract failed for doc=${docId}: ${toMessage(err)}`);
         // Count it: a swallowed throw made a broken extractor look empty (#1109).
@@ -208,7 +210,7 @@ export async function runMemoryProcess<State extends MemoryExtractionOperationSt
         confidence: p.confidence,
         author: "agent",
         evidence: [{ kind: "document", id: doc.id }],
-        producer: claimProducer({ pipeline: "memory-extraction", runId: ctx.runId }),
+        producer: claimProducer({ pipeline: "memory-extraction", runId: ctx.runId, model }),
       });
 
       if (result) docProposed++;

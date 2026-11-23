@@ -39,6 +39,7 @@ import {
   type CaptureClock,
 } from "./sender-suppression";
 import { instructionKeyOf } from "./instructions-in-words";
+import { claimColumns } from "./facts";
 import { valueSignature } from "./signature";
 
 export const STANDING_INSTRUCTION_LIST_LIMIT = 100;
@@ -571,9 +572,7 @@ export async function saveStandingInstruction(args: {
             value: stored.value,
             confidence: 1,
             status: "confirmed",
-            author: args.provenance.author,
-            evidence: [...args.provenance.evidence],
-            producer: args.provenance.producer,
+            ...claimColumns(args.provenance),
             validFrom: sql`${at}::timestamptz`,
             validUntil: null,
             supersedesId: previous?.factId ?? null,
@@ -1235,9 +1234,7 @@ async function supersedeStandingInstruction(
       value: args.nextValue,
       confidence: 1,
       status: "confirmed",
-      author: args.provenance.author,
-      evidence: [...args.provenance.evidence],
-      producer: args.provenance.producer,
+      ...claimColumns(args.provenance),
       validFrom: sql`${args.at}::timestamptz`,
       validUntil: null,
       supersedesId: args.factId,

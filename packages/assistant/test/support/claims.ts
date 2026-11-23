@@ -1,4 +1,5 @@
 import type { UserClaimProvenance } from "@alfred/contracts";
+import { claimColumns } from "../../src/knowledge/facts";
 
 /**
  * The provenance of a user claim in a DB-backed test: a chat turn that the test does not store.
@@ -11,8 +12,4 @@ export const TEST_USER_CLAIM: UserClaimProvenance = {
 };
 
 /** The same provenance as `user_facts` insert columns. */
-export const TEST_USER_CLAIM_COLUMNS = {
-  author: TEST_USER_CLAIM.author,
-  evidence: [...TEST_USER_CLAIM.evidence],
-  producer: TEST_USER_CLAIM.producer,
-};
+export const TEST_USER_CLAIM_COLUMNS = claimColumns(TEST_USER_CLAIM);

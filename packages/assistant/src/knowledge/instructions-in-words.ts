@@ -1,7 +1,6 @@
 import {
   claimProducerSchema,
   collapseWhitespace,
-  isNonEmptyString,
   readStoredStandingInstruction,
   type IanaTimezone,
   type StandingInstructionValueV2,
@@ -45,7 +44,12 @@ export interface InstructionRow {
   value: StandingInstructionValueV2;
   /** When the user said it (see {@link instructionSaidAt}). */
   validFrom: Date;
-  /** The run that wrote the row (`producer.runId`). Null: the capture is unknown, so the row is a copy. */
+  /**
+   * The chat run that wrote the row (`producer.runId`). Each chat save writes it, also the v1 saves
+   * of 2026-09. One run is one capture: one sentence that capture stored as many sender rows. Null
+   * for a row with no run, for example the backfill of issue #1229 (2026-10-16), which copied rows
+   * that already existed: the row is a copy.
+   */
   producerRunId: string | null;
 }
 
@@ -85,16 +89,6 @@ export function instructionKeyOf(value: StandingInstructionValueV2): string | nu
 }
 
 /**
- * The chat run that wrote the row, from `producer.runId`. Each chat save writes it, also the
- * v1 saves of 2026-09. One run is one capture: one sentence that capture stored as many sender
- * rows. Null for a row with no run, for example the backfill of issue #1229 (2026-10-16), which
- * copied rows that already existed.
- */
-function captureOf(row: InstructionRow): string | null {
-  return isNonEmptyString(row.producerRunId) ? row.producerRunId : null;
-}
-
-/**
  * One entry for each different text and mailbox bound, oldest first. The text is the user's
  * `phrasing`, or the `directive` when the phrasing is empty. Rows with the same text (whitespace
  * and case ignored) and the same bound are one instruction. The same words with a different
@@ -123,7 +117,7 @@ export function instructionsInWordsOf(
     if (key === null) continue;
 
     const accountId = mailboxBoundOf(row.value);
-    const capture = captureOf(row);
+    const capture = row.producerRunId;
     const seen = byKey.get(key);
 
     if (!seen) {

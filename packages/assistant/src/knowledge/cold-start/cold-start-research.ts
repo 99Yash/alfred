@@ -4,7 +4,7 @@ import type { Workflow } from "@alfred/assistant/execution";
 import { writeMemoryChunk } from "../chunks";
 import { claimProducer, proposeFact } from "../facts";
 import { researchAspects, type AspectFinding } from "./aspects";
-import { extractColdStartFacts, type ColdStartProposal } from "./extract";
+import { extractColdStartFacts } from "./extract";
 import { resolveIdentity, type IdentityAnchor } from "./seed";
 import { collectColdStartSignals, type ColdStartSignals } from "./signals";
 import { synthesizeColdStart, type ResearchResult } from "./synthesis";
@@ -70,6 +70,8 @@ const stateSchema = z.object({
       }),
     )
     .optional(),
+  /** The model that wrote the proposals. Absent on a run that started before ADR-0123. */
+  extractModel: z.string().optional(),
 });
 
 type State = z.infer<typeof stateSchema>;
@@ -206,7 +208,7 @@ export const coldStartResearchWorkflow: Workflow<
           throw new Error("[cold-start] extract-facts entered without signals/research");
         }
 
-        const proposals: ColdStartProposal[] = await extractColdStartFacts({
+        const { proposals, model } = await extractColdStartFacts({
           signals: ctx.state.signals,
           research: {
             content: ctx.state.research.content,
@@ -221,7 +223,7 @@ export const coldStartResearchWorkflow: Workflow<
 
         return {
           kind: "next",
-          state: { ...ctx.state, proposals },
+          state: { ...ctx.state, proposals, extractModel: model },
           nextStep: "persist",
         };
       },
@@ -252,7 +254,11 @@ export const coldStartResearchWorkflow: Workflow<
               confidence: p.confidence,
               author: "agent",
               evidence: [firstPage, ...otherPages],
-              producer: claimProducer({ pipeline: "cold-start", runId: ctx.runId }),
+              producer: claimProducer({
+                pipeline: "cold-start",
+                runId: ctx.runId,
+                model: ctx.state.extractModel,
+              }),
             });
 
             if (fact) inserted++;

@@ -1,3 +1,4 @@
+import { memoryPageEdit } from "@alfred/contracts";
 import type { WriteTransaction } from "replicache";
 import { z } from "zod";
 import { SYNC_MODEL } from "../sync-model";
@@ -46,11 +47,6 @@ async function readFact(tx: WriteTransaction, factId: string): Promise<SyncedFac
 
 async function writeFact(tx: WriteTransaction, fact: SyncedFact): Promise<void> {
   await SYNC_MODEL.fact.put(tx, fact);
-}
-
-/** The user's own act on the memory page, as `knowledge/facts.ts` records it. */
-function memoryPageEdit(action: "create" | "edit" | "confirm", at: string) {
-  return { kind: "user_edit", surface: "memory_page", action, at } as const;
 }
 
 /** A claim the user states directly, so it is `confirmed` with confidence 1. Idempotent on id. */

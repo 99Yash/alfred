@@ -24,6 +24,8 @@ export type ClaimAuthor = z.infer<typeof claimAuthorSchema>;
 /** The user's own act on a surface. `confirm` keeps the author of the claim; `create` and `edit` make a user claim. */
 export const USER_EDIT_ACTIONS = ["create", "edit", "confirm"] as const;
 
+export type UserEditAction = (typeof USER_EDIT_ACTIONS)[number];
+
 const chatMessageEvidenceSchema = z.object({
   kind: z.literal("chat_message"),
   /** A `chat_messages.id` of a user turn. */
@@ -63,6 +65,16 @@ export const userClaimEvidenceSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type UserClaimEvidence = z.infer<typeof userClaimEvidenceSchema>;
+
+/** The user's own act on the memory page. `at` is an ISO time. The server and the sync client share it. */
+export function memoryPageEdit(action: UserEditAction, at: string) {
+  return {
+    kind: "user_edit",
+    surface: "memory_page",
+    action,
+    at,
+  } as const satisfies UserClaimEvidence;
+}
 
 /** One link from a claim to an item in the raw record. */
 export const claimEvidenceSchema = z.discriminatedUnion("kind", [
