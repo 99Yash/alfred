@@ -16,7 +16,7 @@ export function DeleteThreadDialog({
       {target ? (
         <DialogContent
           title="Delete chat?"
-          description={`“${target.title}” and its messages will be permanently removed. This can’t be undone.`}
+          description={`“${target.title}” leaves your chat list. Alfred still remembers what you talked about.`}
           // `themed` carries the theme through the portal; without it the panel stays dark.
           themed
           className="max-w-sm"

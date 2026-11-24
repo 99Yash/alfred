@@ -6,7 +6,7 @@ import type {
   ChatMessageUsage,
   ScriptSources,
 } from "@alfred/contracts";
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import {
   boolean,
   check,
@@ -66,6 +66,14 @@ export interface ChatMessageNarration {
   text: string;
 }
 
+/**
+ * The one "the user has not deleted this thread" predicate (journal.md section 3), shared by the
+ * live-thread index and each query that reads or writes only live threads.
+ */
+export function chatThreadIsLive(deletedAt: SQLWrapper): SQL {
+  return sql`${deletedAt} IS NULL`;
+}
+
 export const chatThreads = pgTable(
   "chat_threads",
   {
@@ -99,7 +107,7 @@ export const chatThreads = pgTable(
     // The thread list reads live threads only.
     index("chat_threads_user_last_idx")
       .on(t.userId, t.lastMessageAt)
-      .where(sql`${t.deletedAt} IS NULL`),
+      .where(chatThreadIsLive(t.deletedAt)),
   ],
 );
 

@@ -150,7 +150,7 @@ export async function chatThreadSetApprovalModeClient(
   }
 }
 
-/** Hide a thread with its messages and their attachments. The server keeps them (a soft delete). */
+/** Hide a thread with its messages, their attachments, and its artifacts. The server keeps them. */
 export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,
@@ -172,6 +172,10 @@ export async function chatThreadDeleteClient(
     if (deletedMessageIds.has(attachment.messageId)) {
       await SYNC_MODEL.chatatt.del(tx, { id: attachment.id });
     }
+  }
+
+  for (const artifact of await SYNC_MODEL.artifact.scan(tx)) {
+    if (artifact.threadId === args.id) await SYNC_MODEL.artifact.del(tx, { id: artifact.id });
   }
 }
 

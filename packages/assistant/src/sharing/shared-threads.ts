@@ -17,12 +17,13 @@ import {
   artifacts,
   chatAttachments,
   chatMessages,
+  chatThreadIsLive,
   chatThreads,
   sharedThreads,
 } from "@alfred/db/schemas";
 import type { Artifact, ChatMessage, SharedThread } from "@alfred/db/schemas";
 import { randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 
 /**
  * Publish a chat thread to a public, read-only URL (ADR-0102).
@@ -35,8 +36,12 @@ const MAX_SNAPSHOT_MESSAGES = 500;
 const MAX_SNAPSHOT_BYTES = 2_000_000;
 
 /** The owner's thread, if it is not deleted. A deleted thread cannot publish (journal.md section 3). */
-const liveOwnedThread = (userId: string, threadId: string) =>
-  and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId), isNull(chatThreads.deletedAt));
+const ownedLiveThread = (threadId: string, userId: string) =>
+  and(
+    eq(chatThreads.id, threadId),
+    eq(chatThreads.userId, userId),
+    chatThreadIsLive(chatThreads.deletedAt),
+  );
 
 /** Never the snapshot bodies (ADR-0102 D12). */
 const summaryColumns = {
@@ -142,7 +147,7 @@ async function buildSnapshot(userId: string, threadId: string): Promise<Snapshot
   const [thread] = await db()
     .select({ id: chatThreads.id, title: chatThreads.title })
     .from(chatThreads)
-    .where(liveOwnedThread(userId, threadId))
+    .where(ownedLiveThread(threadId, userId))
     .limit(1);
 
   if (!thread) throw Errors.NotFoundError("Thread not found");
@@ -229,7 +234,7 @@ export async function shareThread({
       const [live] = await tx
         .select({ id: chatThreads.id })
         .from(chatThreads)
-        .where(liveOwnedThread(userId, threadId))
+        .where(ownedLiveThread(threadId, userId))
         .for("share");
 
       if (!live) throw Errors.NotFoundError("Thread not found");

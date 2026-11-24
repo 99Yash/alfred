@@ -1,7 +1,10 @@
 import type { DbTransaction } from "@alfred/db";
 import type { ZodType } from "zod";
 
-/** `{ applied: false }` means the target row did not exist (`triageTagOverride`). */
+/**
+ * `{ applied: false }` means the target row did not exist (`triageTagOverride`, `chatThreadDelete`).
+ * No follow-up runs.
+ */
 export type MutatorResult = void | { applied: boolean };
 
 type MutatorRun<A> = (tx: DbTransaction, args: A, userId: string) => Promise<MutatorResult>;

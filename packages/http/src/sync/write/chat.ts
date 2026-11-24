@@ -1,4 +1,4 @@
-import { chatMessages, chatThreads, sharedThreads } from "@alfred/db/schemas";
+import { chatMessages, chatThreadIsLive, chatThreads, sharedThreads } from "@alfred/db/schemas";
 import type {
   ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
@@ -8,7 +8,7 @@ import type {
   ChatThreadSetApprovalModeArgs,
   ChatThreadSetPinnedArgs,
 } from "@alfred/sync";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 import { MutatorForbiddenError } from "../authz";
 import { policySetDefaultMode } from "./action-policies";
@@ -16,9 +16,13 @@ import type { MutatorResult } from "./mutator";
 
 // Only the user side writes through Replicache; the worker writes replies. Idempotent on id.
 
-/** The live thread of this user. A deleted thread takes no write (journal.md section 3). */
-const liveThread = (threadId: string, userId: string) =>
-  and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId), isNull(chatThreads.deletedAt));
+/** This thread of this user, if it is live. A deleted thread takes no write (journal.md section 3). */
+const ownedLiveThread = (threadId: string, userId: string) =>
+  and(
+    eq(chatThreads.id, threadId),
+    eq(chatThreads.userId, userId),
+    chatThreadIsLive(chatThreads.deletedAt),
+  );
 
 export async function chatThreadCreate(
   tx: DbTransaction,
@@ -49,7 +53,7 @@ export async function chatMessageCreate(
       lastMessageAt: new Date(args.createdAt),
       rowVersion: sql`${chatThreads.rowVersion} + 1`,
     })
-    .where(liveThread(args.threadId, userId))
+    .where(ownedLiveThread(args.threadId, userId))
     .returning({ id: chatThreads.id });
 
   if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
@@ -88,7 +92,7 @@ export async function chatThreadRename(
   await tx
     .update(chatThreads)
     .set({ title: args.title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(liveThread(args.id, userId));
+    .where(ownedLiveThread(args.id, userId));
 }
 
 export async function chatThreadSetPinned(
@@ -99,7 +103,7 @@ export async function chatThreadSetPinned(
   await tx
     .update(chatThreads)
     .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(liveThread(args.id, userId));
+    .where(ownedLiveThread(args.id, userId));
 }
 
 /**
@@ -114,7 +118,7 @@ export async function chatThreadSetApprovalMode(
   const [thread] = await tx
     .update(chatThreads)
     .set({ fullAutonomy: args.mode === "full", rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(liveThread(args.id, userId))
+    .where(ownedLiveThread(args.id, userId))
     .returning({ id: chatThreads.id });
 
   if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
@@ -127,7 +131,8 @@ export async function chatThreadSetApprovalMode(
 /**
  * A soft delete (journal.md section 3, owner decision 2026-11-24): the thread leaves the UI, and its
  * messages, attachments, and memories stay. Its share links stop, because revoke is a hard delete
- * (ADR-0102). Applied only when a live thread changes, so the run cancel follows a real delete.
+ * (ADR-0102). A repeated delete (a retry, another device) applies again, so the run cancel runs
+ * again: the cancel is best-effort.
  */
 export async function chatThreadDelete(
   tx: DbTransaction,
@@ -136,8 +141,11 @@ export async function chatThreadDelete(
 ): Promise<MutatorResult> {
   const deleted = await tx
     .update(chatThreads)
-    .set({ deletedAt: sql`now()`, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(liveThread(args.id, userId))
+    .set({
+      deletedAt: sql`coalesce(${chatThreads.deletedAt}, now())`,
+      rowVersion: sql`${chatThreads.rowVersion} + 1`,
+    })
+    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)))
     .returning({ id: chatThreads.id });
 
   if (deleted.length === 0) return { applied: false };

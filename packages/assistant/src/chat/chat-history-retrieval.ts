@@ -4,7 +4,7 @@ import type {
   ChatHistoryMessageEvidence,
   ChatHistoryToolResult,
 } from "@alfred/assistant/tool-runtime";
-import type { ChatMessageToolCall } from "@alfred/db/schemas";
+import type { ChatMessageToolCall, ChatThread } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
 import { escapeLike } from "@alfred/db/helpers";
 import {
@@ -27,7 +27,7 @@ export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 type MessageRow = {
   id: string;
   threadId: string;
-  threadDeletedAt: Date | null;
+  threadDeletedAt: ChatThread["deletedAt"];
   role: "user" | "assistant";
   content: string;
   toolCalls: ChatMessageToolCall[] | null;

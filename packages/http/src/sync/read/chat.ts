@@ -3,13 +3,14 @@ import type { DbTransaction } from "@alfred/db";
 import {
   chatAttachments,
   chatMessages,
+  chatThreadIsLive,
   chatThreads,
   type ChatAttachment,
   type ChatMessage,
   type ChatThread,
 } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { and, asc, desc, eq, getTableColumns, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 const CHAT_MESSAGE_PULL_LIMIT = 500;
@@ -20,9 +21,9 @@ const messageOrder = [desc(chatMessages.createdAt), desc(chatMessages.id)];
 
 const attachmentOrder = [desc(chatAttachments.createdAt), desc(chatAttachments.id)];
 
-/** A thread the UI shows. A deleted thread stays in the database (journal.md section 3). */
-const liveThread = (userId: string) =>
-  and(eq(chatThreads.userId, userId), isNull(chatThreads.deletedAt));
+/** The threads the UI shows. A deleted thread stays in the database (journal.md section 3). */
+const ownedLiveThreads = (userId: string) =>
+  and(eq(chatThreads.userId, userId), chatThreadIsLive(chatThreads.deletedAt));
 
 /**
  * The visible message set, shared by both stages and by `chatatt`. A message of a deleted thread
@@ -34,7 +35,7 @@ const recentMessages = (tx: DbTransaction, userId: string) =>
     .select({ id: chatMessages.id })
     .from(chatMessages)
     .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
-    .where(and(eq(chatMessages.userId, userId), liveThread(userId)))
+    .where(and(eq(chatMessages.userId, userId), ownedLiveThreads(userId)))
     .orderBy(...messageOrder)
     .limit(CHAT_MESSAGE_PULL_LIMIT)
     .as("recent_messages");
@@ -58,7 +59,7 @@ export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
     tx
       .select({ id: chatThreads.id, rowVersion: chatThreads.rowVersion })
       .from(chatThreads)
-      .where(liveThread(userId))
+      .where(ownedLiveThreads(userId))
       .orderBy(desc(chatThreads.pinned), desc(chatThreads.lastMessageAt), asc(chatThreads.id)),
   loadQuery: (tx, userId, changed) =>
     tx
@@ -66,7 +67,7 @@ export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
       .from(chatThreads)
       .where(
         and(
-          liveThread(userId),
+          ownedLiveThreads(userId),
           inArray(
             chatThreads.id,
             changed.map((v) => v.id),

@@ -29,6 +29,7 @@ import { db, type DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  chatThreadIsLive,
   chatThreads,
   type ActionStaging,
   type NewActionStaging,
@@ -504,7 +505,7 @@ export const postgresStagingStore: StagingStore = {
         and(
           eq(chatThreads.id, query.threadId),
           eq(chatThreads.userId, query.userId),
-          isNull(chatThreads.deletedAt),
+          chatThreadIsLive(chatThreads.deletedAt),
         ),
       )
       .limit(1);

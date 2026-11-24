@@ -15,10 +15,11 @@ import {
   chatAttachments,
   chatMessages,
   chatThreadRunMatch,
+  chatThreadIsLive,
   chatThreads,
   runIsNotTerminal,
 } from "@alfred/db/schemas";
-import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import {
   cancelRun,
@@ -621,7 +622,7 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         and(
           eq(chatThreads.id, threadId),
           eq(chatThreads.userId, userId),
-          isNull(chatThreads.deletedAt),
+          chatThreadIsLive(chatThreads.deletedAt),
         ),
       )
       .returning({ id: chatThreads.id });
