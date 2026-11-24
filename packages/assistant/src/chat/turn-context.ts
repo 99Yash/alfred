@@ -51,6 +51,11 @@ type ArtifactVersionRef = z.infer<typeof artifactVersionRefSchema>;
 const recalledExchangeSchema = chatExchangeRefSchema.extend({
   /** The local day of the past user message, in the zone of the recall, so the replay is stable. */
   sentOn: z.string(),
+  /**
+   * The user had deleted the thread at the time of the recall (journal.md section 3). Saved, not
+   * read live, so a later delete does not change the bytes of an earlier prompt. Absent when live.
+   */
+  deleted: z.literal(true).optional(),
 });
 
 export type RecalledExchange = z.infer<typeof recalledExchangeSchema>;
@@ -406,9 +411,9 @@ function turnContextRenderer(saved: SavedTurnContexts): (context: ChatTurnContex
 }
 
 /**
- * The stored turns that saved recalls name. They are read from the messages, not from a copy: a
- * deleted past thread drops out of every replay. That is the one exception to stable replay bytes.
- * Recall is optional, so a failed read renders no recall and the turn goes on.
+ * The stored turns that saved recalls name. They are read from the messages, not from a copy. A
+ * thread delete is a soft delete, so a deleted past thread stays in the replay with the mark that
+ * the recall saved. Recall is optional, so a failed read renders no recall and the turn goes on.
  */
 async function loadRecalledTurns(
   userId: string,
@@ -433,7 +438,8 @@ function attributeText(value: string): string {
 
 /**
  * The `<recalled_chats>` block, or none when no recalled exchange is still stored. A user turn is
- * the user's own words. A reply is Alfred's own output and names its model: it is not evidence.
+ * the user's own words. A reply is Alfred's own output and names its model: it is not evidence. A
+ * chat that the user deleted carries `deleted="true"`.
  */
 export function renderRecalledChats(
   recall: readonly RecalledExchange[],
@@ -449,8 +455,10 @@ export function renderRecalledChats(
     // so a past message that quotes a runtime tag cannot close this block or change a speaker.
     const user = escapeMarkupText(chatTurnExcerpt(turn.user.content, RECALLED_USER_TURN_MAX_CHARS));
 
+    const deleted = entry.deleted === true ? ' deleted="true"' : "";
+
     const lines = [
-      `<past_chat thread="${attributeText(turn.threadId)}" sent="${attributeText(entry.sentOn)}">`,
+      `<past_chat thread="${attributeText(turn.threadId)}" sent="${attributeText(entry.sentOn)}"${deleted}>`,
       `<user message="${attributeText(turn.user.id)}">${user}</user>`,
     ];
 
@@ -523,6 +531,7 @@ export async function saveTurnRecall(args: {
       userMessageId: hit.user.id,
       replyMessageId: hit.reply.id,
       sentOn: formatDay(here.clock(hit.user.createdAt).localDate, "long"),
+      ...(hit.threadDeleted ? { deleted: true as const } : {}),
     }));
 
     await db()

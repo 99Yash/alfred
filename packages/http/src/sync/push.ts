@@ -8,10 +8,7 @@ import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "@alfred/assistant/action-policies";
 import { cancelDeletedThreadRuns } from "@alfred/assistant/chat";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
-import {
-  enqueueChatStorageCleanup,
-  enqueueTriageRelabel,
-} from "@alfred/assistant/connections/ingestion";
+import { enqueueTriageRelabel } from "@alfred/assistant/connections/ingestion";
 import { MutatorForbiddenError } from "./authz";
 import type { ReplicacheModel } from "./model";
 import { serverMutators, type MutatorFollowUp, type MutatorResult } from "./write";
@@ -233,7 +230,7 @@ export async function handlePush(
 
   // Cancel a deleted thread's live chat runs. A run has no FK to its thread, so without this a
   // card it staged stays decidable from `/approvals` and its tool still runs. The cancel rejects
-  // the cards. A failure here leaves the run live until it fails on the missing thread.
+  // the cards. A failure here leaves the run live: it finishes into the hidden thread.
   for (const f of outcome.followUps) {
     if (f.kind !== "cancelThreadRuns") continue;
 
@@ -241,20 +238,6 @@ export async function handlePush(
       await cancelDeletedThreadRuns(userId, f.threadId);
     } catch (err) {
       logger.warn({ err }, "[replicache:push] cancel of a deleted thread's runs failed");
-    }
-  }
-
-  // Reap deleted threads' attachment objects from the bucket (ADR-0065). The
-  // rows cascaded in-transaction; this drops the bytes by prefix. Best-effort —
-  // a failed enqueue leaves orphaned objects (single-user, near-zero cost) that
-  // the account-delete prefix sweep eventually reaps.
-  for (const f of outcome.followUps) {
-    if (f.kind !== "cleanChatStorage") continue;
-
-    try {
-      await enqueueChatStorageCleanup(userId, `chat/${userId}/${f.threadId}/`);
-    } catch (err) {
-      logger.warn({ err }, "[replicache:push] chat storage cleanup enqueue failed");
     }
   }
 

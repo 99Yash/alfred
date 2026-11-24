@@ -150,7 +150,7 @@ export async function chatThreadSetApprovalModeClient(
   }
 }
 
-/** Delete a thread with its messages and their attachments. */
+/** Hide a thread with its messages and their attachments. The server keeps them (a soft delete). */
 export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,

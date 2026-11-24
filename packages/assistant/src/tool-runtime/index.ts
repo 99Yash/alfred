@@ -392,6 +392,8 @@ export interface ChatHistoryMessageEvidence {
   readonly id: string;
   /** The thread of the message. A fetch by id can read a message from another thread. */
   readonly threadId: string;
+  /** The user deleted that thread. A delete hides it in the UI only (journal.md section 3). */
+  readonly threadDeleted: boolean;
   readonly role: string;
   readonly createdAt: string;
   readonly content: ChatHistoryExcerpt;

@@ -42,3 +42,7 @@ Showing the tool name and its outcome keeps what a reader actually wants from a 
 ## What this deliberately does not build
 
 Dimension's social share buttons, email share, recent-contacts list, OG card generation, and its "fork this thread into my account" `/copy` path. The user chose the link plus revoke. The route `head` also carries no thread title: titles are user-authored and can quote private context, and route `head` output is what a link preview scrapes, so the tab and the preview stay generic and the title renders only inside the page once the snapshot has loaded.
+
+## Amendment 2026-11-24 — a thread delete revokes its shares in the mutator
+
+A chat delete is now a soft delete ([journal.md section 3](../theory/journal.md#3-the-parts)), so the thread row stays and the foreign key does not cascade. Item 9 still applies: `chatThreadDelete` hard-deletes every `shared_threads` row of the thread in the same transaction. `shareThread` refuses a deleted thread, and it inserts under a share lock on the live thread row, so a share and a concurrent delete cannot leave a live link. The cascade still covers a user wipe.

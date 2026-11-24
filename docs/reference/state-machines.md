@@ -45,6 +45,7 @@ A DB CHECK on a status column enforces membership only. No CHECK in this repo en
 | `email_sends.status`                         | explicit | `packages/assistant/src/delivery/notify.ts`                            | CHECK; unique (user, idempotency key)                                                        |
 | Delivery-alert repeat window                 | implicit | `packages/assistant/src/connections/ingestion/delivery-alert-sweep.ts` | none                                                                                         |
 | Shared thread publish and revoke             | implicit | `packages/assistant/src/sharing/shared-threads.ts`                     | unique slug; unique (thread, digest)                                                         |
+| Chat thread soft delete                      | implicit | `packages/http/src/sync/write/chat.ts`                                 | none; each writer filters `deleted_at IS NULL` under a row lock                              |
 | `integration_credentials.status`             | explicit | `packages/integrations/src/google/credentials.ts`                      | CHECK; unique (user, provider, account)                                                      |
 | `mcp_connections.status` and catalog pointer | explicit | `packages/assistant/src/connections/mcp/manager.ts`                    | composite FK on the pointer; no CHECK                                                        |
 | `workflows.status` and `blocked`             | explicit | `packages/assistant/src/automation/revisions.ts`                       | composite FKs on revision pointers; no CHECK                                                 |
@@ -385,7 +386,11 @@ Per (user, subject), the states are healthy, broken and not alerted, alerted (a 
 
 ### Shared thread publish and revoke (implicit)
 
-States: absent, published (a row), revoked (hard delete). `shareThread` reads an existing row by (thread, snapshot digest) or inserts one; `revokeSharedThread` deletes it. DB-enforced: unique slug and unique (thread, digest), so concurrent publishes converge. A publish after a revoke mints a new slug. A share and revoke race can return a dead link (SM-46).
+States: absent, published (a row), revoked (hard delete). `shareThread` reads an existing row by (thread, snapshot digest) or inserts one; `revokeSharedThread` deletes it. DB-enforced: unique slug and unique (thread, digest), so concurrent publishes converge. A publish after a revoke mints a new slug. A share and revoke race can return a dead link (SM-46). A thread delete revokes every share of the thread in its own transaction. `shareThread` refuses a deleted thread and inserts under a share lock on the live thread row, so a share that races a delete cannot leave a live link.
+
+### Chat thread soft delete (implicit)
+
+States: live (`chat_threads.deleted_at` is null) and deleted. There is no way back: no restore UI exists, and no job purges a deleted row (journal.md section 3). `chatThreadDelete` sets `deleted_at` only on a live row, and it applies (and its run cancel follows) only when a row changed. Guards: each writer that adds to a thread (`chatMessageCreate`, the thread update in `startChatTurn`, `shareThread`) locks the thread row and requires `deleted_at IS NULL`, so a write that races a delete either commits first and is cancelled or revoked by it, or fails. Readers: the Replicache pull and thread autonomy treat a deleted thread as absent. Recall, `search_context`, and the `read_chat_history` fetch keep it with a "deleted" mark.
 
 ## Connections, workflows, ingestion, memory
 
@@ -760,6 +765,7 @@ Status: open (not yet verified independently)
 - Interleaving: a chat turn parks on a send-email card. The user deletes the thread from the sidebar. The delete mutator in `packages/http/src/sync/write/chat.ts` deletes the thread row only. Runs have no FK to the thread; the thread id is in metadata. The approvals list joins only runs, so the card stays. The user approves, the run wakes, and the email is sent. Then `upsertCompletedRow` hits an FK violation on the message thread, the failure write fails the same way and is swallowed, and the run ends failed.
 - Evidence: a mid-stream turn on a deleted thread also keeps calling the model and running autonomous tools until the finalize fails. Thread autonomy reads an absent thread as off, so autonomy is safe.
 - Impact: a write runs for a thread the user deleted, and the run fails afterwards.
+- Note (2026-11-24): a thread delete is now a soft delete, so the row stays and a finalize no longer fails. A run that outlives a failed cancel finishes into the hidden thread. Thread autonomy reads a deleted thread as off.
 
 Status: fixed in #1709
 

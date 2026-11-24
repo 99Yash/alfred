@@ -100,8 +100,8 @@ async function pairChatExchanges(limit: number): Promise<number> {
     };
   });
 
-  // A thread deleted between the read and this write fails the batch on its foreign key. The next
-  // sweep no longer reads it, so the batch then goes through.
+  // A message row removed between the read and this write (a user wipe) fails the batch on its
+  // foreign key. The next sweep no longer reads it, so the batch then goes through.
   await db()
     .insert(chatExchanges)
     .values(values)
@@ -230,6 +230,11 @@ export interface ChatExchangeTurn {
   threadId: string;
   /** The live title. It changes on a rename, so a replayed prompt must not show it. */
   threadTitle: ChatThread["title"];
+  /**
+   * The user deleted the thread. A delete hides it in the UI only, so recall still reads it and
+   * marks it (journal.md section 3). Live, so a replayed prompt must save it, not read it.
+   */
+  threadDeleted: boolean;
   user: Pick<ChatMessage, "id" | "content" | "createdAt">;
   reply: Pick<ChatMessage, "id" | "content" | "createdAt" | "status"> & {
     /** The models that wrote the reply, most-used first. Empty when the row recorded none. */
@@ -252,8 +257,8 @@ function replyModels(usage: unknown): string[] {
 }
 
 /**
- * The stored exchanges for these refs, keyed by {@link chatExchangeKey}. A ref whose messages were
- * deleted is absent, so a deleted thread never comes back through a saved ref.
+ * The stored exchanges for these refs, keyed by {@link chatExchangeKey}. A deleted thread is
+ * present, with its mark. A ref is absent only when its message rows are gone (a user wipe).
  */
 export async function readChatExchangeTurns(
   userId: string,
@@ -271,6 +276,7 @@ export async function readChatExchangeTurns(
     .select({
       threadId: userMessage.threadId,
       threadTitle: chatThreads.title,
+      threadDeletedAt: chatThreads.deletedAt,
       userId: userMessage.id,
       userContent: userMessage.content,
       userCreatedAt: userMessage.createdAt,
@@ -315,6 +321,7 @@ export async function readChatExchangeTurns(
     turns.set(chatExchangeKey({ userMessageId: row.userId, replyMessageId: row.replyId }), {
       threadId: row.threadId,
       threadTitle: row.threadTitle,
+      threadDeleted: row.threadDeletedAt !== null,
       user: { id: row.userId, content: row.userContent, createdAt: row.userCreatedAt },
       reply: {
         id: row.replyId,

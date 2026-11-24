@@ -18,7 +18,7 @@ import {
   chatThreads,
   runIsNotTerminal,
 } from "@alfred/db/schemas";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 
 import {
   cancelRun,
@@ -262,14 +262,19 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   }
 
   const existing = await db()
-    .select({ userId: chatThreads.userId, title: chatThreads.title })
+    .select({
+      userId: chatThreads.userId,
+      title: chatThreads.title,
+      deletedAt: chatThreads.deletedAt,
+    })
     .from(chatThreads)
     .where(eq(chatThreads.id, threadId))
     .limit(1);
 
   const thread = existing[0];
 
-  if (thread && thread.userId !== userId) {
+  // A deleted thread takes no new turn, for example from another device (journal.md section 3).
+  if (thread && (thread.userId !== userId || thread.deletedAt !== null)) {
     throw Errors.NotFoundError("thread not found");
   }
 
@@ -603,14 +608,25 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         ? content.slice(0, TITLE_MAX_CHARS)
         : (attachmentRows[0]?.name ?? "").slice(0, TITLE_MAX_CHARS);
 
-    await tx
+    // The row lock orders this turn against a delete. A delete that commits first leaves no live
+    // row, so the turn fails. A delete that waits sees the run and cancels it after its commit.
+    const live = await tx
       .update(chatThreads)
       .set({
         title: sql`coalesce(${chatThreads.title}, ${titleSeed})`,
         lastMessageAt: now,
         rowVersion: sql`${chatThreads.rowVersion} + 1`,
       })
-      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
+      .where(
+        and(
+          eq(chatThreads.id, threadId),
+          eq(chatThreads.userId, userId),
+          isNull(chatThreads.deletedAt),
+        ),
+      )
+      .returning({ id: chatThreads.id });
+
+    if (live.length === 0) throw Errors.NotFoundError("thread not found");
 
     try {
       // A SAVEPOINT: a unique violation aborts the whole Postgres transaction, and

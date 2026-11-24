@@ -86,10 +86,21 @@ export const chatThreads = pgTable(
      * applies to the next call.
      */
     fullAutonomy: boolean("full_autonomy").notNull().default(false),
+    /**
+     * Set when the user deletes the thread (journal.md section 3, owner decision 2026-11-24). A
+     * delete hides the thread in the UI only: the messages, their attachments, and the memories
+     * from them stay, and recall reads them with a "deleted" mark. No job purges the row.
+     */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
   },
-  (t) => [index("chat_threads_user_last_idx").on(t.userId, t.lastMessageAt)],
+  (t) => [
+    // The thread list reads live threads only.
+    index("chat_threads_user_last_idx")
+      .on(t.userId, t.lastMessageAt)
+      .where(sql`${t.deletedAt} IS NULL`),
+  ],
 );
 
 export const chatMessages = pgTable(
@@ -161,7 +172,8 @@ export const chatTurnContexts = pgTable("chat_turn_contexts", {
 /**
  * The search index of past chats (journal.md section 3): one row for each exchange, the user
  * message and its reply. Derived from `chat_messages`, so a delete of the rows rebuilds it. Each
- * message id cascades, so a deleted thread or message leaves the index in the same statement.
+ * message id cascades, so a removed message row leaves the index in the same statement. A thread
+ * delete is a soft delete: its rows stay, and recall marks them as deleted.
  * Server-only, not synced. It has no vector index: recall is an exact scan over one user's rows,
  * because an approximate index applies the thread filter after its scan and can miss every hit.
  */

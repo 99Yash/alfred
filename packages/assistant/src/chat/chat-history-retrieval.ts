@@ -7,7 +7,12 @@ import type {
 import type { ChatMessageToolCall } from "@alfred/db/schemas";
 import { db } from "@alfred/db";
 import { escapeLike } from "@alfred/db/helpers";
-import { chatAttachmentRepresentations, chatAttachments, chatMessages } from "@alfred/db/schemas";
+import {
+  chatAttachmentRepresentations,
+  chatAttachments,
+  chatMessages,
+  chatThreads,
+} from "@alfred/db/schemas";
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import type { z } from "zod";
 import {
@@ -22,6 +27,7 @@ export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 type MessageRow = {
   id: string;
   threadId: string;
+  threadDeletedAt: Date | null;
   role: "user" | "assistant";
   content: string;
   toolCalls: ChatMessageToolCall[] | null;
@@ -69,7 +75,8 @@ export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 /**
  * Authenticated access to raw evidence behind a lossy summary or an excerpt. Search, tool calls,
  * and attachments stay in the current thread. A message fetch is owner-scoped, so a recalled or
- * cited turn from another thread can be read in full, with its speaker and date.
+ * cited turn from another thread can be read in full, with its speaker and date. A message of a
+ * deleted thread stays readable, with its mark, as recall reads it (journal.md section 3).
  */
 export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
@@ -158,6 +165,7 @@ function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
     kind: "message",
     id: row.id,
     threadId: row.threadId,
+    threadDeleted: row.threadDeletedAt !== null,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
     content: excerpt(row.content),
@@ -194,6 +202,16 @@ function excerpt(value: string) {
   };
 }
 
+const messageColumns = {
+  id: chatMessages.id,
+  threadId: chatMessages.threadId,
+  threadDeletedAt: chatThreads.deletedAt,
+  role: chatMessages.role,
+  content: chatMessages.content,
+  toolCalls: chatMessages.toolCalls,
+  createdAt: chatMessages.createdAt,
+};
+
 async function searchMessages(args: {
   userId: string;
   threadId: string;
@@ -201,15 +219,9 @@ async function searchMessages(args: {
   limit: number;
 }) {
   return db()
-    .select({
-      id: chatMessages.id,
-      threadId: chatMessages.threadId,
-      role: chatMessages.role,
-      content: chatMessages.content,
-      toolCalls: chatMessages.toolCalls,
-      createdAt: chatMessages.createdAt,
-    })
+    .select(messageColumns)
     .from(chatMessages)
+    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
     .where(
       and(
         eq(chatMessages.userId, args.userId),
@@ -224,15 +236,9 @@ async function searchMessages(args: {
 /** One message of the owner by its stable id, in any thread. `threadId` is not a filter here. */
 async function fetchMessage(args: { userId: string; threadId: string; id: string }) {
   const [row] = await db()
-    .select({
-      id: chatMessages.id,
-      threadId: chatMessages.threadId,
-      role: chatMessages.role,
-      content: chatMessages.content,
-      toolCalls: chatMessages.toolCalls,
-      createdAt: chatMessages.createdAt,
-    })
+    .select(messageColumns)
     .from(chatMessages)
+    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
     .where(and(eq(chatMessages.userId, args.userId), eq(chatMessages.id, args.id)))
     .limit(1);
 
@@ -241,15 +247,9 @@ async function fetchMessage(args: { userId: string; threadId: string; id: string
 
 async function fetchToolCall(args: { userId: string; threadId: string; id: string }) {
   const [row] = await db()
-    .select({
-      id: chatMessages.id,
-      threadId: chatMessages.threadId,
-      role: chatMessages.role,
-      content: chatMessages.content,
-      toolCalls: chatMessages.toolCalls,
-      createdAt: chatMessages.createdAt,
-    })
+    .select(messageColumns)
     .from(chatMessages)
+    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
     .where(
       and(
         eq(chatMessages.userId, args.userId),

@@ -2,7 +2,7 @@
 
 This page is the theory of the journal. It says what the journal must do, what counts as an error, and the shape of each part. The owner settled its shape on 2026-11-11 and 2026-11-12. Section 9 names what is still open.
 
-Last verified: 2026-11-14 (observed items may open a matter, with a shorter lookout life; a "no" to a security remark is an alarm; previously 2026-11-12).
+Last verified: 2026-11-24 (a chat delete is a soft delete, and recall marks a deleted chat; previously 2026-11-14).
 
 Read first: [memory.md](./memory.md) (claims and name links) and the principles in [README.md](./README.md#2-the-principles). The journal is not claim memory, and it is not a loop (ADR-0122). Section 6 says how the three meet.
 
@@ -47,11 +47,18 @@ A loop (ADR-0122) needs a thing with a source that owns it, for example a PR or 
 
 **Past chats are searchable.** Each chat exchange (the user's message and Alfred's reply) is embedded and searchable. Owner decisions, 2026-11-24 ([#1854](https://github.com/99Yash/alfred/issues/1854)):
 
-- The vectors live in a derived table, `chat_exchanges`, with one row for each exchange. Each message id cascades from `chat_messages`, so a deleted thread leaves the index in the database.
+- The vectors live in a derived table, `chat_exchanges`, with one row for each exchange. Each message id cascades from `chat_messages`, so a removed message row leaves the index.
 - Chat-time recall excludes the current thread. The model already has it.
 - The number of recalled exchanges is a default for now, with no similarity floor. Evals set the values for each case.
 - A recalled user turn is the user's own words. A recalled reply is Alfred's own output and is never evidence (principle 5). It names the model that wrote it.
 - The worst error is a past talk that did not occur. Eval case A: no past talk exists, and Alfred does not claim one. Eval case B: a past talk exists, and Alfred names it with its date.
+
+**A deleted chat.** Owner decisions, 2026-11-24:
+
+- A chat delete is a soft delete. It hides the thread in the UI only. The message rows, their attachments, and the memories from them (claims, preferences, chunks) stay. Thus the evidence of a claim stays readable for the check job ([memory.md](./memory.md)).
+- Chat-time recall and `search_context` still read a deleted chat, because it can hold useful information. A recalled or found turn from it carries a "deleted" mark, so Alfred can tell the user that the information comes from a chat that they deleted, when that matters. No special similarity floor applies to a deleted chat, and recall does not wait until the user asks.
+- A delete stops the share links of the thread, cancels its running turn, and refuses a new message to it.
+- Alfred never purges a deleted chat, for now. No restore UI exists.
 
 **A journal entry.** Prose that the model writes about a matter in the user's life, whether a talk opened it or an observed item did. It has no schema for its content. An entry holds:
 
@@ -141,17 +148,16 @@ The owner reads the journal and the remark records in the database. A script pri
 
 - **Alfred speaks first, outside a turn.** It needs a push surface. Until it exists, remarks go to the briefing and to the next chat, and no fast net runs.
 - **How many notes the pre-briefing pass reads for each item.** The back-test sets it.
-- **Deletion and saved tool results.** A deleted thread leaves `chat_exchanges` and every recall replay. A Code Mode result in another thread can still hold excerpts of it until that result expires or its thread is deleted. Does a deletion also remove those saved results? Step 2 links entries to turns, so this needs an answer before step 2.
 
 ## 10. Theory state and code state
 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
-| Past chats are searchable | Settled | Built | A sweep starts every 2 minutes and pairs and embeds at most 50 exchanges into `chat_exchanges`. The search is exact, over the rows of one user. Context search reads them through the `chat` source. `system.read_chat_history` fetches a cited message from any thread of the user by its id. A message with only attachments is not searchable. |
+| Past chats are searchable | Settled | Built | A sweep starts every 2 minutes and pairs and embeds at most 50 exchanges into `chat_exchanges`. The search is exact, over the rows of one user. Context search reads them through the `chat` source. `system.read_chat_history` fetches a cited message from any thread of the user by its id. A message with only attachments is not searchable. A deleted thread stays searchable: its cards say "Deleted chat", and the fetch marks `threadDeleted`. |
 | Journal entries with links and lookouts | Settled | Not built | No store exists. |
 | Write from capture, from a chat tool, and from the pass | Settled | Not built | Chat capture discards its output (memory.md section 8). |
 | Pre-briefing pass | Settled | Not built | No step runs before the gather. It reads through Code Mode (ADR-0124), which is built; the pass itself is not built (#535). |
-| Chat-time recall | Settled | Built (past chats only) | The first step of a run saves the recall in the turn context, and the projection renders it after the user's message. An exchange that an earlier message of the thread recalled is not recalled again. A deleted past thread drops out of the replay: this is the one exception to stable replay bytes (ADR-0130 amendment (g)). It does not search the journal, because the journal is not built. Eval cases A and B are in `packages/assistant/evals/chat-recall.eval.ts`. |
+| Chat-time recall | Settled | Built (past chats only) | The first step of a run saves the recall in the turn context, and the projection renders it after the user's message. An exchange that an earlier message of the thread recalled is not recalled again. A deleted past thread stays in recall and in the replay. The recall saves its "deleted" mark, so a later delete does not change the bytes of an earlier prompt. It does not search the journal, because the journal is not built. Eval cases A and B are in `packages/assistant/evals/chat-recall.eval.ts`. |
 | Remark records, in the briefing and the next chat, and the handling of the reply | Settled | Not built | Chat cannot read briefings today. |
 | Back-test, the recall-miss signal, and the weekly report | Settled | Not built | |
 

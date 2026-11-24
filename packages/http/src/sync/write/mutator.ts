@@ -12,9 +12,7 @@ export type MutatorFollowUp =
   | { kind: "bustPolicyCache" }
   /** Sync the Gmail label after a tag override (rfc-triage-tags.md). */
   | { kind: "relabelThread"; sourceThreadId: string }
-  /** Delete a removed thread's attachment objects from the bucket (ADR-0065). */
-  | { kind: "cleanChatStorage"; threadId: string }
-  /** Cancel a removed thread's live chat runs, so a card they staged cannot run. */
+  /** Cancel a deleted thread's live chat runs, so a card they staged cannot run. */
   | { kind: "cancelThreadRuns"; threadId: string };
 
 /** Schema and runner share one `A`, so parsed args reach `run()` without a cast. */

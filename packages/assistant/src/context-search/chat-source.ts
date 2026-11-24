@@ -75,11 +75,15 @@ function replyAuthority(models: readonly string[]): EvidenceAuthority {
   };
 }
 
-/** The user's message, then the reply when it has text. Both cite the thread and message ids. */
+/**
+ * The user's message, then the reply when it has text. Both cite the thread and message ids. The
+ * label of a chat that the user deleted says so (journal.md section 3).
+ */
 function chatHitToEvidenceCards(hit: ChatExchangeHit): EvidenceCard[] {
   const source = sourceRefFromManifest(chatManifest());
   const title = hit.threadTitle ?? "Untitled chat";
-  const label = `Chat "${title}"`.slice(0, EVIDENCE_CITATION_LABEL_MAX_CHARS);
+  const kind = hit.threadDeleted ? "Deleted chat" : "Chat";
+  const label = `${kind} "${title}"`.slice(0, EVIDENCE_CITATION_LABEL_MAX_CHARS);
 
   const userCard: EvidenceCard = {
     id: `${CHAT_CONTEXT_SOURCE_ID}:${hit.user.id}`,

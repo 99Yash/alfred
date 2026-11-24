@@ -20,7 +20,10 @@ export const sharedThreads = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    /** Cascade, so deleting the thread unpublishes it. */
+    /**
+     * A thread delete is a soft delete, so `chatThreadDelete` removes the shares itself. The
+     * cascade still covers a user wipe.
+     */
     sourceThreadId: text("source_thread_id")
       .notNull()
       .references(() => chatThreads.id, { onDelete: "cascade" }),

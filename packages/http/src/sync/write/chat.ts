@@ -1,4 +1,4 @@
-import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { chatMessages, chatThreads, sharedThreads } from "@alfred/db/schemas";
 import type {
   ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
@@ -8,12 +8,17 @@ import type {
   ChatThreadSetApprovalModeArgs,
   ChatThreadSetPinnedArgs,
 } from "@alfred/sync";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 import { MutatorForbiddenError } from "../authz";
 import { policySetDefaultMode } from "./action-policies";
+import type { MutatorResult } from "./mutator";
 
 // Only the user side writes through Replicache; the worker writes replies. Idempotent on id.
+
+/** The live thread of this user. A deleted thread takes no write (journal.md section 3). */
+const liveThread = (threadId: string, userId: string) =>
+  and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId), isNull(chatThreads.deletedAt));
 
 export async function chatThreadCreate(
   tx: DbTransaction,
@@ -37,6 +42,18 @@ export async function chatMessageCreate(
   args: ChatMessageCreateArgs,
   userId: string,
 ): Promise<void> {
+  // The row lock orders this against a delete: a message never lands in a deleted thread.
+  const [thread] = await tx
+    .update(chatThreads)
+    .set({
+      lastMessageAt: new Date(args.createdAt),
+      rowVersion: sql`${chatThreads.rowVersion} + 1`,
+    })
+    .where(liveThread(args.threadId, userId))
+    .returning({ id: chatThreads.id });
+
+  if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
+
   await tx
     .insert(chatMessages)
     .values({
@@ -49,13 +66,6 @@ export async function chatMessageCreate(
       createdAt: new Date(args.createdAt),
     })
     .onConflictDoNothing();
-  await tx
-    .update(chatThreads)
-    .set({
-      lastMessageAt: new Date(args.createdAt),
-      rowVersion: sql`${chatThreads.rowVersion} + 1`,
-    })
-    .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, userId)));
 }
 
 /**
@@ -78,7 +88,7 @@ export async function chatThreadRename(
   await tx
     .update(chatThreads)
     .set({ title: args.title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .where(liveThread(args.id, userId));
 }
 
 export async function chatThreadSetPinned(
@@ -89,7 +99,7 @@ export async function chatThreadSetPinned(
   await tx
     .update(chatThreads)
     .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .where(liveThread(args.id, userId));
 }
 
 /**
@@ -104,7 +114,7 @@ export async function chatThreadSetApprovalMode(
   const [thread] = await tx
     .update(chatThreads)
     .set({ fullAutonomy: args.mode === "full", rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)))
+    .where(liveThread(args.id, userId))
     .returning({ id: chatThreads.id });
 
   if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
@@ -114,13 +124,27 @@ export async function chatThreadSetApprovalMode(
   }
 }
 
-/** Messages cascade by FK. Bucket objects are cleaned by the follow-up. */
+/**
+ * A soft delete (journal.md section 3, owner decision 2026-11-24): the thread leaves the UI, and its
+ * messages, attachments, and memories stay. Its share links stop, because revoke is a hard delete
+ * (ADR-0102). Applied only when a live thread changes, so the run cancel follows a real delete.
+ */
 export async function chatThreadDelete(
   tx: DbTransaction,
   args: ChatThreadDeleteArgs,
   userId: string,
-): Promise<void> {
+): Promise<MutatorResult> {
+  const deleted = await tx
+    .update(chatThreads)
+    .set({ deletedAt: sql`now()`, rowVersion: sql`${chatThreads.rowVersion} + 1` })
+    .where(liveThread(args.id, userId))
+    .returning({ id: chatThreads.id });
+
+  if (deleted.length === 0) return { applied: false };
+
   await tx
-    .delete(chatThreads)
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .delete(sharedThreads)
+    .where(and(eq(sharedThreads.sourceThreadId, args.id), eq(sharedThreads.userId, userId)));
+
+  return { applied: true };
 }
