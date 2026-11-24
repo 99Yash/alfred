@@ -60,6 +60,8 @@ A new value supersedes the old row. Alfred never deletes the history.
 
 ## 4. Resolve a name at the start of a turn
 
+The draft [resolution.md](./resolution.md) (2026-11-24) widens this section to every kind of reference and changes the writers of name links in section 3. Until the owner settles it, this section stays as written.
+
 1. **Code looks up names.** Before the first model step, code matches the words of the user's message against the name links. The match is normalized text (lower case, trimmed, `owner/repo` also gives `repo`), with the Postgres extension `pg_trgm` for small typos. The lookup queries the rows, so it is always current. No index needs a refresh.
 2. **The model selects.** The lookup returns candidates with their evidence. The model selects one from the context (principle 4).
 3. **The user decides when the context does not.** The model asks with `system.ask_user` (ADR-0099). It must not select in silence.
