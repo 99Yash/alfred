@@ -5,13 +5,18 @@ import { scheduledFireTime } from "@alfred/assistant/execution";
 import { toMessage } from "@alfred/contracts";
 import { logger } from "@alfred/logging";
 import { runDriftHealthCheck } from "./drift-audit/index";
+import { chatExchangeSweep } from "./chat-exchanges";
 import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } from "./chunks";
 import { memoryQueue } from "./queue";
 import { enqueueExtractionForUser } from "./run";
 
+/** How often a sweep starts to pair and embed new chat exchanges. */
+const CHAT_EXCHANGE_SWEEP_EVERY_MS = 2 * 60 * 1000;
+
 /**
  * The `memory-cron` worker and its boot-time schedules (ADR-0019, ADR-0025 #3): daily
- * extraction, a 5-minute embed sweep, and the daily drift health check (#219).
+ * extraction, a 5-minute embed sweep, the chat exchange sweep, and the daily drift health check
+ * (#219).
  */
 export const memoryWorker = memoryQueue.consume({
   label: "memory",
@@ -46,6 +51,8 @@ export const memoryWorker = memoryQueue.consume({
 
     "memory.embed_sweep": async () => embedSweep(),
 
+    "memory.chat_exchange_sweep": async () => chatExchangeSweep(),
+
     "memory.drift_health_check": async () => driftHealthCheck(),
   },
   schedules: [
@@ -62,6 +69,19 @@ export const memoryWorker = memoryQueue.consume({
     {
       kind: "memory.embed_sweep",
       repeat: { every: 5 * 60 * 1000 },
+      opts: {
+        attempts: 2,
+        backoff: { type: "exponential", delay: 30_000 },
+        removeOnComplete: { count: 20, age: 24 * 60 * 60 },
+        removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
+      },
+    },
+    // A schedule, not a bound: each sweep pairs and embeds at most 50 rows, one at a time, on a
+    // worker that other jobs share. A backfill, a queue delay, or a provider failure makes the wait
+    // longer.
+    {
+      kind: "memory.chat_exchange_sweep",
+      repeat: { every: CHAT_EXCHANGE_SWEEP_EVERY_MS },
       opts: {
         attempts: 2,
         backoff: { type: "exponential", delay: 30_000 },

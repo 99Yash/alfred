@@ -8,7 +8,7 @@ pnpm --filter @alfred/assistant eval        # run once
 pnpm --filter @alfred/assistant eval:watch  # watch mode + local UI on :3006
 ```
 
-A bare `evalite run` globs **all eight** suites in this directory, `boss-judgment`
+A bare `evalite run` globs **all nine** suites in this directory, `boss-judgment`
 and `code-mode-paired` included. Every suite calls a real model, so a bare run
 costs real tokens. Name one suite to run one:
 `pnpm --filter @alfred/assistant exec evalite run date-grounding`.
@@ -18,12 +18,12 @@ Env (loaded from `apps/server/.env`): the three Cloudflare AI Gateway vars
 Every model call goes through the gateway, so there are no provider keys to set.
 
 - `route("cheap")` (Gemini Flash-Lite) is the triage classifier under test in
-  `triage-deck`, and the DEFAULT LLM judge. Only `voice-ai-tells` calls
-  `llmJudgeScorer`, and it takes the cheap default. The other suites score
-  deterministically and need no judge.
-- `route("standard")` (Haiku 5.5) — seven suites GENERATE on that route, because
+  `triage-deck`, and the DEFAULT LLM judge. `voice-ai-tells` calls
+  `llmJudgeScorer` with the cheap default. `chat-recall` passes `route("boss")`
+  for its case-A judge. The other suites score deterministically and need no judge.
+- `route("standard")` (Haiku 5.5) — eight suites GENERATE on that route, because
   the system under test there is the chat agent itself: `boss-judgment`,
-  `code-mode-paired`, `code-mode-read`, `date-grounding`, `time-awareness`,
+  `chat-recall`, `code-mode-paired`, `code-mode-read`, `date-grounding`, `time-awareness`,
   `tool-selection-bloat` and `voice-ai-tells`. No suite JUDGES on that route now.
   The ADR-0074 passthrough honesty suite was the only one, and it graded the
   `github.request` tool, which ADR-0125 removed.
@@ -46,6 +46,13 @@ it.
   not add the `[system]` note of a long step, so case (d) measures the path with no note. Two
   scores: the answer (event, direction, wait within 5 min), and the lookup. A lookup that the
   answer does not need is a cost metric, not a fault. Deterministic only.
+- `chat-recall.eval.ts` — the journal eval gate (ADR-0133; `docs/theory/journal.md` section 3).
+  Case B: a past talk exists, and the reply names it with its date, with no tool step. Case A:
+  no past talk exists, and the reply does not invent one (journal.md section 1, worst error 2).
+  Each case has plausible distractors in the recall. Each case runs with no recall (the code
+  before chat-time recall) and with the production `<recalled_chats>` block. B is
+  deterministic. A uses `llmJudgeScorer` on `route("boss")`, a stronger family than the Haiku
+  chat model.
 - `boss-judgment.eval.ts` — chat boss source-ladder judgment: repeated "more"
   asks and public/current questions must reach web/sub-agent breadth, while
   calendar requests must not over-search.

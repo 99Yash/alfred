@@ -17,9 +17,10 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-import { createId, lifecycle_dates } from "../helpers";
+import { createId, lifecycle_dates, vectorColumn } from "../helpers";
 import { agentRuns } from "./agent";
 import { user } from "./auth";
 
@@ -124,7 +125,7 @@ export const chatMessages = pgTable(
      * Null until the cheap call lands, and when it fails or returns none.
      */
     followUps: text("follow_ups").array(),
-    /** Set on both the user turn and its reply. */
+    /** Set on the reply. A user row carries none: its run names it in `agent_runs.metadata`. */
     runId: text("run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     rowVersion: integer("row_version").notNull().default(0),
     ...lifecycle_dates,
@@ -156,6 +157,55 @@ export const chatTurnContexts = pgTable("chat_turn_contexts", {
   context: jsonb("context").notNull(),
   ...lifecycle_dates,
 });
+
+/**
+ * The search index of past chats (journal.md section 3): one row for each exchange, the user
+ * message and its reply. Derived from `chat_messages`, so a delete of the rows rebuilds it. Each
+ * message id cascades, so a deleted thread or message leaves the index in the same statement.
+ * Server-only, not synced. It has no vector index: recall is an exact scan over one user's rows,
+ * because an approximate index applies the thread filter after its scan and can miss every hit.
+ */
+export const chatExchanges = pgTable(
+  "chat_exchanges",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId("cex")),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id, { onDelete: "cascade" }),
+    userMessageId: text("user_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    /** The reply of the run that the user message carries. A retry moves the row to the new reply. */
+    replyMessageId: text("reply_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    /** The text that is embedded: the user's words, then the reply. */
+    content: text("content").notNull(),
+    /** sha256 of `content`. A changed exchange gets a new hash and a new embedding. */
+    contentHash: text("content_hash").notNull(),
+    embedding: vectorColumn("embedding", 1024),
+    // Embed retry columns, same as `memory_chunks`. See `buildEmbedFailureSet`.
+    embedAttempts: integer("embed_attempts").notNull().default(0),
+    embedFirstFailedAt: timestamp("embed_first_failed_at", { withTimezone: true }),
+    /** Dead-letter mark; the sweep skips the row. To retry in place, null this and `embedFirstFailedAt`. */
+    embedFailedAt: timestamp("embed_failed_at", { withTimezone: true }),
+    lastEmbedError: text("last_embed_error"),
+    ...lifecycle_dates,
+  },
+  (t) => [
+    uniqueIndex("chat_exchanges_user_message_idx").on(t.userMessageId),
+    index("chat_exchanges_reply_message_idx").on(t.replyMessageId),
+    index("chat_exchanges_user_thread_idx").on(t.userId, t.threadId),
+    index("chat_exchanges_embed_sweep_idx")
+      .on(t.id)
+      .where(sql`${t.embedding} IS NULL AND ${t.embedFailedAt} IS NULL`),
+  ],
+);
 
 /** Server-only compaction state for a thread. Not synced to Replicache. */
 export const chatThreadContext = pgTable(
@@ -274,6 +324,8 @@ export const chatAttachmentRepresentations = pgTable(
 export type ChatThread = typeof chatThreads.$inferSelect;
 
 export type ChatMessage = typeof chatMessages.$inferSelect;
+
+export type ChatExchange = typeof chatExchanges.$inferSelect;
 
 export type ChatThreadContext = typeof chatThreadContext.$inferSelect;
 

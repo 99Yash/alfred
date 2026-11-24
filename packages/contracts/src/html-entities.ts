@@ -12,6 +12,14 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Escape text for element content in a prompt block. Only `&`, `<`, and `>`, so quotes and
+ * apostrophes stay readable, and text cannot open or close a tag.
+ */
+export function escapeMarkupText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const NAMED_ENTITIES = {
   amp: "&",
   lt: "<",

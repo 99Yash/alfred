@@ -23,6 +23,7 @@ import type {
   modelPrices,
 } from "@alfred/db/schemas";
 import {
+  chatExchanges,
   chatMessages,
   documents,
   eventReceipts,
@@ -138,9 +139,10 @@ const EVIDENCE_MAP = defineEvidenceMap([
   },
   {
     store: "Chat turns",
-    tables: [chatMessages],
-    reach: "from the first turn",
-    gaps: "no embeddings yet; context search does not read them",
+    tables: [chatMessages, chatExchanges],
+    reach:
+      "from the first turn; a sweep every 2 minutes embeds at most 50 new exchanges, so a backfill or a provider failure delays one",
+    gaps: "an Alfred reply is Alfred's own output, not evidence; a message with only attachments is not searchable",
     answers: ["said", "live"],
   },
   {
