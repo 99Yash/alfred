@@ -1317,6 +1317,13 @@
       "when": 1795494968541,
       "tag": "0187_chat_exchanges",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1795498383582,
+      "tag": "0188_chat_thread_soft_delete",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import type { DbTransaction } from "@alfred/db";
-import { artifacts, type Artifact } from "@alfred/db/schemas";
+import { artifacts, chatThreadIsLive, chatThreads, type Artifact } from "@alfred/db/schemas";
 import { SYNC_MODEL } from "@alfred/sync";
-import { desc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import { syncEntity } from "./sync-entity";
 
 const ARTIFACT_PULL_LIMIT = 200;
@@ -10,12 +10,14 @@ const artifactOrder = [desc(artifacts.createdAt), desc(artifacts.id)];
 
 const ownedByUser = (userId: string) => eq(artifacts.userId, userId);
 
-// The visible set, shared by both stages, so the cap bounds the set and not the changed rows.
+// The visible set, shared by both stages, so the cap bounds the set and not the changed rows. An
+// artifact of a deleted thread is not visible: the delete hides the thread in the UI only.
 const recentArtifacts = (tx: DbTransaction, userId: string) =>
   tx
     .select({ id: artifacts.id })
     .from(artifacts)
-    .where(ownedByUser(userId))
+    .innerJoin(chatThreads, eq(chatThreads.id, artifacts.threadId))
+    .where(and(ownedByUser(userId), chatThreadIsLive(chatThreads.deletedAt)))
     .orderBy(...artifactOrder)
     .limit(ARTIFACT_PULL_LIMIT)
     .as("recent_artifacts");

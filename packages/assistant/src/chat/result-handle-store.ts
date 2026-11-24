@@ -1,8 +1,8 @@
 /**
  * The handle store (ADR-0087 point 2, ADR-0130 decision 5): the JSON in object storage under the
  * thread's prefix, and a `result_handles` row for its metadata. A handle lives 3 days from its
- * fetch (owner, 2026-11-20). `sweepExpiredResultHandles` deletes expired rows and their objects; a
- * thread delete cascades the rows, and the thread's prefix cleanup removes the objects.
+ * fetch (owner, 2026-11-20). `sweepExpiredResultHandles` deletes expired rows and their objects. A
+ * deleted thread keeps its handles until they expire, because a thread delete is a soft delete.
  */
 import { parseJsonText } from "@alfred/contracts";
 import { db } from "@alfred/db";
@@ -31,7 +31,7 @@ const encoder = new TextEncoder();
 
 const decoder = new TextDecoder();
 
-/** Under the thread's prefix (`buildAttachmentKey`), so a thread delete reaps it. */
+/** Under the thread's prefix, as `buildAttachmentKey` puts each object of a thread. */
 function resultHandleKey(userId: string, threadId: string, handle: string): string {
   return `chat/${userId}/${threadId}/handles/${handle}.json`;
 }

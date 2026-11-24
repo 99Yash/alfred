@@ -29,6 +29,7 @@ import { db, type DbTransaction } from "@alfred/db";
 import {
   actionStagings,
   agentRuns,
+  chatThreadIsLive,
   chatThreads,
   type ActionStaging,
   type NewActionStaging,
@@ -499,7 +500,14 @@ export const postgresStagingStore: StagingStore = {
     const rows = await db()
       .select({ fullAutonomy: chatThreads.fullAutonomy })
       .from(chatThreads)
-      .where(and(eq(chatThreads.id, query.threadId), eq(chatThreads.userId, query.userId)))
+      // A deleted thread reads as off, so a run that outlives its cancel asks again.
+      .where(
+        and(
+          eq(chatThreads.id, query.threadId),
+          eq(chatThreads.userId, query.userId),
+          chatThreadIsLive(chatThreads.deletedAt),
+        ),
+      )
       .limit(1);
 
     return rows[0]?.fullAutonomy === true;

@@ -141,7 +141,10 @@ export const ingestionQueue = defineQueue({
       { key: ["attachmentId"], id: ({ attachmentId }) => `media-enrich.${attachmentId}` },
     ),
 
-    /** Delete chat attachment bytes under a key prefix (ADR-0065). Storage has no FK cascade. */
+    /**
+     * Delete chat attachment bytes under a key prefix (ADR-0065). Storage has no FK cascade. No
+     * producer since the soft delete (2026-11-24): the worker drains a job left from before it.
+     */
     "media.cleanup": job(z.object({ userId: z.string(), prefix: z.string() }), (d) => ({
       deduplication: { id: `media.cleanup.${d.prefix}` },
     })),
@@ -167,11 +170,6 @@ export const ingestionQueue = defineQueue({
     }),
   },
 });
-
-/** Delete chat attachment bytes for a deleted thread or account (ADR-0065). Dedups per prefix. */
-export async function enqueueChatStorageCleanup(userId: string, prefix: string): Promise<void> {
-  await ingestionQueue.add("media.cleanup", { userId, prefix });
-}
 
 export async function enqueuePendingUploadCleanup(userId: string, key: string): Promise<void> {
   await ingestionQueue.add("media.cleanup_pending_upload", { userId, keys: [key] });

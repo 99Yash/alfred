@@ -15,17 +15,13 @@ import {
   chatAttachments,
   chatMessages,
   chatThreadRunMatch,
+  chatThreadIsLive,
   chatThreads,
   runIsNotTerminal,
 } from "@alfred/db/schemas";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
-import {
-  cancelRun,
-  getRun,
-  persistChatTurnRunInTx,
-  redeliverRun,
-} from "@alfred/assistant/execution";
+import { getRun, persistChatTurnRunInTx, redeliverRun } from "@alfred/assistant/execution";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 
 import {
@@ -193,35 +189,6 @@ export async function stopChatTurn(runId: string, userId: string): Promise<{ ok:
   return { ok: true };
 }
 
-/**
- * Cancel the live chat runs of a thread the user deleted. A run has no FK to its thread, so the
- * delete alone leaves it running: a card it staged stays decidable from `/approvals` and its tool
- * still runs. The cancel rejects those cards and stops the next step. Call it after the delete
- * commits. Returns the number of runs this call cancelled.
- */
-export async function cancelDeletedThreadRuns(userId: string, threadId: string): Promise<number> {
-  const live = await db()
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(
-      and(chatThreadRunMatch(agentRuns, { userId, threadId }), runIsNotTerminal(agentRuns.status)),
-    );
-
-  let cancelled = 0;
-
-  for (const { id } of live) {
-    const outcome = await cancelRun({
-      runId: id,
-      reason: "thread_deleted",
-      pendingApprovalRejectReason: "The conversation was deleted.",
-    });
-
-    if (outcome === "cancelled") cancelled++;
-  }
-
-  return cancelled;
-}
-
 export interface StartChatTurnInput {
   userId: string;
   threadId: string;
@@ -262,14 +229,19 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
   }
 
   const existing = await db()
-    .select({ userId: chatThreads.userId, title: chatThreads.title })
+    .select({
+      userId: chatThreads.userId,
+      title: chatThreads.title,
+      deletedAt: chatThreads.deletedAt,
+    })
     .from(chatThreads)
     .where(eq(chatThreads.id, threadId))
     .limit(1);
 
   const thread = existing[0];
 
-  if (thread && thread.userId !== userId) {
+  // A deleted thread takes no new turn, for example from another device (journal.md section 3).
+  if (thread && (thread.userId !== userId || thread.deletedAt !== null)) {
     throw Errors.NotFoundError("thread not found");
   }
 
@@ -603,14 +575,26 @@ export async function startChatTurn(input: StartChatTurnInput): Promise<TurnStar
         ? content.slice(0, TITLE_MAX_CHARS)
         : (attachmentRows[0]?.name ?? "").slice(0, TITLE_MAX_CHARS);
 
-    await tx
+    // The row lock orders this turn against a delete (`deleteChatThreadInTx`). A delete that commits
+    // first leaves no live row, so the turn fails. A delete that waits sees the run and cancels it in
+    // its own transaction.
+    const live = await tx
       .update(chatThreads)
       .set({
         title: sql`coalesce(${chatThreads.title}, ${titleSeed})`,
         lastMessageAt: now,
         rowVersion: sql`${chatThreads.rowVersion} + 1`,
       })
-      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
+      .where(
+        and(
+          eq(chatThreads.id, threadId),
+          eq(chatThreads.userId, userId),
+          chatThreadIsLive(chatThreads.deletedAt),
+        ),
+      )
+      .returning({ id: chatThreads.id });
+
+    if (live.length === 0) throw Errors.NotFoundError("thread not found");
 
     try {
       // A SAVEPOINT: a unique violation aborts the whole Postgres transaction, and

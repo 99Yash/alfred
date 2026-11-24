@@ -82,7 +82,11 @@ async function readThread(tx: WriteTransaction, id: string): Promise<SyncedChatT
   return SYNC_MODEL.chatthread.get(tx, { id });
 }
 
-/** Create an empty thread. Idempotent on id. */
+/**
+ * Create an empty thread. Idempotent on id. A replay after a pull that deleted the thread writes
+ * the row again: the store cannot tell a deleted thread from one that has not synced yet. The
+ * server ignores this create, so the pull that confirms it removes the row.
+ */
 export async function chatThreadCreateClient(
   tx: WriteTransaction,
   args: ChatThreadCreateArgs,
@@ -150,7 +154,7 @@ export async function chatThreadSetApprovalModeClient(
   }
 }
 
-/** Delete a thread with its messages and their attachments. */
+/** Hide a thread with its messages, their attachments, and its artifacts. The server keeps them. */
 export async function chatThreadDeleteClient(
   tx: WriteTransaction,
   args: ChatThreadDeleteArgs,
@@ -173,6 +177,10 @@ export async function chatThreadDeleteClient(
       await SYNC_MODEL.chatatt.del(tx, { id: attachment.id });
     }
   }
+
+  for (const artifact of await SYNC_MODEL.artifact.scan(tx)) {
+    if (artifact.threadId === args.id) await SYNC_MODEL.artifact.del(tx, { id: artifact.id });
+  }
 }
 
 /** The row `chatAttachmentCreateClient` writes. The web also shows it before the turn starts. */
@@ -193,12 +201,14 @@ export function toSyncedChatAttachment(args: ChatAttachmentCreateArgs): SyncedCh
 
 /**
  * Show an already-uploaded attachment before the pull (ADR-0065). Idempotent on id.
- * The turn endpoint checks the object and writes the real row.
+ * The turn endpoint checks the object and writes the real row. No write without the thread row.
  */
 export async function chatAttachmentCreateClient(
   tx: WriteTransaction,
   args: ChatAttachmentCreateArgs,
 ): Promise<void> {
+  if (!(await readThread(tx, args.threadId))) return;
+
   if (await SYNC_MODEL.chatatt.get(tx, { id: args.id })) return;
 
   await SYNC_MODEL.chatatt.put(tx, toSyncedChatAttachment(args));
@@ -227,23 +237,28 @@ export function toSyncedUserMessage(args: ChatMessageCreateArgs): SyncedChatMess
   };
 }
 
-/** Append the user's message and bump the thread's lastMessageAt. Idempotent on id. */
+/**
+ * Append the user's message and bump the thread's lastMessageAt. Idempotent on id.
+ * No write without the thread row: a pull that deleted the thread can come before a replay of
+ * this mutation, and the server takes no message into a deleted thread. A new chat's
+ * `chatThreadCreate` runs first, so its row is there.
+ */
 export async function chatMessageCreateClient(
   tx: WriteTransaction,
   args: ChatMessageCreateArgs,
 ): Promise<void> {
+  const thread = await readThread(tx, args.threadId);
+
+  if (!thread) return;
+
   if (!(await SYNC_MODEL.chatmsg.get(tx, { id: args.id }))) {
     await SYNC_MODEL.chatmsg.put(tx, toSyncedUserMessage(args));
   }
 
-  const thread = await readThread(tx, args.threadId);
-
-  if (thread) {
-    await SYNC_MODEL.chatthread.put(tx, {
-      ...thread,
-      lastMessageAt: args.createdAt,
-      rowVersion: thread.rowVersion + 1,
-      updatedAt: args.createdAt,
-    } satisfies SyncedChatThread);
-  }
+  await SYNC_MODEL.chatthread.put(tx, {
+    ...thread,
+    lastMessageAt: args.createdAt,
+    rowVersion: thread.rowVersion + 1,
+    updatedAt: args.createdAt,
+  } satisfies SyncedChatThread);
 }

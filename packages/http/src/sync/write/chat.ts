@@ -1,4 +1,5 @@
-import { chatMessages, chatThreads } from "@alfred/db/schemas";
+import { deleteChatThreadInTx } from "@alfred/assistant/chat";
+import { chatMessages, chatThreadIsLive, chatThreads } from "@alfred/db/schemas";
 import type {
   ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
@@ -12,8 +13,17 @@ import { and, eq, sql } from "drizzle-orm";
 import type { DbTransaction } from "@alfred/db";
 import { MutatorForbiddenError } from "../authz";
 import { policySetDefaultMode } from "./action-policies";
+import type { MutatorResult } from "./mutator";
 
 // Only the user side writes through Replicache; the worker writes replies. Idempotent on id.
+
+/** This thread of this user, if it is live. A deleted thread takes no write (journal.md section 3). */
+const ownedLiveThread = (threadId: string, userId: string) =>
+  and(
+    eq(chatThreads.id, threadId),
+    eq(chatThreads.userId, userId),
+    chatThreadIsLive(chatThreads.deletedAt),
+  );
 
 export async function chatThreadCreate(
   tx: DbTransaction,
@@ -49,13 +59,20 @@ export async function chatMessageCreate(
       createdAt: new Date(args.createdAt),
     })
     .onConflictDoNothing();
-  await tx
+
+  // The message first, then the thread row: the same order as turn admission, so the two paths
+  // cannot deadlock on one message id. The thread row lock orders this against a delete. If the
+  // thread is deleted, the throw rolls back the insert: a message never lands in a deleted thread.
+  const [thread] = await tx
     .update(chatThreads)
     .set({
       lastMessageAt: new Date(args.createdAt),
       rowVersion: sql`${chatThreads.rowVersion} + 1`,
     })
-    .where(and(eq(chatThreads.id, args.threadId), eq(chatThreads.userId, userId)));
+    .where(ownedLiveThread(args.threadId, userId))
+    .returning({ id: chatThreads.id });
+
+  if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
 }
 
 /**
@@ -78,7 +95,7 @@ export async function chatThreadRename(
   await tx
     .update(chatThreads)
     .set({ title: args.title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .where(ownedLiveThread(args.id, userId));
 }
 
 export async function chatThreadSetPinned(
@@ -89,7 +106,7 @@ export async function chatThreadSetPinned(
   await tx
     .update(chatThreads)
     .set({ pinned: args.pinned, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+    .where(ownedLiveThread(args.id, userId));
 }
 
 /**
@@ -104,7 +121,7 @@ export async function chatThreadSetApprovalMode(
   const [thread] = await tx
     .update(chatThreads)
     .set({ fullAutonomy: args.mode === "full", rowVersion: sql`${chatThreads.rowVersion} + 1` })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)))
+    .where(ownedLiveThread(args.id, userId))
     .returning({ id: chatThreads.id });
 
   if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
@@ -114,13 +131,18 @@ export async function chatThreadSetApprovalMode(
   }
 }
 
-/** Messages cascade by FK. Bucket objects are cleaned by the follow-up. */
+/** The transition is `deleteChatThreadInTx`. The run cancels owe work after the push commits. */
 export async function chatThreadDelete(
   tx: DbTransaction,
   args: ChatThreadDeleteArgs,
   userId: string,
-): Promise<void> {
-  await tx
-    .delete(chatThreads)
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)));
+): Promise<MutatorResult> {
+  const result = await deleteChatThreadInTx(tx, { userId, threadId: args.id });
+
+  if (!result.deleted) return { applied: false };
+
+  return {
+    applied: true,
+    followUps: [{ kind: "dischargeThreadDelete", afterCommit: result.afterCommit }],
+  };
 }

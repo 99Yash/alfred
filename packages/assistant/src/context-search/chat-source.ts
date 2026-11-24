@@ -75,11 +75,17 @@ function replyAuthority(models: readonly string[]): EvidenceAuthority {
   };
 }
 
-/** The user's message, then the reply when it has text. Both cite the thread and message ids. */
+/**
+ * The user's message, then the reply when it has text. Both cite the thread and message ids. The
+ * label of a chat that the user deleted says so, and the locator gives the time of the delete
+ * (journal.md section 3).
+ */
 function chatHitToEvidenceCards(hit: ChatExchangeHit): EvidenceCard[] {
   const source = sourceRefFromManifest(chatManifest());
   const title = hit.threadTitle ?? "Untitled chat";
-  const label = `Chat "${title}"`.slice(0, EVIDENCE_CITATION_LABEL_MAX_CHARS);
+  const kind = hit.threadDeletedAt ? "Deleted chat" : "Chat";
+  const label = `${kind} "${title}"`.slice(0, EVIDENCE_CITATION_LABEL_MAX_CHARS);
+  const deleted = hit.threadDeletedAt ? ` (deleted ${hit.threadDeletedAt.toISOString()})` : "";
 
   const userCard: EvidenceCard = {
     id: `${CHAT_CONTEXT_SOURCE_ID}:${hit.user.id}`,
@@ -92,7 +98,9 @@ function chatHitToEvidenceCards(hit: ChatExchangeHit): EvidenceCard[] {
     score: hit.similarity,
     authority: USER_TURN_AUTHORITY,
     time: { occurredAt: hit.user.createdAt.toISOString(), freshness: "ingested" },
-    citations: [{ label, locator: `chat thread ${hit.threadId}, user message ${hit.user.id}` }],
+    citations: [
+      { label, locator: `chat thread ${hit.threadId}${deleted}, user message ${hit.user.id}` },
+    ],
   };
 
   const replyText = chatTurnExcerpt(hit.reply.content, EVIDENCE_SNIPPET_MAX_CHARS);
@@ -110,7 +118,7 @@ function chatHitToEvidenceCards(hit: ChatExchangeHit): EvidenceCard[] {
     citations: [
       {
         label,
-        locator: `chat thread ${hit.threadId}, reply ${hit.reply.id} to user message ${hit.user.id}`,
+        locator: `chat thread ${hit.threadId}${deleted}, reply ${hit.reply.id} to user message ${hit.user.id}`,
       },
     ],
   };

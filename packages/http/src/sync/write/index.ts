@@ -130,15 +130,9 @@ export const serverMutators: ServerMutatorsRegistry = {
     run: chatThreadSetApprovalMode,
     followUp: (_userId, args) => (args.mode === "full" ? [] : [{ kind: "bustPolicyCache" }]),
   },
-  // Bucket objects have no FK cascade, so delete them by key prefix after commit.
-  chatThreadDelete: {
-    args: chatThreadDeleteArgsSchema,
-    run: chatThreadDelete,
-    followUp: (_userId, args) => [
-      { kind: "cancelThreadRuns", threadId: args.id },
-      { kind: "cleanChatStorage", threadId: args.id },
-    ],
-  },
+  // A soft delete keeps the attachment objects (journal.md section 3), so no bucket cleanup. The
+  // mutator returns its after-commit work, because only its transaction knows which runs it cancelled.
+  chatThreadDelete: { args: chatThreadDeleteArgsSchema, run: chatThreadDelete },
   triageTagOverride: {
     args: triageTagOverrideArgsSchema,
     run: triageTagOverride,

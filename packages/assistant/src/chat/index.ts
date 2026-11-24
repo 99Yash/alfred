@@ -1,9 +1,12 @@
 // Public seam for chat. The HTTP routes in `packages/http/src/chat.ts` are transport only:
 // they call `startChatTurn`, `stopChatTurn`, `uploadChatAttachment`, and `resolveChatAttachmentContentUrl`.
+// The Replicache `chatThreadDelete` mutator is transport only too: it calls `deleteChatThreadInTx`.
 
 export { chatTurnWorkflow } from "./chat-turn";
 
-export { cancelDeletedThreadRuns, startChatTurn, stopChatTurn } from "./turn-admission";
+export { startChatTurn, stopChatTurn } from "./turn-admission";
+
+export { deleteChatThreadInTx } from "./thread-delete";
 
 export { resolveChatAttachmentContentUrl, uploadChatAttachment } from "./attachment-ingest";
 

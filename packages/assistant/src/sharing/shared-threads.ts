@@ -17,6 +17,7 @@ import {
   artifacts,
   chatAttachments,
   chatMessages,
+  chatThreadIsLive,
   chatThreads,
   sharedThreads,
 } from "@alfred/db/schemas";
@@ -33,6 +34,14 @@ const MAX_SNAPSHOT_MESSAGES = 500;
 
 /** Measured on the redacted snapshot. The public route serves it with no session, so it must be bounded. */
 const MAX_SNAPSHOT_BYTES = 2_000_000;
+
+/** The owner's thread, if it is not deleted. A deleted thread cannot publish (journal.md section 3). */
+const ownedLiveThread = (threadId: string, userId: string) =>
+  and(
+    eq(chatThreads.id, threadId),
+    eq(chatThreads.userId, userId),
+    chatThreadIsLive(chatThreads.deletedAt),
+  );
 
 /** Never the snapshot bodies (ADR-0102 D12). */
 const summaryColumns = {
@@ -138,7 +147,7 @@ async function buildSnapshot(userId: string, threadId: string): Promise<Snapshot
   const [thread] = await db()
     .select({ id: chatThreads.id, title: chatThreads.title })
     .from(chatThreads)
-    .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)))
+    .where(ownedLiveThread(threadId, userId))
     .limit(1);
 
   if (!thread) throw Errors.NotFoundError("Thread not found");
@@ -219,24 +228,36 @@ export async function shareThread({
 
   // A digest conflict has a winner to re-read; a slug conflict does not, so retry with a new slug.
   for (let attempt = 0; attempt < 5; attempt++) {
-    const [row] = await db()
-      .insert(sharedThreads)
-      .values({
-        userId,
-        sourceThreadId: threadId,
-        urlSlug: buildSharedThreadSlug(
-          snapshot.title,
-          randomBytes(SHARED_THREAD_SLUG_SUFFIX_LENGTH),
-        ),
-        title: snapshot.title,
-        messages: snapshot.messages,
-        artifacts: snapshot.artifacts,
-        snapshotDigest: digest,
-        messageCount: snapshot.messages.length,
-        artifactCount: snapshot.artifacts.length,
-      })
-      .onConflictDoNothing()
-      .returning(summaryColumns);
+    // The share lock orders the insert against a thread delete, which removes every share of the
+    // thread. A delete that commits first leaves no live row, so the share fails.
+    const [row] = await db().transaction(async (tx) => {
+      const [live] = await tx
+        .select({ id: chatThreads.id })
+        .from(chatThreads)
+        .where(ownedLiveThread(threadId, userId))
+        .for("share");
+
+      if (!live) throw Errors.NotFoundError("Thread not found");
+
+      return tx
+        .insert(sharedThreads)
+        .values({
+          userId,
+          sourceThreadId: threadId,
+          urlSlug: buildSharedThreadSlug(
+            snapshot.title,
+            randomBytes(SHARED_THREAD_SLUG_SUFFIX_LENGTH),
+          ),
+          title: snapshot.title,
+          messages: snapshot.messages,
+          artifacts: snapshot.artifacts,
+          snapshotDigest: digest,
+          messageCount: snapshot.messages.length,
+          artifactCount: snapshot.artifacts.length,
+        })
+        .onConflictDoNothing()
+        .returning(summaryColumns);
+    });
 
     if (row) return toSummary(row);
 

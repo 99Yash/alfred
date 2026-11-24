@@ -3,6 +3,7 @@ import type { DbTransaction } from "@alfred/db";
 import {
   chatAttachments,
   chatMessages,
+  chatThreadIsLive,
   chatThreads,
   type ChatAttachment,
   type ChatMessage,
@@ -20,16 +21,21 @@ const messageOrder = [desc(chatMessages.createdAt), desc(chatMessages.id)];
 
 const attachmentOrder = [desc(chatAttachments.createdAt), desc(chatAttachments.id)];
 
+/** The threads the UI shows. A deleted thread stays in the database (journal.md section 3). */
+const ownedLiveThreads = (userId: string) =>
+  and(eq(chatThreads.userId, userId), chatThreadIsLive(chatThreads.deletedAt));
+
 /**
- * The visible message set, shared by both stages and by `chatatt`.
- * The cap must bound the whole set, not the changed rows, or a concurrent
+ * The visible message set, shared by both stages and by `chatatt`. A message of a deleted thread
+ * is not visible. The cap must bound the whole set, not the changed rows, or a concurrent
  * commit could load a row the cap no longer holds.
  */
 const recentMessages = (tx: DbTransaction, userId: string) =>
   tx
     .select({ id: chatMessages.id })
     .from(chatMessages)
-    .where(eq(chatMessages.userId, userId))
+    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
+    .where(and(eq(chatMessages.userId, userId), ownedLiveThreads(userId)))
     .orderBy(...messageOrder)
     .limit(CHAT_MESSAGE_PULL_LIMIT)
     .as("recent_messages");
@@ -48,14 +54,12 @@ const recentAttachments = (tx: DbTransaction, userId: string) => {
     .as("recent_attachments");
 };
 
-const ownedThread = (userId: string) => eq(chatThreads.userId, userId);
-
 export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
   versionQuery: (tx, userId) =>
     tx
       .select({ id: chatThreads.id, rowVersion: chatThreads.rowVersion })
       .from(chatThreads)
-      .where(ownedThread(userId))
+      .where(ownedLiveThreads(userId))
       .orderBy(desc(chatThreads.pinned), desc(chatThreads.lastMessageAt), asc(chatThreads.id)),
   loadQuery: (tx, userId, changed) =>
     tx
@@ -63,7 +67,7 @@ export const fetchChatThreads = syncEntity(SYNC_MODEL.chatthread, {
       .from(chatThreads)
       .where(
         and(
-          ownedThread(userId),
+          ownedLiveThreads(userId),
           inArray(
             chatThreads.id,
             changed.map((v) => v.id),

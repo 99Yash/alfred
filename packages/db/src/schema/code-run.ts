@@ -108,8 +108,8 @@ export type NewCodeRunHostCall = typeof codeRunHostCalls.$inferInsert;
  * whose model copy was cut. The next turn gets one transcript line for each live row of a message.
  *
  * The row is thread-scoped, and it expires 3 days after the fetch (owner, 2026-11-20). A daily job
- * deletes expired rows and their objects. A thread delete cascades the rows, and the thread's
- * storage prefix cleanup removes the objects.
+ * deletes expired rows and their objects. A thread delete is a soft delete, so the rows of a
+ * deleted thread also wait for that job.
  */
 export const resultHandles = pgTable(
   "result_handles",

@@ -8,7 +8,6 @@
 export {
   ingestionQueue,
   enqueueChatAttachmentEnrichment,
-  enqueueChatStorageCleanup,
   enqueueGmailKindRefold,
   enqueueTriageRelabel,
   enqueuePendingUploadCleanup,

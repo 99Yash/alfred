@@ -6,6 +6,7 @@ export {
   wakeRun,
   replayRun,
   cancelRun,
+  cancelRunInTx,
   agentWorker,
   subAgentJoinWakeWorker,
   verifyMeteringModels,

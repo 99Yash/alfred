@@ -1,8 +1,15 @@
 import type { DbTransaction } from "@alfred/db";
 import type { ZodType } from "zod";
 
-/** `{ applied: false }` means the target row did not exist (`triageTagOverride`). */
-export type MutatorResult = void | { applied: boolean };
+/**
+ * `{ applied: false }` means the target row did not exist (`triageTagOverride`, `chatThreadDelete`).
+ * No follow-up runs. `followUps` is the work that only the mutator can name, for example the
+ * obligations of a cancel in its transaction.
+ */
+export type MutatorResult =
+  | void
+  | { applied: false }
+  | { applied: true; followUps?: MutatorFollowUp[] };
 
 type MutatorRun<A> = (tx: DbTransaction, args: A, userId: string) => Promise<MutatorResult>;
 
@@ -12,15 +19,13 @@ export type MutatorFollowUp =
   | { kind: "bustPolicyCache" }
   /** Sync the Gmail label after a tag override (rfc-triage-tags.md). */
   | { kind: "relabelThread"; sourceThreadId: string }
-  /** Delete a removed thread's attachment objects from the bucket (ADR-0065). */
-  | { kind: "cleanChatStorage"; threadId: string }
-  /** Cancel a removed thread's live chat runs, so a card they staged cannot run. */
-  | { kind: "cancelThreadRuns"; threadId: string };
+  /** The after-commit work of `deleteChatThreadInTx`: the side effects of its run cancels. */
+  | { kind: "dischargeThreadDelete"; afterCommit: () => Promise<void> };
 
 /** Schema and runner share one `A`, so parsed args reach `run()` without a cast. */
 export interface RegisteredServerMutator<A> {
   args: ZodType<A>;
   run: MutatorRun<A>;
-  /** Runs only after the savepoint commits and `didMutatorApply` is true. */
+  /** Runs only after the savepoint commits and the result is not `{ applied: false }`. */
   followUp?: (userId: string, args: A) => MutatorFollowUp[];
 }
