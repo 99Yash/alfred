@@ -228,6 +228,7 @@ function recallFixture(exchanges: PastExchange[]) {
     turns.set(chatExchangeKey(ref), {
       threadId: `thread_${ex.id}`,
       threadTitle: ex.user.slice(0, 40),
+      threadDeleted: false,
       user: { id: ref.userMessageId, content: ex.user, createdAt: userAt },
       reply: {
         id: ref.replyMessageId,
