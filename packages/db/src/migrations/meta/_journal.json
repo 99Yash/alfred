@@ -1310,6 +1310,13 @@
       "when": 1795440494755,
       "tag": "0186_claim_evidence_items_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1795494968541,
+      "tag": "0187_chat_exchanges",
+      "breakpoints": true
     }
   ]
 }

@@ -87,6 +87,17 @@ export {
   type MemoryChunkKind,
 } from "./chunks";
 
+// Past chats are searchable (journal.md section 3).
+export {
+  chatExchangeRefSchema,
+  chatTurnExcerpt,
+  readChatExchangeTurns,
+  recallChatExchanges,
+  type ChatExchangeHit,
+  type ChatExchangeRef,
+  type ChatExchangeTurn,
+} from "./chat-exchanges";
+
 export { ENTITY_KINDS, entityKindSchema, type EntityKind } from "./entity-graph";
 
 export { describeCorrespondentHistory } from "./correspondents";

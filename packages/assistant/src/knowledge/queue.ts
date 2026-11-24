@@ -14,6 +14,8 @@ export const memoryQueue = defineQueue({
     "memory.extract.run": job(z.object({ userId: z.string().min(1) })),
     /** Repeatable: embed chunks written without one. */
     "memory.embed_sweep": signal(),
+    /** Repeatable: pair new chat exchanges and embed them (journal.md section 3). */
+    "memory.chat_exchange_sweep": signal(),
     /** Repeatable drift health check (#219). Shares this queue to save Redis connections. */
     "memory.drift_health_check": signal(),
   },

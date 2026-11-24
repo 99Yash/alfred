@@ -1,3 +1,4 @@
+import { createChatContextSource } from "./chat-source";
 import { createDocumentContextSource } from "./documents-source";
 import { createDriveContextSource } from "./drive-source";
 import { createMemoryContextSource } from "./memory-source";
@@ -13,6 +14,7 @@ import { registerContextSource, type ContextSource } from "./registry";
 const builtinSources: readonly ContextSource[] = [
   createDocumentContextSource(),
   createMemoryContextSource(),
+  createChatContextSource(),
   createObjectStateContextSource(),
   createDriveContextSource(),
 ];

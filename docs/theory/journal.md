@@ -45,7 +45,13 @@ A loop (ADR-0122) needs a thing with a source that owns it, for example a PR or 
 
 ## 3. The parts
 
-**Past chats are searchable.** Each chat exchange (the user's message and Alfred's reply) is embedded and searchable. Today chat messages are stored, but they have no embeddings, and context search does not read them. Thus Alfred cannot recall a past talk outside its thread.
+**Past chats are searchable.** Each chat exchange (the user's message and Alfred's reply) is embedded and searchable. Owner decisions, 2026-11-24 ([#1854](https://github.com/99Yash/alfred/issues/1854)):
+
+- The vectors live in a derived table, `chat_exchanges`, with one row for each exchange. Each message id cascades from `chat_messages`, so a deleted thread leaves the index in the database.
+- Chat-time recall excludes the current thread. The model already has it.
+- The number of recalled exchanges is a default for now, with no similarity floor. Evals set the values for each case.
+- A recalled user turn is the user's own words. A recalled reply is Alfred's own output and is never evidence (principle 5). It names the model that wrote it.
+- The worst error is a past talk that did not occur. Eval case A: no past talk exists, and Alfred does not claim one. Eval case B: a past talk exists, and Alfred names it with its date.
 
 **A journal entry.** Prose that the model writes about a matter in the user's life, whether a talk opened it or an observed item did. It has no schema for its content. An entry holds:
 
@@ -140,11 +146,11 @@ The owner reads the journal and the remark records in the database. A script pri
 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
-| Past chats are searchable | Settled | Not built | Chat messages have no embeddings, and context search does not read them. |
+| Past chats are searchable | Settled | Built | A sweep pairs and embeds each exchange into `chat_exchanges` every 2 minutes. Context search reads them through the `chat` source. A message with only attachments is not searchable. |
 | Journal entries with links and lookouts | Settled | Not built | No store exists. |
 | Write from capture, from a chat tool, and from the pass | Settled | Not built | Chat capture discards its output (memory.md section 8). |
 | Pre-briefing pass | Settled | Not built | No step runs before the gather. It reads through Code Mode (ADR-0124), which is built; the pass itself is not built (#535). |
-| Chat-time recall | Settled | Not built | Depends on searchable chats. |
+| Chat-time recall | Settled | Built (past chats only) | The first step of a run saves the recall in the turn context, and the projection renders it after the user's message. It does not search the journal, because the journal is not built. The eval cases A and B are not written yet. |
 | Remark records, in the briefing and the next chat, and the handling of the reply | Settled | Not built | Chat cannot read briefings today. |
 | Back-test, the recall-miss signal, and the weekly report | Settled | Not built | |
 
