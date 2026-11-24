@@ -165,7 +165,7 @@ function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
     kind: "message",
     id: row.id,
     threadId: row.threadId,
-    threadDeleted: row.threadDeletedAt !== null,
+    threadDeletedAt: row.threadDeletedAt?.toISOString() ?? null,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
     content: excerpt(row.content),

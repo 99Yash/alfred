@@ -1,4 +1,5 @@
-import { chatMessages, chatThreadIsLive, chatThreads, sharedThreads } from "@alfred/db/schemas";
+import { deleteChatThreadInTx } from "@alfred/assistant/chat";
+import { chatMessages, chatThreadIsLive, chatThreads } from "@alfred/db/schemas";
 import type {
   ChatAttachmentCreateArgs,
   ChatMessageCreateArgs,
@@ -46,18 +47,6 @@ export async function chatMessageCreate(
   args: ChatMessageCreateArgs,
   userId: string,
 ): Promise<void> {
-  // The row lock orders this against a delete: a message never lands in a deleted thread.
-  const [thread] = await tx
-    .update(chatThreads)
-    .set({
-      lastMessageAt: new Date(args.createdAt),
-      rowVersion: sql`${chatThreads.rowVersion} + 1`,
-    })
-    .where(ownedLiveThread(args.threadId, userId))
-    .returning({ id: chatThreads.id });
-
-  if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
-
   await tx
     .insert(chatMessages)
     .values({
@@ -70,6 +59,20 @@ export async function chatMessageCreate(
       createdAt: new Date(args.createdAt),
     })
     .onConflictDoNothing();
+
+  // The message first, then the thread row: the same order as turn admission, so the two paths
+  // cannot deadlock on one message id. The thread row lock orders this against a delete. If the
+  // thread is deleted, the throw rolls back the insert: a message never lands in a deleted thread.
+  const [thread] = await tx
+    .update(chatThreads)
+    .set({
+      lastMessageAt: new Date(args.createdAt),
+      rowVersion: sql`${chatThreads.rowVersion} + 1`,
+    })
+    .where(ownedLiveThread(args.threadId, userId))
+    .returning({ id: chatThreads.id });
+
+  if (!thread) throw new MutatorForbiddenError("Chat thread is unavailable");
 }
 
 /**
@@ -128,31 +131,18 @@ export async function chatThreadSetApprovalMode(
   }
 }
 
-/**
- * A soft delete (journal.md section 3, owner decision 2026-11-24): the thread leaves the UI, and its
- * messages, attachments, and memories stay. Its share links stop, because revoke is a hard delete
- * (ADR-0102). A repeated delete (a retry, another device) applies again, so the run cancel runs
- * again: the cancel is best-effort.
- */
+/** The transition is `deleteChatThreadInTx`. The run cancels owe work after the push commits. */
 export async function chatThreadDelete(
   tx: DbTransaction,
   args: ChatThreadDeleteArgs,
   userId: string,
 ): Promise<MutatorResult> {
-  const deleted = await tx
-    .update(chatThreads)
-    .set({
-      deletedAt: sql`coalesce(${chatThreads.deletedAt}, now())`,
-      rowVersion: sql`${chatThreads.rowVersion} + 1`,
-    })
-    .where(and(eq(chatThreads.id, args.id), eq(chatThreads.userId, userId)))
-    .returning({ id: chatThreads.id });
+  const result = await deleteChatThreadInTx(tx, { userId, threadId: args.id });
 
-  if (deleted.length === 0) return { applied: false };
+  if (!result.deleted) return { applied: false };
 
-  await tx
-    .delete(sharedThreads)
-    .where(and(eq(sharedThreads.sourceThreadId, args.id), eq(sharedThreads.userId, userId)));
-
-  return { applied: true };
+  return {
+    applied: true,
+    followUps: [{ kind: "dischargeThreadDelete", afterCommit: result.afterCommit }],
+  };
 }

@@ -29,6 +29,8 @@ import { llmJudgeScorer } from "./lib/llm-judge";
 // or no evidence (no recall, as before the chat source existed). A fetch finds nothing. The run
 // has up to 3 steps, so a case that searches first still ends with a reply, and the scorers grade
 // that final reply. "No tool step" records whether the first reply needed a tool.
+// B1 comes from a chat that the user deleted (journal.md section 3). The reply must name that chat
+// and say when the user deleted it, because the user may not expect Alfred to remember it.
 // Run with apps/server/.env populated: `pnpm --filter @alfred/assistant exec evalite run chat-recall`.
 
 loadEnv({ path: path.resolve(import.meta.dirname, "../../../apps/server/.env") });
@@ -60,6 +62,8 @@ interface PastExchange {
   reply: string;
   /** Lowercase words that name this topic. */
   topicWords: string[];
+  /** `YYYY-MM-DD`, the local day on which the user deleted the chat. Absent for a live chat. */
+  deletedOn?: string;
 }
 
 interface Case {
@@ -95,6 +99,7 @@ const NIFT: PastExchange = {
   reply:
     "The strongest fashion technology colleges in India are NIFT Delhi, NIFT Mumbai, and NIFT Bengaluru, then Pearl Academy and the National Institute of Design (NID) for design-led programmes. NIFT admission is through its own entrance exam (written test, then a situation test or interview).",
   topicWords: ["fashion", "nift"],
+  deletedOn: "2026-11-21",
 };
 
 const CS_RANKINGS: PastExchange = {
@@ -223,12 +228,20 @@ function recallFixture(exchanges: PastExchange[]) {
     const userAt = new Date(`${ex.day}T05:00:00Z`);
     const replyAt = new Date(`${ex.day}T05:00:20Z`);
 
+    const title = ex.user.slice(0, 40);
+
     // The production format: the local day of the past user message, "long" style.
-    recall.push({ ...ref, sentOn: formatDay(parseLocalDateKey(ex.day), "long") });
+    recall.push({
+      ...ref,
+      sentOn: formatDay(parseLocalDateKey(ex.day), "long"),
+      ...(ex.deletedOn
+        ? { deleted: { on: formatDay(parseLocalDateKey(ex.deletedOn), "long"), title } }
+        : {}),
+    });
     turns.set(chatExchangeKey(ref), {
       threadId: `thread_${ex.id}`,
-      threadTitle: ex.user.slice(0, 40),
-      threadDeleted: false,
+      threadTitle: title,
+      threadDeletedAt: ex.deletedOn ? new Date(`${ex.deletedOn}T05:00:00Z`) : null,
       user: { id: ref.userMessageId, content: ex.user, createdAt: userAt },
       reply: {
         id: ref.replyMessageId,
@@ -330,12 +343,15 @@ function excerpt(text: string): string {
   return flat.length > 300 ? `${flat.slice(0, 299)}…` : flat || "(no text)";
 }
 
-/** The past chats as the `chat` source cards read: the user's words, then the reply, with the day. */
+/**
+ * The past chats as the `chat` source cards read: the user's words, then the reply, with the day. A
+ * deleted chat says so, with the day of the delete.
+ */
 function searchContextText(exchanges: PastExchange[]): string {
   return exchanges
     .map((ex) =>
       [
-        `[Past chats] the user's own words in an earlier chat, ${formatDay(parseLocalDateKey(ex.day), "long")}: ${ex.user}`,
+        `[Past chats] the user's own words in an earlier ${ex.deletedOn ? `chat that the user deleted on ${formatDay(parseLocalDateKey(ex.deletedOn), "long")}` : "chat"}, ${formatDay(parseLocalDateKey(ex.day), "long")}: ${ex.user}`,
         `[Past chats] Alfred's own earlier reply (written by ${REPLY_MODELS.join(", ")}), not evidence: ${ex.reply}`,
       ].join("\n"),
     )
@@ -448,6 +464,28 @@ evalite<Input, TaskOutput, undefined>("Chat-time recall", {
         const verdict = scoreAttribution(output.text, caseById(output.caseId));
 
         return { score: verdict.pass ? 1 : 0, metadata: verdict.reason };
+      },
+    },
+    {
+      name: "Names a deleted source chat",
+      scorer: ({ output }) => {
+        const deletedOn = caseById(output.caseId).expected?.deletedOn;
+
+        if (!deletedOn) return { score: 1, metadata: "n/a (the source chat is live)" };
+
+        // The no-recall arm has no source to name; its attribution scorer already fails.
+        if (output.arm === "no recall") return { score: 1, metadata: "n/a (no recall)" };
+
+        const saysDeleted = /\bdelet/i.test(output.text);
+        const namesDeleteDay = namesDay(output.text, deletedOn);
+
+        return {
+          score: saysDeleted && namesDeleteDay ? 1 : 0,
+          metadata:
+            saysDeleted && namesDeleteDay
+              ? `says deleted on ${deletedOn}`
+              : `${saysDeleted ? "" : "no delete mention; "}${namesDeleteDay ? "" : `no ${deletedOn}; `}reply: ${excerpt(output.text)}`,
+        };
       },
     },
     {

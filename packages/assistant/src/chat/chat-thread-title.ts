@@ -1,7 +1,7 @@
 import { route, meteredGenerateText } from "@alfred/ai";
 import { collapseWhitespace } from "@alfred/contracts";
 import { db } from "@alfred/db";
-import { chatAttachments, chatMessages, chatThreads } from "@alfred/db/schemas";
+import { chatAttachments, chatMessages, chatThreadIsLive, chatThreads } from "@alfred/db/schemas";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { logger } from "@alfred/logging";
@@ -110,7 +110,14 @@ export async function maybeGenerateThreadTitle(args: {
     await db()
       .update(chatThreads)
       .set({ title, rowVersion: sql`${chatThreads.rowVersion} + 1` })
-      .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
+      // A deleted thread keeps its title, so recall can name it with a stable title.
+      .where(
+        and(
+          eq(chatThreads.id, threadId),
+          eq(chatThreads.userId, userId),
+          chatThreadIsLive(chatThreads.deletedAt),
+        ),
+      );
     emitReplicachePokes([userId]);
   } catch (err) {
     logger.warn({ err }, `[chat-turn] thread title generation failed for ${threadId}`);

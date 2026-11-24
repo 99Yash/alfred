@@ -22,6 +22,11 @@ export function useChatThreads(): SyncedChatThread[] {
 export interface ChatThreadState {
   thread: SyncedChatThread | null;
   loading: boolean;
+  /**
+   * The first pull is done and the store has no row with this id. The thread is deleted, or it
+   * has no synced row yet. A new chat is in the second group until its first turn syncs.
+   */
+  missing: boolean;
 }
 
 /** Keeps "not loaded" apart from "not found". */
@@ -32,9 +37,9 @@ export function useChatThread(threadId: string | undefined): ChatThreadState {
     [threadId],
   );
 
-  const { data, loading } = useReplicacheSubscription(query);
+  const { data, loading, initialPullPending } = useReplicacheSubscription(query);
 
-  return { thread: data ?? null, loading };
+  return { thread: data ?? null, loading, missing: data === null && !initialPullPending };
 }
 
 export interface ChatMessagesState {

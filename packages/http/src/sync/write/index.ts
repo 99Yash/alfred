@@ -130,12 +130,9 @@ export const serverMutators: ServerMutatorsRegistry = {
     run: chatThreadSetApprovalMode,
     followUp: (_userId, args) => (args.mode === "full" ? [] : [{ kind: "bustPolicyCache" }]),
   },
-  // A soft delete keeps the attachment objects (journal.md section 3), so no bucket cleanup.
-  chatThreadDelete: {
-    args: chatThreadDeleteArgsSchema,
-    run: chatThreadDelete,
-    followUp: (_userId, args) => [{ kind: "cancelThreadRuns", threadId: args.id }],
-  },
+  // A soft delete keeps the attachment objects (journal.md section 3), so no bucket cleanup. The
+  // mutator returns its after-commit work, because only its transaction knows which runs it cancelled.
+  chatThreadDelete: { args: chatThreadDeleteArgsSchema, run: chatThreadDelete },
   triageTagOverride: {
     args: triageTagOverrideArgsSchema,
     run: triageTagOverride,

@@ -56,7 +56,8 @@ A loop (ADR-0122) needs a thing with a source that owns it, for example a PR or 
 **A deleted chat.** Owner decisions, 2026-11-24:
 
 - A chat delete is a soft delete. It hides the thread in the UI only. The message rows, their attachments, and the memories from them (claims, preferences, chunks) stay. Thus the evidence of a claim stays readable for the check job ([memory.md](./memory.md)).
-- Chat-time recall and `search_context` still read a deleted chat, because it can hold useful information. A recalled or found turn from it carries a "deleted" mark, so Alfred can tell the user that the information comes from a chat that they deleted, when that matters. No special similarity floor applies to a deleted chat, and recall does not wait until the user asks.
+- Chat-time recall and `search_context` still read a deleted chat, because it can hold useful information. A recalled or found turn from it carries a "deleted" mark with the time of the delete and the chat title. When Alfred uses it, Alfred names that chat and says when the user deleted it (owner, 2026-11-24). No special similarity floor applies to a deleted chat, and recall does not wait until the user asks.
+- A delete has no effect on which exchanges recall selects (owner, 2026-11-24). An exchange that an earlier message of the thread recalled is not recalled again, also after a later delete of its source chat. The mark is saved at recall time, so an older prompt keeps its bytes. `system.read_chat_history` reads the live mark.
 - A delete stops the share links of the thread, cancels its running turn, and refuses a new message to it.
 - Alfred never purges a deleted chat, for now. No restore UI exists.
 

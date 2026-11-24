@@ -3,6 +3,7 @@ import { registerRecipe } from "./registry";
 import { getRun } from "./run-summary";
 import {
   cancelRun,
+  cancelRunInTx,
   persistChatTurnRunInTx,
   redeliverRun,
   replayRun,
@@ -21,6 +22,7 @@ export {
   getRun,
   wakeRun,
   cancelRun,
+  cancelRunInTx,
   agentWorker,
   subAgentJoinWakeWorker,
   verifyMeteringModels,

@@ -193,7 +193,17 @@ export function useSendMessage(options: SendMessageOptions = {}): SendMessage {
             { summarize: true },
           );
           console.error("[chat] turn start failed:", res.status, body);
-          toast.error("Couldn't send your message. Please try again.");
+
+          // A 404 for a thread that exists here: the server deleted it, and this store has not
+          // pulled yet. Pull now. The route leaves the thread when its row is gone.
+          if (res.status === 404 && !isNew) {
+            toast.error("This chat was deleted.");
+            // oxlint-disable-next-line alfred/no-swallowed-catch -- this pull rejects only with "Closed" after the client closes, and then no route is open
+            void rep.pull({ now: true }).catch(() => undefined);
+          } else {
+            toast.error("Couldn't send your message. Please try again.");
+          }
+
           await abandon();
 
           return { ok: false, reason: "error" } satisfies SendResult;

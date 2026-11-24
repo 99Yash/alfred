@@ -195,7 +195,7 @@ Invariants:
   - A cancel is followed by late-staging sweeps in the cancel path and in the losing executor.
 - Assumed only:
   - Status and outcome agree. No CHECK pairs them, so each writer sets both. The cancel sweeps did not (SM-05).
-  - A pending gated row belongs to a run that is, or will be, waiting on it. A failed run breaks this (SM-19). A thread delete cancels the live runs of that thread after the push commits (`cancelDeletedThreadRuns`), which rejects their pending rows (SM-14). A crash between the commit and that cancel still breaks it.
+  - A pending gated row belongs to a run that is, or will be, waiting on it. A failed run breaks this (SM-19). A thread delete cancels the live runs of that thread in its own transaction (`deleteChatThreadInTx`), so the fence and the rejection of their pending rows commit with the delete (SM-14).
 
 ### `chat_messages.status`
 
@@ -390,7 +390,7 @@ States: absent, published (a row), revoked (hard delete). `shareThread` reads an
 
 ### Chat thread soft delete (implicit)
 
-States: live (`chat_threads.deleted_at` is null) and deleted. There is no way back: no restore UI exists, and no job purges a deleted row (journal.md section 3). `chatThreadDelete` keeps the first `deleted_at`. A repeated delete applies again, so its best-effort run cancel runs again. Guards: each writer that starts new work on a thread (`chatMessageCreate`, the thread update in `startChatTurn`, `shareThread`) locks the thread row and requires `chatThreadIsLive`, so a write that races a delete either commits first and is cancelled or revoked by it, or fails. The other writers (the reply, the turn context, artifacts, result handles) belong to a run that one of these writers started, and the delete cancels that run. Readers: the Replicache pull and thread autonomy treat a deleted thread as absent. Recall, `search_context`, and the `read_chat_history` fetch keep it with a "deleted" mark.
+States: live (`chat_threads.deleted_at` is null) and deleted. There is no way back: no restore UI exists, and no job purges a deleted row (journal.md section 3). `deleteChatThreadInTx` (`@alfred/assistant`) owns the transition, and the `chatThreadDelete` mutator only calls it. It keeps the first `deleted_at`, removes the shares, and cancels the live runs of the thread in the same transaction. A repeated delete applies again, so it cancels a run that is still live. If the cancel throws, the delete rolls back and the thread comes back on the next pull. Guards: each writer that starts new work on a thread (`chatMessageCreate`, the thread update in `startChatTurn`, `shareThread`) locks the thread row and requires `chatThreadIsLive`, so a write that races a delete either commits first and is cancelled or revoked by it, or fails. The other writers (the reply, the turn context, artifacts, result handles) belong to a run that one of these writers started, and the delete cancels that run. Readers: the Replicache pull and thread autonomy treat a deleted thread as absent. Recall, `search_context`, and the `read_chat_history` fetch keep it with a "deleted" mark.
 
 ## Connections, workflows, ingestion, memory
 

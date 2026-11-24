@@ -6,7 +6,6 @@ import { replicacheClient, replicacheClientGroup } from "@alfred/db/schemas";
 import type { MutatorName } from "@alfred/sync";
 import { eq, sql } from "drizzle-orm";
 import { publishPolicyBust } from "@alfred/assistant/action-policies";
-import { cancelDeletedThreadRuns } from "@alfred/assistant/chat";
 import { emitReplicachePokes } from "@alfred/assistant/triggers";
 import { enqueueTriageRelabel } from "@alfred/assistant/connections/ingestion";
 import { MutatorForbiddenError } from "./authz";
@@ -26,12 +25,6 @@ const isKnownMutator = keyGuard(serverMutators);
 // per-mutation savepoint (`subTx`) all run against a `DbTransaction`, never a
 // pooled `db()` handle.
 type MutationOutcome = { applied: boolean; followUps: MutatorFollowUp[] };
-
-function didMutatorApply(result: MutatorResult | undefined): boolean {
-  if (!result) return true;
-
-  return result.applied;
-}
 
 /**
  * Validate and apply one mutation against its registry entry.
@@ -58,14 +51,14 @@ async function applyMutation<K extends MutatorName>(
     return outcome;
   }
 
-  let mutatorResult: MutatorResult | undefined;
+  let mutatorResult: MutatorResult;
 
   try {
     // Savepoint isolates mutator failures so one bad mutation doesn't
-    // poison the whole batch.
-    await runAtomic(tx, async (subTx: DbTransaction) => {
-      mutatorResult = await entry.run(subTx, parsed.data, userId);
-    });
+    // poison the whole batch. A throw rolls back every write of the mutator.
+    mutatorResult = await runAtomic(tx, (subTx: DbTransaction) =>
+      entry.run(subTx, parsed.data, userId),
+    );
   } catch (err) {
     if (err instanceof MutatorForbiddenError) {
       logger.warn({ err, mutatorName }, "[replicache:push] ACL rejected");
@@ -76,11 +69,15 @@ async function applyMutation<K extends MutatorName>(
     return outcome;
   }
 
-  if (!didMutatorApply(mutatorResult)) return outcome;
+  if (mutatorResult && !mutatorResult.applied) return outcome;
 
   outcome.applied = true;
 
   if (entry.followUp) outcome.followUps = entry.followUp(userId, parsed.data);
+
+  if (mutatorResult?.followUps) {
+    outcome.followUps = outcome.followUps.concat(mutatorResult.followUps);
+  }
 
   return outcome;
 }
@@ -208,6 +205,18 @@ export async function handlePush(
     await publishPolicyBust(userId);
   }
 
+  // The cancels of a thread delete committed with the delete. These are their side effects
+  // (notifications, queue cleanup). They come before the enqueue below, which can wait on Redis.
+  for (const f of outcome.followUps) {
+    if (f.kind !== "dischargeThreadDelete") continue;
+
+    try {
+      await f.afterCommit();
+    } catch (err) {
+      logger.warn({ err }, "[replicache:push] after-commit work of a thread delete failed");
+    }
+  }
+
   // Everything below runs off the request path's critical data path, but the
   // ENQUEUE calls do not, and they are not bounded: BullMQ shares the
   // connection it is handed, so an `add` is an ordinary command on a
@@ -225,19 +234,6 @@ export async function handlePush(
       await enqueueTriageRelabel(userId, f.sourceThreadId);
     } catch (err) {
       logger.warn({ err }, "[replicache:push] triage relabel enqueue failed");
-    }
-  }
-
-  // Cancel a deleted thread's live chat runs. A run has no FK to its thread, so without this a
-  // card it staged stays decidable from `/approvals` and its tool still runs. The cancel rejects
-  // the cards. A failure here leaves the run live: it finishes into the hidden thread.
-  for (const f of outcome.followUps) {
-    if (f.kind !== "cancelThreadRuns") continue;
-
-    try {
-      await cancelDeletedThreadRuns(userId, f.threadId);
-    } catch (err) {
-      logger.warn({ err }, "[replicache:push] cancel of a deleted thread's runs failed");
     }
   }
 

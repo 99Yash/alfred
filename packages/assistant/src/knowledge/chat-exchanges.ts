@@ -231,10 +231,10 @@ export interface ChatExchangeTurn {
   /** The live title. It changes on a rename, so a replayed prompt must not show it. */
   threadTitle: ChatThread["title"];
   /**
-   * The user deleted the thread. A delete hides it in the UI only, so recall still reads it and
-   * marks it (journal.md section 3). Live, so a replayed prompt must save it, not read it.
+   * When the user deleted the thread, else null. A delete hides it in the UI only, so recall still
+   * reads it and marks it (journal.md section 3). Live, so a replayed prompt must save it.
    */
-  threadDeleted: boolean;
+  threadDeletedAt: ChatThread["deletedAt"];
   user: Pick<ChatMessage, "id" | "content" | "createdAt">;
   reply: Pick<ChatMessage, "id" | "content" | "createdAt" | "status"> & {
     /** The models that wrote the reply, most-used first. Empty when the row recorded none. */
@@ -321,7 +321,7 @@ export async function readChatExchangeTurns(
     turns.set(chatExchangeKey({ userMessageId: row.userId, replyMessageId: row.replyId }), {
       threadId: row.threadId,
       threadTitle: row.threadTitle,
-      threadDeleted: row.threadDeletedAt !== null,
+      threadDeletedAt: row.threadDeletedAt,
       user: { id: row.userId, content: row.userContent, createdAt: row.userCreatedAt },
       reply: {
         id: row.replyId,

@@ -16,7 +16,7 @@ export function DeleteThreadDialog({
       {target ? (
         <DialogContent
           title="Delete chat?"
-          description={`“${target.title}” leaves your chat list. Alfred still remembers what you talked about.`}
+          description={`“${target.title}” leaves your chat list, and its share links stop working. Alfred keeps its messages and files, and can still use them in later replies. You can’t restore it.`}
           // `themed` carries the theme through the portal; without it the panel stays dark.
           themed
           className="max-w-sm"

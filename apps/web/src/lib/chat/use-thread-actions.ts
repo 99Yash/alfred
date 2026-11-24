@@ -28,7 +28,8 @@ export function useThreadActions(activeThreadId: string | undefined): ThreadActi
       remove: (id) => {
         void rep.mutate.chatThreadDelete({ id });
 
-        if (activeThreadId === id) void navigate({ to: "/chat" });
+        // Replace, as the route does for a missing thread, so Back does not open the deleted thread.
+        if (activeThreadId === id) void navigate({ to: "/chat", replace: true });
       },
     };
   }, [rep, activeThreadId, navigate]);
