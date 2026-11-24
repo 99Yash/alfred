@@ -438,7 +438,7 @@ export const readChatHistoryInput = z
     mode: z
       .enum(["search", "fetch"])
       .describe(
-        "`search` runs a keyword lookup across this thread's messages; `fetch` pulls one item by id.",
+        "`search` runs a keyword lookup across this thread's messages; `fetch` pulls one item by id (a message from any of the user's threads, a tool call or an attachment from this thread).",
       ),
     query: z
       .string()

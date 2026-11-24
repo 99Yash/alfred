@@ -390,6 +390,8 @@ export interface ChatHistoryExcerpt {
 export interface ChatHistoryMessageEvidence {
   readonly kind: "message";
   readonly id: string;
+  /** The thread of the message. A fetch by id can read a message from another thread. */
+  readonly threadId: string;
   readonly role: string;
   readonly createdAt: string;
   readonly content: ChatHistoryExcerpt;

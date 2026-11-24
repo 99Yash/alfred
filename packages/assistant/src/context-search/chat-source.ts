@@ -54,15 +54,16 @@ export function createChatContextSource(): ContextSource {
   });
 }
 
+/** One hit gives up to two cards, so the source asks for half the limit and cuts the cards to it. */
 async function readPastChats(request: ContextSearchRequest, signal: AbortSignal) {
   const hits = await recallChatExchanges({
     userId: request.userId,
     query: request.query,
-    limit: request.limit,
+    limit: Math.ceil(request.limit / 2),
     abortSignal: signal,
   });
 
-  return { evidence: hits.flatMap(chatHitToEvidenceCards) };
+  return { evidence: hits.flatMap(chatHitToEvidenceCards).slice(0, request.limit) };
 }
 
 function replyAuthority(models: readonly string[]): EvidenceAuthority {

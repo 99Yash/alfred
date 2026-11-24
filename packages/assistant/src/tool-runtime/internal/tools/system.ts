@@ -371,7 +371,7 @@ export const systemTools: readonly RegisteredTool[] = [
     replay: "safe",
     codeModeRead: "ordinary",
     description:
-      "Search or fetch bounded raw evidence from the current chat thread when the conversation summary is insufficient. Fetch messages, tool outcomes, or attachment representations by their stable IDs. This never accesses another thread.",
+      "Search or fetch bounded raw evidence from chat when the conversation summary or an excerpt is insufficient. Search reads the current thread only. Fetch reads a tool outcome or an attachment representation of the current thread by its stable ID, and a message by its stable ID from any of the user's threads, for example a message id from a <recalled_chats> block or a past-chat citation.",
     // Kernel: the chat prompt names it, so a lazy load would cost a cache bust.
     availability: { surface: "kernel", requiresLiveChat: true },
     inputSchema: readChatHistoryInput,

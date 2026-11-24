@@ -1,14 +1,20 @@
 import type { StoredUserMessage, TranscriptMessage } from "@alfred/ai";
-import { collapseWhitespace, type IanaTimezone } from "@alfred/contracts";
+import {
+  collapseWhitespace,
+  escapeHtml,
+  escapeMarkupText,
+  type IanaTimezone,
+} from "@alfred/contracts";
 import { db } from "@alfred/db";
 import type { ArtifactVersion, ChatMessage } from "@alfred/db/schemas";
 import { artifactVersions, chatMessages, chatTurnContexts } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { buildArtifactReference, buildThreadArtifactsContext } from "@alfred/assistant/artifacts";
 import type { AgentDbExecutor } from "@alfred/assistant/execution";
 import {
+  chatExchangeKey,
   chatExchangeRefSchema,
   chatTurnExcerpt,
   readChatExchangeTurns,
@@ -47,7 +53,7 @@ const recalledExchangeSchema = chatExchangeRefSchema.extend({
   sentOn: z.string(),
 });
 
-type RecalledExchange = z.infer<typeof recalledExchangeSchema>;
+export type RecalledExchange = z.infer<typeof recalledExchangeSchema>;
 
 /** The `chat_turn_contexts.context` column. The column is untyped, so each read parses. */
 export const chatTurnContextSchema = z.object({
@@ -199,7 +205,7 @@ const RECALLED_REPLY_MAX_CHARS = 1_500;
 interface SavedTurnContexts {
   contexts: Map<string, ChatTurnContext>;
   versions: Map<string, ArtifactVersion>;
-  /** Keyed by the past user message id. A deleted past thread has no entry. */
+  /** Keyed by `chatExchangeKey`. A deleted past thread has no entry. */
   recalled: Map<string, ChatExchangeTurn>;
 }
 
@@ -246,8 +252,7 @@ async function loadSavedTurnContexts(
     recalledRefs.push(...(context.recall ?? []));
   }
 
-  // Read from the messages, not from a copy: a deleted past thread drops out of every replay.
-  saved.recalled = await readChatExchangeTurns(userId, recalledRefs);
+  saved.recalled = await loadRecalledTurns(userId, recalledRefs);
 
   if (refs.size === 0) return saved;
 
@@ -400,40 +405,65 @@ function turnContextRenderer(saved: SavedTurnContexts): (context: ChatTurnContex
   };
 }
 
-/** A value for a tag attribute: one line, no double quote. */
+/**
+ * The stored turns that saved recalls name. They are read from the messages, not from a copy: a
+ * deleted past thread drops out of every replay. That is the one exception to stable replay bytes.
+ * Recall is optional, so a failed read renders no recall and the turn goes on.
+ */
+async function loadRecalledTurns(
+  userId: string,
+  refs: readonly RecalledExchange[],
+): Promise<Map<string, ChatExchangeTurn>> {
+  try {
+    return await readChatExchangeTurns(userId, refs);
+  } catch (err) {
+    logger.warn(
+      { err },
+      "[chat-turn] recalled chats failed to load; the turn goes on without them",
+    );
+
+    return new Map();
+  }
+}
+
+/** A value for a tag attribute: one line, with the markup characters encoded. */
 function attributeText(value: string): string {
-  return collapseWhitespace(value).replaceAll('"', "'");
+  return escapeHtml(collapseWhitespace(value));
 }
 
 /**
  * The `<recalled_chats>` block, or none when no recalled exchange is still stored. A user turn is
  * the user's own words. A reply is Alfred's own output and names its model: it is not evidence.
  */
-function renderRecalledChats(
+export function renderRecalledChats(
   recall: readonly RecalledExchange[],
   turns: ReadonlyMap<string, ChatExchangeTurn>,
 ): string | undefined {
   const chats: string[] = [];
 
   for (const entry of recall) {
-    const turn = turns.get(entry.userMessageId);
+    const turn = turns.get(chatExchangeKey(entry));
 
-    if (!turn || turn.reply.id !== entry.replyMessageId) continue;
-    const title = attributeText(turn.threadTitle ?? "Untitled chat");
+    if (!turn) continue;
+    // No thread title: a rename would change the bytes of an earlier prompt. The text is encoded,
+    // so a past message that quotes a runtime tag cannot close this block or change a speaker.
+    const user = escapeMarkupText(chatTurnExcerpt(turn.user.content, RECALLED_USER_TURN_MAX_CHARS));
 
     const lines = [
-      `<past_chat thread="${turn.threadId}" title="${title}" sent="${attributeText(entry.sentOn)}">`,
-      `<user message="${turn.user.id}">${chatTurnExcerpt(turn.user.content, RECALLED_USER_TURN_MAX_CHARS)}</user>`,
+      `<past_chat thread="${attributeText(turn.threadId)}" sent="${attributeText(entry.sentOn)}">`,
+      `<user message="${attributeText(turn.user.id)}">${user}</user>`,
     ];
 
-    const reply = chatTurnExcerpt(turn.reply.content, RECALLED_REPLY_MAX_CHARS);
+    const reply = escapeMarkupText(chatTurnExcerpt(turn.reply.content, RECALLED_REPLY_MAX_CHARS));
 
     if (reply.length > 0) {
       const model = turn.reply.models.length > 0 ? turn.reply.models.join(", ") : "not recorded";
-      const status = turn.reply.status === "complete" ? "" : ` status="${turn.reply.status}"`;
+
+      const status =
+        turn.reply.status === "complete" ? "" : ` status="${attributeText(turn.reply.status)}"`;
 
       lines.push(
-        `<alfred message="${turn.reply.id}" model="${attributeText(model)}"${status}>${reply}</alfred>`,
+        `<alfred message="${attributeText(turn.reply.id)}" model="${attributeText(model)}"${status}>${reply}</alfred>`,
       );
     }
 
@@ -451,7 +481,10 @@ function renderRecalledChats(
  * exchanges in other threads, and save the hits in its turn context. Write-once, as the other
  * values: a row that already has a recall keeps it, so a retried step replays the same bytes.
  * Only the first step of a run calls it, so a run that started before this field keeps its bytes.
- * A failed search saves nothing: the turn goes on with no recall, and the warn log records it.
+ * An exchange that an earlier message of this thread recalled is not recalled again, so the
+ * replay window carries each past exchange one time.
+ * Recall is optional: it never throws. A failure saves nothing, the turn goes on with no recall,
+ * and the warn log records it.
  */
 export async function saveTurnRecall(args: {
   userId: string;
@@ -460,56 +493,86 @@ export async function saveTurnRecall(args: {
   timezone: IanaTimezone;
   abortSignal?: AbortSignal;
 }): Promise<void> {
-  const [row] = await db()
-    .select({ context: chatTurnContexts.context, content: chatMessages.content })
-    .from(chatTurnContexts)
-    .innerJoin(chatMessages, eq(chatMessages.id, chatTurnContexts.messageId))
-    .where(
-      and(eq(chatTurnContexts.userId, args.userId), eq(chatTurnContexts.messageId, args.messageId)),
-    )
-    .limit(1);
-
-  if (!row || chatTurnContextSchema.parse(row.context).recall !== undefined) return;
-
-  let recall: RecalledExchange[];
-
   try {
+    const [row] = await db()
+      .select({ context: chatTurnContexts.context, content: chatMessages.content })
+      .from(chatTurnContexts)
+      .innerJoin(chatMessages, eq(chatMessages.id, chatTurnContexts.messageId))
+      .where(
+        and(
+          eq(chatTurnContexts.userId, args.userId),
+          eq(chatTurnContexts.messageId, args.messageId),
+        ),
+      )
+      .limit(1);
+
+    if (!row || chatTurnContextSchema.parse(row.context).recall !== undefined) return;
+
     const hits = await recallChatExchanges({
       userId: args.userId,
       query: row.content,
       excludeThreadId: args.threadId,
+      excludeUserMessageIds: await threadRecalledUserMessageIds(args),
       limit: CHAT_RECALL_LIMIT,
       ...(args.abortSignal ? { abortSignal: args.abortSignal } : {}),
     });
 
     const here = inZone(args.timezone);
 
-    recall = hits.map((hit) => ({
+    const recall: RecalledExchange[] = hits.map((hit) => ({
       userMessageId: hit.user.id,
       replyMessageId: hit.reply.id,
       sentOn: formatDay(here.clock(hit.user.createdAt).localDate, "long"),
     }));
+
+    await db()
+      .update(chatTurnContexts)
+      .set({
+        context: sql`jsonb_set(${chatTurnContexts.context}, '{recall}', ${JSON.stringify(recall)}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(chatTurnContexts.userId, args.userId),
+          eq(chatTurnContexts.messageId, args.messageId),
+          sql`NOT (${chatTurnContexts.context} ? 'recall')`,
+        ),
+      );
   } catch (err) {
     logger.warn(
       { err, messageId: args.messageId },
       "[chat-turn] chat-time recall failed; the turn goes on without it",
     );
-
-    return;
   }
+}
 
-  await db()
-    .update(chatTurnContexts)
-    .set({
-      context: sql`jsonb_set(${chatTurnContexts.context}, '{recall}', ${JSON.stringify(recall)}::jsonb)`,
-    })
+/** The past user messages that earlier recalls of this thread already gave the model. */
+async function threadRecalledUserMessageIds(args: {
+  userId: string;
+  threadId: string;
+  messageId: string;
+}): Promise<string[]> {
+  const rows = await db()
+    .select({ context: chatTurnContexts.context })
+    .from(chatTurnContexts)
+    .innerJoin(chatMessages, eq(chatMessages.id, chatTurnContexts.messageId))
     .where(
       and(
         eq(chatTurnContexts.userId, args.userId),
-        eq(chatTurnContexts.messageId, args.messageId),
-        sql`NOT (${chatTurnContexts.context} ? 'recall')`,
+        eq(chatMessages.threadId, args.threadId),
+        ne(chatTurnContexts.messageId, args.messageId),
+        sql`${chatTurnContexts.context} ? 'recall'`,
       ),
     );
+
+  const ids = new Set<string>();
+
+  for (const row of rows) {
+    for (const entry of chatTurnContextSchema.parse(row.context).recall ?? []) {
+      ids.add(entry.userMessageId);
+    }
+  }
+
+  return [...ids];
 }
 
 /** Put the rendered context after the user's own content, in the same message. */

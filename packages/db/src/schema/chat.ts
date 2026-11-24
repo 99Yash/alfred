@@ -162,7 +162,8 @@ export const chatTurnContexts = pgTable("chat_turn_contexts", {
  * The search index of past chats (journal.md section 3): one row for each exchange, the user
  * message and its reply. Derived from `chat_messages`, so a delete of the rows rebuilds it. Each
  * message id cascades, so a deleted thread or message leaves the index in the same statement.
- * Server-only, not synced. The HNSW index lives only in migration SQL, as for `chunks`.
+ * Server-only, not synced. It has no vector index: recall is an exact scan over one user's rows,
+ * because an approximate index applies the thread filter after its scan and can miss every hit.
  */
 export const chatExchanges = pgTable(
   "chat_exchanges",

@@ -141,16 +141,17 @@ The owner reads the journal and the remark records in the database. A script pri
 
 - **Alfred speaks first, outside a turn.** It needs a push surface. Until it exists, remarks go to the briefing and to the next chat, and no fast net runs.
 - **How many notes the pre-briefing pass reads for each item.** The back-test sets it.
+- **Deletion and saved tool results.** A deleted thread leaves `chat_exchanges` and every recall replay. A Code Mode result in another thread can still hold excerpts of it until that result expires or its thread is deleted. Does a deletion also remove those saved results? Step 2 links entries to turns, so this needs an answer before step 2.
 
 ## 10. Theory state and code state
 
 | Part | Theory | Code | The gap today |
 | --- | --- | --- | --- |
-| Past chats are searchable | Settled | Built | A sweep pairs and embeds each exchange into `chat_exchanges` every 2 minutes. Context search reads them through the `chat` source. A message with only attachments is not searchable. |
+| Past chats are searchable | Settled | Built | A sweep starts every 2 minutes and pairs and embeds at most 50 exchanges into `chat_exchanges`. The search is exact, over the rows of one user. Context search reads them through the `chat` source. `system.read_chat_history` fetches a cited message from any thread of the user by its id. A message with only attachments is not searchable. |
 | Journal entries with links and lookouts | Settled | Not built | No store exists. |
 | Write from capture, from a chat tool, and from the pass | Settled | Not built | Chat capture discards its output (memory.md section 8). |
 | Pre-briefing pass | Settled | Not built | No step runs before the gather. It reads through Code Mode (ADR-0124), which is built; the pass itself is not built (#535). |
-| Chat-time recall | Settled | Built (past chats only) | The first step of a run saves the recall in the turn context, and the projection renders it after the user's message. It does not search the journal, because the journal is not built. The eval cases A and B are not written yet. |
+| Chat-time recall | Settled | Built (past chats only) | The first step of a run saves the recall in the turn context, and the projection renders it after the user's message. An exchange that an earlier message of the thread recalled is not recalled again. A deleted past thread drops out of the replay: this is the one exception to stable replay bytes (ADR-0130 amendment (g)). It does not search the journal, because the journal is not built. Eval cases A and B are in `packages/assistant/evals/chat-recall.eval.ts`. |
 | Remark records, in the briefing and the next chat, and the handling of the reply | Settled | Not built | Chat cannot read briefings today. |
 | Back-test, the recall-miss signal, and the weekly report | Settled | Not built | |
 

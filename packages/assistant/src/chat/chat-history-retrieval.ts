@@ -21,6 +21,7 @@ export const CHAT_HISTORY_EXCERPT_CHARS = 4_000;
 
 type MessageRow = {
   id: string;
+  threadId: string;
   role: "user" | "assistant";
   content: string;
   toolCalls: ChatMessageToolCall[] | null;
@@ -65,7 +66,11 @@ export interface ChatHistoryRetrievalDependencies {
 
 export type ReadChatHistoryInput = z.infer<typeof readChatHistoryInput>;
 
-/** Authenticated, current-thread-only access to raw evidence behind a lossy summary. */
+/**
+ * Authenticated access to raw evidence behind a lossy summary or an excerpt. Search, tool calls,
+ * and attachments stay in the current thread. A message fetch is owner-scoped, so a recalled or
+ * cited turn from another thread can be read in full, with its speaker and date.
+ */
 export async function readChatHistory(
   args: { userId: string; threadId: string; input: ReadChatHistoryInput },
   dependencies: ChatHistoryRetrievalDependencies = {},
@@ -152,6 +157,7 @@ function messageEvidence(row: MessageRow): ChatHistoryMessageEvidence {
   return {
     kind: "message",
     id: row.id,
+    threadId: row.threadId,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
     content: excerpt(row.content),
@@ -197,6 +203,7 @@ async function searchMessages(args: {
   return db()
     .select({
       id: chatMessages.id,
+      threadId: chatMessages.threadId,
       role: chatMessages.role,
       content: chatMessages.content,
       toolCalls: chatMessages.toolCalls,
@@ -214,23 +221,19 @@ async function searchMessages(args: {
     .limit(args.limit);
 }
 
+/** One message of the owner by its stable id, in any thread. `threadId` is not a filter here. */
 async function fetchMessage(args: { userId: string; threadId: string; id: string }) {
   const [row] = await db()
     .select({
       id: chatMessages.id,
+      threadId: chatMessages.threadId,
       role: chatMessages.role,
       content: chatMessages.content,
       toolCalls: chatMessages.toolCalls,
       createdAt: chatMessages.createdAt,
     })
     .from(chatMessages)
-    .where(
-      and(
-        eq(chatMessages.userId, args.userId),
-        eq(chatMessages.threadId, args.threadId),
-        eq(chatMessages.id, args.id),
-      ),
-    )
+    .where(and(eq(chatMessages.userId, args.userId), eq(chatMessages.id, args.id)))
     .limit(1);
 
   return row ?? null;
@@ -240,6 +243,7 @@ async function fetchToolCall(args: { userId: string; threadId: string; id: strin
   const [row] = await db()
     .select({
       id: chatMessages.id,
+      threadId: chatMessages.threadId,
       role: chatMessages.role,
       content: chatMessages.content,
       toolCalls: chatMessages.toolCalls,

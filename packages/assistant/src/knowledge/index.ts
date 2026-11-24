@@ -89,6 +89,7 @@ export {
 
 // Past chats are searchable (journal.md section 3).
 export {
+  chatExchangeKey,
   chatExchangeRefSchema,
   chatTurnExcerpt,
   readChatExchangeTurns,

@@ -10,7 +10,7 @@ import { embedMemoryChunk, findPendingEmbedChunks, recordMemoryEmbedFailure } fr
 import { memoryQueue } from "./queue";
 import { enqueueExtractionForUser } from "./run";
 
-/** How often new chat exchanges are paired and embedded. */
+/** How often a sweep starts to pair and embed new chat exchanges. */
 const CHAT_EXCHANGE_SWEEP_EVERY_MS = 2 * 60 * 1000;
 
 /**
@@ -76,7 +76,9 @@ export const memoryWorker = memoryQueue.consume({
         removeOnFail: { count: 50, age: 7 * 24 * 60 * 60 },
       },
     },
-    // A turn in another thread is searchable at most this long after its reply lands.
+    // A schedule, not a bound: each sweep pairs and embeds at most 50 rows, one at a time, on a
+    // worker that other jobs share. A backfill, a queue delay, or a provider failure makes the wait
+    // longer.
     {
       kind: "memory.chat_exchange_sweep",
       repeat: { every: CHAT_EXCHANGE_SWEEP_EVERY_MS },

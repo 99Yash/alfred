@@ -13,7 +13,7 @@ import {
   type ChatThread,
 } from "@alfred/db/schemas";
 import { logger } from "@alfred/logging";
-import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
@@ -31,6 +31,9 @@ const CHAT_EXCHANGE_SWEEP_BATCH = 50;
  * and the start of a turn usually names its matter.
  */
 const CHAT_EXCHANGE_EMBED_SIDE_MAX_CHARS = 4_000;
+
+/** The deadline of one embed call in the sweep. A stalled call must not hold the memory worker. */
+const CHAT_EXCHANGE_EMBED_TIMEOUT_MS = 30_000;
 
 /** The text that is embedded: the user's words, then the reply. */
 function exchangeContent(userContent: string, replyContent: string): string {
@@ -143,11 +146,13 @@ async function embedPendingChatExchanges(
         inputType: "document",
         userId: row.userId,
         idempotencyKey: `chat-exchange-embed:${row.id}:${row.contentHash}`,
+        abortSignal: AbortSignal.timeout(CHAT_EXCHANGE_EMBED_TIMEOUT_MS),
       });
       assertEmbeddingDimensions(vector, "chat-exchange");
     } catch (err) {
       failed++;
-      // Only the embed call counts toward the poison-pill guard.
+      // Only the embed call counts toward the poison-pill guard. The hash guard: a reply that
+      // changed during the call is a new version, and this failure does not use its retries.
       await db()
         .update(chatExchanges)
         .set(
@@ -160,7 +165,7 @@ async function embedPendingChatExchanges(
             err,
           ),
         )
-        .where(eq(chatExchanges.id, row.id))
+        .where(and(eq(chatExchanges.id, row.id), eq(chatExchanges.contentHash, row.contentHash)))
         .catch((bookkeepingErr: unknown) => {
           logger.error(
             { err: bookkeepingErr },
@@ -173,11 +178,13 @@ async function embedPendingChatExchanges(
 
     try {
       // The hash guard: a reply that changed during the call keeps its NULL for the next sweep.
-      await db()
+      const written = await db()
         .update(chatExchanges)
         .set({ embedding: vector, ...EMBED_SUCCESS_RESET })
-        .where(and(eq(chatExchanges.id, row.id), eq(chatExchanges.contentHash, row.contentHash)));
-      succeeded++;
+        .where(and(eq(chatExchanges.id, row.id), eq(chatExchanges.contentHash, row.contentHash)))
+        .returning({ id: chatExchanges.id });
+
+      if (written.length > 0) succeeded++;
     } catch (err) {
       // A write failure is not an embed failure, or a good row dead-letters. The next sweep retries.
       failed++;
@@ -210,9 +217,18 @@ export const chatExchangeRefSchema = z.object({
 
 export type ChatExchangeRef = z.infer<typeof chatExchangeRefSchema>;
 
+/**
+ * The key of one exchange: both message ids. A retried turn has a new reply for the same user
+ * message, and a saved ref to the old reply and a saved ref to the new one are both valid.
+ */
+export function chatExchangeKey(ref: ChatExchangeRef): string {
+  return `${ref.userMessageId}:${ref.replyMessageId}`;
+}
+
 /** One stored exchange, read from `chat_messages` and `chat_threads`, never from a copy. */
 export interface ChatExchangeTurn {
   threadId: string;
+  /** The live title. It changes on a rename, so a replayed prompt must not show it. */
   threadTitle: ChatThread["title"];
   user: Pick<ChatMessage, "id" | "content" | "createdAt">;
   reply: Pick<ChatMessage, "id" | "content" | "createdAt" | "status"> & {
@@ -236,20 +252,20 @@ function replyModels(usage: unknown): string[] {
 }
 
 /**
- * The stored exchanges for these refs, keyed by user message id. A ref whose messages were deleted
- * is absent, so a deleted thread never comes back through a saved ref.
+ * The stored exchanges for these refs, keyed by {@link chatExchangeKey}. A ref whose messages were
+ * deleted is absent, so a deleted thread never comes back through a saved ref.
  */
 export async function readChatExchangeTurns(
   userId: string,
   refs: readonly ChatExchangeRef[],
 ): Promise<Map<string, ChatExchangeTurn>> {
   const turns = new Map<string, ChatExchangeTurn>();
+  const unique = [...new Map(refs.map((ref) => [chatExchangeKey(ref), ref])).values()];
 
-  if (refs.length === 0) return turns;
+  if (unique.length === 0) return turns;
 
   const userMessage = alias(chatMessages, "user_message");
   const replyMessage = alias(chatMessages, "reply_message");
-  const replyByUser = new Map(refs.map((ref) => [ref.userMessageId, ref.replyMessageId]));
 
   const rows = await db()
     .select({
@@ -270,7 +286,6 @@ export async function readChatExchangeTurns(
       and(
         eq(replyMessage.userId, userMessage.userId),
         eq(replyMessage.threadId, userMessage.threadId),
-        inArray(replyMessage.id, [...replyByUser.values()]),
       ),
     )
     .innerJoin(chatThreads, eq(chatThreads.id, userMessage.threadId))
@@ -279,14 +294,25 @@ export async function readChatExchangeTurns(
         eq(userMessage.userId, userId),
         eq(userMessage.role, "user"),
         eq(replyMessage.role, "assistant"),
-        inArray(userMessage.id, [...replyByUser.keys()]),
+        // The id lists let each side use its primary key; the pair list joins only the asked pairs.
+        inArray(
+          userMessage.id,
+          unique.map((ref) => ref.userMessageId),
+        ),
+        inArray(
+          replyMessage.id,
+          unique.map((ref) => ref.replyMessageId),
+        ),
+        or(
+          ...unique.map((ref) =>
+            and(eq(userMessage.id, ref.userMessageId), eq(replyMessage.id, ref.replyMessageId)),
+          ),
+        ),
       ),
     );
 
   for (const row of rows) {
-    if (replyByUser.get(row.userId) !== row.replyId) continue;
-
-    turns.set(row.userId, {
+    turns.set(chatExchangeKey({ userMessageId: row.userId, replyMessageId: row.replyId }), {
       threadId: row.threadId,
       threadTitle: row.threadTitle,
       user: { id: row.userId, content: row.userContent, createdAt: row.userCreatedAt },
@@ -308,6 +334,8 @@ export interface RecallChatExchangesArgs {
   query: string;
   /** The thread that the model already has. Its exchanges are not returned. */
   excludeThreadId?: string;
+  /** Exchanges that the model already has from an earlier recall. They are not returned. */
+  excludeUserMessageIds?: readonly string[];
   limit: number;
   abortSignal?: AbortSignal;
 }
@@ -317,13 +345,35 @@ export interface ChatExchangeHit extends ChatExchangeTurn {
   similarity: number;
 }
 
-/** Semantic recall over past chats, nearest first. */
+/**
+ * Semantic recall over past chats, nearest first. The search is exact: one user has a few thousand
+ * exchanges, and an approximate index applies the thread filter after its scan, so it can miss
+ * every eligible row. When the user has no eligible exchange, no query is embedded.
+ */
 export async function recallChatExchanges(
   args: RecallChatExchangesArgs,
 ): Promise<ChatExchangeHit[]> {
   const query = args.query.trim();
 
   if (query.length === 0 || args.limit <= 0) return [];
+
+  const filters = [eq(chatExchanges.userId, args.userId), isNotNull(chatExchanges.embedding)];
+
+  if (args.excludeThreadId !== undefined) {
+    filters.push(ne(chatExchanges.threadId, args.excludeThreadId));
+  }
+
+  if (args.excludeUserMessageIds !== undefined && args.excludeUserMessageIds.length > 0) {
+    filters.push(notInArray(chatExchanges.userMessageId, [...args.excludeUserMessageIds]));
+  }
+
+  const [eligible] = await db()
+    .select({ id: chatExchanges.id })
+    .from(chatExchanges)
+    .where(and(...filters))
+    .limit(1);
+
+  if (!eligible) return [];
 
   const queryVector = await embed(query, {
     inputType: "query",
@@ -333,50 +383,24 @@ export async function recallChatExchanges(
   });
 
   assertEmbeddingDimensions(queryVector, "chat-exchange.recall");
-  const vectorLiteral = formatVectorFloat32(queryVector);
-  // A wide pool from the approximate halfvec index, then a full-precision rerank.
-  const candidateLimit = Math.max(args.limit * 5, 50);
+  const distance = sql<number>`${chatExchanges.embedding} <=> ${formatVectorFloat32(queryVector)}::vector`;
 
-  const filters = [eq(chatExchanges.userId, args.userId), isNotNull(chatExchanges.embedding)];
-
-  if (args.excludeThreadId !== undefined) {
-    filters.push(ne(chatExchanges.threadId, args.excludeThreadId));
-  }
-
-  const nearest = await db().transaction(async (tx) => {
-    // HNSW returns at most `hnsw.ef_search` rows (default 40). pgvector caps it at 1000.
-    await tx.execute(sql.raw(`SET LOCAL hnsw.ef_search = ${Math.min(candidateLimit, 1000)}`));
-
-    const candidates = tx
-      .select({
-        userMessageId: chatExchanges.userMessageId,
-        replyMessageId: chatExchanges.replyMessageId,
-        distance: sql<number>`${chatExchanges.embedding} <=> ${vectorLiteral}::vector`.as(
-          "distance",
-        ),
-      })
-      .from(chatExchanges)
-      .where(and(...filters))
-      .orderBy(sql`${chatExchanges.embedding}::halfvec(1024) <=> ${vectorLiteral}::halfvec(1024)`)
-      .limit(candidateLimit)
-      .as("candidates");
-
-    return tx
-      .select({
-        userMessageId: candidates.userMessageId,
-        replyMessageId: candidates.replyMessageId,
-        distance: candidates.distance,
-      })
-      .from(candidates)
-      .orderBy(candidates.distance)
-      .limit(args.limit);
-  });
+  const nearest = await db()
+    .select({
+      userMessageId: chatExchanges.userMessageId,
+      replyMessageId: chatExchanges.replyMessageId,
+      distance,
+    })
+    .from(chatExchanges)
+    .where(and(...filters))
+    .orderBy(distance)
+    .limit(args.limit);
 
   const turns = await readChatExchangeTurns(args.userId, nearest);
   const hits: ChatExchangeHit[] = [];
 
   for (const row of nearest) {
-    const turn = turns.get(row.userMessageId);
+    const turn = turns.get(chatExchangeKey(row));
 
     if (turn) hits.push({ ...turn, similarity: 1 - Number(row.distance) });
   }
