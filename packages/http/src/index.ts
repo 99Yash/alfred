@@ -29,6 +29,7 @@ import { sharingRoutes } from "./sharing";
 import { events } from "./realtime/events";
 import { skillsRoutes } from "./skills";
 import { replicache } from "./sync/replicache";
+import { assertRouteAuthInventory } from "./route-auth-inventory";
 import { resendWebhookRoutes } from "./resend-webhook";
 import { workflowRoutes } from "./workflows";
 
@@ -37,6 +38,7 @@ import { workflowRoutes } from "./workflows";
 // so a reorder becomes a TDZ error at startup. `.oxlintrc.json` enforces this.
 // Importing it must read no env, so `auth()` is called per request in the mount.
 export {
+  assertRouteAuthInventory,
   authMacro,
   errorHandler,
   getSessionCached,

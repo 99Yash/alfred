@@ -90,8 +90,7 @@ export const events = new Elysia({ prefix: "/api/events", normalize: "typebox" }
         });
       })
       // Elysia runs this callback at import, so it uses `nodeEnv()`: `serverEnv()` throws
-      // with no env. Trap: a missing or invalid NODE_ENV defaults to "development" and mounts
-      // `_demo`. `authMacro` still calls `serverEnv()` per request, so that env gets a 500.
+      // with no env. A missing or invalid NODE_ENV reads as `undefined`, so `_demo` stays off.
       .guard({}, (inner) =>
         nodeEnv() === "development"
           ? inner.post(

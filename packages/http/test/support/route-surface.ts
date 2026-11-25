@@ -1,8 +1,8 @@
 /**
  * The routes the `@alfred/http` barrel mounts, per `NODE_ENV`.
- * `POST /api/events/_demo` mounts when `nodeEnv()` is `"development"`, and an invalid value
- * such as `"prod"` falls back to it. Expectations are hand-written and read no env:
- * calling `nodeEnv()` here would agree with any change to that fallback.
+ * `POST /api/events/_demo` mounts only when `nodeEnv()` is `"development"`. A missing or invalid
+ * value such as `"prod"` does not mount it (#1877). Expectations are hand-written and read no
+ * env: calling `nodeEnv()` here would agree with any change to that fallback.
  * Catches a module-load env read that changes which routes mount, not one that changes no route.
  */
 
@@ -95,13 +95,13 @@ export type RouteSurfaceCase = {
   readonly includesDevelopmentOnlyRoutes: boolean;
 };
 
-/** `unrecognized` matters most: the schema default turns it into `"development"`. */
+/** `absent` and `unrecognized` matter most: neither may read as `"development"` (#1877). */
 export const ROUTE_SURFACE_CASES = [
-  { label: "absent", nodeEnv: undefined, includesDevelopmentOnlyRoutes: true },
+  { label: "absent", nodeEnv: undefined, includesDevelopmentOnlyRoutes: false },
   { label: "development", nodeEnv: "development", includesDevelopmentOnlyRoutes: true },
   { label: "test", nodeEnv: "test", includesDevelopmentOnlyRoutes: false },
   { label: "production", nodeEnv: "production", includesDevelopmentOnlyRoutes: false },
-  { label: "unrecognized", nodeEnv: "prod", includesDevelopmentOnlyRoutes: true },
+  { label: "unrecognized", nodeEnv: "prod", includesDevelopmentOnlyRoutes: false },
 ] as const satisfies readonly RouteSurfaceCase[];
 
 const UNRECOGNIZED_NODE_ENV_LABEL = "unrecognized";

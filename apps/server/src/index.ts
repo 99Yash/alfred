@@ -6,7 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { flushLangfuse } from "@alfred/ai";
 import { getPath } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { app, requestBodyLimit, securityHeaders } from "@alfred/http";
+import { app, assertRouteAuthInventory, requestBodyLimit, securityHeaders } from "@alfred/http";
 import { logger } from "@alfred/logging";
 import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
@@ -44,6 +44,9 @@ async function handleFatal(kind: string, err: unknown): Promise<void> {
 process.on("unhandledRejection", (reason) => void handleFatal("unhandledRejection", reason));
 
 process.on("uncaughtException", (err) => void handleFatal("uncaughtException", err));
+
+// Before anything starts: a route with no `auth` guard and no PUBLIC_ROUTES row stops the boot.
+assertRouteAuthInventory(app);
 
 await startRuntime();
 
