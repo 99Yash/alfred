@@ -30,10 +30,11 @@
     "@sentry/node": "catalog:",
     "drizzle-orm": "^0.45.2",
     "elysia": "catalog:",
-    "isomorphic-dompurify": "^2.36.0",
-    "jsdom": "^28.1.0",
+    "isomorphic-dompurify": "^4.8.0",
+    "jsdom": "^31.0.1",
+    "re2": "catalog:",
     "run": "catalog:",
-    "sharp": "^0.35.2",
+    "sharp": "^0.35.5",
     "zod": "catalog:"
   },
   "devDependencies": {

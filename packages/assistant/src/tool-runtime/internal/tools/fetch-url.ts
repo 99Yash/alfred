@@ -300,6 +300,10 @@ function safeDispatcher(): Dispatcher {
       bodyMs: FETCH_TIMEOUT_MS,
       connectMs: FETCH_TIMEOUT_MS,
     },
+    // A wire ceiling 1 MiB above `readBounded`'s cap on the decoded body (#1864). Encoded bytes are
+    // at most the decoded bytes plus a small header, so `readBounded` still reports `too_large`
+    // first, and this ceiling only stops a body that the read does not drain.
+    maxResponseBytes: MAX_FETCH_BYTES + 1024 * 1024,
   });
 
   return sharedDispatcher;
@@ -429,6 +433,7 @@ function refusalFor(error: HostedEndpointError, url: URL): FetchError {
     case "origin_mismatch":
     case "redirect_refused":
     case "too_many_redirects":
+    case "response_too_large":
       return new FetchError("fetch_failed", error.message, shown);
     default:
       return assertNever(error.code, "hosted endpoint refusal");

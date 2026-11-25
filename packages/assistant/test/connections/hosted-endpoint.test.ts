@@ -12,6 +12,9 @@ import {
   type GuardedFetchRequester,
 } from "../../src/connections/hosted-endpoint";
 
+/** Large enough that no fixture body reaches it. */
+const TEST_RESPONSE_CAP = () => ({ bodyBytes: 1024 * 1024, eventBytes: 1024 * 1024 });
+
 describe("hosted endpoint validation", () => {
   test("rejects non-HTTPS, embedded credentials, fragments, non-default ports, and origin drift", () => {
     for (const candidate of [
@@ -242,6 +245,7 @@ describe("guarded fetch", () => {
     };
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester,
     });
@@ -256,6 +260,7 @@ describe("guarded fetch", () => {
     let crossOriginCalls = 0;
 
     const crossOrigin = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async () => {
         crossOriginCalls += 1;
@@ -273,6 +278,7 @@ describe("guarded fetch", () => {
     let postCalls = 0;
 
     const redirectedPost = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async () => {
         postCalls += 1;
@@ -292,6 +298,7 @@ describe("guarded fetch", () => {
     const seen: Array<{ url: string; headers: Headers }> = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       requester: async (input, init) => {
         seen.push({ url: String(input), headers: new Headers(init.headers) });
 
@@ -342,6 +349,7 @@ describe("guarded fetch", () => {
     const seen: Array<AbortSignal | null | undefined> = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async (_input, init) => {
         seen.push(init.signal);
@@ -369,6 +377,7 @@ describe("guarded fetch", () => {
     const seen: Array<AbortSignal | null | undefined> = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async (_input, init) => {
         seen.push(init.signal);
@@ -395,6 +404,7 @@ describe("guarded fetch", () => {
     const seen: Array<AbortSignal | null | undefined> = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async (_input, init) => {
         seen.push(init.signal);
@@ -418,6 +428,7 @@ describe("guarded fetch", () => {
     const seen: Headers[] = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async (_input, init) => {
         seen.push(new Headers(init.headers));
@@ -439,6 +450,7 @@ describe("guarded fetch", () => {
     const seen: Headers[] = [];
 
     const guarded = createGuardedFetch({
+      responseCap: TEST_RESPONSE_CAP,
       expectedOrigin: "https://mcp.example.test",
       requester: async (_input, init) => {
         seen.push(new Headers(init.headers));

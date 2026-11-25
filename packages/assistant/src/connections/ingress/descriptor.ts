@@ -42,8 +42,14 @@ export interface InboundDescription {
  * Otherwise `InboundSourceDescriptor<"github">` would not widen to the union type.
  */
 export type InboundDedupRule<S extends InboundEventSource = InboundEventSource> =
-  /** A header id that is stable across redeliveries (GitHub's `X-GitHub-Delivery`). */
+  /** A header id that is stable across redeliveries. Use it only when the signature covers it. */
   | { kind: "delivery_id"; header: string }
+  /**
+   * The sha256 of the signed body. For a source whose signature covers the body but not the
+   * delivery-id header (GitHub, #1875): a replay under a new header id collapses, and a
+   * redelivery, which keeps the same body, collapses too.
+   */
+  | { kind: "body_hash" }
   /** A key from the payload. `null` means the payload lacks the identity the rule reads. */
   | { kind: "synthetic"; key(input: InboundKeyInput<S>): string | null }
   /** Prefer the header; fall back to the payload key when the header is absent. */
@@ -70,7 +76,8 @@ export type InboundProjection<S extends InboundEventSource> =
   | { kind: "event"; type: EventTypeForSource<S> }
   /** A verified kind the entry does not declare. `rawKind` is the provider's name, kept verbatim. */
   | { kind: "raw"; rawKind: string }
-  | { kind: "ignore"; reason: "ping" | "no-kind-header" };
+  /** `kind-shape-mismatch`: the body does not carry the object its unsigned kind header names. */
+  | { kind: "ignore"; reason: "ping" | "no-kind-header" | "kind-shape-mismatch" };
 
 export interface InboundOwner {
   userId: string;
@@ -158,6 +165,8 @@ export function inboundDeliveryKey<S extends InboundEventSource>(
   switch (rule.kind) {
     case "delivery_id":
       return nonEmpty(headers.get(rule.header));
+    case "body_hash":
+      return `sha256:${input.payloadHash}`;
     case "synthetic":
       return nonEmpty(rule.key(input));
     case "delivery_id_or_synthetic":

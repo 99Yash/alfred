@@ -29,6 +29,7 @@ import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import { Ajv2019 } from "ajv/dist/2019.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import RE2 from "re2";
 import {
   boundedMcpErrorText,
   isMcpAuthorizationChallenge,
@@ -190,7 +191,33 @@ const MAX_SCHEMA_REGEX_CHARS = 2_048;
 
 const encoder = new TextEncoder();
 
-/** Ajv compiles patterns with `/u`. Fall back to non-Unicode only for a pattern that fails to compile. */
+/**
+ * Compile a server-written schema regex on RE2, a linear-time engine (#1865). The native engine
+ * backtracks, so a pattern such as `^(a+)+$` on a short value would block the event loop, and no
+ * timeout stops a synchronous regex. Ajv compiles with `/u`; fall back to non-Unicode only for a
+ * pattern that fails to compile. RE2 refuses lookaround and backreferences, so admission refuses
+ * a pattern that compiles in neither mode (`assertSafeSchema`).
+ */
+function compileSchemaPattern(pattern: string, flags: string): RE2 {
+  try {
+    return new RE2(pattern, flags);
+  } catch (error) {
+    if (error instanceof SyntaxError) return new RE2(pattern);
+
+    throw error;
+  }
+}
+
+function compilesOnRe2(pattern: string): boolean {
+  try {
+    compileSchemaPattern(pattern, "u");
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const MCP_SCHEMA_2020_12_URIS = new Set([
   "https://json-schema.org/draft/2020-12/schema",
   "http://json-schema.org/draft/2020-12/schema",
@@ -219,21 +246,11 @@ interface McpSchemaValidator {
 }
 
 function createSchemaValidator(): McpSchemaValidator {
-  const unicodeFirstRegExp = Object.assign(
-    (pattern: string, flags: string) => {
-      try {
-        return new RegExp(pattern, flags);
-      } catch (error) {
-        if (error instanceof SyntaxError) {
-          return new RegExp(pattern);
-        }
-
-        throw error;
-      }
-    },
-    {
-      code: "new RegExp" as const,
-    },
+  // The only Ajv instances that read server-written schemas. `code` names the engine only for
+  // Ajv's standalone code output, which Alfred does not use.
+  const re2RegExp = Object.assign(
+    (pattern: string, flags: string) => compileSchemaPattern(pattern, flags),
+    { code: 'require("re2")' },
   );
 
   const options = {
@@ -242,7 +259,7 @@ function createSchemaValidator(): McpSchemaValidator {
     validateSchema: false,
     allErrors: true,
     code: {
-      regExp: unicodeFirstRegExp,
+      regExp: re2RegExp,
     },
   } as const;
 
@@ -1391,6 +1408,23 @@ function hasAsciiControlCharacter(value: string): boolean {
   return false;
 }
 
+/** Bound the length, and refuse a pattern that the RE2 validator engine cannot compile (#1865). */
+function assertSafePattern(toolName: string, direction: "input" | "output", pattern: string): void {
+  if (pattern.length > MAX_SCHEMA_REGEX_CHARS) {
+    throw new McpClientError(
+      "invalid_schema",
+      `MCP tool '${toolName}' ${direction} schema contains an oversized regex`,
+    );
+  }
+
+  if (!compilesOnRe2(pattern)) {
+    throw new McpClientError(
+      "invalid_schema",
+      `MCP tool '${toolName}' ${direction} schema contains a regex that the linear-time engine cannot compile`,
+    );
+  }
+}
+
 function assertSafeSchema(
   toolName: string,
   direction: "input" | "output",
@@ -1446,22 +1480,12 @@ function assertSafeSchema(
         );
       }
 
-      if (key === "pattern" && isNonEmptyString(child) && child.length > MAX_SCHEMA_REGEX_CHARS) {
-        throw new McpClientError(
-          "invalid_schema",
-          `MCP tool '${toolName}' ${direction} schema contains an oversized regex`,
-        );
+      if (key === "pattern" && isNonEmptyString(child)) {
+        assertSafePattern(toolName, direction, child);
       }
 
       if (key === "patternProperties" && isRecord(child)) {
-        for (const pattern of Object.keys(child)) {
-          if (pattern.length > MAX_SCHEMA_REGEX_CHARS) {
-            throw new McpClientError(
-              "invalid_schema",
-              `MCP tool '${toolName}' ${direction} schema contains an oversized regex`,
-            );
-          }
-        }
+        for (const pattern of Object.keys(child)) assertSafePattern(toolName, direction, pattern);
       }
 
       visit(child, depth + 1);

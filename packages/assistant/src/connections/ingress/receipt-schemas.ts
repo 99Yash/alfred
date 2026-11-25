@@ -1,4 +1,10 @@
-import { type EventTypeForSource, getIdPath } from "@alfred/contracts";
+import {
+  type EventTypeForSource,
+  getIdPath,
+  getStringPath,
+  isJsonObject,
+  type JsonObject,
+} from "@alfred/contracts";
 import { z } from "zod";
 
 /**
@@ -192,5 +198,41 @@ export function parseGithubEvent(eventType: GithubEventType, raw: unknown): Gith
       // Unreachable for a literal source. A generic `S` can still land here at runtime with
       // another source's type, so fold nothing.
       return null;
+  }
+}
+
+/**
+ * Does the body carry the object that its `X-GitHub-Event` names (#1875)? The signature covers
+ * the body but not that header, so a replayed body could arrive under another kind. The schemas
+ * above are lenient and accept any object, so this is the strict check, run before projection.
+ *
+ * Each rule names the key GitHub writes only for that kind. The `!has` checks refuse the
+ * sibling kinds that carry the same object: `issue_comment` carries `issue`, and the review
+ * comment and review thread kinds carry `pull_request`.
+ */
+export function githubBodyMatchesEvent(eventType: GithubEventType, payload: JsonObject): boolean {
+  const has = (key: string): boolean => Object.hasOwn(payload, key);
+  const object = (key: string): boolean => isJsonObject(payload[key]);
+
+  switch (eventType) {
+    case "pull_request":
+      return object("pull_request") && !has("review") && !has("comment") && !has("thread");
+    case "pull_request_review":
+      return object("pull_request") && object("review");
+    case "check_suite":
+      return object("check_suite") && !has("check_run");
+    case "repository_dispatch":
+      return has("client_payload") && getStringPath(payload, "action") !== undefined;
+    case "push":
+      return (
+        getStringPath(payload, "ref") !== undefined &&
+        getStringPath(payload, "before") !== undefined &&
+        getStringPath(payload, "after") !== undefined
+      );
+    case "issues":
+      return object("issue") && !has("comment");
+    default:
+      // Unreachable for a literal type; a type from another source matches no GitHub shape.
+      return false;
   }
 }

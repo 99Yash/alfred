@@ -25,6 +25,9 @@ allowBuilds:
   esbuild: false
   msgpackr-extract: false
   protobufjs: false
+  # #1865: the MCP schema validator runs server-written regex on RE2. Its install
+  # step fetches the prebuilt native binary (or builds it when none matches).
+  re2: true
 
 catalog:
   # Alchemy and its Railway provider pin together with `effect` (ADR-0128 D4):
@@ -41,7 +44,7 @@ catalog:
   # The workspace ships a `normalize: 'typebox'` workaround on every Elysia
   # instance (apps/server/src/index.ts and packages/http/src) for an
   # option-name mismatch between
-  # elysia@1.4.28 and exact-mirror@1.0.0 (elysia passes `TypeCompiler`,
+  # elysia@1.4.29 and exact-mirror@1.0.0 (elysia passes `TypeCompiler`,
   # exact-mirror reads `Compile`). Floating these on `^` risks a patch
   # bump that changes the schema-validator wiring and silently breaks
   # the workaround. Bump deliberately, all together.
@@ -95,7 +98,8 @@ catalog:
   # carries CVE-2026-53516: the OAuth callback auto-linked an account when the
   # *provider* asserted `email_verified: true` without checking the *local*
   # account's `emailVerified`. Never lower this bound. See #455.
-  better-auth: ^1.7.4
+  # #1881: 1.7.7 fixes GHSA-965c-763c-88jm and GHSA-r4xp-prcw-77qf.
+  better-auth: ^1.7.27
   bullmq: ^5.81.5
   clsx: ^2.1.1
   dotenv: ^17.4.2
@@ -105,11 +109,17 @@ catalog:
   # green on the bump. `alchemy` + `@alchemy.run/railway` + `effect` move as
   # one pin — see the triple note at the top of this catalog.
   effect: 4.1.4
-  elysia: 1.4.28 # exact pin — see @elysiajs/* note above
+  # 1.4.29, not newer (#1881, GHSA-9643-4qgh-g8mx): it keeps the same exact-mirror range, so
+  # the override and the `normalize: 'typebox'` workaround hold. 1.4.32 peers on exact-mirror
+  # 0.2.x and needs that workaround re-checked before a bump.
+  elysia: 1.4.29 # exact pin — see @elysiajs/* note above
   ioredis: ^5.11.1
   lucide-react: ^1.45.0
   posthog-js: ^1.430.2
   react: ^19.3.0
+  # #1865: the MCP schema validator's linear-time regex engine. A native binary, so
+  # `apps/server` lists it beside `@alfred/assistant` and keeps it external in tsdown.
+  re2: ^1.27.2
   react-dom: ^19.3.0
   # Pinned exact (not ^) — ADR-0061: Replicache is in upstream maintenance mode
   # and we deliberately freeze the version. A caret would silently accept a
@@ -126,7 +136,7 @@ catalog:
   undici: ^8.12.2
   vaul: ^1.1.2
   vite: ^6.4.3
-  zod: 4.6.5
+  zod: 4.6.7
 
 # The AI SDK publishes several releases a day, so a deliberate bump of the `ai`
 # catalog pin is almost always younger than pnpm's release-age floor. Each entry
@@ -140,7 +150,47 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider-utils@5.0.76"
   - "@ai-sdk/provider@4.0.37"
   - ai@7.0.165
-  - zod@4.6.5
 
 patchedDependencies:
   "@alchemy.run/railway": patches/@alchemy.run__railway.patch
+
+# `pnpm audit --prod --audit-level high` runs in CI (#1881). Each entry is one high or
+# critical advisory that no Alfred code path reaches, with the reason. Remove an entry when
+# its package is upgraded, or when a code change makes the path reachable. An id here hides
+# the advisory for EVERY package that carries it, so the reason names the reachable copies
+# that were upgraded instead.
+auditConfig:
+  ignoreGhsas:
+    # files-sdk (packages/assistant/src/chat/attachments/storage.ts) imports only `files-sdk`
+    # and `files-sdk/s3`. Neither entry imports fastify, express or @modelcontextprotocol/sdk;
+    # those are optional peers for its server adapters and its MCP server, which Alfred never
+    # starts. So no request reaches the advisories below.
+    - GHSA-22jm-h49p-29qw # @modelcontextprotocol/sdk via files-sdk: server tasks
+    - GHSA-46jr-4wx8-v453 # @modelcontextprotocol/sdk via files-sdk: server request size
+    - GHSA-f897-62hf-6gxq # @modelcontextprotocol/sdk via files-sdk: server transports
+    # Also filed against @modelcontextprotocol/client, the copy Alfred runs. That copy is
+    # 2.4.0, which is fixed (>=2.2.0); only the unused files-sdk copy is left.
+    - GHSA-6qxp-vccf-f47h # @modelcontextprotocol/sdk via files-sdk: OAuth client
+    - GHSA-jqcg-44mw-7w3h # proxy-addr (critical) via files-sdk > sdk > express: trust proxy
+    - GHSA-27r3-jxmh-p828 # body-parser via files-sdk > sdk > express
+    - GHSA-667r-xxjv-c9mm # fastify via files-sdk: body replacement
+    - GHSA-9q9j-q6p8-xq58 # fastify via files-sdk: header validation
+    - GHSA-hwr6-493r-vm6h # fastify via files-sdk: boolean validation
+    - GHSA-p68q-wchp-6fh7 # fastify via files-sdk: malformed URLs
+    # fast-uri 4.x only under files-sdk > fastify. The 3.x copy under ajv, which the MCP
+    # schema validator runs, resolves to a fixed release (>=3.1.7).
+    - GHSA-58mr-gqgx-xq4g # fast-uri via files-sdk > fastify: unclosed bracket
+    - GHSA-qw65-cvwx-89v3 # fast-uri via files-sdk > fastify: unvalidated port
+    # better-auth declares vitest as an optional peer for its `test-utils` entry only.
+    # packages/auth never imports that entry, so vite and postcss never load in production.
+    - GHSA-587h-7wmj-h5pm # vite via better-auth > vitest: dev-server launch-editor
+    - GHSA-68fv-2mgg-jv7q # source-map-js via better-auth > vitest > vite > postcss
+    # packages/db `createId` calls `customAlphabet` with a constant alphabet and a constant
+    # length (default 12; no caller passes another). The advisories need a zero, negative or
+    # overflowing size from outside.
+    - GHSA-28wg-ghj8-5hjv # nanoid: negative size
+    - GHSA-2v37-7h3g-55p8 # nanoid: zero size
+    - GHSA-xwg4-73v4-xw9w # nanoid: integer overflow
+    # The ReDoS is in the Markdown spec helpers (`create*MarkdownSpec`). apps/web installs no
+    # Markdown extension and calls none of them, and it runs in the owner's browser only.
+    - GHSA-j95f-988m-3j2f # @tiptap/core: Markdown attribute parsing

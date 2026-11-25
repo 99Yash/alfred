@@ -52,8 +52,8 @@ export default defineConfig({
     resolve: { ...options.resolve, symlinks: true },
   }),
   // jsdom (via isomorphic-dompurify) is CommonJS: bundled, Node throws ERR_AMBIGUOUS_MODULE_SYNTAX on boot.
-  // @firecrawl/pdf-inspector and sharp load native binaries with their own resolver,
+  // @firecrawl/pdf-inspector, re2 and sharp load native binaries with their own resolver,
   // which bundling breaks (prod crash-loops).
   // Each external must also be a direct dependency here, so it resolves from node_modules.
-  external: ["@firecrawl/pdf-inspector", "isomorphic-dompurify", "jsdom", "sharp"],
+  external: ["@firecrawl/pdf-inspector", "isomorphic-dompurify", "jsdom", "re2", "sharp"],
 });

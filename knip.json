@@ -67,6 +67,7 @@
 
         "sharp",
         "@firecrawl/pdf-inspector", // @alfred/extraction
+        "re2", // @alfred/assistant/connections/mcp/client (#1865)
 
         "@alfred/mailer",
         // Needed for `"jsx": "react"` (apps/server/tsconfig.json) — the server

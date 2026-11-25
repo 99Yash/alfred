@@ -1,4 +1,4 @@
-import type { McpApiKeyPlacement, Redacted } from "@alfred/contracts";
+import { parseJsonWith, type McpApiKeyPlacement, type Redacted } from "@alfred/contracts";
 import type { McpServer } from "@alfred/db/schemas";
 import type { FetchLike } from "@modelcontextprotocol/client";
 import {
@@ -11,7 +11,38 @@ import {
   validatePinnedHttpsEndpoint,
   type DnsLookupAll,
   type GuardedFetchRequester,
+  type HostedRequestFacts,
+  type HostedResponseCap,
 } from "../hosted-endpoint";
+import { z } from "zod";
+
+const KIB = 1024;
+
+const MIB = 1024 * KIB;
+
+/**
+ * Byte caps on hosted MCP responses (#1864). The SDK reads a reply with `response.json()`, so
+ * without a cap a hostile server can send a body that exhausts the heap.
+ * OAuth metadata, registration and token replies are small JSON documents.
+ */
+const OAUTH_RESPONSE_CAP: HostedResponseCap = { bodyBytes: 64 * KIB, eventBytes: 64 * KIB };
+
+/** One `tools/list` page. The whole catalog is bounded again after parse (`MAX_CATALOG_BYTES`). */
+const CATALOG_PAGE_RESPONSE_CAP: HostedResponseCap = { bodyBytes: 4 * MIB, eventBytes: 4 * MIB };
+
+/** A tool result and every other protocol reply, and one event of the list-change stream. */
+const PROTOCOL_RESPONSE_CAP: HostedResponseCap = { bodyBytes: 16 * MIB, eventBytes: 16 * MIB };
+
+/** The SDK sends one JSON-RPC message as a JSON string body. A batch or other body has no method. */
+const jsonRpcMethodSchema = z.object({ method: z.string() });
+
+function protocolResponseCap(request: HostedRequestFacts): HostedResponseCap {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- RequestInit["body"] is a union of body kinds; only a string carries the JSON-RPC method
+  const raw = typeof request.body === "string" ? request.body : undefined;
+  const method = parseJsonWith(raw, jsonRpcMethodSchema)?.method;
+
+  return method === "tools/list" ? CATALOG_PAGE_RESPONSE_CAP : PROTOCOL_RESPONSE_CAP;
+}
 
 /** The server-definition columns an authorization reads. */
 export type McpEndpointConnection = Pick<McpServer, "endpointUrl" | "endpointOrigin">;
@@ -244,6 +275,8 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
         connectMs: network.requestTimeoutMs,
         bodyMs: 0,
       },
+      // Every response goes through a guarded fetch below, which caps the decoded body per request.
+      maxResponseBytes: null,
     });
 
     const requester = this.dependencies.requester ?? dispatcherRequester(dispatcher);
@@ -256,12 +289,17 @@ export class HostedMcpEndpointAuthorizer implements McpEndpointAuthorizer {
     let closeFlight: Promise<void> | null = null;
 
     return Object.freeze({
-      oauth: createAuthorizedOAuth(endpoint, createGuardedFetch({ requester }), network),
+      oauth: createAuthorizedOAuth(
+        endpoint,
+        createGuardedFetch({ requester, responseCap: () => OAUTH_RESPONSE_CAP }),
+        network,
+      ),
       protocol: Object.freeze({
         endpoint: new URL(endpoint.href),
         fetch: createGuardedFetch({
           requester: protocolRequester,
           expectedOrigin: endpoint.origin,
+          responseCap: protocolResponseCap,
         }),
       }),
       // `destroy`, not `close`: with no body timeout, a stuck stream would block `close` forever.

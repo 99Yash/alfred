@@ -63,7 +63,9 @@ export type HostedEndpointErrorCode =
   | "invalid_placement"
   | "origin_mismatch"
   | "redirect_refused"
-  | "too_many_redirects";
+  | "too_many_redirects"
+  /** A response body, or one stream event, passed the caller's byte cap (#1864). */
+  | "response_too_large";
 
 export class HostedEndpointError extends Error {
   constructor(
@@ -477,6 +479,12 @@ export interface HostedDispatcherTimeouts {
 export function createPinnedDispatcher(deps: {
   lookup?: DnsLookupAll;
   timeouts: HostedDispatcherTimeouts;
+  /**
+   * Required, no default (#1864): undici's `maxResponseSize`, in wire bytes per response. `null`
+   * only when every response goes through {@link createGuardedFetch}, which caps the decoded body
+   * per request. A wire cap there would also end a long-lived event stream.
+   */
+  maxResponseBytes: number | null;
 }): Dispatcher {
   return new Agent({
     connect: {
@@ -485,7 +493,129 @@ export function createPinnedDispatcher(deps: {
     },
     headersTimeout: deps.timeouts.headersMs,
     bodyTimeout: deps.timeouts.bodyMs,
+    ...(deps.maxResponseBytes === null ? {} : { maxResponseSize: deps.maxResponseBytes }),
   });
+}
+
+/**
+ * The byte cap of one guarded response (#1864), counted on the decoded body, so a compressed
+ * body cannot grow past it. Required, no default: callers differ, as with
+ * {@link HostedDispatcherTimeouts}.
+ */
+export interface HostedResponseCap {
+  /** A whole non-stream body. */
+  bodyBytes: number;
+  /**
+   * One `text/event-stream` event. The stream as a whole has no cap: an MCP list-change stream
+   * stays open for hours.
+   */
+  eventBytes: number;
+}
+
+/** Picks the cap of one request, for example by its JSON-RPC method. */
+type HostedResponseCapRule = (request: HostedRequestFacts) => HostedResponseCap;
+
+function responseTooLarge(limit: number, what: string): HostedEndpointError {
+  return new HostedEndpointError(
+    "response_too_large",
+    `The endpoint sent ${what} larger than the ${limit}-byte cap.`,
+  );
+}
+
+/** Error the stream when the total passes `limit`. */
+function countBody(limit: number): TransformStream<Uint8Array, Uint8Array> {
+  let total = 0;
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+
+      if (total > limit) {
+        controller.error(responseTooLarge(limit, "a body"));
+
+        return;
+      }
+
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+const LF = 0x0a;
+
+const CR = 0x0d;
+
+/**
+ * Error the stream when one server-sent event passes `limit`. An event ends at an empty line;
+ * a line ends at CRLF, LF, or CR (the WHATWG event-stream grammar).
+ */
+function countEvents(limit: number): TransformStream<Uint8Array, Uint8Array> {
+  let eventBytes = 0;
+  let lineBytes = 0;
+  let lastWasCr = false;
+
+  return new TransformStream({
+    transform(chunk, controller) {
+      for (const byte of chunk) {
+        if (byte === LF && lastWasCr) {
+          lastWasCr = false;
+          continue;
+        }
+
+        lastWasCr = byte === CR;
+
+        if (byte === LF || byte === CR) {
+          // An empty line dispatches the event, so the next event starts from zero.
+          eventBytes = lineBytes === 0 ? 0 : eventBytes + 1;
+          lineBytes = 0;
+          continue;
+        }
+
+        lineBytes += 1;
+        eventBytes += 1;
+
+        if (eventBytes > limit) {
+          controller.error(responseTooLarge(limit, "a stream event"));
+
+          return;
+        }
+      }
+
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+/** The same response, with its body counted against `cap`. */
+async function capResponse(response: Response, cap: HostedResponseCap): Promise<Response> {
+  if (response.body === null) return response;
+
+  const isEventStream = (response.headers.get("content-type") ?? "")
+    .toLowerCase()
+    .startsWith("text/event-stream");
+
+  if (!isEventStream) {
+    const declared = Number(response.headers.get("content-length"));
+
+    // A declared length can lie, so the counter below still runs. This only fails early.
+    if (Number.isFinite(declared) && declared > cap.bodyBytes) {
+      await cancelResponse(response);
+
+      throw responseTooLarge(cap.bodyBytes, "a body");
+    }
+  }
+
+  const counted = new Response(
+    response.body.pipeThrough(
+      isEventStream ? countEvents(cap.eventBytes) : countBody(cap.bodyBytes),
+    ),
+    { status: response.status, statusText: response.statusText, headers: response.headers },
+  );
+
+  // `new Response` drops the URL; the OAuth helpers read it to resolve relative locations.
+  Object.defineProperty(counted, "url", { value: response.url });
+
+  return counted;
 }
 
 /**
@@ -499,6 +629,8 @@ export type GuardedFetchRequester = (input: string, init: GuardedRequestInit) =>
 
 export interface GuardedFetchOptions {
   requester: GuardedFetchRequester;
+  /** Required, no default (#1864): a hostile endpoint can send a body of any size. */
+  responseCap: HostedResponseCapRule;
   expectedOrigin?: string;
   maxRedirects?: number;
 }
@@ -563,11 +695,13 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
   const expectedOrigin =
     options.expectedOrigin === undefined ? null : parseExpectedOrigin(options.expectedOrigin);
 
-  const { requester } = options;
+  const { requester, responseCap } = options;
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
 
   return async (input, init) => {
-    const { url, method, headers, body, signal } = requestFacts(input, init);
+    const facts = requestFacts(input, init);
+    const { url, method, headers, body, signal } = facts;
+    const cap = responseCap(facts);
 
     const validate = (candidate: string | URL): URL =>
       validatePinnedHttpsEndpoint(candidate, expectedOrigin);
@@ -589,9 +723,11 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
       const response = await requester(current.href, requestInit);
       const location = response.headers.get("location");
 
-      if (response.status < 300 || response.status >= 400 || !location) return response;
+      if (response.status < 300 || response.status >= 400 || !location) {
+        return capResponse(response, cap);
+      }
 
-      if (init?.redirect === "manual") return response;
+      if (init?.redirect === "manual") return capResponse(response, cap);
 
       await cancelResponse(response);
 
