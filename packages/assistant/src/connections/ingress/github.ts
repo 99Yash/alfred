@@ -8,20 +8,23 @@ import { githubInstallationId, verifyWebhookSignature } from "@alfred/integratio
 import { findActiveCredentialByInstallationId } from "@alfred/integrations/shared";
 import type { InboundSourceDescriptor } from "./descriptor";
 import { describeGithubReceipt } from "./github-description";
+import { githubBodyMatchesEvent } from "./receipt-schemas";
 
 /** GitHub's connected rule (ADR-0093). */
 const GITHUB_CREDENTIAL = INTEGRATIONS.github.credential;
 
 /**
- * GitHub App activity (ADR-0052, ADR-0097). `X-GitHub-Delivery` is stable across
- * redeliveries, so it is the dedup key. The owner matches on `installation.id`.
+ * GitHub App activity (ADR-0052, ADR-0097). The signature covers the body only, not the
+ * `X-GitHub-Delivery` or `X-GitHub-Event` header (#1875). So the dedup key is the body hash: a
+ * redelivery keeps the body, and a replay under a new delivery id collapses too. A typed kind
+ * whose body does not carry that kind's object is dropped. The owner matches on `installation.id`.
  * The hook URL is the deployed domain, so localhost receives nothing.
  */
 export const githubInboundSource: InboundSourceDescriptor<"github"> = {
   slug: "github",
   describe: describeGithubReceipt,
   verify: (raw, headers) => verifyWebhookSignature(raw, headers.get("x-hub-signature-256")),
-  dedup: { kind: "delivery_id", header: "x-github-delivery" },
+  dedup: { kind: "body_hash" },
   project: (payload, headers) => {
     const event = headers.get("x-github-event");
 
@@ -30,7 +33,12 @@ export const githubInboundSource: InboundSourceDescriptor<"github"> = {
     // A 200 on the subscription ping makes the App show green.
     if (event === "ping") return { kind: "ignore", reason: "ping" };
 
-    if (isEventTypeForSource("github", event)) return { kind: "event", type: event };
+    if (isEventTypeForSource("github", event)) {
+      return githubBodyMatchesEvent(event, payload)
+        ? { kind: "event", type: event }
+        : { kind: "ignore", reason: "kind-shape-mismatch" };
+    }
+
     const action = getStringPath(payload, "action");
 
     return { kind: "raw", rawKind: action ? `${event}.${action}` : event };
