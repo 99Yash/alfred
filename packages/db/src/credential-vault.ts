@@ -1,3 +1,4 @@
+import type { SENSITIVE_LOG_PATHS } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
 import {
   createCredentialVault,
@@ -8,7 +9,42 @@ import {
 
 export { createCredentialVault, CredentialVaultError } from "./credential-envelope";
 
+import type * as schema from "./schemas";
+
 export type { CredentialVault, SealedCredentialSecret } from "./credential-envelope";
+
+/** Each column key that holds a {@link SealedCredentialSecret}, across every table in the schema. */
+type SealedColumnKey = {
+  [Export in keyof typeof schema]: (typeof schema)[Export] extends {
+    readonly _: { readonly columns: infer Columns };
+  }
+    ? {
+        [Key in keyof Columns]: Columns[Key] extends { readonly _: { readonly data: infer Data } }
+          ? [Data] extends [SealedCredentialSecret]
+            ? Key
+            : never
+          : never;
+      }[keyof Columns]
+    : never;
+}[keyof typeof schema];
+
+type SealedColumnKeyMissingFromLogRedaction = Exclude<
+  SealedColumnKey,
+  (typeof SENSITIVE_LOG_PATHS)[number]
+>;
+
+/**
+ * Compile-time gate (#1870, ADR-0038): code that opens a sealed column often logs the value
+ * under the column key. So each sealed column key must be in `SENSITIVE_LOG_PATHS`. A new
+ * sealed column without an entry fails here and names the key.
+ */
+const SEALED_COLUMN_KEYS_ARE_REDACTED: [SealedColumnKeyMissingFromLogRedaction] extends [never]
+  ? true
+  : {
+      readonly "Add each sealed column key to SENSITIVE_LOG_PATHS": SealedColumnKeyMissingFromLogRedaction;
+    } = true;
+
+void SEALED_COLUMN_KEYS_ARE_REDACTED;
 
 /** OAuth token fields on `account`. The adapter and the boot gate must share this one list. */
 export const ACCOUNT_SECRET_FIELDS = ["accessToken", "refreshToken", "idToken"] as const;

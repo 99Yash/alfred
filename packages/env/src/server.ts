@@ -78,7 +78,11 @@ const serverEnvSchema = z
     OAUTH_CREDENTIAL_KEK: credentialKek(),
     BETTER_AUTH_URL: z.url(),
     CORS_ORIGIN: z.string().default("http://localhost:3000"),
-    NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+    /**
+     * Required, no default (#1877). A missing value used to read as `"development"`, which
+     * turned off the auth rate limit and mounted a dev route. Now `serverEnv()` fails at boot.
+     */
+    NODE_ENV: z.enum(["development", "production", "test"]),
     /** Railway injects this. */
     PORT: z.coerce.number().int().positive().default(3001),
     // Comma-separated emails allowed to sign up.
@@ -282,14 +286,15 @@ export function serverEnv(): ServerEnv {
 }
 
 /**
- * Read only `NODE_ENV`. Never throws: a bad value gives the schema default.
- * For module-scope code that runs before the full env is valid.
+ * Read only `NODE_ENV`, for module-scope code that runs before the full env is valid.
+ * Never throws, so a barrel still loads with no env. A missing or bad value gives `undefined`,
+ * and a caller must treat it as "not development": it may not turn a dev-only path on.
+ * The server cannot run with that value, because `serverEnv()` refuses it at boot (#1877).
  */
-export function nodeEnv(): ServerEnv["NODE_ENV"] {
-  const field = serverEnvSchema.shape.NODE_ENV;
-  const result = field.safeParse(process.env.NODE_ENV);
+export function nodeEnv(): ServerEnv["NODE_ENV"] | undefined {
+  const result = serverEnvSchema.shape.NODE_ENV.safeParse(process.env.NODE_ENV);
 
-  return result.success ? result.data : field.parse(undefined);
+  return result.success ? result.data : undefined;
 }
 
 /**

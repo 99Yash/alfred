@@ -46,7 +46,7 @@ function scheduleObservabilityInit() {
   const load = () =>
     void import("./lib/observability")
       .then(({ initObservability }) => {
-        initObservability();
+        initObservability((pathname) => router.matchRoutes(pathname).at(-1)?.fullPath);
       })
       .catch((err: unknown) => {
         console.warn("[observability] init failed:", err);

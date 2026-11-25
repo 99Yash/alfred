@@ -38,6 +38,8 @@ const PDF_EXTRACTION_LIMIT_MESSAGES = {
     `PDF output character limit exceeded: ${actual} > ${maximum}`,
   parse_milliseconds: (actual, maximum) =>
     `PDF parse deadline exceeded: ${actual}ms >= ${maximum}ms`,
+  resident_memory_bytes: (actual, maximum) =>
+    `PDF child resident memory limit exceeded: ${actual} > ${maximum} bytes`,
 } satisfies Readonly<Record<PdfExtractionLimitKind, LimitMessage>>;
 
 const PDF_EXTRACTION_RESULT_KINDS = {
@@ -124,6 +126,7 @@ function isValidLimitActual(
   switch (limit) {
     case "input_bytes":
     case "output_characters":
+    case "resident_memory_bytes":
       return actual > maximum;
     case "parse_milliseconds":
       return actual >= maximum;

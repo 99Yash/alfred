@@ -6,7 +6,12 @@ Key patterns in this repo:
 
 ```ts
 // Auth guard via macro (packages/http/src/middleware/auth.ts)
+// The session check runs in `transform`, before validation, so an anonymous caller gets 401,
+// not the route's schema messages. `resolve` then gives the handler `user`.
 app.use(authMacro).get("/protected", ({ user }) => user, { auth: true });
+// At boot, `assertRouteAuthInventory` (packages/http/src/route-auth-inventory.ts) walks
+// `app.routes`. A route with no `auth` guard must have a row in its PUBLIC_ROUTES table, or
+// the server does not start.
 
 // Global error handler (packages/http/src/middleware/error-handler.ts)
 // Normalises all errors to { error: string, code: string }.

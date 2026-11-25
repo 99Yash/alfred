@@ -33,6 +33,7 @@ import {
   createPinnedDispatcher,
   HostedEndpointError,
   hostedEndpointErrorFrom,
+  isBlockedHost,
   isCredentialParamName,
   validatePublicWebUrl,
 } from "../../../connections";
@@ -714,36 +715,69 @@ function redactFetchResult(r: FetchUrlResult): FetchUrlResult {
 
 const FIRECRAWL_TIMEOUT_MS = 30_000;
 
+/** The scrape reply is JSON around markdown that we cut to `FETCH_URL_MAX_TEXT_CHARS`. */
+const FIRECRAWL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+let firecrawlDispatcher: Dispatcher | undefined;
+
+/**
+ * The direct path's connect-time guard, on the Firecrawl socket (#1887). A Firecrawl host that
+ * resolves to a private address is refused, so the fallback never runs on a renderer inside the
+ * private network.
+ */
+function firecrawlSafeDispatcher(): Dispatcher {
+  firecrawlDispatcher ??= createPinnedDispatcher({
+    timeouts: {
+      headersMs: FIRECRAWL_TIMEOUT_MS,
+      bodyMs: FIRECRAWL_TIMEOUT_MS,
+      connectMs: FETCH_TIMEOUT_MS,
+    },
+    maxResponseBytes: FIRECRAWL_MAX_RESPONSE_BYTES,
+  });
+
+  return firecrawlDispatcher;
+}
+
 /**
  * Firecrawl `/v1/scrape` render (#510). Never throws; `null` keeps `empty_content`.
- * Skips {@link safeRequest}: the user URL is a payload Firecrawl opens, not our socket.
+ *
+ * Firecrawl opens the user URL from its own network and follows its own redirects, so
+ * {@link safeRequest} cannot check those hops. That is safe only when Firecrawl is outside our
+ * private network. So the request to Firecrawl itself goes through the host guard: a self-hosted
+ * `FIRECRAWL_BASE_URL` on a private host or address gets no render (#1887). A literal IP skips
+ * DNS, so `isBlockedHost` checks the host string first; the pinned lookup checks each resolved
+ * address. A non-default port stays allowed: the base URL is owner config, not model input.
  */
 const liveFirecrawlRender: Renderer = async (url, signal) => {
   const env = serverEnv();
 
   if (!env.FIRECRAWL_API_KEY) return null;
-  let res: Response;
+  const endpoint = new URL(`${env.FIRECRAWL_BASE_URL}/v1/scrape`);
+
+  if (isBlockedHost(endpoint.hostname)) return null;
+  let json: unknown;
 
   try {
-    res = await fetch(`${env.FIRECRAWL_BASE_URL}/v1/scrape`, {
+    const res = await undiciRequest(endpoint, {
       method: "POST",
       headers: {
         authorization: `Bearer ${env.FIRECRAWL_API_KEY}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      dispatcher: firecrawlSafeDispatcher(),
       signal,
     });
-  } catch {
-    return null;
-  }
 
-  if (!res.ok) return null;
-  let json: unknown;
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      await disposeBody(res.body);
 
-  try {
-    json = await res.json();
+      return null;
+    }
+
+    json = await res.body.json();
   } catch {
+    // A refused private address, a timeout, an oversized or non-JSON reply.
     return null;
   }
 

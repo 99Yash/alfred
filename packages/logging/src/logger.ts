@@ -1,4 +1,9 @@
-import { getStringField, isHttpError, isIndexable, SENSITIVE_LOG_PATHS } from "@alfred/contracts";
+import {
+  getStringField,
+  isHttpError,
+  isIndexable,
+  redactSensitiveLogPaths,
+} from "@alfred/contracts";
 import { nodeEnv } from "@alfred/env/server";
 import pino, { type DestinationStream } from "pino";
 import { AppError } from "@alfred/contracts/app-errors";
@@ -147,14 +152,29 @@ export function safeErrorDiagnostic(err: unknown): string {
   }
 }
 
+/** Never throws: pino rethrows a formatter throw out of the log call, so a bad object drops its fields. */
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- pino's `formatters.log` contract is a string-keyed record of unknown fields.
+function redactLogObject(object: Record<string, unknown>) {
+  try {
+    return redactSensitiveLogPaths(object);
+  } catch {
+    return { logRedaction: "failed" };
+  }
+}
+
 export function createLogger(destination?: DestinationStream, opts?: { verboseErrors?: boolean }) {
   // Runs at import, before the env is validated, so use `nodeEnv()`, which never throws.
-  const verbose = opts?.verboseErrors ?? nodeEnv() !== "production";
+  // A missing or bad value gives `undefined`; that is not dev, so errors stay terse (#1877).
+  const env = nodeEnv();
+  const verbose = opts?.verboseErrors ?? (env === "development" || env === "test");
 
   const options = {
     name: "alfred-api",
     serializers: { err: (err: unknown) => serializeError(err, verbose) },
-    redact: { paths: [...SENSITIVE_LOG_PATHS], censor: "[redacted]" },
+    // Pino `redact.paths` has no any-depth wildcard, so the shared table runs here (ADR-0038).
+    // It runs before the `err` serializer; an `Error` is not a plain object, so it passes through.
+    // `logger.child` bindings skip this hook. No code calls `child` today.
+    formatters: { log: redactLogObject },
   };
 
   return destination ? pino(options, destination) : pino(options);

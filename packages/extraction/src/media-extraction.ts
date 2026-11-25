@@ -1,5 +1,5 @@
 import type { ContentFormat } from "@alfred/contracts";
-import { createPdfExtractor, type ExtractedPdf } from "./extract-pdf";
+import { createPdfExtractor, type ExtractedPdf, type PdfExtractionLimitKind } from "./extract-pdf";
 import { parsePdfExtractionLimits, truncateTextToFit } from "./extract-pdf-protocol";
 import type { ExtractionLimits } from "./constants";
 import { assertNever } from "@alfred/contracts";
@@ -19,7 +19,7 @@ export type MediaExtractionResult =
   | {
       readonly kind: "limit_exceeded";
       readonly format: ContentFormat;
-      readonly limit: "input_bytes" | "output_characters" | "parse_milliseconds";
+      readonly limit: PdfExtractionLimitKind;
       readonly actual: number;
       readonly maximum: number;
       readonly message: string;

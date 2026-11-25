@@ -19,6 +19,11 @@ COPY . .
 # bundle at build time; without this line the bundle falls back to the dev
 # default `http://localhost:3001` and prod calls nothing.
 ARG VITE_API_URL
+# Web error reports and analytics (#1878). Each is off while its Railway variable
+# is unset. `apps/web/src/lib/observability.ts` scrubs URLs and titles first.
+ARG VITE_SENTRY_DSN
+ARG VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST
 
 RUN --mount=type=cache,id=s/2155bb3b-873d-49c2-a690-e2d58f67dc90-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile && pnpm turbo run build --filter=web
