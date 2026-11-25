@@ -17,6 +17,7 @@ import { meRoutes } from "./me";
 import { authMacro } from "./middleware/auth";
 import { errorHandler } from "./middleware/error-handler";
 import { requireOnboarded } from "./middleware/onboarding";
+import { requestBodyLimit } from "./middleware/body-limit";
 import { securityHeaders } from "./middleware/security-headers";
 import {
   clearSessionTokenCache,
@@ -40,6 +41,7 @@ export {
   errorHandler,
   getSessionCached,
   invalidateSessionToken,
+  requestBodyLimit,
   requireOnboarded,
   securityHeaders,
 };

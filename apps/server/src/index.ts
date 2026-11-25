@@ -6,7 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { flushLangfuse } from "@alfred/ai";
 import { getPath } from "@alfred/contracts";
 import { serverEnv } from "@alfred/env/server";
-import { app, securityHeaders } from "@alfred/http";
+import { app, requestBodyLimit, securityHeaders } from "@alfred/http";
 import { logger } from "@alfred/logging";
 import { cors } from "@elysiajs/cors";
 import { node } from "@elysiajs/node";
@@ -74,6 +74,8 @@ new Elysia({ adapter: node(), normalize: "typebox" })
   )
   // HSTS only in prod, where the Railway edge serves HTTPS.
   .use(securityHeaders({ hsts: serverEnv().NODE_ENV === "production" }))
+  // After the headers, so a 413 carries them. Before `app`, so no route parses an oversized body.
+  .use(requestBodyLimit())
   .use(app)
   // Dev binds `::` because Chrome resolves `localhost` to `::1` and an IPv4-only bind hangs.
   // The Railway edge is IPv4.
