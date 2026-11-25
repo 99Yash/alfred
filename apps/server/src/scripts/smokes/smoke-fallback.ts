@@ -35,7 +35,7 @@ async function main() {
   console.log(`boss model       → ${boss.provider}/${boss.modelId}`);
   console.log(`chat deep model  → ${chatDeep.provider}/${chatDeep.modelId}`);
 
-  if (boss.modelId !== "gpt-6-luna" || chatDeep.modelId !== "gpt-6-luna") {
+  if (boss.modelId !== "claude-haiku-5-5" || chatDeep.modelId !== "claude-haiku-5-5") {
     console.error("FAIL: dispatcher modelId proxy mismatch");
     failures++;
   }

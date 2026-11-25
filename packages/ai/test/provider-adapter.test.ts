@@ -399,13 +399,14 @@ describe("route legs", () => {
     assert.equal(standard.modelId, "claude-haiku-5-5");
 
     const boss = identifyLanguageModel(route("boss").model());
-    assert.equal(boss.provider, "openai");
-    // ADR-0077: background work stays on GPT-6 Luna.
-    assert.equal(boss.modelId, "gpt-6-luna");
+    assert.equal(boss.provider, "anthropic");
+    // ADR-0077 amendment 2026-11-25: background work's primary is Claude Haiku 5.5.
+    assert.equal(boss.modelId, "claude-haiku-5-5");
   });
 
   test("select the generic AI SDK reasoning ceiling", () => {
     assert.equal(routeEffort("standard"), "medium");
+    assert.equal(routeEffort("boss"), "high");
     assert.equal(routeEffort("deep"), "high");
     assert.equal(routeEffort("cheap"), "none");
     assert.equal(routeEffort("compactor"), "none");

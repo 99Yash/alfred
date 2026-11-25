@@ -48,10 +48,11 @@ interface ModelRoute {
 
 /** Product model routes: ordered legs plus the reasoning level every leg gets. */
 const MODEL_ROUTES = {
-  // Background work: briefings, cold start, skill compose.
+  // Background work: briefings, cold start, skill compose. Moved to Haiku 5.5 at `high` on
+  // 2026-11-25 (owner decision); `high` is the Anthropic API default for this model.
   boss: {
-    legs: [() => openAiLeg("gpt-6-luna"), () => googleLeg("gemini-3.8-flash")],
-    reasoning: "medium",
+    legs: [() => anthropicLeg("claude-haiku-5-5"), () => googleLeg("gemini-3.8-flash")],
+    reasoning: "high",
     providerOptions: GOOGLE_THOUGHT_SUMMARIES,
   },
   // Brief and cold-start sub-agents. Chat moved to Haiku on 2026-11-19; this route was not measured there.
