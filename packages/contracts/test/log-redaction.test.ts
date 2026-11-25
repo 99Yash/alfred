@@ -12,17 +12,17 @@ test("exact dotted paths censor the nested leaf only", () => {
   });
 });
 
-test("leading wildcard matches the remainder under any top-level key", () => {
+test("a one-key entry censors that key at any depth, in any case and separator form", () => {
   const out = redactSensitiveLogPaths({
-    credential: { accessToken: "tok", refreshToken: "ref" },
+    credential: { accessToken: "tok", refresh_token: "ref" },
     user: { name: "sam", password: "hunter2" },
-    deep: { nested: { apiKey: "key" } },
+    deep: { nested: { result: { "Api-Key": "key", tokens: 3 } } },
   });
 
   assert.deepEqual(out, {
-    credential: { accessToken: "[redacted]", refreshToken: "[redacted]" },
+    credential: { accessToken: "[redacted]", refresh_token: "[redacted]" },
     user: { name: "sam", password: "[redacted]" },
-    deep: { nested: { apiKey: "key" } },
+    deep: { nested: { result: { "Api-Key": "[redacted]", tokens: 3 } } },
   });
 });
 
@@ -49,9 +49,7 @@ test("every declared path censors its own sample payload shape", () => {
     const segments = path.split(".");
 
     const node = segments.reduceRight<Record<string, unknown>>((child, segment) => {
-      const key = segment === "*" ? "anyTopLevelKey" : segment;
-
-      return { [key]: child };
+      return { [segment]: child };
     }, {});
 
     const censored = JSON.stringify(redactSensitiveLogPaths(node));
