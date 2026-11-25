@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
@@ -24,7 +25,11 @@ export interface ExtractedPdfPage {
   readonly ocrReason?: string;
 }
 
-export type PdfExtractionLimitKind = "input_bytes" | "output_characters" | "parse_milliseconds";
+export type PdfExtractionLimitKind =
+  | "input_bytes"
+  | "output_characters"
+  | "parse_milliseconds"
+  | "resident_memory_bytes";
 
 export type ExtractedPdf =
   | {
@@ -92,6 +97,54 @@ interface PdfExtractorChildOptions {
 }
 
 const CHILD_HEAP_MEGABYTES = 256;
+
+/**
+ * RSS cap for the whole child (#1880). `--max-old-space-size` bounds only the V8 heap, and the
+ * parser allocates native (Rust) memory outside it. A cgroup is not available in the Railway
+ * container, and `prlimit --as` counts the large virtual ranges that V8 reserves at start.
+ */
+const CHILD_RESIDENT_MEMORY_BYTES = 512 * 1_048_576;
+
+const RESIDENT_MEMORY_POLL_MILLISECONDS = 50;
+
+/**
+ * Read `VmRSS` from `/proc/<pid>/status` text, in bytes. `undefined` when the line is missing,
+ * for example after the kernel reaps the child.
+ */
+function parseProcStatusResidentBytes(status: string): number | undefined {
+  const match = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status);
+
+  if (match?.[1] === undefined) return undefined;
+
+  return Number(match[1]) * 1024;
+}
+
+/**
+ * The child's RSS in bytes, or `undefined` when it cannot be read. Linux only: other platforms
+ * (macOS dev) have no `/proc`, so the watchdog does nothing there and only the deadline holds.
+ */
+async function readChildResidentBytes(pid: number): Promise<number | undefined> {
+  try {
+    return parseProcStatusResidentBytes(await readFile(`/proc/${pid}/status`, "utf8"));
+  } catch {
+    // The child exited between two polls: its `/proc` entry is gone.
+    return undefined;
+  }
+}
+
+/**
+ * One PDF child at a time in this process, across every extractor, so two large PDFs cannot add
+ * their memory together. The parse deadline starts when a child starts, not while it waits here.
+ */
+let pdfChildQueue: Promise<unknown> = Promise.resolve();
+
+function runOneChildAtATime<T>(run: () => Promise<T>): Promise<T> {
+  const turn = pdfChildQueue.then(run, run);
+  // oxlint-disable-next-line alfred/no-swallowed-catch -- the queue link only orders turns; the caller awaits `turn` and gets its rejection
+  pdfChildQueue = turn.catch(() => undefined);
+
+  return turn;
+}
 
 const PROTOCOL_OVERHEAD_BYTES = 1_048_576;
 
@@ -174,8 +227,11 @@ async function runPdfExtractionChild(
     let deadline: ReturnType<typeof setTimeout> | undefined;
     let childExitedSuccessfullyBeforeDeadline = false;
 
+    let memoryWatch: ReturnType<typeof setInterval> | undefined;
+
     let terminalCause:
       | { readonly kind: "deadline"; readonly actual: number }
+      | { readonly kind: "resident_memory"; readonly actual: number }
       | { readonly kind: "process_failure"; readonly error: Error }
       | undefined;
 
@@ -226,6 +282,33 @@ async function runPdfExtractionChild(
       child.stderr.destroy();
     };
 
+    const stopForResidentMemory = (actual: number) => {
+      if (terminalCause === undefined) terminalCause = { kind: "resident_memory", actual };
+
+      killChild();
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+    };
+
+    const watchResidentMemory = (pid: number) => {
+      let reading = false;
+
+      memoryWatch = setInterval(() => {
+        if (reading || terminalCause !== undefined || childExitedSuccessfullyBeforeDeadline) return;
+        reading = true;
+
+        void readChildResidentBytes(pid).then((residentBytes) => {
+          reading = false;
+
+          if (residentBytes !== undefined && residentBytes > CHILD_RESIDENT_MEMORY_BYTES) {
+            stopForResidentMemory(residentBytes);
+          }
+        });
+      }, RESIDENT_MEMORY_POLL_MILLISECONDS);
+      memoryWatch.unref();
+    };
+
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.byteLength;
 
@@ -258,6 +341,20 @@ async function runPdfExtractionChild(
 
     child.once("close", (code, signal) => {
       if (deadline !== undefined) clearTimeout(deadline);
+
+      if (memoryWatch !== undefined) clearInterval(memoryWatch);
+
+      if (terminalCause?.kind === "resident_memory" && !childExitedSuccessfullyBeforeDeadline) {
+        resolve(
+          createPdfExtractionLimitResult(
+            "resident_memory_bytes",
+            terminalCause.actual,
+            CHILD_RESIDENT_MEMORY_BYTES,
+          ),
+        );
+
+        return;
+      }
 
       if (terminalCause?.kind === "deadline" && !childExitedSuccessfullyBeforeDeadline) {
         resolve(
@@ -351,6 +448,9 @@ async function runPdfExtractionChild(
     }
 
     deadline = setTimeout(stopForDeadline, remainingMilliseconds);
+
+    if (process.platform === "linux" && child.pid !== undefined) watchResidentMemory(child.pid);
+
     child.stdin.end(serializePdfExtractionChildRequest(limits, bytes));
   });
 }
@@ -376,6 +476,6 @@ export function createPdfExtractorWithChild(
       );
     }
 
-    return runPdfExtractionChild(bytes, configuredLimits, options);
+    return runOneChildAtATime(() => runPdfExtractionChild(bytes, configuredLimits, options));
   };
 }
