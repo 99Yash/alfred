@@ -11,6 +11,7 @@ import {
   briefingSendDecisionSchema,
   briefingSlotSchema,
   briefingStatusSchema,
+  emailContributionSchema,
   ianaTimezoneSchema,
   chatAttachmentStatusSchema,
   chatErrorKindSchema,
@@ -32,6 +33,7 @@ import {
   toolNameSchema,
   triageCategorySchema,
   workflowBlockedSchema,
+  migrateTriageCategory,
   approvalReasonSchema,
   chatConnectNudgeSchema,
   scriptSourcesSchema,
@@ -243,8 +245,27 @@ export type SyncedFact = z.infer<typeof syncedFactSchema>;
  * closed enums and bounds must not drop the whole briefing row: a stale tab or a rolled-back server
  * can meet a member that its build does not know. So an unreadable field reads as absent. The
  * contract schema stays strict for the server write path.
+ *
+ * `email.categories` keys from before the triage nine-label rename (triage-theory-v1) still sit in
+ * stored rows. A legacy key maps forward; a key that is neither current nor legacy keeps failing,
+ * so a corrupt gather still surfaces.
  */
+const syncedEmailContributionSchema = z.object({
+  categories: z
+    .record(z.string(), z.unknown())
+    .transform((categories) =>
+      Object.fromEntries(
+        Object.entries(categories).map(([key, items]) => [
+          migrateTriageCategory(key) ?? key,
+          items,
+        ]),
+      ),
+    )
+    .pipe(emailContributionSchema.shape.categories),
+});
+
 const syncedBriefingGatherSchema = briefingGatherSchema.extend({
+  email: syncedEmailContributionSchema,
   provenance: briefingGatherSchema.shape.provenance.catch(undefined),
   official_warnings: briefingGatherSchema.shape.official_warnings.catch(undefined),
 });
