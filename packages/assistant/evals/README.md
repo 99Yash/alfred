@@ -62,11 +62,15 @@ it.
 - `triage-deck.eval.ts` — the ADR-0121 eval deck: real production mail, scored against
   `docs/theory/triage.md`. Each triage slice runs it before and after, and lands only when
   no case gets worse. Deterministic only.
+- `footprint.eval.ts` — the ADR-0135 deck: the footprint fold and its admission and
+  mail-touch rules against sight snapshots (no database), plus the reader suite, which
+  replays redacted synthetic stored rows through the real `readFootprint` in the local
+  Postgres and grades the verdict and the exact evidence (decision D5). Needs the local
+  Postgres for the reader suite only. Deterministic only.
 - `code-mode-read.eval.ts` — the ADR-0124 driver run `run_s7yi1ymxakcj` in a `code_run`
   chat: every read must run in `system.code_run`, in few steps and a small context. The
   scripts run in the real sandbox against fake host functions (#898), so the trajectory is
-  graded offline. Deterministic only.
-- `code-mode-paired.eval.ts` — the ADR-0124 paired evaluation that decides the default read
+  graded offline. Deterministic only.- `code-mode-paired.eval.ts` — the ADR-0124 paired evaluation that decides the default read
   path. Each case runs in both read modes, three times each, through the production chat
   loop (`startChatTurn`, then `runOnce`). Only the GitHub MCP server is fake, at its
   protocol client. Needs the local Postgres and Redis, and no dev server. It writes the

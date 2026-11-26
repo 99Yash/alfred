@@ -34,7 +34,7 @@ export interface EvalCorrespondentCounts {
 }
 
 /** A stored Gmail message (`documents.raw`) for an eval mail: one `text/plain` part. */
-function storedGmailMessage(mail: EvalStoredMail) {
+export function evalStoredGmailMessage(mail: EvalStoredMail) {
   const headers = {
     From: mail.from,
     Subject: mail.subject,
@@ -95,7 +95,7 @@ export function evalMailFacts(mail: EvalStoredMail): MailFacts {
       title: mail.subject,
       content: mail.body,
       authoredAt: mail.authoredAt,
-      raw: storedGmailMessage(mail),
+      raw: evalStoredGmailMessage(mail),
       metadata: { from: mail.from, labelIds: [...mail.labelIds] },
     },
     {
