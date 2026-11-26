@@ -85,35 +85,30 @@ gap on any other provider is a configuration change, not a code change.
 Rules for the GitHub App page: do not change the callback URLs, and keep
 "Redirect on update" on. A callback URL swap saves silently as a no-op.
 
-### GitHub App `alfred-99yash` (pruned 2026-09-23, was all 29 on 2026-09-06)
+### GitHub App `alfred-99yash` (pruned 2026-09-23; `check_suite` added 2026-11-26)
 
-Subscribed only to the five events the `github` entry names
+Subscribed only to the six events the `github` entry names
 (`packages/contracts/src/event-triggers.ts`):
 
-`issues`, `pull_request`, `pull_request_review`, `push`, `repository_dispatch`.
+`issues`, `pull_request`, `pull_request_review`, `push`, `repository_dispatch`,
+`check_suite`.
 
-`check_suite` is typed but not subscribable: it needs the Checks permission
-the App does not hold, so no `check_suite` deliveries arrive (#1167 notes the
-empty lane). `meta` and `installation_target` are deliberately unsubscribed;
-app-level deliveries name no installation and drop silently (#1209). A delivery
-that names an installation no active credential holds reports an
-`ingress.no_owner` warning.
+`check_suite` joined on 2026-11-26 (owner-run runbook of #1093/#1167): the App
+holds Repository `Checks` read-only, the Check suite event is subscribed, and
+the installation accepted the update. `meta` and `installation_target` are
+deliberately unsubscribed; app-level deliveries name no installation and drop
+silently (#1209). A delivery that names an installation no active credential
+holds reports an `ingress.no_owner` warning.
 
-Production holds no `ci_attempt` or `ci_target` row (measured 2026-10-20), so a
-`[owner/repo] Run failed: <workflow> - <branch> (<sha>)` mail cannot close
-when a later run on the branch passes. A `PR run failed` mail closes through
-its pull request instead. To fill the CI lane, the owner must do these steps.
-They are not done yet.
-
-1. Open the App settings, Permissions & events.
-2. Under Repository permissions, set Checks to Read-only.
-3. Under Subscribe to events, select Check suite.
-4. Save. Do not change a callback URL, and keep "Redirect on update" on.
-5. Approve the new permission on the installation (Settings, Applications,
-   the `alfred-99yash` installation, Review request).
-6. After the next workflow run, confirm a `github.check_suite` row in
-   `event_receipts` and a `ci_target` row in `integration_objects`.
-7. Add `check_suite` to the subscribed list above.
+Production held no `ci_attempt` or `ci_target` row (measured 2026-10-20), so a
+`[owner/repo] Run failed: <workflow> - <branch> (<sha>)` mail could not close
+when a later run on the branch passed; a `PR run failed` mail closed through
+its pull request instead. That was this App's state until 2026-11-26: the failed
+`deploy-production` run of commit 2c73512 stayed surfaced across three briefings
+even though two later runs on main passed, because no check-suite delivery could
+ever fold the `ci_target` row. The runbook above filled the lane on 2026-11-26;
+the live proof is the workflow_dispatch run 45829122662's completed check suite
+folding a `ci_target` row.
 
 An event that needs a permission the App does not hold is not offered on the
 page. Adding a permission asks the installation to approve it again.
