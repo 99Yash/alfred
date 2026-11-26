@@ -62,11 +62,11 @@ export const FOOTPRINT_LOOKBACK_DAYS = 90;
 
 /**
  * The smallest searchable-triage count that makes a zero-hit corpus leg count as
- * looked-and-found-nothing. The number is held, not measured (ADR-0135 D5 amendment): one
- * busy triage day can meet it, and no measurement has sized a real window yet, so the
- * corpus-coverage measurement owns the value.
+ * looked-and-found-nothing. Measured 2026-11-26 against the production corpus (ADR-0135 D5
+ * amendment): the 90-day window holds 2,115 triaged threads, about 23 a day, and the owner
+ * accepted a floor of about half of it, so a thin or backfilling window stays unknown.
  */
-export const FOOTPRINT_MIN_CORPUS_THREADS = 100;
+export const FOOTPRINT_MIN_CORPUS_THREADS = 1_000;
 
 /**
  * How many corpus nominations the reader confirms through the stored-message parse. The
