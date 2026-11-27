@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import * as Railway from "@alchemy.run/railway";
 import { Alfred, PRODUCTION_ENVIRONMENT_ID } from "./project.ts";
+import { PRODUCTION_SERVICES } from "./target.ts";
 
 const REGION = "asia-southeast1-eqsg3a";
 
@@ -72,7 +73,9 @@ const [REPO_OWNER, REPO_NAME] = REPO.split("/");
 export const Server = Railway.Service("Server", {
   project: Alfred,
   environment: { environmentId: PRODUCTION_ENVIRONMENT_ID },
-  name: "server",
+  // The service name is the target declaration (infra/src/target.ts) — the
+  // recovery report reads the same two names.
+  name: PRODUCTION_SERVICES[0],
   region: REGION,
   context: REPO_ROOT,
   dockerfilePath: "docker/server.Dockerfile",
@@ -100,7 +103,7 @@ export const Server = Railway.Service("Server", {
 export const Web = Railway.Service("Web", {
   project: Alfred,
   environment: { environmentId: PRODUCTION_ENVIRONMENT_ID },
-  name: "web",
+  name: PRODUCTION_SERVICES[1],
   region: REGION,
   context: REPO_ROOT,
   dockerfilePath: "docker/web.Dockerfile",

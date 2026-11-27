@@ -151,7 +151,7 @@ No push hook exists on the Railway side anymore — with `repo:` removed there i
 ### How the deployment is named and tracked
 
 - **State attributes** carry `deploymentId`, `deploymentStatus`, and `code: { hash }` (`Service.ts:287-294`, `ServiceProvider.ts:845-847`).
-- **Deploy message:** the upload URL takes a `message` query param (`Up.ts:49-51`), and the provider hard-codes it to `` `alchemy ${id} ${codeHash}` `` (`ServiceProvider.ts:1350`). This is the same knob as `railway up -m/--message` ("Message to attach to the deployment", https://docs.railway.com/cli/up) — visible as deployment metadata in the dashboard.
+- **Deploy message:** the upload URL takes a `message` query param (`Up.ts:49-51`), and the provider hard-codes it to `` `alchemy ${id} ${codeHash}` `` (`ServiceProvider.ts:1350`). This is the same knob as `railway up -m/--message` ("Message to attach to the deployment", https://docs.railway.com/cli/up) — visible as deployment metadata in the dashboard. (The workspace patch appends the unique attempt id to this message, and the deploy report matches it — ADR-0128, the 2026-11-27 amendment.)
 - Upload returns `deploymentId/url/logsUrl/deploymentDomain` (`Up.ts:18-23`); the provider then polls that specific deployment (`matchUploadedDeployment`, `waitForDeploymentById`, `ServiceProvider.ts:572-676`).
 
 ### Commit-sha piggyback options

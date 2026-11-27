@@ -62,6 +62,24 @@ jobs:
 
       - name: Deploy (adopt in place — runner state is always empty)
         run: corepack pnpm --filter @alfred/infra adopt
+        # The step, not the job, bounds the deploy: the report below is the
+        # recovery basis and the header check must still run, so the deploy
+        # cannot spend the job's whole 30 minutes (always() steps get none
+        # once the job limit hits).
+        timeout-minutes: 24
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+      # The owner's recovery basis after a stop (ADR-0128): what serves per
+      # service, the latest attempt, and whether this run's submission was
+      # accepted (the unique deploy message). The deploy step can abort
+      # between the two services, so this step runs even then, and it reports
+      # "unknown" when a read cannot prove a release. It never exits nonzero,
+      # so the header check below stays independent of the report.
+      - name: Report observed deployments
+        if: always()
+        timeout-minutes: 2
+        run: node scripts/railway-observed-deployments.mjs
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
@@ -69,7 +87,10 @@ jobs:
       # image does not copy ships no headers and no gate notices, so read them
       # back from the live origin. `alchemy deploy` returns after the web
       # deployment reaches SUCCESS; the retry covers the edge switch-over.
+      # `if: always()` keeps this check independent of the report above, and
+      # of a failed deploy (the previous release still serves then).
       - name: Verify web security headers
+        if: always()
         run: |
           check() {
             local url="$1"; shift
