@@ -65,6 +65,16 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
+      # The owner's recovery basis after a stop (ADR-0128): the deployment each
+      # service shows when the job ends, read from Railway's live API. The
+      # deploy step can abort between the two services, so this step runs even
+      # then, and it reports "unknown" when the read cannot prove a release.
+      - name: Report observed deployments
+        if: always()
+        run: node scripts/railway-observed-deployments.mjs
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
       # The web's headers live in `docker/web.Caddyfile` (#295). A Caddyfile the
       # image does not copy ships no headers and no gate notices, so read them
       # back from the live origin. `alchemy deploy` returns after the web

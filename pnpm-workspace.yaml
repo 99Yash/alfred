@@ -153,11 +153,25 @@ minimumReleaseAgeExclude:
 
 patchedDependencies:
   # Both patches are temporary and tied to their pinned provider version, and each
-  # carries the lockfile patch hash below. The railway patch keeps the runner's
-  # `.alchemy` state out of the build-context upload and retries that upload after an
-  # HTTP/2 peer reset, so a reset no longer aborts a deploy. The distilled patch retries
-  # the reads that reset, so every read survives it and a mutation still fails fast
-  # (ADR-0128). Drop each patch once its provider does the same work.
+  # carries the lockfile patch hash below. Removal is per hunk, not per patch, so a
+  # provider upgrade can drop only what upstream now does:
+  #
+  # @alchemy.run/railway at 2.0.0-beta.87:
+  # - local-context walk + runner-state rules: the walk fix is upstream
+  #   (alchemy-run/alchemy#3501, merged) — drop the walk hunk when the pinned
+  #   version carries it. The `.alchemy` pruning (upload set + plan hash) is ours;
+  #   drop it when the provider's own walk and plan hash prune `.alchemy` at any
+  #   depth.
+  # - ServiceProvider deploy wait: drop when the provider's wait covers long
+  #   Railway builds (60 retries x 10 s against a 600 s cap today).
+  # - Up upload states: drop when Railway gives /up an idempotency key or a way to
+  #   match one submission to the deployment it created. Until then the upload
+  #   never repeats a submission and an ambiguous write fails the release
+  #   (ADR-0128).
+  #
+  # @distilled.cloud/railway at 1.0.0-rc.20: retries the reads that reset, so every
+  #   read survives it and a mutation still fails fast. Drop it when the provider
+  #   carries its own read retry.
   "@alchemy.run/railway": patches/@alchemy.run__railway.patch
   "@distilled.cloud/railway@1.0.0-rc.20": patches/@distilled.cloud__railway@1.0.0-rc.20.patch
 
