@@ -151,7 +151,8 @@ overrides:
   exact-mirror: 1.0.0
 
 patchedDependencies:
-  '@alchemy.run/railway': 6082582508db77da627e924d069876e080bb5d15370c485d9dea89831ef50e4a
+  '@alchemy.run/railway': 57154d03f0761f85330fb039243080385638f637a5618d5ea06fdff2b549c36e
+  '@distilled.cloud/railway@1.0.0-rc.20': 79a23fee975c311d5e88e4c5937f4e732e907880c1f76b514d8114cd718748d1
 
 importers:
 
@@ -488,7 +489,7 @@ importers:
     dependencies:
       '@alchemy.run/railway':
         specifier: 'catalog:'
-        version: 2.0.0-beta.87(patch_hash=6082582508db77da627e924d069876e080bb5d15370c485d9dea89831ef50e4a)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)
+        version: 2.0.0-beta.87(patch_hash=57154d03f0761f85330fb039243080385638f637a5618d5ea06fdff2b549c36e)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)
       '@effect/platform-bun':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)
@@ -7375,10 +7376,6 @@ packages:
       '@types/react':
         optional: true
 
-  source-map-js@1.2.1:
-    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
-    engines: {node: '>=0.10.0'}
-
   source-map-js@1.2.4:
     resolution: {integrity: sha512-J7ZjMvHd9O1fcT/5V09QWaaSl2BbWx3F6O08spde82Namf9UB0GxRVIPiNbVsdKkoizHiSpTodo3vp2bAy91MA==}
     engines: {node: '>=6.0.0'}
@@ -8104,13 +8101,13 @@ snapshots:
       chokidar: 5.0.0
       rolldown: 1.2.16
 
-  '@alchemy.run/railway@2.0.0-beta.87(patch_hash=6082582508db77da627e924d069876e080bb5d15370c485d9dea89831ef50e4a)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)':
+  '@alchemy.run/railway@2.0.0-beta.87(patch_hash=57154d03f0761f85330fb039243080385638f637a5618d5ea06fdff2b549c36e)(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)(pg@8.22.0)':
     dependencies:
       '@alchemy.run/docker': 2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(alchemy@2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0))(effect@4.1.4)
       '@alchemy.run/redis': 2.0.0-beta.87(effect@4.1.4)
       '@distilled.cloud/aws': 1.0.0-rc.20(effect@4.1.4)
       '@distilled.cloud/core': 1.0.0-rc.20(effect@4.1.4)
-      '@distilled.cloud/railway': 1.0.0-rc.20(effect@4.1.4)
+      '@distilled.cloud/railway': 1.0.0-rc.20(patch_hash=79a23fee975c311d5e88e4c5937f4e732e907880c1f76b514d8114cd718748d1)(effect@4.1.4)
       alchemy: 2.0.0-beta.87(@effect/platform-bun@4.1.4(effect@4.1.4))(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.9.1)))(@types/react@19.2.18)(effect@4.1.4)(ws@8.23.0)
       effect: 4.1.4
       rolldown: 1.2.16
@@ -8527,7 +8524,7 @@ snapshots:
     dependencies:
       effect: 4.1.4
 
-  '@distilled.cloud/railway@1.0.0-rc.20(effect@4.1.4)':
+  '@distilled.cloud/railway@1.0.0-rc.20(patch_hash=79a23fee975c311d5e88e4c5937f4e732e907880c1f76b514d8114cd718748d1)(effect@4.1.4)':
     dependencies:
       '@distilled.cloud/core': 1.0.0-rc.20(effect@4.1.4)
       effect: 4.1.4
@@ -13524,7 +13521,7 @@ snapshots:
     dependencies:
       nanoid: 3.3.18
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.4
 
   postgres-array@2.0.0: {}
 
@@ -14235,8 +14232,6 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
     optionalDependencies:
       '@types/react': 19.2.18
-
-  source-map-js@1.2.1: {}
 
   source-map-js@1.2.4: {}
 

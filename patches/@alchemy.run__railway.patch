@@ -1,8 +1,45 @@
 diff --git a/lib/ServiceProvider.js b/lib/ServiceProvider.js
-index ef7fafd01ac770f5c7369b32888f620df9417cd7..6d1bff98422ceaa4f8526074522aa649ad86dff7 100644
+index ef7fafd01ac770f5c7369b32888f620df9417cd7..004c69d4bb3c7b4786b2a410e67c598b2a0bee3d 100644
 --- a/lib/ServiceProvider.js
 +++ b/lib/ServiceProvider.js
-@@ -306,10 +306,10 @@ const waitForDeployment = (environmentId, serviceId) => Effect.gen(function* ()
+@@ -10,6 +10,36 @@ import { tarGzipDirectory } from "alchemy/Util/tarGzip";
+ import * as Data from "effect/Data";
+ import * as Effect from "effect/Effect";
+ import * as Schedule from "effect/Schedule";
++/**
++ * PATCH(alfred): Railway's API edge resets an in-flight HTTP/2 stream with
++ * NGHTTP2_ENHANCE_YOUR_CALM (RFC 7540 excessive load) while this program
++ * uploads the sibling service's build context. Six of the 27 deploys between
++ * 2026-11-19 and 2026-11-27 ended when that reset hit a request that the
++ * transport does not repeat, and the program exited after the web deployment
++ * had shipped. A reconcile re-probes ownership by id and name before it
++ * writes, so replaying one updates the same service in place. Only that reset
++ * repeats: a build failure, a validation error, or a refused connection still
++ * fails on the first attempt.
++ */
++const peerReset = (error) => {
++    let current = error;
++    for (let depth = 0; current !== null && typeof current === "object" && depth < 8; depth++) {
++        const message = current.message;
++        if (typeof message === "string" &&
++            (message.includes("NGHTTP2_ENHANCE_YOUR_CALM") ||
++                message.includes("ERR_HTTP2_STREAM_ERROR"))) {
++            return true;
++        }
++        current = current.cause;
++    }
++    return false;
++};
++const withPeerResetRetry = (fn) => (...args) => fn(...args).pipe(Effect.retry({
++    while: (error) => peerReset(error),
++    times: 1,
++    schedule: Schedule.exponential("5 seconds"),
++}));
++
+ import * as Stream from "effect/Stream";
+ import { waitUntilDeleted, projectServices } from "./GraphQL.js";
+ import { collectBindingState, createRailwayHostedSupport, DEFAULT_PORT, plainEnvValue, toEnvRecord, } from "./hosted.js";
+@@ -306,10 +336,10 @@ const waitForDeployment = (environmentId, serviceId) => Effect.gen(function* ()
      return yield* new ServiceDeployPending({ serviceId, status: status ?? "pending" });
  }).pipe(Effect.retry({
      while: (e) => e._tag === "Railway.ServiceDeployPending",
@@ -15,7 +52,7 @@ index ef7fafd01ac770f5c7369b32888f620df9417cd7..6d1bff98422ceaa4f8526074522aa649
      orElse: () => Effect.fail(new ServiceDeployPending({ serviceId, status: "pending" })),
  }));
  const asDeployRef = (row) => row === undefined ? undefined : { id: row.id, status: row.status ?? undefined };
-@@ -355,13 +355,13 @@ const waitForDeploymentById = (input) => Effect.gen(function* () {
+@@ -355,13 +385,13 @@ const waitForDeploymentById = (input) => Effect.gen(function* () {
      });
  }).pipe(Effect.retry({
      while: (e) => e._tag === "Railway.ServiceDeployPending",
@@ -31,6 +68,24 @@ index ef7fafd01ac770f5c7369b32888f620df9417cd7..6d1bff98422ceaa4f8526074522aa649
      orElse: () => Effect.fail(new ServiceDeployPending({ serviceId: input.serviceId, status: "pending" })),
  }), Effect.catchTag("Railway.ServiceDeployPending", (pending) => Effect.gen(function* () {
      const instance = yield* getInstance(input.environmentId, input.serviceId);
+@@ -651,7 +681,7 @@ export const ServiceProvider = () => Provider.effect(Service, Effect.gen(functio
+                 code: { hash: "" },
+             };
+         }),
+-        reconcile: Effect.fn(function* ({ id, news, olds, output, bindings, session }) {
++        reconcile: withPeerResetRetry(Effect.fn(function* ({ id, news, olds, output, bindings, session }) {
+             const props = news;
+             const projectId = projectIdOf(props.project) ?? output?.projectId;
+             if (projectId === undefined) {
+@@ -957,7 +987,7 @@ export const ServiceProvider = () => Provider.effect(Service, Effect.gen(functio
+                 rpcToken,
+                 region,
+             });
+-        }),
++        })),
+         delete: Effect.fn(function* ({ output }) {
+             const serviceId = output.serviceId;
+             if (serviceId.length === 0)
 diff --git a/lib/local-context.js b/lib/local-context.js
 index 24403a5bd306abf1f277c5cbd59942e227101db3..751e9d485de11519628ab8dae910d9d6fab7641d 100644
 --- a/lib/local-context.js
@@ -124,10 +179,61 @@ index 24403a5bd306abf1f277c5cbd59942e227101db3..751e9d485de11519628ab8dae910d9d6
      let copiedEntries = 0;
      for (const entry of entries) {
 diff --git a/src/ServiceProvider.ts b/src/ServiceProvider.ts
-index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..bee919db87974643c4d3f84ea2249ee162d186cc 100644
+index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..3a60c69939dc682448c98ab2854639aa8fc2d6fa 100644
 --- a/src/ServiceProvider.ts
 +++ b/src/ServiceProvider.ts
-@@ -553,11 +553,11 @@ const waitForDeployment = (environmentId: string, serviceId: string) =>
+@@ -22,6 +22,50 @@ import { tarGzipDirectory } from "alchemy/Util/tarGzip";
+ import * as Data from "effect/Data";
+ import * as Effect from "effect/Effect";
+ import * as Schedule from "effect/Schedule";
++/**
++ * PATCH(alfred): Railway's API edge resets an in-flight HTTP/2 stream with
++ * NGHTTP2_ENHANCE_YOUR_CALM (RFC 7540 excessive load) while this program
++ * uploads the sibling service's build context. Six of the 27 deploys between
++ * 2026-11-19 and 2026-11-27 ended when that reset hit a request that the
++ * transport does not repeat, and the program exited after the web deployment
++ * had shipped. A reconcile re-probes ownership by id and name before it
++ * writes, so replaying one updates the same service in place. Only that reset
++ * repeats: a build failure, a validation error, or a refused connection still
++ * fails on the first attempt.
++ */
++const peerReset = (error: unknown): boolean => {
++  let current: unknown = error;
++  for (
++    let depth = 0;
++    current !== null && typeof current === "object" && depth < 8;
++    depth++
++  ) {
++    const message = (current as { message?: unknown }).message;
++    if (
++      typeof message === "string" &&
++      (message.includes("NGHTTP2_ENHANCE_YOUR_CALM") ||
++        message.includes("ERR_HTTP2_STREAM_ERROR"))
++    ) {
++      return true;
++    }
++    current = (current as { cause?: unknown }).cause;
++  }
++  return false;
++};
++
++const withPeerResetRetry =
++  <Args extends ReadonlyArray<unknown>, A, E, R>(
++    fn: (...args: Args) => Effect.Effect<A, E, R>,
++  ): ((...args: Args) => Effect.Effect<A, E, R>) =>
++  (...args) =>
++    fn(...args).pipe(
++      Effect.retry({
++        while: (error) => peerReset(error),
++        times: 1,
++        schedule: Schedule.exponential("5 seconds"),
++      }),
++    );
++
+ import * as Stream from "effect/Stream";
+ import type * as Types from "effect/Types";
+ import { waitUntilDeleted, projectServices } from "./GraphQL.ts";
+@@ -553,11 +597,11 @@ const waitForDeployment = (environmentId: string, serviceId: string) =>
    }).pipe(
      Effect.retry({
        while: (e) => e._tag === "Railway.ServiceDeployPending",
@@ -141,7 +247,7 @@ index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..bee919db87974643c4d3f84ea2249ee1
        orElse: () => Effect.fail(new ServiceDeployPending({ serviceId, status: "pending" })),
      }),
    );
-@@ -638,13 +638,13 @@ const waitForDeploymentById = (input: {
+@@ -638,13 +682,13 @@ const waitForDeploymentById = (input: {
    }).pipe(
      Effect.retry({
        while: (e) => e._tag === "Railway.ServiceDeployPending",
@@ -157,6 +263,24 @@ index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..bee919db87974643c4d3f84ea2249ee1
        orElse: () =>
          Effect.fail(new ServiceDeployPending({ serviceId: input.serviceId, status: "pending" })),
      }),
+@@ -1035,7 +1079,7 @@ export const ServiceProvider = () =>
+           } satisfies Service["Attributes"];
+         }),
+ 
+-        reconcile: Effect.fn(function* ({ id, news, olds, output, bindings, session }) {
++        reconcile: withPeerResetRetry(Effect.fn(function* ({ id, news, olds, output, bindings, session }) {
+           const props = news;
+           const projectId = projectIdOf(props.project) ?? output?.projectId;
+           if (projectId === undefined) {
+@@ -1384,7 +1428,7 @@ export const ServiceProvider = () =>
+             rpcToken,
+             region,
+           });
+-        }),
++        })),
+ 
+         delete: Effect.fn(function* ({ output }) {
+           const serviceId = output.serviceId;
 diff --git a/src/local-context.ts b/src/local-context.ts
 index 3e6a6d640a3d4f1b66841602516e12c141b9a0e3..91ac094d974721004d93504a7590b1a92cc0ad9d 100644
 --- a/src/local-context.ts

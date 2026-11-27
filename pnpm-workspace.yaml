@@ -153,6 +153,7 @@ minimumReleaseAgeExclude:
 
 patchedDependencies:
   "@alchemy.run/railway": patches/@alchemy.run__railway.patch
+  '@distilled.cloud/railway@1.0.0-rc.20': patches/@distilled.cloud__railway@1.0.0-rc.20.patch
 
 # `pnpm audit --prod --audit-level high` runs in CI (#1881). Each entry is one high or
 # critical advisory that no Alfred code path reaches, with the reason. Remove an entry when
