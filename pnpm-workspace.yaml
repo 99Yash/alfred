@@ -152,7 +152,12 @@ minimumReleaseAgeExclude:
   - ai@7.0.165
 
 patchedDependencies:
+  # Both patches are temporary and tied to their pinned provider version. Drop the alchemy
+  # patch at the next beta (alchemy-run/alchemy#3496); drop the railway patch once
+  # @distilled.cloud/railway retries a reset read itself, so every read survives the
+  # HTTP/2 reset and a mutation still fails fast (ADR-0128).
   "@alchemy.run/railway": patches/@alchemy.run__railway.patch
+  "@distilled.cloud/railway@1.0.0-rc.20": patches/@distilled.cloud__railway@1.0.0-rc.20.patch
 
 # `pnpm audit --prod --audit-level high` runs in CI (#1881). Each entry is one high or
 # critical advisory that no Alfred code path reaches, with the reason. Remove an entry when

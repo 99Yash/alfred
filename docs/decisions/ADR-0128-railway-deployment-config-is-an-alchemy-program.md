@@ -69,6 +69,15 @@ Evidence continues in [`docs/research/alchemy-trigger-switch.md`](../research/al
 - The merge push of this slice is the first context deploy; its CI run is the acceptance evidence for this amendment.
 - **Correction, same day: the web image needs its build-time variable declared too.** The slice declared the server's four `ARG`s but no `ARG VITE_API_URL`, so the web build never saw the service variable (Dockerfile builds see service variables only through `ARG`), the `.env` fallback baked `http://localhost:3001` into the prod bundle, and no browser could reach the server — the owner's sign-in broke. The fix ([PR #1793](https://github.com/99Yash/alfred/pull/1793)) adds the one `ARG`; a local build of that image carries `https://api.alfred.beauty` in the entry bundle and no `localhost:3001`. The rule: any variable a Dockerfile build reads must be declared as an `ARG` in that Dockerfile.
 
+## Amendment 2026-11-27 — one bounded retry policy for Railway reads
+
+`deploy-production` failed on 2026-11-27T03:11Z (run #71) when Railway's API edge reset an in-flight HTTP/2 stream (`NGHTTP2_ENHANCE_YOUR_CALM`) during the server service create. The provider turns that reset into a fatal error. In the window from 2026-11-19 to 2026-11-27T03:13Z, 7 of the 59 `deploy-production` runs on `main` ended in failure, and more than one of those runs carries the same reset signature.
+
+- **The retry covers reads only.** `patches/@distilled.cloud__railway@1.0.0-rc.20.patch` repeats a GraphQL query that the edge resets, twice, 2 s and 4 s apart. It covers the response body read as well as the request. A mutation keeps the fail-fast path: a reset stream can still have been processed (RFC 9113 section 8.7), so a repeated create can queue a second build and a second `db:predeploy`. The patch goes away when the provider carries its own read retry.
+- **An ambiguous write fails the release.** Nothing repeats `alchemy deploy`. A reset during a create stops the job with a non-zero exit, and the owner re-runs the workflow. A failed run can leave the two services on different releases (run #71 finished the web build and failed the server), so a re-run adopts both again.
+- **The build-context upload is not retried.** The `/up` upload is the other reset site. Two uploads of one commit can differ while `.alchemy` runner state sits inside the upload set, so the upload waits for the transport question below. That state gap is older than this amendment.
+- **Open, not patched:** alchemy ships an HTTP/1.1 dispatcher for similar resets. A trial in a scratch Railway project must show whether it prevents the upload and the GraphQL resets. Until then this read retry is the whole policy.
+
 ## Alternatives weighed
 
 - **Keep dashboard-only (status quo).** The gap stays. Rejected because the topology is already non-trivial (6 resources + private net + two managed databases), the repo's own style is compiler-carried proofs, and the platform-switch hedge has no story without config-as-code.
