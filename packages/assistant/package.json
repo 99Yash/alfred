@@ -39,6 +39,7 @@
     "./knowledge/entity-kind-classifier": "./src/knowledge/entity-kind-classifier.ts",
     "./knowledge/extractor": "./src/knowledge/extractor.ts",
     "./knowledge/fact-policy": "./src/knowledge/fact-policy.ts",
+    "./knowledge/footprint": "./src/knowledge/footprint.ts",
     "./knowledge/gmail-reducer": "./src/knowledge/gmail-reducer.ts",
     "./knowledge/instructions-in-words": "./src/knowledge/instructions-in-words.ts",
     "./knowledge/mail-facts": "./src/knowledge/mail-facts.ts",
