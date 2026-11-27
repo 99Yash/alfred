@@ -1,11 +1,9 @@
-// The real Railway project `alfred` (created in the dashboard on 2026-04-27).
-// A lookup references it read-only: this program never creates, adopts or
-// deletes the project itself, so `alchemy destroy` cannot remove it.
+// The real Railway project `alfred` — see infra/src/target.ts for the one
+// declaration of the production target that this program and the deploy
+// workflow's recovery report both read.
 import * as Railway from "@alchemy.run/railway";
+import { PROJECT_ID } from "./target.ts";
 
-export const PROJECT_ID = "0ec1ea83-240d-4306-bf7c-7de61d115b82";
+export { PROJECT_ID, PRODUCTION_ENVIRONMENT_ID } from "./target.ts";
 
 export const Alfred = Railway.Project.lookup({ projectId: PROJECT_ID });
-
-/** The production environment created with the project. */
-export const PRODUCTION_ENVIRONMENT_ID = "9fbd12bc-6b88-430f-ac88-3ce71b60714b";

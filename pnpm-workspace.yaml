@@ -159,20 +159,24 @@ patchedDependencies:
   # @alchemy.run/railway at 2.0.0-beta.87:
   # - local-context walk + runner-state rules: the walk fix is upstream
   #   (alchemy-run/alchemy#3501, merged) — drop the walk hunk when the pinned
-  #   version carries it. The `.alchemy` pruning (upload set + plan hash) is ours;
-  #   drop it when the provider's own walk and plan hash prune `.alchemy` at any
-  #   depth.
+  #   version carries it. The `.alchemy` pruning is ours and is one rule for
+  #   both paths (upload set + plan hash prune directories named `.alchemy` at
+  #   any depth); drop it when the provider's own walk and plan hash prune
+  #   `.alchemy` directories at any depth the same way.
   # - ServiceProvider deploy wait: drop when the provider's wait covers long
   #   Railway builds (60 retries x 10 s against a 600 s cap today).
-  # - Up upload states: drop when Railway gives /up an idempotency key or a way to
-  #   match one submission to the deployment it created. Until then the upload
-  #   never repeats a submission and an ambiguous write fails the release
-  #   (ADR-0128).
+  # - Up upload states, transport policy, and the unique deploy message: the
+  #   upload never repeats a submission — redirects are off, a confirmed
+  #   refusal survives a stalled body read, an ambiguous write fails the
+  #   release (ADR-0128) — and the message carries `run-<run id>-<attempt>`
+  #   so the report can match a submission to the deployment that accepted it.
+  #   Drop it when Railway gives /up an idempotency key; the match link then
+  #   rides upstream.
   #
   # @distilled.cloud/railway at 1.0.0-rc.20: retries the reads that reset, so every
   #   read survives it and a mutation still fails fast. Drop it when the provider
   #   carries its own read retry.
-  "@alchemy.run/railway": patches/@alchemy.run__railway.patch
+  "@alchemy.run/railway@2.0.0-beta.87": patches/@alchemy.run__railway@2.0.0-beta.87.patch
   "@distilled.cloud/railway@1.0.0-rc.20": patches/@distilled.cloud__railway@1.0.0-rc.20.patch
 
 # `pnpm audit --prod --audit-level high` runs in CI (#1881). Each entry is one high or
