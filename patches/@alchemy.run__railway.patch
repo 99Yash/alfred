@@ -32,7 +32,7 @@ index ef7fafd01ac770f5c7369b32888f620df9417cd7..6d1bff98422ceaa4f8526074522aa649
  }), Effect.catchTag("Railway.ServiceDeployPending", (pending) => Effect.gen(function* () {
      const instance = yield* getInstance(input.environmentId, input.serviceId);
 diff --git a/lib/Up.js b/lib/Up.js
-index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01ef47f1bb 100644
+index f924409eb52774bd3ac5bc789f6080eb0435a0d9..92ff038197afb2118e46b83c658ed545bb1dd812 100644
 --- a/lib/Up.js
 +++ b/lib/Up.js
 @@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
@@ -43,7 +43,7 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
  import { RailwayEnvironment } from "./Environment.js";
  export class DeployUploadFailed extends Data.TaggedError("Railway.DeployUploadFailed") {
  }
-@@ -34,6 +35,74 @@ const uploadUrl = (input) => {
+@@ -34,6 +35,81 @@ const uploadUrl = (input) => {
      }
      return url.toString();
  };
@@ -51,9 +51,9 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
 +// ERR_HTTP2_STREAM_ERROR), which ends the request or the response body read with
 +// no answer. The context walk leaves the runner's `.alchemy` state out of the
 +// payload, so one commit's tarball is byte-identical and a repeat sends the same
-+// context again. Only that reset is repeated, and a repeat waits for the wait the
-+// response's Retry-After asks for, up to the cap below; every other failure fails
-+// fast.
++// context again. Only a reset that arrives before Railway answers is repeated, and
++// that repeat waits for what a response's Retry-After asks for, up to the cap
++// below; every other failure fails fast.
 +const peerReset = (error) => {
 +    let current = error;
 +    for (let depth = 0; current !== null && typeof current === "object" && depth < 8; depth++) {
@@ -75,17 +75,26 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
 +class UploadAttemptFailed extends Data.TaggedError("Railway.UploadAttemptFailed") {
 +}
 +const uploadOnce = (http, request) => Effect.gen(function* () {
-+    const response = yield* http.execute(request);
-+    const retryAfter = retryAfterSeconds(response.headers["retry-after"]);
++    // A failure here means no answer arrived, so Railway created nothing.
++    const executed = yield* Effect.result(http.execute(request));
++    if (Result.isFailure(executed)) {
++        return yield* new UploadAttemptFailed({ cause: executed.failure, retryAfter: undefined });
++    }
++    const response = executed.success;
 +    if (response.status !== 200) {
-+        const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
++        const retryAfter = retryAfterSeconds(response.headers["retry-after"]);
++        const body = yield* Effect.result(response.text);
++        if (Result.isFailure(body)) {
++            return yield* new UploadAttemptFailed({ cause: body.failure, retryAfter });
++        }
 +        return yield* new DeployUploadFailed({
 +            status: response.status,
-+            message: body.length > 0 ? body : `Failed to upload code with status ${String(response.status)}`,
++            message: body.success.length > 0 ? body.success : `Failed to upload code with status ${String(response.status)}`,
 +        });
 +    }
-+    const json = yield* response
-+        .json.pipe(Effect.mapError((cause) => new UploadAttemptFailed({ cause, retryAfter })));
++    // A 200 means Railway accepted the tarball and created the deployment, so a
++    // reset that loses its body must not send the same tarball again.
++    const json = yield* response.json;
 +    const parsed = parseUpResponse(json);
 +    if (parsed === undefined) {
 +        return yield* new DeployUploadFailed({
@@ -94,9 +103,7 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
 +        });
 +    }
 +    return parsed;
-+}).pipe(Effect.mapError((error) => error instanceof UploadAttemptFailed || error instanceof DeployUploadFailed
-+    ? error
-+    : new UploadAttemptFailed({ cause: error, retryAfter: undefined })));
++});
 +const uploadWithPeerResetRetry = (http, request) => Effect.gen(function* () {
 +    for (let index = 0;; index++) {
 +        const result = yield* Effect.result(uploadOnce(http, request));
@@ -118,7 +125,7 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
  /**
   * Upload a gzipped tar of a generated Docker context. Railway builds
   * and deploys it. Same contract as `railway up`.
-@@ -54,22 +123,6 @@ export const uploadDeployTarball = Effect.fn(function* (input) {
+@@ -54,22 +130,6 @@ export const uploadDeployTarball = Effect.fn(function* (input) {
          env.tokenKind === "project"
              ? request.pipe(HttpClientRequest.setHeader("Project-Access-Token", token))
              : request.pipe(HttpClientRequest.bearerToken(token));
@@ -144,7 +151,7 @@ index f924409eb52774bd3ac5bc789f6080eb0435a0d9..d1810c1066823f7fe4a729f7b4885e01
  //# sourceMappingURL=Up.js.map
 \ No newline at end of file
 diff --git a/lib/local-context.js b/lib/local-context.js
-index 24403a5bd306abf1f277c5cbd59942e227101db3..ce7f10313b3d7a0988d56335ddbdc6331e3a4230 100644
+index 24403a5bd306abf1f277c5cbd59942e227101db3..9d498e7bb6d4e1facb88d90b5054bcc1b737eb73 100644
 --- a/lib/local-context.js
 +++ b/lib/local-context.js
 @@ -1,4 +1,5 @@
@@ -284,7 +291,7 @@ index 5cea38a43d4352cb8085f8ee51fa04f309a35c92..bee919db87974643c4d3f84ea2249ee1
          Effect.fail(new ServiceDeployPending({ serviceId: input.serviceId, status: "pending" })),
      }),
 diff --git a/src/Up.ts b/src/Up.ts
-index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e0213e110b1 100644
+index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..f4bd1539506444a93e4e8392e214ed3ae9ac4532 100644
 --- a/src/Up.ts
 +++ b/src/Up.ts
 @@ -6,8 +6,10 @@
@@ -298,7 +305,7 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
  import { RailwayEnvironment } from "./Environment.ts";
  
  export class DeployUploadFailed extends Data.TaggedError("Railway.DeployUploadFailed")<{
-@@ -52,6 +54,99 @@ const uploadUrl = (input: {
+@@ -52,6 +54,103 @@ const uploadUrl = (input: {
    return url.toString();
  };
  
@@ -307,9 +314,9 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
 + * ERR_HTTP2_STREAM_ERROR), which ends the request or the response body read with
 + * no answer. The context walk leaves the runner's `.alchemy` state out of the
 + * payload, so one commit's tarball is byte-identical and a repeat sends the same
-+ * context again. Only that reset is repeated, and a repeat waits for the wait the
-+ * response's Retry-After asks for, up to the cap below; every other failure fails
-+ * fast.
++ * context again. Only a reset that arrives before Railway answers is repeated, and
++ * that repeat waits for what a response's Retry-After asks for, up to the cap
++ * below; every other failure fails fast.
 + */
 +const peerReset = (error: unknown): boolean => {
 +  let current: unknown = error;
@@ -343,18 +350,29 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
 +
 +const uploadOnce = (http: HttpClient.HttpClient, request: HttpClientRequest.HttpClientRequest) =>
 +  Effect.gen(function* () {
-+    const response = yield* http.execute(request);
-+    const retryAfter = retryAfterSeconds(response.headers["retry-after"]);
++    // A failure here means no answer arrived, so Railway created nothing.
++    const executed = yield* Effect.result(http.execute(request));
++    if (Result.isFailure(executed)) {
++      return yield* new UploadAttemptFailed({ cause: executed.failure, retryAfter: undefined });
++    }
++    const response = executed.success;
 +    if (response.status !== 200) {
-+      const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
++      const retryAfter = retryAfterSeconds(response.headers["retry-after"]);
++      const body = yield* Effect.result(response.text);
++      if (Result.isFailure(body)) {
++        return yield* new UploadAttemptFailed({ cause: body.failure, retryAfter });
++      }
 +      return yield* new DeployUploadFailed({
 +        status: response.status,
 +        message:
-+          body.length > 0 ? body : `Failed to upload code with status ${String(response.status)}`,
++          body.success.length > 0
++            ? body.success
++            : `Failed to upload code with status ${String(response.status)}`,
 +      });
 +    }
-+    const json = yield* response
-+      .json.pipe(Effect.mapError((cause) => new UploadAttemptFailed({ cause, retryAfter })));
++    // A 200 means Railway accepted the tarball and created the deployment, so a
++    // reset that loses its body must not send the same tarball again.
++    const json = yield* response.json;
 +    const parsed = parseUpResponse(json);
 +    if (parsed === undefined) {
 +      return yield* new DeployUploadFailed({
@@ -363,14 +381,7 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
 +      });
 +    }
 +    return parsed;
-+  }).pipe(
-+    Effect.mapError(
-+      (error): UploadAttemptFailed | DeployUploadFailed =>
-+        error instanceof UploadAttemptFailed || error instanceof DeployUploadFailed
-+          ? error
-+          : new UploadAttemptFailed({ cause: error, retryAfter: undefined }),
-+    ),
-+  );
++  });
 +
 +const uploadWithPeerResetRetry = (
 +  http: HttpClient.HttpClient,
@@ -398,7 +409,7 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
  /**
   * Upload a gzipped tar of a generated Docker context. Railway builds
   * and deploys it. Same contract as `railway up`.
-@@ -80,22 +175,5 @@ export const uploadDeployTarball = Effect.fn(function* (input: {
+@@ -80,22 +179,5 @@ export const uploadDeployTarball = Effect.fn(function* (input: {
      env.tokenKind === "project"
        ? request.pipe(HttpClientRequest.setHeader("Project-Access-Token", token))
        : request.pipe(HttpClientRequest.bearerToken(token));
@@ -423,7 +434,7 @@ index 00a73a6ea1bb00b44580bfdf5f0c7838fb006be1..a81f2b952a82804785b36a632ee50e02
 +  return yield* uploadWithPeerResetRetry(http, request);
  });
 diff --git a/src/local-context.ts b/src/local-context.ts
-index 3e6a6d640a3d4f1b66841602516e12c141b9a0e3..6e0773e9f96820ca3bf05dd2237a7af4ca47b352 100644
+index 3e6a6d640a3d4f1b66841602516e12c141b9a0e3..9daa50e7acb06f13981f36d39a05a73e54e77b9c 100644
 --- a/src/local-context.ts
 +++ b/src/local-context.ts
 @@ -1,4 +1,12 @@

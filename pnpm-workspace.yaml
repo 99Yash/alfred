@@ -152,10 +152,12 @@ minimumReleaseAgeExclude:
   - ai@7.0.165
 
 patchedDependencies:
-  # Both patches are temporary and tied to their pinned provider version. Drop the alchemy
-  # patch at the next beta (alchemy-run/alchemy#3496); drop the railway patch once
-  # @distilled.cloud/railway retries a reset read itself, so every read survives the
-  # HTTP/2 reset and a mutation still fails fast (ADR-0128).
+  # Both patches are temporary and tied to their pinned provider version, and each
+  # carries the lockfile patch hash below. The railway patch keeps the runner's
+  # `.alchemy` state out of the build-context upload and retries that upload after an
+  # HTTP/2 peer reset, so a reset no longer aborts a deploy. The distilled patch retries
+  # the reads that reset, so every read survives it and a mutation still fails fast
+  # (ADR-0128). Drop each patch once its provider does the same work.
   "@alchemy.run/railway": patches/@alchemy.run__railway.patch
   "@distilled.cloud/railway@1.0.0-rc.20": patches/@distilled.cloud__railway@1.0.0-rc.20.patch
 
