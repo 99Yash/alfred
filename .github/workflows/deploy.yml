@@ -60,33 +60,8 @@ jobs:
       - name: Install infra dependencies
         run: corepack pnpm install --frozen-lockfile --filter @alfred/infra...
 
-      # The provider repeats a create once when Railway's API edge resets a
-      # request (see patches/@alchemy.run__railway.patch). A reset outside a
-      # create, such as the final read, still ends the program, so this step
-      # repeats the whole adopt for it. The runner holds no state, so a repeated
-      # attempt re-probes ownership by id and name and updates the same two
-      # services in place: nothing is duplicated, and the web build that already
-      # started is rebuilt from the same commit. Only that reset is retried;
-      # every other failure stays fatal on its first attempt.
       - name: Deploy (adopt in place — runner state is always empty)
-        run: |
-          attempt=1
-          while true; do
-            echo "Deploy attempt ${attempt} of 3."
-            if corepack pnpm --filter @alfred/infra adopt 2>&1 | tee /tmp/deploy-attempt.log; then
-              exit 0
-            fi
-            if ! grep -qE "NGHTTP2_ENHANCE_YOUR_CALM|GraphQLTransportError: Railway GraphQL HTTP request failed|HttpClientError: Transport error" /tmp/deploy-attempt.log; then
-              echo "::error::alchemy deploy failed for a reason that is not a Railway transport reset"
-              exit 1
-            fi
-            if [ "$attempt" -ge 3 ]; then
-              echo "::error::Railway reset the deploy connection on 3 attempts; the services still carry the previous commit"
-              exit 1
-            fi
-            attempt=$((attempt + 1))
-            sleep $((attempt * 20))
-          done
+        run: corepack pnpm --filter @alfred/infra adopt
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
 
